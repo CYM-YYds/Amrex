@@ -1,0 +1,3 @@
+CEXE_sources += Cavity2D.cpp
+CEXE_headers += D2Q9.H
+
