@@ -1,0 +1,33 @@
+# Build artifacts
+*.ex
+*.o
+*.obj
+*.mod
+*.a
+*.so
+*.dylib
+*.cuo
+
+# Logs
+*.log
+*.out
+*.err
+Backtrace.*
+
+# Generated directories
+**/tmp_build_dir/
+**/case_*/
+**/plt*/
+
+# IDE/editor
+.vscode/
+*.code-workspace
+
+# Misc
+*.nfs*
+*.tgz
+*.tar
+*.zip
+
+# Compile DB (optional keep)
+# compile_commands.json

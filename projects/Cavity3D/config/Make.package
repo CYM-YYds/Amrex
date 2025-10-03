@@ -1,0 +1,3 @@
+CEXE_sources += Cavity3D.cpp
+CEXE_headers += D3Q19.H
+
