@@ -443,8 +443,11 @@ run_here() {
     info "加载编译环境..."
     load_environment
     info "环境已加载，开始编译 (J=${MAKE_J}, CUDA_ARCH=${CUDA_ARCH})..."
+    # 切换到 config 目录进行编译（简单目录结构）
+    cd config || { echo "错误: 无法进入 config 目录" >&2; return 1; }
     if do_compile; then
         info "编译成功！"
+        cd ..
         verify_artifacts
     else
         rc=$?
