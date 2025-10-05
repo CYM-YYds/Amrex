@@ -26,6 +26,54 @@ CCDB_METHOD="${CCDB_METHOD:-auto}"
 # 是否在构建遇错时继续尽量编译后续目标（有助于捕获更多编译命令，生成更完整的 CCDB）
 MAKE_KEEP_GOING="${MAKE_KEEP_GOING:-0}"
 
+# 解析脚本绝对路径（若通过 STDIN 执行则可能获取不到）
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    if command -v realpath >/dev/null 2>&1; then
+        _CF_SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+    else
+        _CF_SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    fi
+else
+    _CF_SCRIPT_PATH=""
+fi
+
+find_project_root() {
+    local dir="$1"
+    while [[ -n "$dir" && "$dir" != "/" ]]; do
+        if [[ -f "$dir/GNUmakefile" ]]; then
+            if [[ -d "$dir/src" || -f "$dir/Make.package" || -d "$dir/config" ]]; then
+                printf '%s\n' "$dir"
+                return 0
+            fi
+        fi
+        dir="$(dirname "$dir")"
+    done
+    return 1
+}
+
+if [[ -n "${_CHANNELFLOW_PROJECT_ROOT:-}" ]]; then
+    PROJECT_ROOT="${_CHANNELFLOW_PROJECT_ROOT}"
+else
+    start_dir=""
+    if [[ -n "$_CF_SCRIPT_PATH" ]]; then
+        start_dir="$(dirname "$_CF_SCRIPT_PATH")"
+    else
+        start_dir="$(pwd)"
+    fi
+    if ! PROJECT_ROOT=$(find_project_root "$start_dir"); then
+        if ! PROJECT_ROOT=$(find_project_root "$(pwd)"); then
+            echo "错误: 未能定位 ChannelFlow 项目根目录 (起始路径: $start_dir)" >&2
+            exit 1
+        fi
+    fi
+    export _CHANNELFLOW_PROJECT_ROOT="$PROJECT_ROOT"
+fi
+
+PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd -P)"
+cd "$PROJECT_ROOT"
+
+SCRIPT_PAYLOAD="${_CF_SCRIPT_PATH:-$0}"
+
 info() { echo "[$(date '+%F %T')] $*"; }
 
 # 1) 加载 HPC 模块环境（确保 module 命令可用，修正顺序：先 init 再 purge/load）
@@ -442,6 +490,7 @@ verify_artifacts() {
 run_here() {
     info "加载编译环境..."
     load_environment
+    info "项目根目录: ${PROJECT_ROOT}"
     info "环境已加载，开始编译 (J=${MAKE_J}, CUDA_ARCH=${CUDA_ARCH})..."
     if do_compile; then
         info "编译成功！"
@@ -461,11 +510,25 @@ if [[ "$(hostname)" == "whshare-agent-1" ]]; then
 else
     info "正在连接到编译节点 whshare-agent-1..."
     # 将本脚本通过标准输入传到远端执行，并传递必要的环境变量
-    ssh whshare-agent-1 "cd '$(pwd)'; \
-        MAKE_J='${MAKE_J}' \
-        CUDA_ARCH='${CUDA_ARCH}' \
-        GEN_CCDB='${GEN_CCDB}' \
-        bash -s" < "$0"
+    if [[ -z "$SCRIPT_PAYLOAD" || ! -f "$SCRIPT_PAYLOAD" ]]; then
+        echo "错误: 无法找到脚本文件 $SCRIPT_PAYLOAD" >&2
+        exit 1
+    fi
+    ssh_workdir=$(printf '%q' "$PROJECT_ROOT")
+    ssh_make_j=$(printf '%q' "$MAKE_J")
+    ssh_cuda_arch=$(printf '%q' "$CUDA_ARCH")
+    ssh_gen_ccdb=$(printf '%q' "$GEN_CCDB")
+    ssh_ccdb_method=$(printf '%q' "$CCDB_METHOD")
+    ssh_make_keep=$(printf '%q' "$MAKE_KEEP_GOING")
+    ssh_project_root=$(printf '%q' "$PROJECT_ROOT")
+    ssh whshare-agent-1 "cd ${ssh_workdir}; \
+        MAKE_J=${ssh_make_j} \
+        CUDA_ARCH=${ssh_cuda_arch} \
+        GEN_CCDB=${ssh_gen_ccdb} \
+        CCDB_METHOD=${ssh_ccdb_method} \
+        MAKE_KEEP_GOING=${ssh_make_keep} \
+        _CHANNELFLOW_PROJECT_ROOT=${ssh_project_root} \
+        bash -s" < "${SCRIPT_PAYLOAD}"
     rc=$?
     if [ $rc -eq 0 ]; then
         info "远程编译成功。"
