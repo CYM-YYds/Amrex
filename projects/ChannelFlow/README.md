@@ -10,6 +10,15 @@
 - `data/` — 运行结果或分析用辅助数据（如有）。
 - `docs/` — 附加文档（如有）。
 
+## 编译
+在项目根目录执行脚本即可完成远程编译，并自动解析目录结构：
+
+```bash
+./scripts/compile.sh
+```
+
+如需调整并行度、CUDA 架构或生成 `compile_commands.json`，可通过环境变量（`MAKE_J`、`CUDA_ARCH`、`GEN_CCDB` 等）覆盖默认配置。
+
 ## 同步说明
 这些文件由 `tools/sync_projects.py` 自动同步。如需再次更新，请在仓库根目录运行：
 

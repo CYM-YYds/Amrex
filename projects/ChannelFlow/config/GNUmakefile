@@ -1,5 +1,7 @@
 AMREX_HOME ?=/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/
 
+CF_CFG_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+
 DEBUG	= FALSE
 
 TINY_PROFILE = FALSE
@@ -16,7 +18,7 @@ USE_HIP   = FALSE
 
 include $(AMREX_HOME)/Tools/GNUMake/Make.defs
 
-include ./Make.package
+include $(CF_CFG_DIR)/Make.package
 include $(AMREX_HOME)/Src/Base/Make.package
 include $(AMREX_HOME)/Src/AmrCore/Make.package
 include $(AMREX_HOME)/Src/Boundary/Make.package
