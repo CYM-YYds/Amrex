@@ -21,6 +21,27 @@
 
 如需调整并行度、CUDA 架构或生成 `compile_commands.json`，可通过环境变量（`MAKE_J`、`CUDA_ARCH`、`GEN_CCDB` 等）覆盖默认配置。
 
+## 提交作业
+使用 `dsub` 命令提交作业到计算节点：
+
+```bash
+cd /path/to/ChannelFlow
+dsub scripts/submit.sh
+```
+
+脚本会自动：
+1. 检测并切换到项目根目录
+2. 加载必要的环境模块（MPI、CUDA、GCC）
+3. 从调度系统获取节点分配信息
+4. 生成 hostfile 并启动 MPI 作业
+5. 执行 `main3d.gnu.MPI.CUDA.ex config/inputs`
+6. 输出日志写入 `<JobID>-out.log`
+
+**注意**：
+- 脚本必须通过调度系统（`dsub`）提交，不能在登录节点直接运行
+- 输入文件位于 `config/inputs`
+- 所有输出数据将自动保存到 `data/` 目录
+
 ## 同步说明
 这些文件由 `tools/sync_projects.py` 自动同步。如需再次更新，请在仓库根目录运行：
 

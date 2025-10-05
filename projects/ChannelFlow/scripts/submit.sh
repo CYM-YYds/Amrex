@@ -13,6 +13,21 @@
 #EXE = 'main3d.gnu.MPI.CUDA.ex'
 
 #===========================================================
+# Automatically detect project root directory
+#===========================================================
+# If script is in scripts/ subdirectory, go to parent directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ "$(basename "$SCRIPT_DIR")" = "scripts" ]; then
+    cd "$(dirname "$SCRIPT_DIR")"
+else
+    # If already in project root, stay there
+    cd "$SCRIPT_DIR"
+fi
+
+PROJECT_ROOT="$(pwd)"
+echo "Project root: $PROJECT_ROOT"
+
+#===========================================================
 #加载环境变量
 #===========================================================
 source /home/HPCBase/tools/module-5.2.0/init/profile.sh
