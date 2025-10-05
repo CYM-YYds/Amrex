@@ -58,7 +58,7 @@ echo "mpirun -hostfile $HOSTFILE -n $ntask <your application>"
 #运行测试脚本
 #===========================================================
 
-mpirun -hostfile $HOSTFILE -npernode 4 -x PATH -x LD_LIBRARY_PATH  --mca plm_rsh_agent /opt/batch/agent/tools/dstart ./main3d.gnu.MPI.CUDA.ex config/inputs
+mpirun -hostfile $HOSTFILE -npernode 4 -x PATH -x LD_LIBRARY_PATH  --mca plm_rsh_agent /opt/batch/agent/tools/dstart ./main3d.gnu.MPI.CUDA.ex inputs
 
 ret=$?
 
