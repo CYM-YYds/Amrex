@@ -1,6 +1,20 @@
 #!/bin/bash
 # 自动编译脚本 - 固定在编译节点 whshare-agent-1 上构建 AMReX/LBM-AMR 项目
 #
+# 模块化结构速览（Option 3 文档说明，仅注释，不改变行为）：
+#   ─ 工具/环境函数
+#       • find_project_root(): 解析项目根目录
+#       • load_environment(): HPC module 初始化
+#   ─ 编译执行路径
+#       • do_compile(): 负责编译及 compile_commands.json 生成
+#       • verify_artifacts(): 编译结果检测
+#       • run_here()/ssh 调度：控制本地或远端执行
+#   ─ 辅助逻辑
+#       • 日志管理：LOG_* 环境变量、rotate_logs()、generate_summary()
+#       • 编译数据库包装器：在 do_compile() 内定义 WRAPDIR/bin/gcc/g++/nvcc/git
+#
+# 未来若需进一步模块化，可考虑拆分为 scripts/lib/{utils,env,logging,ccdb,build}.sh，并将包装器脚本独立存放。
+#
 # 使用说明（环境变量，可选）：
 #   - MAKE_J   : make 并行度（默认 8）
 #       例：MAKE_J=16 ./compile.sh
@@ -71,6 +85,80 @@ fi
 
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd -P)"
 cd "$PROJECT_ROOT"
+
+    # --- 可选日志重定向（将 stdout/stderr 写入日志文件）
+    # 控制变量:
+    #   LOG_TO_FILE=1|0         是否将输出写入文件（默认 1）
+    #   LOG_TEE=1|0             是否同时在终端显示（使用 tee）（默认 1，即同时显示）
+    #   LOG_DIR=...             日志目录（默认 $PROJECT_ROOT/logs）
+    #   LOG_MAX_FILES=N         保留最近 N 个日志（默认 20）
+    #   LOG_SUMMARY=1|0         是否在编译结束时生成错误/警告摘要（默认 1）
+    #   LOG_SUMMARY_LINES=N     摘要中保留的最大行数（默认 200）
+    #   LOG_ERRORS_PATTERN      grep 用的模式（默认: error|warning|undefined reference|fatal）
+    LOG_TO_FILE="${LOG_TO_FILE:-1}"
+    LOG_TEE="${LOG_TEE:-1}"
+    LOG_DIR="${LOG_DIR:-$PROJECT_ROOT/logs}"
+    LOG_MAX_FILES="${LOG_MAX_FILES:-20}"
+    LOG_SUMMARY="${LOG_SUMMARY:-1}"
+    LOG_SUMMARY_LINES="${LOG_SUMMARY_LINES:-200}"
+    LOG_ERRORS_PATTERN="${LOG_ERRORS_PATTERN:-error|warning|undefined reference|fatal}"
+
+    generate_summary() {
+        # 在退出时生成单独的 summary 文件，便于快速查看关键错误/警告
+        if [[ "$LOG_TO_FILE" != "1" || "$LOG_SUMMARY" != "1" ]]; then
+            return 0
+        fi
+        if [[ -z "$LOGFILE" || ! -f "$LOGFILE" ]]; then
+            return 0
+        fi
+        summary_file="${LOGFILE%.log}-summary.txt"
+        # 提取错误/警告（不区分大小写），取前若干行；若无匹配，则将最后若干行写入摘要
+        if grep -Ei "$LOG_ERRORS_PATTERN" "$LOGFILE" >/dev/null 2>&1; then
+            grep -Ei "$LOG_ERRORS_PATTERN" "$LOGFILE" | sed -n '1,${LOG_SUMMARY_LINES}p' > "$summary_file"
+        else
+            # 无关键行，写入日志末尾以便快速检查
+            tail -n "$LOG_SUMMARY_LINES" "$LOGFILE" > "$summary_file"
+        fi
+        ln -sf "$summary_file" "${LOG_DIR}/compile-latest-summary.txt" || true
+        info "已生成日志摘要: $summary_file"
+    }
+
+    rotate_logs() {
+        # 保留最近 $LOG_MAX_FILES 个 compile-*.log，删除更旧的
+        if [[ ! -d "$LOG_DIR" ]]; then
+            return 0
+        fi
+        mapfile -t files < <(ls -1t "$LOG_DIR"/compile-*.log 2>/dev/null || true)
+        if [[ ${#files[@]} -le $LOG_MAX_FILES ]]; then
+            return 0
+        fi
+        # 删除索引 >= LOG_MAX_FILES
+        for ((i=LOG_MAX_FILES; i<${#files[@]}; i++)); do
+            rm -f "${files[$i]}" || true
+        done
+    }
+
+    if [[ "$LOG_TO_FILE" == "1" ]]; then
+        mkdir -p "$LOG_DIR"
+        _cf_ts="$(date '+%Y%m%dT%H%M%S')"
+        LOGFILE="$LOG_DIR/compile-${_cf_ts}.log"
+        # 先进行轮转，再创建新文件
+        rotate_logs
+        # 保持一个指向最新日志的符号链接（摘要会在退出时生成）
+        ln -sf "$LOGFILE" "$LOG_DIR/compile-latest.log" || true
+        # 在退出时生成摘要（会写入独立 summary 文件）
+        trap generate_summary EXIT
+        if [[ "$LOG_TEE" == "1" ]]; then
+            # 将 stdout/stderr 通过 tee 写入文件并在终端显示
+            exec > >(tee -a "$LOGFILE") 2>&1
+        else
+            # 只写入日志文件，不在终端显示
+            exec > "$LOGFILE" 2>&1
+        fi
+        info "日志输出已重定向到: $LOGFILE"
+    else
+        info "LOG_TO_FILE=0: 未启用日志文件写入，输出仍在终端显示。"
+    fi
 
 SCRIPT_PAYLOAD="${_CF_SCRIPT_PATH:-$0}"
 

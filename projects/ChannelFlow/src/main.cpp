@@ -78,6 +78,7 @@ int main(int argc, char* argv[]) {
             amrex::RealBox({AMREX_D_DECL(0., 0., 0.)}, {AMREX_D_DECL(nx, ny, nz)}),
             amrex::CoordSys::cartesian,
             {AMREX_D_DECL(1, 0, 1)});
+        // AMREX_D_DECL修改了之后,stream函数也需要做出相应的修改,主要是判断是否去等号
         amrex::AmrInfo info{
             1,             // verbose
             max_ref_level, // max_level

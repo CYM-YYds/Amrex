@@ -784,7 +784,7 @@ void AmrCoreLBM::ComputeShear() {
 void AmrCoreLBM::RecordMeanVelocityProfile(int step) {
     // 仅在 50*FT ~ 100*FT 且每 1000 步采样
     if (!(step >= 50 * FT && step <= 100 * FT && step % 1000 == 0)) {
-    //if (!(step >= 1000 && step <= 3000 && step % 1000 == 0)) {
+        // if (!(step >= 1000 && step <= 3000 && step % 1000 == 0)) {
         return;
     }
 
@@ -1362,9 +1362,9 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
         Array4<Real> const& fold = f_old_lev.array(mfi);
         Array4<Real> const& fnew = f_new_lev.array(mfi);
 
-        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+        amrex::ParallelForRNG(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k, RandomEngine const& rd) {
             // init_fluid(i, j, k, fold, fnew);
-            init_fluid_channel(i, j, k, fold, fnew, hi, dx); });
+            init_fluid_channel(i, j, k, fold, fnew, hi, dx, rd); });
     }
 }
 

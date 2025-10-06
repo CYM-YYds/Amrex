@@ -1,1 +1,1 @@
-rm -r Backtrace* *.log *.dat cp* case*
+rm -r Backtrace* *.log *.dat cp* data/* logs
