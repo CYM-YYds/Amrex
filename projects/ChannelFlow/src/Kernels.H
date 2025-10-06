@@ -129,14 +129,14 @@ void init_fluid(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void init_fluid_channel(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
-                        amrex::Array4<amrex::Real> const& fnew, amrex::IntVect const& hi, amrex::Real dx) {
+                        amrex::Array4<amrex::Real> const& fnew, amrex::IntVect const& hi, amrex::Real dx, amrex::RandomEngine const& rd) {
     amrex::Real ux, uy, uz;
 
     int NH_real = static_cast<int>(NH / dx); // 换算到lev0还是当前lev
 
     // 获取随机数
-    amrex::Real randVal = 0.5; // amrex::Random(amrex::RandomEngine{});
-    amrex::Real Kappa = 0.39;  // 对数律参数
+    amrex::Real randVal = amrex::Random(rd); // 0-1的应该是吧
+    amrex::Real Kappa = 0.39;                // 对数律参数
     amrex::Real B = 4.7;
 
     if (j == NH_real) {
@@ -1966,7 +1966,7 @@ void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold, amrex::
         int ym = j - e[q][1];
         int zm = k - e[q][2];
         // 这里的设置需要跟main函数中的{AMREX_D_DECL(1, 0, 1)}的周期性设置相对应
-        if ((i >= 0) && (i <= hi[0]) && (j >= 0) && (j <= hi[1]) && (k >= 0) && (k <= hi[2])) {
+        if ((i >= 0) && (i <= hi[0]) && (j > 0) && (j < hi[1]) && (k >= 0) && (k <= hi[2])) {
             fnew(i, j, k, q) = fold(xm, ym, zm, q);
         }
     }
