@@ -88,10 +88,10 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
         if(lev == 2)
         {
             static_lo[lev+nlevs_max][0] = (center[0]- 2.0 * D) * dx_0 / dx;
-            static_lo[lev+nlevs_max][1] = (center[1]- 2.0 * D) * dx_0 / dx;
+            static_lo[lev+nlevs_max][1] = (center[1]- 1.5 * D) * dx_0 / dx;
 
             static_hi[lev+nlevs_max][0] = (center[0] + 20.0 * D) * dx_0 / dx;
-            static_hi[lev+nlevs_max][1] = (center[1] + 2.0 * D) * dx_0 / dx;
+            static_hi[lev+nlevs_max][1] = (center[1] + 1.5 * D) * dx_0 / dx;
         }
     }
 }
@@ -881,7 +881,6 @@ void AmrCoreLBM::Collide(int lev, int n)
     }    
 }
 
-
 void AmrCoreLBM::Stream(int lev,  int n)
 {
     int right = Geom(lev).Domain().length(0) - 1;
@@ -892,18 +891,18 @@ void AmrCoreLBM::Stream(int lev,  int n)
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
 
+    bool is_finest   = {lev == finest_level};
+    bool is_coarsest = {lev == 0};
+
     for(MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
     {
         const auto bx = mfi.growntilebox(n);
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& fnew = f_new_lev.array(mfi);        
 
-        const IntVect& small = bx.smallEnd();
-        const IntVect& big   = bx.bigEnd();
-
         amrex::ParallelFor(bx, [=]AMREX_GPU_DEVICE(int i, int j, int k)
         {
-            stream(i, j, k, fold, fnew, hi, small, big);
+            stream(i, j, k, fold, fnew, hi, is_finest);
         });
     }      
 }
@@ -1109,8 +1108,6 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
 
 void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow)
 {
-    // amrex::AllPrint()<<"ErrorEst on " << lev <<std::endl;
-
     if(lev >= err.size())
     {
         return;
@@ -1147,7 +1144,7 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
 
         amrex::ParallelFor(bx, [=]AMREX_GPU_DEVICE(int i, int j, int k)
         {
-            state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, dx, lo2, hi2);
+            state_error(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, dx, lo2, hi2);
         });
     }
 }

@@ -11,25 +11,25 @@ using namespace amrex;
 #define Q 9
 
 const int coarsest_level = 0;
-const int max_ref_level = 1;
+const int max_ref_level = 3;
 const int rate = (1 << max_ref_level);
 
-const Real D = 40.0;
+const Real D = 20.0;
 const Real R = D / 2.0;
 
-// const int NX = 40 * D;
-// const int NY = 20 * D;
-// const int NZ = 40 * D;
+const int NX = 40 * D;
+const int NY = 40 * D;
+const int NZ = 40 * D;
 
-const int NX = 512;
-const int NY = 512;
-const int NZ = 512;
+// const int NX = 1024;
+// const int NY = 1024;
+// const int NZ = 1024;
 
 const Real nx = 1.0;
 const Real ny = 1.0;
 const Real nz = 1.0;
 
-#define Re 10000
+#define Re 200
 #define dx_0 (nx / NX)
 #define dt_0 dx_0
 #define c 1.0
@@ -38,11 +38,11 @@ const Real nz = 1.0;
 #define p0 1.0
 #define rho0 (p0 / cs2)
 #define Ma (0.03 * sqrt(3.0))
-#define U0 0.1 //(Ma * cs)
-#define mv_0 (U0 * NX * dx_0 / Re)
+#define U0 (Ma * cs)
+#define mv_0 (U0 * D * dx_0 / Re)
 #define tau_0 (mv_0 / (dt_0 * cs2) + 0.5)
 
-const Real X = 12.0 * D;
+const Real X = NX / 2.0;
 const Real Y = NY / 2.0;
 const Real Z = NZ / 2.0;
 const Real center[DIM] = {X, Y};
@@ -53,7 +53,7 @@ const Real dt_min = dt_0 / rate;
 
 const Real dR = 0.0;                     // 内缩距离
 const Real Rm = R - dR;                  // 等效半径
-const Real ds0 = 0.8 * dx_min;           // 颗粒表面拉氏点的距离初设值
+const Real ds0 = 1.0 * dx_min;           // 颗粒表面拉氏点的距离初设值
 const int np = 2 * PI * Rm * dx_0 / ds0; // 拉格朗日点数量
 const Real drs = 1.9;                    // 固体边界厚度，DF为1.0，3p函数为1.95,4p函数为2.6
 const Real ds_r = 2 * PI * Rm / np * dx_0 / dx_min;
