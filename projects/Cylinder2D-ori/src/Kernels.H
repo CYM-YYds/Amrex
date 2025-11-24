@@ -18,7 +18,7 @@ init_fluid(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 {
     for(int q = 0; q < Q; q++)
     {
-        fold(i, j, k, q) = feqHeLuo(p0, {0.0, 0.0}, q);
+        fold(i, j, k, q) = feqHeLuo(p0, {U0, 0.0}, q);
         fnew(i, j, k, q) = fold(i, j, k, q);
     }
 }
@@ -151,11 +151,11 @@ fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uxt1 /= p0;
         uyt1 /= p0;
 
-        uxt = 0.0;
-        uyt = 0.0;
-
-        // uxt = U0;
+        // uxt = 0.0;
         // uyt = 0.0;
+
+        uxt = U0;
+        uyt = 0.0;
 
         rhot = rhot1;
 
@@ -189,11 +189,11 @@ fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uxt1 /= p0;
         uyt1 /= p0;
 
-        uxt = 0.0;
-        uyt = 0.0;
+        // uxt = 0.0;
+        // uyt = 0.0;
 
-        // uxt = uxt1;
-        // uyt = uyt1;
+        uxt = uxt1;
+        uyt = uyt1;
 
         rhot = rhot1;
 
@@ -227,11 +227,11 @@ fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uxt1 /= p0;
         uyt1 /= p0;
 
-        uxt = 0.0;
-        uyt = 0.0;
+        // uxt = 0.0;
+        // uyt = 0.0;
 
-        // uxt = uxt1;
-        // uyt = uyt1;
+        uxt = uxt1;
+        uyt = uyt1;
 
         rhot = rhot1;
 
@@ -265,11 +265,11 @@ fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uxt1 /= p0;
         uyt1 /= p0;
 
-        uxt = U0;
-        uyt = 0.0;
+        // uxt = U0;
+        // uyt = 0.0;
 
-        // uxt = uxt1;
-        // uyt = uyt1;
+        uxt = uxt1;
+        uyt = uyt1;
 
         rhot = rhot1;
 
@@ -334,22 +334,31 @@ AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void
 stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold, amrex::Array4<amrex::Real> const& fnew, 
-      amrex::IntVect const& hi, amrex::IntVect const& small, amrex::IntVect const& big)
+      amrex::IntVect const& hi, const bool is_finest)
 {
-    if((i >= 1) && (i < hi[0]) && (j >= 1) && (j < hi[1]))
+    for(int q = 0; q < Q; q++)
     {
-        for(int q = 0; q < Q; q++)
-        {
-            int xm = i - e[q][0];
-            int ym = j - e[q][1];
-            int zm = 0;
+        int xm = i - e[q][0];
+        int ym = j - e[q][1];
+        int zm = 0;
 
-            if(xm > small[0] && xm < big[0] && ym > small[1] && ym < big[1])
-            {
-                fnew(i, j, k, q) = fold(xm, ym, zm, q);      
-            }               
-        }
-    }    
+        // if(is_finest)
+        // {
+        //     if((i >= 1) && (i < hi[0]) && (j >= 1) && (j < hi[1]))
+        //     {
+        //         fnew(i, j, k, q) = fold(xm, ym, zm, q);
+        //     }                        
+        // }
+        // else
+        // {
+        //     fnew(i, j, k, q) = fold(xm, ym, zm, q);                        
+        // }
+        if((i >= 1) && (i < hi[0]) && (j >= 1) && (j < hi[1]))
+        {
+            fnew(i, j, k, q) = fold(xm, ym, zm, q);
+        }                        
+
+    }
 }
 
 AMREX_GPU_DEVICE
@@ -475,17 +484,43 @@ state_error(int i, int j, int k,
     }
     else if(lev == 2)
     {
-        if(vort(i, j, k, 0) >= 0.6 && vort(i, j, k, 0) <= 1.0)
+        if(vort(i, j, k, 0) >= 0.6 && vort(i, j, k, 0) <= 4.0 && j >= lo2[1] && j <= hi2[1])
         {
             tag(i,j,k) = tagval;
         }
     }
 
-    //触碰边界处加密清除
-    if(i >= (nx-0.1)/dx || i <= 0.1/dx || j >= (ny-0.1)/dx || j <= 0.1/dx)
-    {
-        tag(i,j,k) = clearval;
-    }
+    // //网格自适应加密
+    // if(lev == 0)
+    // {
+    //     if(vort(i, j, k, 0) >= 0.4)
+    //     {
+    //         tag(i,j,k) = tagval;
+    //     }
+    // }
+    // else if(lev == 1)
+    // {
+    //     if(vort(i, j, k, 0) >= 0.6 && vort(i, j, k, 0) <= 4.0)
+    //     {
+    //         tag(i,j,k) = tagval;
+    //     }
+    // }
+
+    // //网格自适应加密
+    // if(lev == 0)
+    // {
+    //     if(vort(i, j, k, 0) >= 0.6 && vort(i, j, k, 0) <= 4.0)
+    //     {
+    //         tag(i,j,k) = tagval;
+    //     }
+    // }
+
+
+    // //触碰边界处加密清除
+    // if(i >= (nx-0.1)/dx || i <= 0.1/dx || j >= (ny-0.1)/dx || j <= 0.1/dx)
+    // {
+    //     tag(i,j,k) = clearval;
+    // }
 }
 
 
@@ -542,34 +577,6 @@ state_error_2(int i, int j, int k,
     if(i >= (nx-0.1)/dx || i <= 0.1/dx || j >= (ny-0.1)/dx || j <= 0.1/dx)
     {
         tag(i,j,k) = clearval;
-    }
-}
-
-AMREX_GPU_HOST_DEVICE
-AMREX_FORCE_INLINE
-void
-state_error_3(int i, int j, int k,
-             amrex::Array4<char> const& tag,
-             amrex::Array4<amrex::Real const> const& vort,
-             amrex::Real phierr, char tagval, char clearval, int lev, amrex::Real dx,
-             amrex::IntVect const& lo2, amrex::IntVect const& hi2)
-{
-    Real x_r = (NX/2.0) * dx_0 / dx;
-    Real y_r = (NY/2.0) * dx_0 / dx;
-
-    if(lev == 0)
-    {
-        if(vort(i, j, k, 0) >= 0.6 && vort(i, j, k, 0) < 1.0)
-        {
-            tag(i,j,k) = tagval;
-        }
-    }
-    else if(lev == 1)
-    {
-        if(vort(i, j, k, 0) >= 1.0 && vort(i, j, k, 0) < 3.0)
-        {
-            tag(i,j,k) = tagval;
-        }
     }
 }
 

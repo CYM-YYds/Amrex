@@ -1,10 +1,10 @@
 #!/bin/sh
 
 #DSUB --job_type cosched
-#DSUB -n amrex_test
+#DSUB -n case_channelflow
 #DSUB -A root.huazkjdxmrsgjzdsyshi
 #DSUB -q root.default
-#DSUB -R cpu=128;mem=41960;gpu=4
+#DSUB -R cpu=8;mem=49152;gpu=1
 #DSUB -N 1
 #DSUB -o %J-out.log
 #DSUB -e %J-out.log
@@ -37,7 +37,7 @@ export HOSTFILE=/tmp/hostfile.$$
 rm -rf $HOSTFILE
 touch $HOSTFILE
 
-
+#CCS_ALLOC_FILE文件用于提供可用的计算资源信息，HOSTFILE文件用于告诉mpirun在哪些节点上运行进程以及每个节点可以运行多少个进程
 ntask=`cat ${CCS_ALLOC_FILE} | awk -v fff="$HOSTFILE" '{}
 {
     split($0, a, " ")
@@ -55,10 +55,29 @@ echo "Total tasks is $ntask"
 echo "mpirun -hostfile $HOSTFILE -n $ntask <your application>"
 
 #===========================================================
-#运行测试脚本
+#运行测试脚本（按节点 GPU 数启动等量 MPI 进程，并绑定本地 rank 到对应 GPU）
 #===========================================================
 
-mpirun -hostfile $HOSTFILE -npernode 4 -x PATH -x LD_LIBRARY_PATH  --mca plm_rsh_agent /opt/batch/agent/tools/dstart ./main2d.gnu.MPI.CUDA.ex inputs
+# 检测每个节点可见的 GPU 数（优先 CUDA_VISIBLE_DEVICES，其次 nvidia-smi，最后回退 1）
+NGPUS_PER_NODE=1
+if [ -n "$CUDA_VISIBLE_DEVICES" ]; then
+    NGPUS_PER_NODE=$(echo "$CUDA_VISIBLE_DEVICES" | awk -F',' '{print NF}')
+elif command -v nvidia-smi >/dev/null 2>&1; then
+    NGPUS_PER_NODE=$(nvidia-smi -L 2>/dev/null | wc -l)
+fi
+if [ -z "$NGPUS_PER_NODE" ] || [ "$NGPUS_PER_NODE" -lt 1 ]; then
+    NGPUS_PER_NODE=1
+fi
+
+echo "Detected GPUs per node: $NGPUS_PER_NODE"
+
+# 每节点启动与 GPU 数相同的 MPI 进程，并让每个本地 rank 仅使用对应编号的 GPU
+mpirun \
+  -hostfile $HOSTFILE \
+  -npernode $NGPUS_PER_NODE \
+  -x PATH -x LD_LIBRARY_PATH \
+  --mca plm_rsh_agent /opt/batch/agent/tools/dstart \
+  bash -lc 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-${MPI_LOCALRANKID:-0}}; exec ./main3d.gnu.MPI.CUDA.ex config/inputs'
 
 ret=$?
 
