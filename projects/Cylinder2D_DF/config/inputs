@@ -10,17 +10,18 @@ amr.regrid_int  = 10
 
 amr.grid_eff          = 0.7 
 amr.n_error_buf       = 0 0 0 0
+lbm.err = 0.6 0.8 1.0 1.2
 amr.max_grid_size     = 128 64 32 32
-amr.blocking_factor_x = 800
-amr.blocking_factor_y = 800
-amr.blocking_factor_z = 800
+amr.blocking_factor_x = 32
+amr.blocking_factor_y = 32
+amr.blocking_factor_z = 32
 
 amr.plot_file  = cyl_lev3_Re200_
 amr.begin_int  = 140000
 #amr.begin_int  = 0
 amr.plot_int   = 500
 
-lbm.err = 0.6 0.8 1.0 1.2
+
 
 # *****************************************************************
 # mesh setting

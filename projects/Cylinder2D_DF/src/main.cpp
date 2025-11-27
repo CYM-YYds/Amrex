@@ -63,7 +63,7 @@ int main(int argc, char* argv[])
 
         for(int step = 1; step <= max_step && cur_time < stop_time; step++)
         {
-            // amrex::Print() << "STEP " << step << "starts ..." << std::endl;
+            amrex::Print() << "STEP " << step << "starts ..." << std::endl;
 
             if(step >= 0 && step % regrid_int == 0)
             {

@@ -4,7 +4,7 @@
 #DSUB -n case_channelflow
 #DSUB -A root.huazkjdxmrsgjzdsyshi
 #DSUB -q root.default
-#DSUB -R cpu=8;mem=49152;gpu=1
+#DSUB -R cpu=32;mem=49152;gpu=4
 #DSUB -N 1
 #DSUB -o %J-out.log
 #DSUB -e %J-out.log
@@ -77,7 +77,7 @@ mpirun \
   -npernode $NGPUS_PER_NODE \
   -x PATH -x LD_LIBRARY_PATH \
   --mca plm_rsh_agent /opt/batch/agent/tools/dstart \
-  bash -lc 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-${MPI_LOCALRANKID:-0}}; exec ./main3d.gnu.MPI.CUDA.ex config/inputs'
+  bash -lc 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-${MPI_LOCALRANKID:-0}}; exec ./main2d.gnu.MPI.CUDA.ex config/inputs'
 
 ret=$?
 
