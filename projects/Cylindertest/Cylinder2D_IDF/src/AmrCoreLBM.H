@@ -86,6 +86,24 @@ public:
     void PrintParticleParm();
     void RedistributeParticle();
     void ComputeCp(int lev, int step);
+
+    //********************************************************************//
+    //                     IDF (Implicit Direct Forcing)                  //
+    //********************************************************************//
+    // 高层入口：在时间步内调用以执行隐式直接力求解与施加
+    void ApplyIDF(int lev);
+    
+    // 可选：预组装 / 缓存矩阵（如果粒子拓扑不变，可减少重复开销）
+    void IDF_AssembleMatrix(int lev);
+    
+    // 插值欧拉速度到拉格朗日点（D_I）
+    void IDF_InterpolateEulerToLag(int lev);
+    
+    // 根据当前拉格朗日力（或解出的力密度）传播到欧拉网格（D_E）
+    void IDF_SpreadLagToEuler(int lev);
+    
+    // 求解 A * x = b（A=D_I*D_E），更新拉格朗日力修正
+    void IDF_SolveSystem(int lev);
     //********************************************************************//
     //                     Pure virtual function                          //
     //********************************************************************//
@@ -119,6 +137,16 @@ private:
     amrex::Vector<amrex::IntVect> static_hi;
 
     std::unique_ptr<LagrangeParticleContainer> mypc;
+
+    // IDF 暂存数据（示例：拉格朗日点数量 NL，矩阵与向量）
+    std::vector<amrex::Real> idf_rhs;          // b
+    std::vector<amrex::Real> idf_sol;          // x (力密度或修正量)
+    std::vector<amrex::Real> idf_interp_u;     // 插值后的欧拉速度 u_E
+    std::vector<amrex::Real> idf_target_u;     // 目标速度（可由输入/常量设定）
+    std::vector<amrex::Real> idf_force_lag;    // 当前拉格朗日力密度
+    std::vector<amrex::Real> idf_A;            // 稠密矩阵 A (按行主序 NL*NL)
+    int idf_matrix_size {0};                   // NL
+    bool idf_matrix_built {false};             // 是否已构造 A
 };
 
 

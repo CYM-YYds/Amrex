@@ -14,6 +14,53 @@
 #include "AmrCoreLBM.H"
 #include "Kernels.H"
 
+// IDF: 简易求解器（占位）-- 后期可替换为更鲁棒的 LU / CG
+namespace {
+// 朴素稠密矩阵乘向量 A*x
+static void denseMatVec(const std::vector<amrex::Real>& A,
+                        const std::vector<amrex::Real>& x,
+                        std::vector<amrex::Real>& y) {
+    int N = static_cast<int>(x.size());
+    y.assign(N, 0.0);
+    for (int i = 0; i < N; ++i) {
+        const amrex::Real* row = &A[i * N];
+        amrex::Real acc = 0.0;
+        for (int j = 0; j < N; ++j)
+            acc += row[j] * x[j];
+        y[i] = acc;
+    }
+}
+// 朴素 Jacobi 迭代求解 A x = b（仅占位，适合小规模测试）
+static void jacobiSolve(const std::vector<amrex::Real>& A,
+                        const std::vector<amrex::Real>& b,
+                        std::vector<amrex::Real>& x,
+                        int max_iter = 200, amrex::Real tol = 1e-10) {
+    int N = static_cast<int>(b.size());
+    x.assign(N, 0.0);
+    std::vector<amrex::Real> xnew(N, 0.0);
+    for (int it = 0; it < max_iter; ++it) {
+        for (int i = 0; i < N; ++i) {
+            amrex::Real diag = A[i * N + i];
+            if (std::abs(diag) < 1e-14)
+                continue; // 防止除零
+            amrex::Real sigma = 0.0;
+            for (int j = 0; j < N; ++j)
+                if (j != i)
+                    sigma += A[i * N + j] * x[j];
+            xnew[i] = (b[i] - sigma) / diag;
+        }
+        // 计算残差
+        amrex::Real maxdiff = 0.0;
+        for (int i = 0; i < N; ++i) {
+            maxdiff = std::max(maxdiff, std::abs(xnew[i] - x[i]));
+            x[i] = xnew[i];
+        }
+        if (maxdiff < tol)
+            break;
+    }
+}
+} // namespace
+
 using namespace amrex;
 
 //********************************************************************//
@@ -872,6 +919,106 @@ void AmrCoreLBM::InitCpPoint(int lev) {
 }
 
 void AmrCoreLBM::ComputeCp(int lev, int step) {
+}
+
+// ======================= IDF 实现骨架 ========================== //
+// 插值欧拉速度到拉格朗日点：当前仅用占位常数 0.0，后续需真实插值核
+void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev) {
+    if (!mypc)
+        return;
+    int NL = np;
+    idf_matrix_size = NL;
+    // 在粒子属性中写入插值后的速度：ufx/ufy
+    amrex::MultiFab& u_lev = velocity[lev];
+    const Real delta = Geom(lev).CellSize()[0];
+    for (MyParIter pti(*mypc, lev); pti.isValid(); ++pti) {
+        auto& particles = pti.GetArrayOfStructs();
+        auto p_ptr = particles().data();
+        const long n = pti.numParticles();
+
+        auto& attribs = pti.GetAttribs();
+        auto ufx = attribs[PIdx::ufx].data();
+        auto ufy = attribs[PIdx::ufy].data();
+        const Array4<Real>& u = u_lev.array(pti);
+
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+            Real ux, uy;
+            ibm_interpolate_u(p_ptr[i], u, delta, ux, uy);
+            ufx[i] = ux;
+            ufy[i] = uy;
+        });
+    }
+    if (ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "[IDF] Interpolated Euler velocity to Lagrangian points: NL=" << NL << std::endl;
+    }
+}
+
+// 传播拉格朗日力到欧拉网格：目前占位直接写入 force MultiFab 较小常量
+void AmrCoreLBM::IDF_SpreadLagToEuler(int lev) {
+    CommunicateLevel(lev);
+    ComputeMacroLevel(lev);
+
+    amrex::MultiFab& force_lev = force[lev];
+    force_lev.setVal(0.0, nghost);
+    const Real delta = Geom(lev).CellSize()[0];
+    for (MyParIter pti(*mypc, lev); pti.isValid(); ++pti) {
+        auto& particles = pti.GetArrayOfStructs();
+        auto p_ptr = particles().data();
+        const long n = pti.numParticles();
+        auto& attribs = pti.GetAttribs();
+        auto fx = attribs[PIdx::fx].data();
+        auto fy = attribs[PIdx::fy].data();
+        Array4<Real> const& Ft = force_lev.array(pti);
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+            ibm_spread_force(p_ptr[i], fx[i], fy[i], Ft, delta);
+        });
+    }
+    if (ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "[IDF] Spread Lagrangian forces to Euler grid" << std::endl;
+    }
+}
+
+// 组装矩阵 A：占位为单位阵（后续应通过 D_I 与 D_E 的核构造真实耦合）
+void AmrCoreLBM::IDF_AssembleMatrix(int lev) {
+    if (idf_matrix_built && idf_A.size() == static_cast<size_t>(idf_matrix_size * idf_matrix_size))
+        return;
+    int N = idf_matrix_size;
+    idf_A.assign(N * N, 0.0);
+    for (int i = 0; i < N; ++i)
+        idf_A[i * N + i] = 1.0; // 占位：单位阵
+    idf_matrix_built = true;
+    if (ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "[IDF] Assemble A (identity, N=" << N << ")" << std::endl;
+    }
+}
+
+// 求解线性系统 A x = b：占位用 Jacobi，b = u_target - u_interp
+void AmrCoreLBM::IDF_SolveSystem(int lev) {
+    int N = idf_matrix_size;
+    if (N == 0)
+        return;
+    idf_rhs.assign(N, 0.0);
+    for (int i = 0; i < N; ++i)
+        idf_rhs[i] = idf_target_u[i] - idf_interp_u[i];
+    jacobiSolve(idf_A, idf_rhs, idf_sol, 100, 1e-12);
+    idf_force_lag = idf_sol; // 占位：直接认为解即力密度
+    if (ParallelDescriptor::IOProcessor()) {
+        amrex::Real maxv = 0.0;
+        for (auto v : idf_force_lag)
+            maxv = std::max(maxv, std::abs(v));
+        amrex::Print() << "[IDF] Solve A x=b finished, |x|_inf=" << maxv << std::endl;
+    }
+}
+
+// 主入口：按顺序执行 IDF 各阶段
+void AmrCoreLBM::ApplyIDF(int lev) {
+    if (lev != max_level) {
+        // 仅在最细层执行；可根据需要调整
+    }
+    IDF_InterpolateEulerToLag(lev);
+    IDF_AssembleMatrix(lev);
+    IDF_SolveSystem(lev);
+    IDF_SpreadLagToEuler(lev);
 }
 
 //********************************************************************//
