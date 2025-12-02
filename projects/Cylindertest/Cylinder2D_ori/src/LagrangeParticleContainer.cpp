@@ -1,6 +1,7 @@
 #include "LagrangeParticleContainer.H"
 #include "D2Q9.H"
 #include "Kernels.H"
+#include <algorithm>  // for std::max_element, std::min_element
 using namespace amrex;
 
 void LagrangeParticleContainer::PrintParticleParm() {
@@ -44,6 +45,80 @@ void LagrangeParticleContainer::InitParticle(int lev) {
         }
     }
     Redistribute();
+
+    // ========== 打印粒子在不同 Box 中的分布 ==========
+    amrex::Print() << "\n╔══════════════════════════════════════════════════════╗" << std::endl;
+    amrex::Print() << "║         PARTICLE DISTRIBUTION ACROSS BOXES           ║" << std::endl;
+    amrex::Print() << "╚══════════════════════════════════════════════════════╝" << std::endl;
+
+    // 获取 BoxArray 信息
+    const auto& ba = ParticleBoxArray(lev);
+    const auto& dm = ParticleDistributionMap(lev);
+    int nboxes = ba.size();
+    int myproc = ParallelDescriptor::MyProc();
+    int nprocs = ParallelDescriptor::NProcs();
+
+    amrex::Print() << "Total number of Boxes: " << nboxes << std::endl;
+    amrex::Print() << "Total number of MPI ranks: " << nprocs << std::endl;
+    amrex::Print() << std::endl;
+
+    // 统计每个 Box 中的粒子数
+    std::vector<long> particles_per_box(nboxes, 0);
+    long total_local = 0;
+
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        int box_idx = pti.index();  // 当前 Box 的索引
+        long np_in_box = pti.numParticles();
+        particles_per_box[box_idx] = np_in_box;
+        total_local += np_in_box;
+    }
+
+    // 收集所有进程的数据到 IOProc
+    std::vector<long> global_particles_per_box(nboxes, 0);
+    ParallelDescriptor::ReduceLongSum(particles_per_box.data(), nboxes);
+    for (int i = 0; i < nboxes; ++i) {
+        global_particles_per_box[i] = particles_per_box[i];
+    }
+
+    // 只在 IOProc 打印
+    if (ParallelDescriptor::IOProcessor()) {
+        long total_particles = 0;
+        amrex::Print() << "┌──────────┬──────────┬──────────────────┬──────────────┐" << std::endl;
+        amrex::Print() << "│  Box ID  │  CPU ID  │  Num Particles   │   Box Range  │" << std::endl;
+        amrex::Print() << "├──────────┼──────────┼──────────────────┼──────────────┤" << std::endl;
+
+        for (int i = 0; i < nboxes; ++i) {
+            const Box& bx = ba[i];
+            int cpu_id = dm[i];
+            amrex::Print() << "│ " << std::setw(8) << i 
+                          << " │ " << std::setw(8) << cpu_id
+                          << " │ " << std::setw(16) << global_particles_per_box[i]
+                          << " │ " << bx.smallEnd() << "-" << bx.bigEnd() << " │" << std::endl;
+            total_particles += global_particles_per_box[i];
+        }
+
+        amrex::Print() << "├──────────┴──────────┼──────────────────┼──────────────┤" << std::endl;
+        amrex::Print() << "│       TOTAL         │ " << std::setw(16) << total_particles << " │              │" << std::endl;
+        amrex::Print() << "└─────────────────────┴──────────────────┴──────────────┘" << std::endl;
+
+        // 计算分布统计
+        long max_particles = *std::max_element(global_particles_per_box.begin(), global_particles_per_box.end());
+        long min_particles = *std::min_element(global_particles_per_box.begin(), global_particles_per_box.end());
+        int boxes_with_particles = 0;
+        for (int i = 0; i < nboxes; ++i) {
+            if (global_particles_per_box[i] > 0) boxes_with_particles++;
+        }
+
+        amrex::Print() << "\n[Statistics]" << std::endl;
+        amrex::Print() << "  Boxes with particles: " << boxes_with_particles << " / " << nboxes << std::endl;
+        amrex::Print() << "  Max particles in one box: " << max_particles << std::endl;
+        amrex::Print() << "  Min particles in one box: " << min_particles << std::endl;
+        if (boxes_with_particles > 0) {
+            amrex::Print() << "  Average (non-empty boxes): " << total_particles / boxes_with_particles << std::endl;
+        }
+        amrex::Print() << "╚══════════════════════════════════════════════════════╝\n" << std::endl;
+    }
+    // ========== 打印结束 ==========
 }
 
 void LagrangeParticleContainer::MoveParticle() {
