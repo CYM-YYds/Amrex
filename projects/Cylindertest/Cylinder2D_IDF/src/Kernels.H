@@ -510,6 +510,59 @@ Real delta3p(amrex::Real r) {
         return 0.0;
 }
 
+//================= D_I / D_E 基础核：插值与传播 =================//
+
+// 插值：从欧拉网格插值速度到粒子位置（2D）
+template <typename P>
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+void ibm_interpolate_u(P const& p,
+                       amrex::Array4<amrex::Real> const& u,
+                       amrex::Real const delta,
+                       amrex::Real& uxt,
+                       amrex::Real& uyt)
+{
+    amrex::Real xt = p.pos(0) / delta;
+    amrex::Real yt = p.pos(1) / delta;
+    uxt = 0.0; uyt = 0.0;
+    for (int x=-2; x<=2; ++x) {
+        for (int y=-2; y<=2; ++y) {
+            int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+            int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+            int zz = 0;
+            amrex::Real lx = xt - (xx + 0.5);
+            amrex::Real ly = yt - (yy + 0.5);
+            amrex::Real w = delta3p(lx) * delta3p(ly);
+            uxt += u(xx,yy,zz,0) * w;
+            uyt += u(xx,yy,zz,1) * w;
+        }
+    }
+}
+
+// 传播：将粒子力密度传播到欧拉网格（2D），正号累加
+template <typename P>
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+void ibm_spread_force(P const& p,
+                      amrex::Real const fx,
+                      amrex::Real const fy,
+                      amrex::Array4<amrex::Real> const& Ft,
+                      amrex::Real const delta)
+{
+    amrex::Real xt = p.pos(0) / delta;
+    amrex::Real yt = p.pos(1) / delta;
+    for (int x=-2; x<=2; ++x) {
+        for (int y=-2; y<=2; ++y) {
+            int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+            int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+            int zz = 0;
+            amrex::Real lx = xt - (xx + 0.5);
+            amrex::Real ly = yt - (yy + 0.5);
+            amrex::Real w = delta3p(lx) * delta3p(ly) * IB_weight;
+            amrex::Gpu::Atomic::AddNoRet(&Ft(xx,yy,zz,0), fx * w);
+            amrex::Gpu::Atomic::AddNoRet(&Ft(xx,yy,zz,1), fy * w);
+        }
+    }
+}
+
 template <typename P>
 AMREX_GPU_HOST_DEVICE
     AMREX_FORCE_INLINE void

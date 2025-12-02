@@ -245,6 +245,8 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid)
     if(lev == max_ref_level)
     {
         lid.ComputeParticle(lev);
+        // 调用隐式直接力框架：占位实现（后续完善核函数与矩阵）
+        lid.ApplyIDF(lev);
         lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
     }     
 
@@ -275,6 +277,7 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid)
     if(lev == max_ref_level)
     {
         lid.ComputeParticle(lev);
+        lid.ApplyIDF(lev);
         lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
     }
 
