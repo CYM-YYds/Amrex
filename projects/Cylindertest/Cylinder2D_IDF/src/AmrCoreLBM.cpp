@@ -7,6 +7,9 @@
 #include <AMReX_MFIter.H>
 #include <AMReX_ParIter.H>
 
+#include <set> // 可移除（仅用于 BuildActiveEulerSet 内部）
+#include <cmath>
+
 #ifdef AMREX_MEM_PROFILING
 #include <AMReX_MemProfiler.H>
 #endif
@@ -80,6 +83,11 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     shear.resize(nlevs_max);
     density.resize(nlevs_max);
     force.resize(nlevs_max);
+
+    // IDF: 仅最细层使用的活跃欧拉点集合与计数
+    idf_active_euler_nodes.clear();
+    idf_NE = 0;
+    idf_euler_index_map.clear();
 
     tau.resize(nlevs_max);
     tau[0] = tau_0;
@@ -921,11 +929,82 @@ void AmrCoreLBM::InitCpPoint(int lev) {
 void AmrCoreLBM::ComputeCp(int lev, int step) {
 }
 
+// 构建活跃欧拉点集合：遍历所有拉格朗日点，将其 5x5 邻域内落在几何域（非ghost、非越界）的欧拉网格点加入集合（去重）
+void AmrCoreLBM::BuildActiveEulerSet(int lev) {
+    if (!mypc)
+        return;
+
+    const Geometry& gm = Geom(lev);
+    const Box& domain = gm.Domain();
+    const Real delta = Geom(lev).CellSize()[0];
+
+    std::set<IntVect> local_nodes;
+
+    // 收集本进程的活跃欧拉点
+    for (MyParIter pti(*mypc, lev); pti.isValid(); ++pti) {
+        auto& particles = pti.GetArrayOfStructs();
+        auto p_ptr = particles().data();
+        const long n = pti.numParticles();
+
+        for (long i = 0; i < n; ++i) {
+            const Real xt = p_ptr[i].pos(0);
+            const Real yt = p_ptr[i].pos(1);
+
+            for (int x = -2; x <= 2; x++) {
+                for (int y = -2; y <= 2; y++) {
+                    int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+                    int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+                    const IntVect iv(xx, yy);
+
+                    if (!domain.contains(iv))
+                        continue;
+
+                    Real lx = xt - (xx + 0.5);
+                    Real ly = yt - (yy + 0.5);
+                    Real IB_Interp = delta3p(lx) * delta3p(ly);
+
+                    if (IB_Interp > 1e-15) {
+                        local_nodes.insert(iv);
+                    }
+                }
+            }
+        }
+    }
+
+    // 直接收集所有进程的节点到主进程
+    std::vector<IntVect> all_nodes;
+    ParallelDescriptor::Gather(local_nodes.begin(), local_nodes.end(),
+                               all_nodes, ParallelDescriptor::IOProcessorNumber());
+
+    // 主进程处理
+    if (ParallelDescriptor::IOProcessor()) {
+        // 去重
+        std::set<IntVect> global_nodes(all_nodes.begin(), all_nodes.end());
+
+        // 更新全局数据
+        idf_active_euler_nodes_global.assign(global_nodes.begin(), global_nodes.end());
+        idf_NE_global = global_nodes.size();
+
+        // 构建全局索引映射
+        idf_euler_index_map_global.clear();
+        for (int i = 0; i < idf_NE_global; ++i) {
+            idf_euler_index_map_global[idf_active_euler_nodes_global[i]] = i;
+        }
+    }
+
+    // 广播全局节点数量
+    ParallelDescriptor::Bcast(&idf_NE_global, 1, ParallelDescriptor::IOProcessorNumber());
+}
+
 // ======================= IDF 实现骨架 ========================== //
 // 插值欧拉速度到拉格朗日点：当前仅用占位常数 0.0，后续需真实插值核
 void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev) {
     if (!mypc)
         return;
+
+    CommunicateLevel(lev);
+    ComputeMacroLevel(lev);
+
     int NL = np;
     idf_matrix_size = NL;
     // 在粒子属性中写入插值后的速度：ufx/ufy
@@ -948,8 +1027,11 @@ void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev) {
             ufy[i] = uy;
         });
     }
+    // 构建活跃欧拉点集合（NE 是所有拉格朗日点的并集大小，不是单个点的 25）
+    BuildActiveEulerSet(lev);
     if (ParallelDescriptor::IOProcessor()) {
-        amrex::Print() << "[IDF] Interpolated Euler velocity to Lagrangian points: NL=" << NL << std::endl;
+        amrex::Print() << "[IDF] Interpolated Euler velocity to Lagrangian points (finest): NL=" << NL
+                       << ", NE=" << idf_NE << std::endl;
     }
 }
 
@@ -980,15 +1062,53 @@ void AmrCoreLBM::IDF_SpreadLagToEuler(int lev) {
 
 // 组装矩阵 A：占位为单位阵（后续应通过 D_I 与 D_E 的核构造真实耦合）
 void AmrCoreLBM::IDF_AssembleMatrix(int lev) {
+    // 基于 D_I 与 D_E 装配 A = D_I * D_E（当前层的局部版本）
     if (idf_matrix_built && idf_A.size() == static_cast<size_t>(idf_matrix_size * idf_matrix_size))
         return;
     int N = idf_matrix_size;
+    if (N <= 0)
+        return;
+
+    // 构造稀疏 D_I / D_E
+    BuildIDFOperators(lev);
+
+    // 准备 A
     idf_A.assign(N * N, 0.0);
-    for (int i = 0; i < N; ++i)
-        idf_A[i * N + i] = 1.0; // 占位：单位阵
+
+    // 将 D_E 按欧拉索引分组：e -> [(j, wE)]
+    int NE = idf_NE;
+    std::vector<std::vector<std::pair<int, Real>>> e_to_cols(NE);
+    for (int j = 0; j < N; ++j) {
+        for (auto const& ej : idf_DE_cols[j]) {
+            int eidx = ej.first;
+            Real wE = ej.second;
+            if (eidx >= 0 && eidx < NE)
+                e_to_cols[eidx].emplace_back(j, wE);
+        }
+    }
+
+    // A[i,j] = sum_e D_I[i,e] * D_E[e,j]
+    for (int i = 0; i < N; ++i) {
+        for (auto const& ie : idf_DI_rows[i]) {
+            int eidx = ie.first;
+            Real wI = ie.second;
+            if (eidx < 0 || eidx >= NE)
+                continue;
+            for (auto const& jw : e_to_cols[eidx]) {
+                int j = jw.first;
+                Real wE = jw.second;
+                idf_A[i * N + j] += wI * wE;
+            }
+        }
+    }
+
     idf_matrix_built = true;
     if (ParallelDescriptor::IOProcessor()) {
-        amrex::Print() << "[IDF] Assemble A (identity, N=" << N << ")" << std::endl;
+        amrex::Real maxA = 0.0;
+        for (auto v : idf_A)
+            maxA = std::max(maxA, std::abs(v));
+        amrex::Print() << "[IDF] Assemble A via D_I*D_E (N=" << N << ", NE=" << NE
+                       << ") max|A|=" << maxA << std::endl;
     }
 }
 
@@ -1006,7 +1126,8 @@ void AmrCoreLBM::IDF_SolveSystem(int lev) {
         amrex::Real maxv = 0.0;
         for (auto v : idf_force_lag)
             maxv = std::max(maxv, std::abs(v));
-        amrex::Print() << "[IDF] Solve A x=b finished, |x|_inf=" << maxv << std::endl;
+        amrex::Print() << "[IDF] Solve A x=b finished (finest), |x|_inf=" << maxv
+                       << ", N=" << N << ", NE=" << idf_NE << std::endl;
     }
 }
 
@@ -1019,6 +1140,82 @@ void AmrCoreLBM::ApplyIDF(int lev) {
     IDF_AssembleMatrix(lev);
     IDF_SolveSystem(lev);
     IDF_SpreadLagToEuler(lev);
+}
+
+// 构造 D_I 与 D_E 的稀疏算子（当前层），用于装配 A
+void AmrCoreLBM::BuildIDFOperators(int lev) {
+    int N = idf_matrix_size;
+    if (N <= 0)
+        return;
+
+    // 需要已构建的活跃欧拉集合
+    if (idf_NE <= 0) {
+        BuildActiveEulerSet(lev);
+        if (idf_NE <= 0)
+            return;
+    }
+
+    // ==== MPI 汇总所有进程的 NL（拉格朗日点总数）====
+    int myNL = N;
+    int NL_global = 0;
+    ParallelDescriptor::ReduceIntSum(&myNL, &NL_global, 1);
+    idf_NL_global = NL_global;
+
+    const Geometry& gm = Geom(lev);
+    const Box& domain = gm.Domain();
+    const Real dx = gm.CellSize()[0];
+
+    // 清空并分配结构
+    idf_DI_rows.clear();
+    idf_DI_rows.resize(N);
+    idf_DE_cols.clear();
+    idf_DE_cols.resize(N);
+
+    auto const& emap = idf_euler_index_map;
+
+    int lidx_global = 0;
+    for (MyParIter pti(*mypc, lev); pti.isValid(); ++pti) {
+        auto& aos = pti.GetArrayOfStructs();
+        auto p_ptr = aos().data();
+        const long n = pti.numParticles();
+
+        for (long i = 0; i < n; ++i, ++lidx_global) {
+            const Real xp = p_ptr[i].pos(0);
+            const Real yp = p_ptr[i].pos(1);
+            const Real xt = xp / dx;
+            const Real yt = yp / dx;
+            int xx = static_cast<int>(amrex::Math::floor(xt));
+            int yy = static_cast<int>(amrex::Math::floor(yt));
+
+            // 遍历 5x5 邻域，填充 D_I 与 D_E 的条目
+            for (int y = -2; y <= 2; ++y) {
+                for (int x = -2; x <= 2; ++x) {
+                    IntVect iv(xx + x, yy + y);
+                    if (!domain.contains(iv))
+                        continue;
+                    auto it = emap.find(iv);
+                    if (it == emap.end())
+                        continue; // 只使用活跃欧拉节点
+                    int eidx = it->second;
+                    Real lx = xt - (iv[0] + 0.5);
+                    Real ly = yt - (iv[1] + 0.5);
+                    Real wI = delta3p(lx) * delta3p(ly);
+                    Real wE = wI * IB_weight;
+                    if (std::abs(wI) > 1e-15)
+                        idf_DI_rows[lidx_global].emplace_back(eidx, wI);
+                    if (std::abs(wE) > 1e-15)
+                        idf_DE_cols[lidx_global].emplace_back(eidx, wE);
+                }
+            }
+        }
+    }
+
+    if (ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "[IDF] Built DI/DE operators (finest): NL=" << N
+                       << ", NE=" << idf_NE
+                       << ", NL_global=" << idf_NL_global
+                       << ", NE_global=" << idf_NE_global << std::endl;
+    }
 }
 
 //********************************************************************//
