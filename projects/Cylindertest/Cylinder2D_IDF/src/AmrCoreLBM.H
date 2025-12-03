@@ -10,7 +10,7 @@
 #include <AMReX_AmrParticles.H>
 #include <AMReX_Particles.H>
 
-#include <limits>
+#include <limits> // 可移除（未直接用到）
 #include <memory>
 #include <string>
 
@@ -98,12 +98,18 @@ public:
     
     // 插值欧拉速度到拉格朗日点（D_I）
     void IDF_InterpolateEulerToLag(int lev);
+
+    // 构建活跃欧拉点集合（所有拉格朗日点周围的有效欧拉节点去重后的并集）
+    void BuildActiveEulerSet(int lev);
     
     // 根据当前拉格朗日力（或解出的力密度）传播到欧拉网格（D_E）
     void IDF_SpreadLagToEuler(int lev);
     
     // 求解 A * x = b（A=D_I*D_E），更新拉格朗日力修正
     void IDF_SolveSystem(int lev);
+    
+    // 构造 D_I 与 D_E 的稀疏算子（当前层），并据此装配 A = D_I * D_E
+    void BuildIDFOperators(int lev);
     //********************************************************************//
     //                     Pure virtual function                          //
     //********************************************************************//
@@ -147,6 +153,24 @@ private:
     std::vector<amrex::Real> idf_A;            // 稠密矩阵 A (按行主序 NL*NL)
     int idf_matrix_size {0};                   // NL
     bool idf_matrix_built {false};             // 是否已构造 A
+
+    // 活跃欧拉点集合（仅最细层）与其数量 NE
+    amrex::Vector<amrex::IntVect> idf_active_euler_nodes; // 最细层的欧拉节点坐标列表（去重）
+    int idf_NE {0};                                       // 最细层的活跃欧拉节点数量
+
+    // 欧拉节点到索引的映射（仅最细层）
+    std::map<amrex::IntVect,int> idf_euler_index_map;
+
+    // 全局 NL/NE（所有进程总和）
+    int idf_NL_global {0};
+    int idf_NE_global {0};
+    // 全局拉格朗日点和欧拉点的全局索引映射（仅主进程完整，其他进程可选填充）
+    std::vector<amrex::IntVect> idf_active_euler_nodes_global;
+    std::map<amrex::IntVect,int> idf_euler_index_map_global;
+
+    // 稀疏 D_I（按行：每个拉格朗日点 i 的条目列表 <e_idx, wI>）与 D_E（按列：每个拉格朗日点 j 的条目列表 <e_idx, wE>）
+    std::vector<std::vector<std::pair<int, amrex::Real>>> idf_DI_rows;
+    std::vector<std::vector<std::pair<int, amrex::Real>>> idf_DE_cols;
 };
 
 
