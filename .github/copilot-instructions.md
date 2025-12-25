@@ -2,15 +2,21 @@
 
 ## Project Architecture Overview
 
-This is a high-performance computational fluid dynamics simulation using **Lattice Boltzmann Method (LBM)** with **Adaptive Mesh Refinement (AMR)** based on the AMReX framework. The project simulates complex fluid flows around static/moving spheres using immersed boundary methods.
+This workspace contains multiple **AMReX-based** example projects for **LBM + AMR**, including cases like 2D/3D cavity, cylinder flows, channel flows, and particle/immersed-boundary coupling variants.
 
-### Core Components
-- **main.cpp**: Program entry point, AMReX initialization, time loop management
-- **AmrCoreLBM.{H,cpp}**: AMR framework implementation, manages MultiFab data structures
-- **Kernels.H**: GPU-optimized computational kernels (collision, streaming, boundary conditions)
-- **D3Q19.H**: LBM model parameters (D3Q19 lattice, weights, relaxation times)
-- **LagrangeParticleContainer.{H,cpp}**: Lagrangian particle management for immersed boundaries
-- **inputs**: Runtime configuration file (AMR levels, time steps, output intervals)
+The code is organized as:
+- **Per-case projects** under `projects/<case>/` (each case has its own `GNUmakefile`, `inputs`, `src/`, etc.)
+- A **shared core** under `projects/shared/lbm-core/` that many cases include via `Make.package`
+
+### Core Components (shared + per-case)
+- **Per-case main**: `projects/<case>/src/main.cpp` (entry point, AMReX init, time loop glue)
+- **Core AMR/LBM driver**: `AmrCoreLBM.{H,cpp}` (either from `projects/shared/lbm-core/` or copied/overridden in the case `src/`)
+- **GPU kernels**: `Kernels.H` (core LBM kernels + coupling kernels)
+- **Lattice model headers**:
+    - 3D cases typically use `D3Q19.H`
+    - 2D cases typically use `D2Q9.H` (some cases keep it in their own `src/`)
+- **Particle / immersed boundary**: `LagrangeParticleContainer.{H,cpp}` (IBM/IDF/DF variants depending on case)
+- **Case runtime config**: `projects/<case>/inputs`
 
 ### Key Design Patterns
 
@@ -55,15 +61,16 @@ Support multiple collision operators:
 AMREX_HOME ?= /path/to/amrex-23.09/
 DEBUG = FALSE
 TINY_PROFILE = TRUE  # Required for performance profiling
-DIM = 3
+DIM = 2  # or 3 depending on the case
 USE_MPI = TRUE
 USE_PARTICLES = TRUE
 USE_CUDA = TRUE
 ```
 
-### Build Commands
+### Build Commands (per case)
 ```bash
-# Compile the project
+# Example: build a specific case (run inside that case directory)
+cd projects/Cylindertest/Cylinder2D_IDF
 make -f GNUmakefile -j8
 
 # Clean build artifacts
@@ -93,16 +100,19 @@ lbm.err = 0.6 0.8 1.0 1.2    # Refinement criteria
 
 # Output control
 amr.plot_int = 200           # Plot interval
-amr.plot_file = case_name_   # Output file prefix
+amr.plot_file = case_name_   # Output file prefix (varies by case)
 ```
 
-### Execution Commands
+### Execution Commands (examples)
 ```bash
-# Run with MPI + CUDA
-mpirun -n 4 ./main3d.gnu.TPROF.MPI.CUDA.ex inputs
+# Run from within a case directory after building.
+# Executable name depends on DIM/MPI/CUDA/TINY_PROFILE/DEBUG options.
 
-# Run on specific GPUs
-mpirun -n 4 --mca btl_openib_warn_default_gid_prefix 0 ./main3d.gnu.TPROF.MPI.CUDA.ex inputs
+# Example (2D case)
+mpirun -n 4 ./main2d.gnu.MPI.CUDA.ex inputs
+
+# Example (3D case, name may differ)
+mpirun -n 4 ./main3d.gnu.MPI.CUDA.ex inputs
 ```
 
 ## Development Workflow
@@ -140,11 +150,16 @@ mpirun -n 4 --mca btl_openib_warn_default_gid_prefix 0 ./main3d.gnu.TPROF.MPI.CU
 - Use AMReX assertion macros for debugging
 - Monitor GPU memory usage in long simulations
 
-### File Organization
-- Header files (.H) contain class definitions and inline functions
-- Implementation files (.cpp) contain method implementations
-- Configuration files (inputs, GNUmakefile) in project root
-- Output data in case-specific subdirectories
+### File Organization (current)
+- `projects/<case>/`
+    - `GNUmakefile` / `config/Make.package`: per-case build settings; many cases include `projects/shared/lbm-core/Make.package`
+    - `src/`: per-case sources (may override shared core)
+    - `inputs`: runtime parameters for that case
+    - `scripts/`: run/submit helpers (HPC environments)
+    - `tmp_build_dir/`, `logs/`, `plt*`: build and runtime outputs
+- `projects/shared/lbm-core/`: shared driver + kernels + particle containers (common code reused by many cases)
+- `tools/`: helper scripts (copy/sync/compile)
+- `dev_profiles/`: editor/tooling profiles (clangd/cpptools)
 
 ## Integration Points
 
@@ -178,8 +193,9 @@ mpirun -n 4 --mca btl_openib_warn_default_gid_prefix 0 ./main3d.gnu.TPROF.MPI.CU
 - Monitor GPU utilization with `nvidia-smi`
 
 ## Key Files for Reference
-- `Kernels.H`: Core computational algorithms
-- `AmrCoreLBM.cpp`: AMR framework integration
-- `D3Q19.H`: LBM model constants
-- `inputs`: Configuration examples
-- `GNUmakefile`: Build system template
+- `projects/shared/lbm-core/Kernels.H`: core computational algorithms (GPU kernels)
+- `projects/shared/lbm-core/AmrCoreLBM.cpp`: AMR/LBM integration driver (shared)
+- `projects/shared/lbm-core/D3Q19.H`: common 3D lattice constants
+- `projects/<case>/src/D2Q9.H`: common 2D lattice constants (where present)
+- `projects/<case>/inputs`: runtime configuration for a case
+- `projects/<case>/GNUmakefile`: build configuration for a case

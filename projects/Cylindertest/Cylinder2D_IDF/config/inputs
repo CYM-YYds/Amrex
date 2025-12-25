@@ -2,8 +2,8 @@
 # Run until nsteps == max_step or time == stop_time,
 #     whichever comes first
 # *****************************************************************
-max_step  = 148000
-#max_step  = 1000
+max_step  = 500000
+#max_step  = 5000
 stop_time = 1000000.0
 
 amr.regrid_int  = 10
@@ -16,10 +16,9 @@ amr.blocking_factor_x = 32
 amr.blocking_factor_y = 32
 amr.blocking_factor_z = 32
 
-amr.plot_file  = cyl_lev3_Re200_
-amr.begin_int  = 140000
-#amr.begin_int  = 0
-amr.plot_int   = 500
+amr.plot_file  = data/cyl_lev3_Re40_
+amr.begin_int  = 20000
+amr.plot_int   = 1000
 
 
 
