@@ -512,17 +512,20 @@ Real delta3p(amrex::Real r) {
 
 //================= D_I / D_E 基础核：插值与传播 =================//
 
-// 插值：从欧拉网格插值速度到粒子位置（2D）
+// 插值：从欧拉网格插值速度和密度到粒子位置（2D）
 template <typename P>
-AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate_u(P const& p,
-                                                                amrex::Array4<amrex::Real> const& u,
-                                                                amrex::Real const delta,
-                                                                amrex::Real& uxt,
-                                                                amrex::Real& uyt) {
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
+                                                              amrex::Array4<amrex::Real> const& u,
+                                                              amrex::Array4<amrex::Real> const& rho,
+                                                              amrex::Real const delta,
+                                                              amrex::Real& uxt,
+                                                              amrex::Real& uyt,
+                                                              amrex::Real& rhot) {
     amrex::Real xt = p.pos(0) / delta;
     amrex::Real yt = p.pos(1) / delta;
     uxt = 0.0;
     uyt = 0.0;
+    rhot = 0.0;
     for (int x = -2; x <= 2; ++x) {
         for (int y = -2; y <= 2; ++y) {
             int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
@@ -533,11 +536,12 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate_u(P const& p,
             amrex::Real w = delta3p(lx) * delta3p(ly);
             uxt += u(xx, yy, zz, 0) * w;
             uyt += u(xx, yy, zz, 1) * w;
+            rhot += rho(xx, yy, zz, 0) * w;
         }
     }
 }
 
-// 传播：将粒子力密度传播到欧拉网格（2D），正号累加
+// 传播：将粒子力密度传播到欧拉网格（2D），负号累加
 template <typename P>
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
                                                                amrex::Real const fx,
@@ -546,16 +550,29 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
                                                                amrex::Real const delta) {
     amrex::Real xt = p.pos(0) / delta;
     amrex::Real yt = p.pos(1) / delta;
+    amrex::Real fxt = fx / (IB_weight * dx_min * dx_min);
+    amrex::Real fyt = fy / (IB_weight * dx_min * dx_min);
+    auto lo = amrex::lbound(Ft);
+    auto hi = amrex::ubound(Ft);
     for (int x = -2; x <= 2; ++x) {
         for (int y = -2; y <= 2; ++y) {
             int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
             int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+
             int zz = 0;
+
+            // 越界防护，避免原子写落在无效地址
+            if (xx < lo.x || xx > hi.x || yy < lo.y || yy > hi.y || zz < lo.z || zz > hi.z) {
+                continue;
+            }
+
             amrex::Real lx = xt - (xx + 0.5);
             amrex::Real ly = yt - (yy + 0.5);
-            amrex::Real w = delta3p(lx) * delta3p(ly) * IB_weight;
-            amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 0), fx * w);
-            amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 1), fy * w);
+
+            amrex::Real IB_Interp = delta3p(lx) * delta3p(ly) * IB_weight;
+
+            amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 0), -fxt * IB_Interp);
+            amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 1), -fyt * IB_Interp);
         }
     }
 }

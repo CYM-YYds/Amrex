@@ -55,7 +55,7 @@ const Real dR = 0.0;                     // 内缩距离
 const Real Rm = R - dR;                  // 等效半径
 const Real ds0 = 1.0 * dx_min;           // 颗粒表面拉氏点的距离初设值
 const int np = 2 * PI * Rm * dx_0 / ds0; // 拉格朗日点数量
-const Real drs = 1.0;                    // 固体边界厚度，DF/IDF为1.0，3p函数为1.95,4p函数为2.6
+const Real drs = 1.9;                    // 固体边界厚度，DF/IDF为1.0，3p函数为1.95,4p函数为2.6
 const Real ds_r = 2 * PI * Rm / np * dx_0 / dx_min;
 const Real IB_weight = ds_r * drs;
 
