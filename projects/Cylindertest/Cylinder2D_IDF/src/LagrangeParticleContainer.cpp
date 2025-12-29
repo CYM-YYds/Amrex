@@ -143,7 +143,8 @@ bool LagrangeParticleContainer::EvaluateConvergenceAndWriteCp(int lev, int step,
 
         cd_history[current_idx] = cd_value;
         current_idx = (current_idx + 1) % 30;
-        if (current_idx == 0) filled_once = true;
+        if (current_idx == 0)
+            filled_once = true;
 
         if (filled_once) {
             auto minmax_cd = std::minmax_element(cd_history.begin(), cd_history.end());
@@ -169,16 +170,19 @@ bool LagrangeParticleContainer::EvaluateConvergenceAndWriteCp(int lev, int step,
 
     // 稳态后收集并输出圆柱表面压力系数分布
     if (steady_reached && !cp_written) {
-        const Real delta = Geom(lev).CellSize()[0];
-        const Real center_x = X * delta;
-        const Real center_y = Y * delta;
+        // 注意：粒子物理坐标是用 coarse 级别的网格步长写入的
+        // 此处需与粒子坐标保持一致，否则角度会被偏移
+        const Real delta0 = Geom(0).CellSize()[0];
+        const Real center_x = X * delta0;
+        const Real center_y = Y * delta0;
         const Real p_ref = p0;
         const Real q_inf = 0.5 * (p0 / cs2) * U0 * U0;
 
         std::vector<Real> local_data;
         for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
             const long n = pti.numParticles();
-            if (n == 0) continue;
+            if (n == 0)
+                continue;
 
             auto& aos = pti.GetArrayOfStructs();
             amrex::Gpu::PinnedVector<ParticleType> host_particles(n);
