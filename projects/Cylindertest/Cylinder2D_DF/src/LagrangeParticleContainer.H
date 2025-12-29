@@ -118,11 +118,12 @@ public:
     void InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev);
 
     // 返回是否已达稳态
-    bool SaveFxy(int lev, int step);
+    bool SaveFxy(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
 
     // 将稳态判断与圆柱表面压力系数统计拆分出的函数
     // 传入已归一化的阻力系数（Cd）用于收敛评估；返回是否已达稳态
-    bool EvaluateConvergenceAndWriteCp(int lev, int step, amrex::Real cd_value, amrex::Real cl_value);
+    bool EvaluateConvergenceAndWriteCp(int lev, int step, amrex::Real cd_value, amrex::Real cl_value,
+                                      amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
 
     void WriteParticle(int step);
 

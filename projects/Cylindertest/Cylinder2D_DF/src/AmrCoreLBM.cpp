@@ -1150,7 +1150,9 @@ void AmrCoreLBM::ComputeParticle(int lev) {
     SumForce(lev);
 }
 bool AmrCoreLBM::ReduceFxy(int lev, int step) {
-    return mypc->SaveFxy(lev, step);
+    amrex::MultiFab& u_lev = velocity[lev];
+    amrex::MultiFab& rho_lev = density[lev];
+    return mypc->SaveFxy(lev, step, u_lev, rho_lev);
 }
 
 void AmrCoreLBM::PrintParticleParm() {
