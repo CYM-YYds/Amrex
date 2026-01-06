@@ -149,6 +149,57 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 }
 
+// 边界加密不加密都可以--Jaber循环加入非平衡态缩放
+void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+
+    if (lev < max_ref_level) {
+        lid.FillGhostLevel(lev + 1, cur_time);
+    }
+
+    if (lev == max_ref_level) {
+        lid.ComputeParticle(lev);
+        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+    }
+
+    lid.Boundary(lev);
+    lid.Collide(lev, 4);
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, 4);
+    lid.SwapLevel(lev, 4);
+
+    if (lev < max_ref_level) {
+        JaberCycle(lev + 1, cur_time, lid);
+        lid.AverageDownGhostLevel(lev);
+    }
+
+    if (lev == coarsest_level) {
+        return;
+    }
+
+    cur_time += dt;
+
+    if (lev < max_ref_level) {
+        lid.FillGhostLevel(lev + 1, cur_time);
+    }
+
+    if (lev == max_ref_level) {
+        lid.ComputeParticle(lev);
+        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+    }
+
+    lid.Boundary(lev);
+    lid.Collide(lev, 4);
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, 4);
+    lid.SwapLevel(lev, 4);
+
+    if (lev < max_ref_level) {
+        JaberCycle(lev + 1, cur_time, lid);
+        lid.AverageDownGhostLevel(lev);
+    }
+}
+
 // 边界加密不加密都可以--Rohde循环加入非平衡态缩放
 //  void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid)
 //  {
@@ -213,54 +264,3 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 //         lid.AverageDownGhostLevel(lev);
 //     }
 // }
-
-// 边界加密不加密都可以--Jaber循环加入非平衡态缩放
-void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
-    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
-
-    if (lev < max_ref_level) {
-        lid.FillGhostLevel(lev + 1, cur_time);
-    }
-
-    if (lev == max_ref_level) {
-        lid.ComputeParticle(lev);
-        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
-    }
-
-    lid.Boundary(lev);
-    lid.Collide(lev, 4);
-    lid.CommunicateLevel(lev);
-    lid.Stream(lev, 4);
-    lid.SwapLevel(lev, 4);
-
-    if (lev < max_ref_level) {
-        JaberCycle(lev + 1, cur_time, lid);
-        lid.AverageDownGhostLevel(lev);
-    }
-
-    if (lev == coarsest_level) {
-        return;
-    }
-
-    cur_time += dt;
-
-    if (lev < max_ref_level) {
-        lid.FillGhostLevel(lev + 1, cur_time);
-    }
-
-    if (lev == max_ref_level) {
-        lid.ComputeParticle(lev);
-        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
-    }
-
-    lid.Boundary(lev);
-    lid.Collide(lev, 4);
-    lid.CommunicateLevel(lev);
-    lid.Stream(lev, 4);
-    lid.SwapLevel(lev, 4);
-
-    if (lev < max_ref_level) {
-        JaberCycle(lev + 1, cur_time, lid);
-        lid.AverageDownGhostLevel(lev);
-    }
-}
