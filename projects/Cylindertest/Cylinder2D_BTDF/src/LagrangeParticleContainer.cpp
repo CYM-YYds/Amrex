@@ -59,6 +59,69 @@ void LagrangeParticleContainer::InitParticle(int lev) {
 void LagrangeParticleContainer::MoveParticle() {
 }
 
+void LagrangeParticleContainer::ZeroParticleForce(int lev) {
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        const long n = pti.numParticles();
+
+        auto& attribs = pti.GetAttribs();
+        auto fx = attribs[PIdx::fx].data();
+        auto fy = attribs[PIdx::fy].data();
+
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+            fx[i] = 0.0;
+            fy[i] = 0.0;
+        });
+    }
+}
+
+void LagrangeParticleContainer::DebugPrintForceSum(int lev, int step, int iter) {
+    using SPType = typename LagrangeParticleContainer::SuperParticleType;
+
+    auto fx_sum = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
+        return p.rdata(PIdx::fx);
+    });
+
+    auto fy_sum = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
+        return p.rdata(PIdx::fy);
+    });
+
+    ParallelDescriptor::ReduceRealSum(fx_sum);
+    ParallelDescriptor::ReduceRealSum(fy_sum);
+
+    if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+        Real m = 0.5 * (p0 / cs2) * U0 * U0 * D * dx_0;
+        amrex::Print() << "[DEBUG] Step " << step << " iter " << iter
+                       << " Particle fx_sum=" << fx_sum << " fy_sum=" << fy_sum
+                       << " (Cd=" << fx_sum / m << " Cl=" << fy_sum / m << ")" << std::endl;
+    }
+}
+
+#if USE_MDF_TWO_STAGE
+void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev, amrex::MultiFab& force_delta_lev) {
+    const Real delta = Geom(lev).CellSize()[0];
+
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        auto& particles = pti.GetArrayOfStructs();
+        auto p_ptr = particles().data();
+        const long n = pti.numParticles();
+
+        auto& attribs = pti.GetAttribs();
+        auto fx = attribs[PIdx::fx].data();
+        auto fy = attribs[PIdx::fy].data();
+        auto ufx = attribs[PIdx::ufx].data();
+        auto ufy = attribs[PIdx::ufy].data();
+
+        const Array4<Real>& u = u_lev.array(pti);
+        const Array4<Real>& rho = rho_lev.array(pti);
+        const Array4<Real>& Ft = force_lev.array(pti);
+        const Array4<Real>& Ft_delta = force_delta_lev.array(pti);
+
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+            force_interp_extrap(p_ptr[i], fx[i], fy[i], ufx[i], ufy[i], u, rho, Ft, Ft_delta, delta);
+        });
+    }
+}
+#else
 void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev) {
     const Real delta = Geom(lev).CellSize()[0];
 
@@ -82,7 +145,7 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
         });
     }
 }
-
+#endif
 bool LagrangeParticleContainer::SaveFxy(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev) {
     using SPType = typename LagrangeParticleContainer::SuperParticleType;
     using ParticleType = typename LagrangeParticleContainer::ParticleType;

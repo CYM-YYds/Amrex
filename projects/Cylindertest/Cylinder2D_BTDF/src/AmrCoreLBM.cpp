@@ -55,7 +55,7 @@ void denseMatVecWithScale(const std::vector<amrex::Real>& A,
         amrex::Real acc = 0.0;
         for (int j = 0; j < N; ++j)
             acc += row[j] * x[j];
-        y[i] = 2.0 * idf_interp_rho[i] / cs2 / dt_min * acc; //这里除以 cs2是模型的特殊性
+        y[i] = 2.0 * idf_interp_rho[i] / cs2 / dt_min * acc; // 这里除以 cs2是模型的特殊性
     }
 }
 
@@ -322,6 +322,9 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     shear.resize(nlevs_max);
     density.resize(nlevs_max);
     force.resize(nlevs_max);
+#if USE_MDF_TWO_STAGE
+    force_delta.resize(nlevs_max); // 仅在 NF > 1 时分配
+#endif
 
     // IDF: 仅最细层使用的活跃欧拉点集合与计数
     idf_active_euler_nodes.clear();
@@ -1127,27 +1130,72 @@ void AmrCoreLBM::InitParticle(int lev) {
     mypc->InitParticle(lev);
 }
 
-void AmrCoreLBM::InterpForce(int lev) {
+void AmrCoreLBM::InterpForce(int lev, int n_iter) {
     amrex::MultiFab& rho_lev = density[lev];
     amrex::MultiFab& u_lev = velocity[lev];
     amrex::MultiFab& force_lev = force[lev];
 
+    // 初始清零欧拉力场
     force_lev.setVal(0.0, nghost);
+
+#if USE_MDF_TWO_STAGE
+
+    // 调试：统计 InterpForce 被调用的次数
+    // static int call_count = 0;
+    // call_count++;
+    // bool do_debug = (call_count <= 40); // 只调试前40次调用
+
+    // if (do_debug && amrex::ParallelDescriptor::IOProcessor()) {
+    //     amrex::Print() << "[DEBUG] InterpForce call #" << call_count << " (n_iter=" << n_iter << ")" << std::endl;
+    // }
+
+    // MDF 两阶段迭代（NF > 1）：使用 force_delta 避免 ghost 区域重复累加
+    amrex::MultiFab& force_delta_lev = force_delta[lev];
+    mypc->ZeroParticleForce(lev);
+
+    for (int iter = 0; iter < n_iter; iter++) {
+        // 1. 清零力增量（包括 ghost 区域）
+        force_delta_lev.setVal(0.0, nghost);
+
+        // 2. 计算本次迭代的力增量 → 写入 force_delta
+        mypc->InterpForce(lev, rho_lev, u_lev, force_lev, force_delta_lev);
+
+        // 3. 通信：ghost → valid（SumBoundary）
+        SumForce(lev);
+
+        // 4. 累加 force_delta 到 force（只需要 valid 区域）
+        amrex::MultiFab::Add(force_lev, force_delta_lev, 0, 0, AMREX_SPACEDIM, 0);
+
+        // 5. 通信：valid → ghost（FillBoundary）
+        force_lev.FillBoundary(geom[lev].periodicity());
+
+        // 调试：输出粒子力
+        // if (do_debug) {
+        //     mypc->DebugPrintForceSum(lev, call_count, iter);
+        // }
+    }
+#else
+    // 单次迭代（NF = 1）：直接使用 force，无需 force_delta
     mypc->InterpForce(lev, rho_lev, u_lev, force_lev);
+    SumForce(lev);
+
+#endif // USE_MDF_TWO_STAGE
 }
 
 void AmrCoreLBM::SumForce(int lev) {
+#if USE_MDF_TWO_STAGE
+    MultiFab* mf_pointer = &force_delta[lev];
+#else
     MultiFab* mf_pointer = &force[lev];
-
+#endif
     mf_pointer->SumBoundary(Geom(lev).periodicity());
 }
 
 void AmrCoreLBM::ComputeParticle(int lev) {
     CommunicateLevel(lev);
     ComputeMacroLevel(lev);
-    //ApplyIDF(lev);
-    InterpForce(lev);
-    SumForce(lev);
+    // ApplyIDF(lev);
+    InterpForce(lev, NF);
 }
 bool AmrCoreLBM::ReduceFxy(int lev, int step) {
     amrex::MultiFab& u_lev = velocity[lev];
@@ -1491,6 +1539,8 @@ void AmrCoreLBM::ApplyIDF(int lev) {
 
     // Step 4: 传播拉格朗日力到欧拉网格
     IDF_SpreadLagToEuler(lev);
+
+    SumForce(lev);
 }
 
 // 插值欧拉速度到拉格朗日点，收集到全局向量
@@ -1529,7 +1579,7 @@ void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev) {
     std::vector<Real> local_interp_ux, local_interp_uy, local_interp_rho;
     mypc->IDF_ReadInterpResults(lev, local_interp_ux, local_interp_uy, local_interp_rho);
 
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(static_cast<int>(local_interp_ux.size()) == idf_local_NL, 
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(static_cast<int>(local_interp_ux.size()) == idf_local_NL,
                                      "IDF local buffer size mismatch");
 
     // Step 3: 汇总插值速度到全局向量（所有进程都有完整副本）
@@ -1872,6 +1922,9 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
     amrex::MultiFab vort_new(ba, dm, 1, nghost);
     amrex::MultiFab force_new(ba, dm, AMREX_SPACEDIM, nghost);
     amrex::MultiFab shear_new(ba, dm, 1, nghost);
+#if USE_MDF_TWO_STAGE
+    amrex::MultiFab force_delta_new(ba, dm, AMREX_SPACEDIM, nghost);
+#endif
 
     FillDdfPatch(lev, time, old_state);
 
@@ -1883,6 +1936,9 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
     std::swap(vort_new, vorticity[lev]);
     std::swap(force_new, force[lev]);
     std::swap(shear_new, shear[lev]);
+#if USE_MDF_TWO_STAGE
+    std::swap(force_delta_new, force_delta[lev]);
+#endif
 
     force[lev].setVal(0.0, nghost);
     shear[lev].setVal(0.0, nghost);
@@ -1916,6 +1972,12 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
     shear_lev.define(ba, dm, 1, nghost);
     f_new_lev.define(ba, dm, Q, nghost);
     f_old_lev.define(ba, dm, Q, nghost);
+
+#if USE_MDF_TWO_STAGE
+    // 仅在 NF > 1 时创建力增量场
+    amrex::MultiFab& force_delta_lev = force_delta.at(lev);
+    force_delta_lev.define(ba, dm, AMREX_SPACEDIM, nghost);
+#endif
 
     force_lev.setVal(0.0, nghost); // 在这里归零会不会好一点
     shear_lev.setVal(0.0, nghost);
