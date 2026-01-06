@@ -1,1 +1,1 @@
-rm -r cyl* *.ex Backtrace* *.log lid* sphere* particle* vort* data/*.old*
+rm -r cyl*  Backtrace* *.log lid* sphere* particle* vort* data/*.old*

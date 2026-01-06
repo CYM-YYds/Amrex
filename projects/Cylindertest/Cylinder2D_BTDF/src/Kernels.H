@@ -138,7 +138,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uxt = U0;
         uyt = 0.0;
 
-        rhot = rhot1;
+        rhot = rho0;
 
         for (int q = 0; q < Q; q++) {
             fnew(x, y, z, q) = feqHeLuo(rhot, {uxt, uyt}, q) + fold(x1, y1, z1, q) - feqHeLuo(rhot1, {uxt1, uyt1}, q);
@@ -580,6 +580,77 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
 template <typename P>
 AMREX_GPU_HOST_DEVICE
     AMREX_FORCE_INLINE void
+#if USE_MDF_TWO_STAGE
+    force_interp_extrap(P const& p, amrex::Real& fx, amrex::Real& fy, /*amrex::Real& fz,*/ amrex::Real& ufx, amrex::Real& ufy,
+                        /*amrex::Real& ufz, amrex::Real& area,*/ amrex::Array4<amrex::Real> const& u,
+                        amrex::Array4<amrex::Real> const& rho, amrex::Array4<amrex::Real> const& Ft, amrex::Array4<amrex::Real> const& Ft_delta, amrex::Real const delta) {
+    amrex::Real xt, yt, zt, lx, ly, lz;
+    amrex::Real IB_Interp;
+    amrex::Real uxt, uyt, uzt, rhot, upx, upy, upz, fxt, fyt, fzt;
+
+    xt = p.pos(0) / delta;
+    yt = p.pos(1) / delta;
+
+    // 力修正系数：u_corrected = u + 0.5 * dt * F / (rho/cs2)
+    amrex::Real force_to_vel = 0.5 * dt_min * cs2 / p0;
+
+    uxt = 0.0;
+    uyt = 0.0;
+    uzt = 0.0;
+    rhot = 0.0;
+    upx = 0.0;
+    upy = 0.0;
+    upz = 0.0;
+
+    for (int x = -2; x <= 2; x++) {
+        for (int y = -2; y <= 2; y++) {
+            int xx = static_cast<int>(amrex::Math::floor(xt)) + x; // 拉格朗日点作用范围内真实的点坐标
+            int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+            int zz = 0;
+
+            lx = xt - (xx + 0.5);
+            ly = yt - (yy + 0.5);
+
+            IB_Interp = delta3p(lx) * delta3p(ly);
+
+            // 修正后的速度 = 原始速度 + 力对速度的修正
+            amrex::Real u_corr_x = u(xx, yy, zz, 0) + force_to_vel * Ft(xx, yy, zz, 0);
+            amrex::Real u_corr_y = u(xx, yy, zz, 1) + force_to_vel * Ft(xx, yy, zz, 1);
+
+            uxt += u_corr_x * IB_Interp;
+            uyt += u_corr_y * IB_Interp;
+            rhot += rho(xx, yy, zz, 0) * IB_Interp;
+        }
+    }
+
+    rhot = 2 * rhot / cs2 / dt_min;
+
+    fxt = rhot * (uxt - upx);
+    fyt = rhot * (uyt - upy);
+
+    ufx = uxt;
+    ufy = uyt;
+
+    for (int x = -2; x <= 2; x++) {
+        for (int y = -2; y <= 2; y++) {
+            int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+            int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+            int zz = 0;
+
+            lx = xt - (xx + 0.5);
+            ly = yt - (yy + 0.5);
+
+            IB_Interp = delta3p(lx) * delta3p(ly) * IB_weight;
+
+            amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 0), -fxt * IB_Interp);
+            amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 1), -fyt * IB_Interp);
+        }
+    }
+
+    fx += fxt * IB_weight * dx_min * dx_min;
+    fy += fyt * IB_weight * dx_min * dx_min;
+}
+#else
     force_interp_extrap(P const& p, amrex::Real& fx, amrex::Real& fy, /*amrex::Real& fz,*/ amrex::Real& ufx, amrex::Real& ufy,
                         /*amrex::Real& ufz, amrex::Real& area,*/ amrex::Array4<amrex::Real> const& u,
                         amrex::Array4<amrex::Real> const& rho, amrex::Array4<amrex::Real> const& Ft, amrex::Real const delta) {
@@ -589,6 +660,9 @@ AMREX_GPU_HOST_DEVICE
 
     xt = p.pos(0) / delta;
     yt = p.pos(1) / delta;
+
+    // 力修正系数：u_corrected = u + 0.5 * dt * F / (rho/cs2)
+    amrex::Real force_to_vel = 0.5 * dt_min * cs2 / p0;
 
     uxt = 0.0;
     uyt = 0.0;
@@ -642,5 +716,5 @@ AMREX_GPU_HOST_DEVICE
         }
     }
 }
-
+#endif
 #endif

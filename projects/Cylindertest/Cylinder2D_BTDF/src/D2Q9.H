@@ -13,6 +13,14 @@ using namespace amrex;
 const int coarsest_level = 0;
 const int max_ref_level = 3;
 const int rate = (1 << max_ref_level);
+#define NF 3
+
+// MDF 两阶段实现开关：仅在 NF > 1 时启用（节省内存）
+#if (NF > 1)
+#define USE_MDF_TWO_STAGE 1
+#else
+#define USE_MDF_TWO_STAGE 0
+#endif
 
 const Real D = 20.0;
 const Real R = D / 2.0;

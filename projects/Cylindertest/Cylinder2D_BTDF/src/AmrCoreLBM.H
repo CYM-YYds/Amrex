@@ -77,7 +77,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     //********************************************************************//
     void InitParticle(int lev);
     void InitCpPoint(int lev);
-    void InterpForce(int lev);
+    void InterpForce(int lev, int n_iter = 1);  // Multi-direct forcing 迭代次数，默认1次
     void SumForce(int lev);
     void ComputeParticle(int lev);
     // 返回是否达稳态
@@ -129,6 +129,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> vorticity;
     amrex::Vector<amrex::MultiFab> shear;
     amrex::Vector<amrex::MultiFab> force;
+#if USE_MDF_TWO_STAGE
+    amrex::Vector<amrex::MultiFab> force_delta;  // 力增量（仅 NF > 1 时启用）
+#endif
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
 
