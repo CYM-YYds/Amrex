@@ -138,7 +138,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uxt = U0;
         uyt = 0.0;
 
-        rhot = rho0;
+        rhot = rhot1;
 
         for (int q = 0; q < Q; q++) {
             fnew(x, y, z, q) = feqHeLuo(rhot, {uxt, uyt}, q) + fold(x1, y1, z1, q) - feqHeLuo(rhot1, {uxt1, uyt1}, q);
@@ -660,9 +660,6 @@ AMREX_GPU_HOST_DEVICE
 
     xt = p.pos(0) / delta;
     yt = p.pos(1) / delta;
-
-    // 力修正系数：u_corrected = u + 0.5 * dt * F / (rho/cs2)
-    amrex::Real force_to_vel = 0.5 * dt_min * cs2 / p0;
 
     uxt = 0.0;
     uyt = 0.0;
