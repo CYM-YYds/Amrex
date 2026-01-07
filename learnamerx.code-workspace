@@ -34,6 +34,7 @@
             "**/.git": false
         },
         "editor.formatOnSaveMode": "modificationsIfAvailable",
+        "clangd.path": "/home/share/huazkjdxmrsgjzdsyshi/home/lijing/wuyuchen/mambaforge3/bin/clangd",
         "clangd.arguments": [
             "--background-index",
             "--pch-storage=memory",
