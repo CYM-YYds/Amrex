@@ -1196,10 +1196,15 @@ void AmrCoreLBM::ComputeParticle(int lev) {
     // ApplyIDF(lev);
     InterpForce(lev);
 }
-bool AmrCoreLBM::ReduceFxy(int lev, int step) {
+
+void AmrCoreLBM::ReduceFxy(int lev, int step) {
+    mypc->SaveFxy(lev, step);
+}
+
+bool AmrCoreLBM::EvaluateConvergence(int lev, int step) {
     amrex::MultiFab& u_lev = velocity[lev];
     amrex::MultiFab& rho_lev = density[lev];
-    return mypc->SaveFxy(lev, step, u_lev, rho_lev);
+    return mypc->EvaluateConvergence(lev, step, u_lev, rho_lev);
 }
 
 void AmrCoreLBM::PrintParticleParm() {
@@ -1218,6 +1223,10 @@ void AmrCoreLBM::InitCpPoint(int lev) {
 }
 
 void AmrCoreLBM::ComputeCp(int lev, int step) {
+    amrex::MultiFab& rho_lev = density[lev];
+    // 填充密度场的 ghost 区域，确保双线性插值时能访问边界外的正确数据
+    rho_lev.FillBoundary(Geom(lev).periodicity());
+    mypc->ComputeCp(lev, rho_lev, "Cp_steady.dat");
 }
 
 // 构建活跃欧拉点集合：遍历所有拉格朗日点，将其 5x5 邻域内落在几何域（非ghost、非越界）的欧拉网格点加入集合（去重）

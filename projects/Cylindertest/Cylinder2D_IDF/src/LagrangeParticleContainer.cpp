@@ -170,7 +170,8 @@ bool LagrangeParticleContainer::EvaluateConvergenceAndWriteCp(int lev, int step,
 
     // 稳态后收集并输出圆柱表面压力系数分布
     if (steady_reached && !cp_written) {
-        // 注意：粒子物理坐标是用 coarse 级别的网格步长写入的
+        // 在收集 Cp 之前，先确保粒子上的 rho_interp 是最新的（仅在需要时执行插值以节省开销）
+        IDF_Interpolate(lev, u_lev, rho_lev);
         // 此处需与粒子坐标保持一致，否则角度会被偏移
         const Real delta0 = Geom(0).CellSize()[0];
         const Real center_x = X * delta0;
@@ -314,6 +315,30 @@ void LagrangeParticleContainer::IDF_Interpolate(int lev,
 
         amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
             ibm_interpolate(p_ptr[i], u, rho, delta, ufx[i], ufy[i], rho_attr[i]);
+        });
+    }
+    amrex::Gpu::streamSynchronize();
+}
+
+void LagrangeParticleContainer::IDF_Interpolate_normal_offset(int lev,
+                                                MultiFab& u_lev,
+                                                MultiFab& rho_lev) {
+    const Real delta = Geom(lev).CellSize()[0];
+
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        auto& particles = pti.GetArrayOfStructs();
+        auto p_ptr = particles().data();
+        const long n = pti.numParticles();
+
+        auto& attribs = pti.GetAttribs();
+        auto ufx = attribs[PIdx::ufx].data();
+        auto ufy = attribs[PIdx::ufy].data();
+        auto rho_attr = attribs[PIdx::rho_interp].data();
+        const Array4<Real>& u = u_lev.array(pti);
+        const Array4<Real>& rho = rho_lev.array(pti);
+
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+            ibm_interpolate_normal_offset(p_ptr[i], u, rho, delta, ufx[i], ufy[i], rho_attr[i]);
         });
     }
     amrex::Gpu::streamSynchronize();

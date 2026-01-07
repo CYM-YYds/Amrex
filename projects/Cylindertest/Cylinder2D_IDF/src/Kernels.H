@@ -5,6 +5,7 @@
 #include <AMReX_FArrayBox.H>
 #include <AMReX_Geometry.H>
 #include <AMReX_PhysBCFunct.H>
+#include <cmath>
 
 #include "D2Q9.H"
 
@@ -533,6 +534,44 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
             int zz = 0;
             amrex::Real lx = xt - (xx + 0.5);
             amrex::Real ly = yt - (yy + 0.5);
+            amrex::Real w = delta3p(lx) * delta3p(ly);
+            uxt += u(xx, yy, zz, 0) * w;
+            uyt += u(xx, yy, zz, 1) * w;
+            rhot += rho(xx, yy, zz, 0) * w;
+        }
+    }
+}
+
+// 插值：使用壁面法向外移一个 delta 的采样点（2D）
+template <typename P>
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate_normal_offset(P const& p,
+                                                                            amrex::Array4<amrex::Real> const& u,
+                                                                            amrex::Array4<amrex::Real> const& rho,
+                                                                            amrex::Real const delta,
+                                                                            amrex::Real& uxt,
+                                                                            amrex::Real& uyt,
+                                                                            amrex::Real& rhot) {
+    amrex::Real xt = p.pos(0) / delta;
+    amrex::Real yt = p.pos(1) / delta;
+
+    amrex::Real cx = X;
+    amrex::Real cy = Y;
+    amrex::Real theta = std::atan2(yt - cy, xt - cx);
+
+    // 取壁面法向外移一个 delta 的点进行插值
+    amrex::Real xt_sample = cx + (R / delta + 1.0) * std::cos(theta);
+    amrex::Real yt_sample = cy + (R / delta + 1.0) * std::sin(theta);
+
+    uxt = 0.0;
+    uyt = 0.0;
+    rhot = 0.0;
+    for (int x = -2; x <= 2; ++x) {
+        for (int y = -2; y <= 2; ++y) {
+            int xx = static_cast<int>(amrex::Math::floor(xt_sample)) + x;
+            int yy = static_cast<int>(amrex::Math::floor(yt_sample)) + y;
+            int zz = 0;
+            amrex::Real lx = xt_sample - (xx + 0.5);
+            amrex::Real ly = yt_sample - (yy + 0.5);
             amrex::Real w = delta3p(lx) * delta3p(ly);
             uxt += u(xx, yy, zz, 0) * w;
             uyt += u(xx, yy, zz, 1) * w;

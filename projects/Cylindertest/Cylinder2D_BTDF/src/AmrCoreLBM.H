@@ -80,11 +80,11 @@ class AmrCoreLBM : public amrex::AmrCore {
     void InterpForce(int lev);  // Multi-direct forcing 迭代次数，默认1次
     void SumForce(int lev);
     void ComputeParticle(int lev);
-    // 返回是否达稳态
-    bool ReduceFxy(int lev, int step);
+    void ReduceFxy(int lev, int step);
     void PrintParticleParm();
     void RedistributeParticle();
     void ComputeCp(int lev, int step);
+    bool EvaluateConvergence(int lev, int step);
 
     //********************************************************************//
     //                     IDF (Implicit Direct Forcing)                  //
