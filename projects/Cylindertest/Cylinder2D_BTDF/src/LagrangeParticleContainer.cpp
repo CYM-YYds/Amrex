@@ -146,9 +146,8 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
     }
 }
 #endif
-bool LagrangeParticleContainer::SaveFxy(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev) {
+void LagrangeParticleContainer::SaveFxy(int lev, int step) {
     using SPType = typename LagrangeParticleContainer::SuperParticleType;
-    using ParticleType = typename LagrangeParticleContainer::ParticleType;
 
     auto fx = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
         return p.rdata(PIdx::fx);
@@ -161,13 +160,11 @@ bool LagrangeParticleContainer::SaveFxy(int lev, int step, amrex::MultiFab& u_le
     ParallelDescriptor::ReduceRealSum(fx);
     ParallelDescriptor::ReduceRealSum(fy);
 
-    bool steady_reached = false;
     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
         Real m = 0.5 * (p0 / cs2) * U0 * U0 * D * dx_0;
         fx /= m;
         fy /= m;
-
-        const std::string filename = "CdCl.dat";
+        std::string filename = "CdCl.dat";
         std::ofstream file(filename, step == 1 ? std::ios::trunc : std::ios::app);
 
         if (!file.is_open()) {
@@ -177,12 +174,7 @@ bool LagrangeParticleContainer::SaveFxy(int lev, int step, amrex::MultiFab& u_le
 
         file << step << "\t" << fx << "\t" << fy << "\n";
         file.close();
-
-        // IO 进程仅进行Cd/Cl写出；稳态判定与Cp统计改由独立函数处理
     }
-    // 将稳态判断与Cp输出委托给新函数（传入 MultiFab 以便在需要时执行插值更新）
-    steady_reached = EvaluateConvergenceAndWriteCp(lev, step, fx, fy, u_lev, rho_lev);
-    return steady_reached;
 }
 
 void LagrangeParticleContainer::WriteParticle(int step) {
@@ -190,17 +182,34 @@ void LagrangeParticleContainer::WriteParticle(int step) {
     WriteAsciiFile(pltfile);
 }
 
-// 新增：稳态判断与压力系数统计
-bool LagrangeParticleContainer::EvaluateConvergenceAndWriteCp(int lev, int step, Real cd_value, Real cl_value, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev) {
-    using ParticleType = typename LagrangeParticleContainer::ParticleType;
-
+// 稳态判断：基于 Cd 的历史波动评估收敛性
+bool LagrangeParticleContainer::EvaluateConvergence(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev) {
     // 近期采样Cd历史与标志（跨多次调用保持）
     static std::vector<Real> cd_history(30);
     static bool steady_reached = false;
-    static bool cp_written = false;
+
+    using SPType = typename LagrangeParticleContainer::SuperParticleType;
 
     // 每100步评估一次收敛：最近30个采样内相对波动<0.1%
     if (!steady_reached && step % 100 == 0) {
+        // 计算当前的 Cd 和 Cl
+        auto fx = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
+            return p.rdata(PIdx::fx);
+        });
+
+        auto fy = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
+            return p.rdata(PIdx::fy);
+        });
+
+        ParallelDescriptor::ReduceRealSum(fx);
+        ParallelDescriptor::ReduceRealSum(fy);
+
+        // 归一化为 Cd 和 Cl
+        Real m = 0.5 * (p0 / cs2) * U0 * U0 * D * dx_0;
+        Real cd_value = fx / m;
+        Real cl_value = fy / m;
+
+        // 存储 Cd 历史用于收敛判断
         static int current_idx = 0;
         static bool filled_once = false;
 
@@ -226,99 +235,160 @@ bool LagrangeParticleContainer::EvaluateConvergenceAndWriteCp(int lev, int step,
         }
     }
 
-    // 广播稳态标志，所有进程统一进入后续收集逻辑
-    int steady_flag = steady_reached ? 1 : 0;
-    ParallelDescriptor::Bcast(&steady_flag, 1, ParallelDescriptor::IOProcessorNumber());
-    steady_reached = (steady_flag == 1);
+    return steady_reached;
+}
 
-    // 稳态后收集并输出圆柱表面压力系数分布
-    if (steady_reached && !cp_written) {
-        // 在收集 Cp 之前，先确保粒子上的 rho_interp 是最新的（仅在需要时执行插值以节省开销）
-        IDF_Interpolate(lev, u_lev, rho_lev);
-        // 此处需与粒子坐标保持一致，否则角度会被偏移
-        const Real delta0 = Geom(0).CellSize()[0];
-        const Real center_x = X * delta0;
-        const Real center_y = Y * delta0;
-        const Real p_ref = p0;
-        const Real q_inf = 0.5 * (p0 / cs2) * U0 * U0;
+// 计算圆柱表面压力系数分布（在距离壁面1Δx处采样，使用沿径向-切向的双线性插值）
+void LagrangeParticleContainer::ComputeCp(int lev, MultiFab& rho_lev, const std::string& filename) {
+    const Real delta = Geom(lev).CellSize()[0]; // 当前层网格步长
+    const Real delta0 = Geom(0).CellSize()[0];  // 最粗层网格步长
 
-        std::vector<Real> local_data;
-        for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
-            const long n = pti.numParticles();
-            if (n == 0)
-                continue;
+    // 填充密度场的 ghost 区域，确保插值时能访问边界外的数据
+    rho_lev.FillBoundary(Geom(lev).periodicity());
 
-            auto& aos = pti.GetArrayOfStructs();
-            amrex::Gpu::PinnedVector<ParticleType> host_particles(n);
-            amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-                                  aos().begin(), aos().end(),
-                                  host_particles.begin());
+    // 圆柱中心在物理坐标系中的位置
+    const Real center_x = X * delta0;
+    const Real center_y = Y * delta0;
 
-            auto& attribs = pti.GetAttribs();
-            amrex::Gpu::PinnedVector<Real> host_rho(n);
-            amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-                                  attribs[PIdx::rho_interp].begin(),
-                                  attribs[PIdx::rho_interp].begin() + n,
-                                  host_rho.begin());
-            amrex::Gpu::streamSynchronize();
+    // 采样半径：圆柱表面半径 + 1Δx（使用当前层网格步长以获得更好的精度）
+    const Real sample_radius_phys = (Rm * delta0) + delta;
 
-            for (long i = 0; i < n; ++i) {
-                const Real px = host_particles[i].pos(0);
-                const Real py = host_particles[i].pos(1);
-                const Real theta = std::atan2(py - center_y, px - center_x);
-                const Real cp = (host_rho[i] - p_ref) / q_inf;
-                local_data.push_back(theta);
-                local_data.push_back(cp);
-            }
-        }
+    // 参考压力和动压
+    const Real p_ref = p0;
+    const Real q_inf = 0.5 * (p0 / cs2) * U0 * U0;
 
-        const int nprocs = ParallelDescriptor::NProcs();
-        const int iorank = ParallelDescriptor::IOProcessorNumber();
-        const int local_count = static_cast<int>(local_data.size());
+    // 采样点数量（沿圆周均匀分布）
+    const int n_samples = np; // 使用与拉格朗日点相同的数量
 
-        std::vector<int> recv_counts(nprocs, 0);
-        ParallelDescriptor::Gather(&local_count, 1, recv_counts.data(), 1, iorank);
+    std::vector<Real> local_data;
 
-        std::vector<int> displs(nprocs, 0);
-        int total = 0;
-        if (ParallelDescriptor::MyProc() == iorank) {
-            for (int r = 0; r < nprocs; ++r) {
-                displs[r] = total;
-                total += recv_counts[r];
-            }
-        }
-
-        std::vector<Real> gathered(total);
-        ParallelDescriptor::Gatherv(local_data.data(), local_count,
-                                    gathered.data(), recv_counts, displs, iorank);
-
-        if (ParallelDescriptor::IOProcessor()) {
-            std::vector<std::array<Real, 2>> entries;
-            entries.reserve(total / 2);
-            for (int k = 0; k < total / 2; ++k) {
-                entries.push_back({gathered[2 * k], gathered[2 * k + 1]});
-            }
-
-            std::sort(entries.begin(), entries.end(),
-                      [](const auto& a, const auto& b) { return a[0] < b[0]; });
-
-            std::ofstream cp_file("Cp_steady.dat", std::ios::trunc);
-            if (cp_file.is_open()) {
-                cp_file << "# theta(rad)\tCp\n";
-                for (const auto& e : entries) {
-                    cp_file << e[0] << "\t" << e[1] << "\n";
+    // 遍历采样点
+    for (int i = 0; i < n_samples; ++i) {
+        // 计算采样点的角度
+        const Real theta = 2.0 * PI * Real(i) / Real(n_samples);
+        
+        // 径向单位矢量（指向外侧）
+        const Real n_r_x = std::cos(theta);
+        const Real n_r_y = std::sin(theta);
+        
+        // 切向单位矢量（逆时针方向）
+        const Real n_t_x = -std::sin(theta);
+        const Real n_t_y = std::cos(theta);
+        
+        // 中心采样点位置（物理坐标）
+        const Real sample_x = center_x + sample_radius_phys * n_r_x;
+        const Real sample_y = center_y + sample_radius_phys * n_r_y;
+        
+        // 定义四个插值点（使用径向-切向局部坐标系）
+        // 插值点偏移量（在径向和切向各±0.5Δx，形成菱形插值模板）
+        const Real offset = 0.5 * delta;
+        
+        // 四个插值点的物理坐标（相对于中心采样点的偏移）
+        // 点0: 径向内侧 (-offset沿径向, 0沿切向) - 注意：仍在流体区域内
+        // 点1: 径向外侧 (+offset沿径向, 0沿切向)
+        // 点2: 切向负方向 (0沿径向, -offset沿切向)
+        // 点3: 切向正方向 (0沿径向, +offset沿切向)
+        
+        struct InterpPoint {
+            Real x, y;      // 物理坐标
+            Real weight;    // 插值权重（双线性）
+        };
+        
+        std::array<InterpPoint, 4> interp_points = {{
+            {sample_x - offset * n_r_x, sample_y - offset * n_r_y, 0.25},  // 径向内
+            {sample_x + offset * n_r_x, sample_y + offset * n_r_y, 0.25},  // 径向外
+            {sample_x - offset * n_t_x, sample_y - offset * n_t_y, 0.25},  // 切向-
+            {sample_x + offset * n_t_x, sample_y + offset * n_t_y, 0.25}   // 切向+
+        }};
+        
+        // 检查并插值
+        bool point_found = true;
+        Real rho_interp = 0.0;
+        
+        for (const auto& pt : interp_points) {
+            // 将物理坐标转换为网格索引坐标
+            const Real i_real = pt.x / delta;
+            const Real j_real = pt.y / delta;
+            
+            // 找到最近的网格点
+            const int ii = static_cast<int>(std::round(i_real));
+            const int jj = static_cast<int>(std::round(j_real));
+            
+            // 在所有MFIter中查找该点
+            bool local_found = false;
+            for (MFIter mfi(rho_lev); mfi.isValid(); ++mfi) {
+                const Box& box = mfi.fabbox();
+                
+                if (box.contains(IntVect(ii, jj))) {
+                    const Array4<Real>& rho = rho_lev.array(mfi);
+                    rho_interp += pt.weight * rho(ii, jj, 0, 0);
+                    local_found = true;
+                    break;
                 }
-                cp_file.close();
-                amrex::Print() << "[Cp] Steady-state Cp written ("
-                               << entries.size() << " points)" << std::endl;
+            }
+            
+            if (!local_found) {
+                point_found = false;
+                break;
             }
         }
 
-        cp_written = true;
-        ParallelDescriptor::Barrier();
+        // 如果本进程找到了所有插值点，计算压力系数并存储
+        if (point_found) {
+            const Real cp = (rho_interp - p_ref) / q_inf;
+            local_data.push_back(theta);
+            local_data.push_back(cp);
+        }
     }
 
-    return steady_reached;
+    // 收集所有进程的数据到 IO 进程
+    const int nprocs = ParallelDescriptor::NProcs();
+    const int iorank = ParallelDescriptor::IOProcessorNumber();
+    const int local_count = static_cast<int>(local_data.size());
+
+    std::vector<int> recv_counts(nprocs, 0);
+    ParallelDescriptor::Gather(&local_count, 1, recv_counts.data(), 1, iorank);
+
+    std::vector<int> displs(nprocs, 0);
+    int total = 0;
+    if (ParallelDescriptor::MyProc() == iorank) {
+        for (int r = 0; r < nprocs; ++r) {
+            displs[r] = total;
+            total += recv_counts[r];
+        }
+    }
+
+    std::vector<Real> gathered(total);
+    ParallelDescriptor::Gatherv(local_data.data(), local_count,
+                                gathered.data(), recv_counts, displs, iorank);
+
+    // IO 进程输出结果
+    if (ParallelDescriptor::IOProcessor()) {
+        std::vector<std::array<Real, 2>> entries;
+        entries.reserve(total / 2);
+        for (int k = 0; k < total / 2; ++k) {
+            entries.push_back({gathered[2 * k], gathered[2 * k + 1]});
+        }
+
+        // 按角度排序
+        std::sort(entries.begin(), entries.end(),
+                  [](const auto& a, const auto& b) { return a[0] < b[0]; });
+
+        std::ofstream cp_file(filename, std::ios::trunc);
+        if (cp_file.is_open()) {
+            cp_file << "# Pressure coefficient distribution at r = Rm + 1*dx_0\n";
+            cp_file << "# theta(rad)\tCp\n";
+            for (const auto& e : entries) {
+                cp_file << std::scientific << std::setprecision(10)
+                        << e[0] << "\t" << e[1] << "\n";
+            }
+            cp_file.close();
+            amrex::Print() << "[Cp] Steady-state Cp written to " << filename
+                           << " (" << entries.size() << " points)" << std::endl;
+        } else {
+            amrex::Print() << "[Cp ERROR] Cannot open file: " << filename << std::endl;
+        }
+    }
 }
 
 //********************************************************************//

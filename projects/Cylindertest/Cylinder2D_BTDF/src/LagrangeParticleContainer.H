@@ -117,12 +117,14 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
     void DebugPrintForceSum(int lev, int step, int iter);
 
     // 返回是否已达稳态
-    bool SaveFxy(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
+    void SaveFxy(int lev, int step);
 
-    // 将稳态判断与圆柱表面压力系数统计拆分出的函数
-    // 传入已归一化的阻力系数（Cd）用于收敛评估；返回是否已达稳态
-    bool EvaluateConvergenceAndWriteCp(int lev, int step, amrex::Real cd_value, amrex::Real cl_value,
-                                       amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
+    // 稳态判断：基于 Cd 的历史波动评估收敛性
+    // 返回是否已达稳态
+    bool EvaluateConvergence(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
+
+    // 计算圆柱表面压力系数分布（在距离壁面1Δx处采样）
+    void ComputeCp(int lev, amrex::MultiFab& rho_lev, const std::string& filename);
 
     void WriteParticle(int step);
 
@@ -138,6 +140,10 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
 
     // 在拉格朗日点上执行插值（欧拉->拉格朗日）
     void IDF_Interpolate(int lev,
+                         amrex::MultiFab& u_lev,
+                         amrex::MultiFab& rho_lev);
+
+    void IDF_Interpolate_normal_offset(int lev,
                          amrex::MultiFab& u_lev,
                          amrex::MultiFab& rho_lev);
 
