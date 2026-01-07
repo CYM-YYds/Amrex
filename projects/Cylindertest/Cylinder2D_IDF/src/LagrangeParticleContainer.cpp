@@ -83,7 +83,7 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
     }
 }
 
-bool LagrangeParticleContainer::SaveFxy(int lev, int step) {
+bool LagrangeParticleContainer::SaveFxy(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev) {
     using SPType = typename LagrangeParticleContainer::SuperParticleType;
     using ParticleType = typename LagrangeParticleContainer::ParticleType;
 
@@ -117,8 +117,8 @@ bool LagrangeParticleContainer::SaveFxy(int lev, int step) {
 
         // IO 进程仅进行Cd/Cl写出；稳态判定与Cp统计改由独立函数处理
     }
-    // 将稳态判断与Cp输出委托给新函数
-    steady_reached = EvaluateConvergenceAndWriteCp(lev, step, fx, fy);
+    // 将稳态判断与Cp输出委托给新函数（传入 MultiFab 以便在需要时执行插值更新）
+    steady_reached = EvaluateConvergenceAndWriteCp(lev, step, fx, fy, u_lev, rho_lev);
     return steady_reached;
 }
 
@@ -128,7 +128,7 @@ void LagrangeParticleContainer::WriteParticle(int step) {
 }
 
 // 新增：稳态判断与压力系数统计
-bool LagrangeParticleContainer::EvaluateConvergenceAndWriteCp(int lev, int step, Real cd_value, Real cl_value) {
+bool LagrangeParticleContainer::EvaluateConvergenceAndWriteCp(int lev, int step, Real cd_value, Real cl_value, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev) {
     using ParticleType = typename LagrangeParticleContainer::ParticleType;
 
     // 近期采样Cd历史与标志（跨多次调用保持）
@@ -171,7 +171,7 @@ bool LagrangeParticleContainer::EvaluateConvergenceAndWriteCp(int lev, int step,
     // 稳态后收集并输出圆柱表面压力系数分布
     if (steady_reached && !cp_written) {
         // 在收集 Cp 之前，先确保粒子上的 rho_interp 是最新的（仅在需要时执行插值以节省开销）
-        IDF_Interpolate(lev, u_lev, rho_lev);
+        IDF_Interpolate_normal_offset(lev, u_lev, rho_lev);
         // 此处需与粒子坐标保持一致，否则角度会被偏移
         const Real delta0 = Geom(0).CellSize()[0];
         const Real center_x = X * delta0;
