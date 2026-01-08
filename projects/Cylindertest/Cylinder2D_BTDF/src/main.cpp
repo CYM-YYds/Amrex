@@ -67,9 +67,12 @@ int main(int argc, char* argv[]) {
 
             // 每步保存 Cd/Cl 数据
             lid.ReduceFxy(max_ref_level, step);
-            
+
             // 每100步评估收敛性
             bool steady = lid.EvaluateConvergence(max_ref_level, step);
+
+            if (step == 1000)
+                lid.ComputeCp(max_ref_level, step);
 
             if (steady) {
                 lid.ComputeCp(max_ref_level, step);
