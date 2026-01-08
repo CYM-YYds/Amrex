@@ -242,6 +242,21 @@ bool LagrangeParticleContainer::EvaluateConvergence(int lev, int step, amrex::Mu
 void LagrangeParticleContainer::ComputeCp(int lev, MultiFab& rho_lev, const std::string& filename) {
 
     Interpolate_normal_offset_Rho(lev, rho_lev);
+
+    // 调试：检查插值后的密度范围
+    using SPType = typename LagrangeParticleContainer::SuperParticleType;
+    auto rho_min = amrex::ReduceMin(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
+        return p.rdata(PIdx::rho_interp);
+    });
+    auto rho_max = amrex::ReduceMax(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
+        return p.rdata(PIdx::rho_interp);
+    });
+    ParallelDescriptor::ReduceRealMin(rho_min);
+    ParallelDescriptor::ReduceRealMax(rho_max);
+    if (ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "[DEBUG] Interpolated rho range: [" << rho_min << ", " << rho_max << "]" << std::endl;
+    }
+
     // 此处需与粒子坐标保持一致，否则角度会被偏移
     const Real delta0 = Geom(0).CellSize()[0];
     const Real center_x = X * delta0;
@@ -400,39 +415,39 @@ void LagrangeParticleContainer::Interpolate_normal_offset_Rho(int lev,
 
         // 只插值密度，u 传递 nullptr
         amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
-            interpolate_normal_offset(p_ptr[i], nullptr, &rho, delta,
-                                      nullptr, nullptr, &rho_attr[i]);
+            interpolate_normal_offset(p_ptr[i], nullptr, &rho, delta, nullptr, nullptr, &rho_attr[i]);
+            //interpolate_normal_offset(p_ptr[i], rho, delta, rho_attr[i]);
         });
     }
     amrex::Gpu::streamSynchronize();
 }
 
 // 重载3：插值速度和密度（原有接口）
-void LagrangeParticleContainer::Interpolate_normal_offset(int lev,
-                                                          MultiFab& u_lev,
-                                                          MultiFab& rho_lev) {
-    const Real delta = Geom(lev).CellSize()[0];
+// void LagrangeParticleContainer::Interpolate_normal_offset(int lev,
+//                                                           MultiFab& u_lev,
+//                                                           MultiFab& rho_lev) {
+//     const Real delta = Geom(lev).CellSize()[0];
 
-    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
-        auto& particles = pti.GetArrayOfStructs();
-        auto p_ptr = particles().data();
-        const long n = pti.numParticles();
+//     for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+//         auto& particles = pti.GetArrayOfStructs();
+//         auto p_ptr = particles().data();
+//         const long n = pti.numParticles();
 
-        auto& attribs = pti.GetAttribs();
-        auto ufx = attribs[PIdx::ufx].data();
-        auto ufy = attribs[PIdx::ufy].data();
-        auto rho_attr = attribs[PIdx::rho_interp].data();
-        const Array4<Real>& u = u_lev.array(pti);
-        const Array4<Real>& rho = rho_lev.array(pti);
+//         auto& attribs = pti.GetAttribs();
+//         auto ufx = attribs[PIdx::ufx].data();
+//         auto ufy = attribs[PIdx::ufy].data();
+//         auto rho_attr = attribs[PIdx::rho_interp].data();
+//         const Array4<Real>& u = u_lev.array(pti);
+//         const Array4<Real>& rho = rho_lev.array(pti);
 
-        // 插值全部：速度 + 密度
-        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
-            interpolate_normal_offset(p_ptr[i], &u, &rho, delta,
-                                      &ufx[i], &ufy[i], &rho_attr[i]);
-        });
-    }
-    amrex::Gpu::streamSynchronize();
-}
+//         // 插值全部：速度 + 密度
+//         amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+//             interpolate_normal_offset(p_ptr[i], &u, &rho, delta,
+//                                       &ufx[i], &ufy[i], &rho_attr[i]);
+//         });
+//     }
+//     amrex::Gpu::streamSynchronize();
+// }
 
 void LagrangeParticleContainer::IDF_ReadInterpResults(int lev,
                                                       std::vector<Real>& local_interp_ux,
