@@ -42,15 +42,6 @@ CCDB_METHOD="${CCDB_METHOD:-wrapper}"
 # 是否在构建遇错时继续尽量编译后续目标（有助于捕获更多编译命令，生成更完整的 CCDB）
 MAKE_KEEP_GOING="${MAKE_KEEP_GOING:-0}"
 
-# 可选：编译成功后是否自动提交作业（默认 0 不提交）。
-# 通过 --submit / --submit-after 触发；--no-submit 显式关闭。
-SUBMIT_AFTER="${SUBMIT_AFTER:-0}"
-SUBMIT_CMD="${SUBMIT_CMD:-dsub -s ./scripts/submit.sh}"
-# 提交必须在登录节点执行（避免编译节点缺少 dsub）；默认跳转 whshare-ccs-cli-2，可通过 SUBMIT_HOST 覆盖
-SUBMIT_HOST="${SUBMIT_HOST:-whshare-ccs-cli-2}"
-# 为避免编译节点加载的 GCC/LD_LIBRARY_PATH 影响 ssh，强制用干净环境调用 ssh
-SUBMIT_SSH="${SUBMIT_SSH:-/usr/bin/env -u LD_LIBRARY_PATH ssh}"
-
 # 控制编译数据库“胖/瘦”的可选开关：
 #  - CCDB_KEEP_TMP=1    保留 nvcc 产生的临时 tmpxft_/cudafe* 记录（默认 0，不保留）
 #  - CCDB_DEDUP_BY_FILE=0 禁用按 file 去重（默认 1，启用去重）
@@ -58,34 +49,6 @@ SUBMIT_SSH="${SUBMIT_SSH:-/usr/bin/env -u LD_LIBRARY_PATH ssh}"
 CCDB_KEEP_TMP="${CCDB_KEEP_TMP:-0}"
 CCDB_DEDUP_BY_FILE="${CCDB_DEDUP_BY_FILE:-1}"
 CCDB_OUTPUT_DIR="${CCDB_OUTPUT_DIR:-config}"
-
-# 解析简单命令行参数（当前仅支持提交开关）；保留其它位置参数以便将来扩展
-parse_args() {
-    local rest=()
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --submit|--submit-after)
-                SUBMIT_AFTER=1
-                ;;
-            --no-submit)
-                SUBMIT_AFTER=0
-                ;;
-            --)
-                shift
-                rest+=("$@")
-                break
-                ;;
-            *)
-                rest+=("$1")
-                ;;
-        esac
-        shift || break
-    done
-    SCRIPT_ARGS=("${rest[@]}")
-}
-
-parse_args "$@"
-set -- "${SCRIPT_ARGS[@]:-}"
 
 # 简单日志函数（注意：必须在首次调用前定义）
 info() { echo "[$(date '+%F %T')] $*"; }
@@ -797,15 +760,6 @@ run_here() {
     if do_compile; then
         info "编译成功！"
         verify_artifacts
-        if [[ "${SUBMIT_AFTER}" == "1" ]]; then
-            info "按请求在 ${SUBMIT_HOST} 上执行提交命令: ${SUBMIT_CMD}"
-            read -r -a _cf_submit_ssh <<< "${SUBMIT_SSH}"
-            if "${_cf_submit_ssh[@]}" "${SUBMIT_HOST}" "cd ${PROJECT_ROOT} && ${SUBMIT_CMD}"; then
-                info "提交命令执行完成。"
-            else
-                echo "提交命令执行失败" >&2
-            fi
-        fi
     else
         rc=$?
         echo "编译失败，请检查错误信息。" >&2
@@ -820,7 +774,6 @@ if [[ "$(hostname)" == "whshare-agent-1" ]]; then
     exit $?
 else
     info "正在连接到编译节点 whshare-agent-1..."
-    _orig_submit_after="$SUBMIT_AFTER"
     # 将本脚本通过标准输入传到远端执行，并传递必要的环境变量
     if [[ -z "$SCRIPT_PAYLOAD" || ! -f "$SCRIPT_PAYLOAD" ]]; then
         echo "错误: 无法找到脚本文件 $SCRIPT_PAYLOAD" >&2
@@ -832,10 +785,6 @@ else
     ssh_gen_ccdb=$(printf '%q' "$GEN_CCDB")
     ssh_ccdb_method=$(printf '%q' "$CCDB_METHOD")
     ssh_make_keep=$(printf '%q' "$MAKE_KEEP_GOING")
-    ssh_submit_after=$(printf '%q' "0")
-    ssh_submit_cmd=$(printf '%q' "$SUBMIT_CMD")
-    ssh_submit_host=$(printf '%q' "$SUBMIT_HOST")
-    ssh_submit_ssh=$(printf '%q' "$SUBMIT_SSH")
     ssh_project_root=$(printf '%q' "$PROJECT_ROOT")
     ssh whshare-agent-1 "cd ${ssh_workdir}; \
         MAKE_J=${ssh_make_j} \
@@ -843,24 +792,11 @@ else
         GEN_CCDB=${ssh_gen_ccdb} \
         CCDB_METHOD=${ssh_ccdb_method} \
         MAKE_KEEP_GOING=${ssh_make_keep} \
-        SUBMIT_AFTER=${ssh_submit_after} \
-        SUBMIT_CMD=${ssh_submit_cmd} \
-        SUBMIT_HOST=${ssh_submit_host} \
-        SUBMIT_SSH=${ssh_submit_ssh} \
         _CHANNELFLOW_PROJECT_ROOT=${ssh_project_root} \
         bash -s" < "${SCRIPT_PAYLOAD}"
     rc=$?
     if [ $rc -eq 0 ]; then
         info "远程编译成功。"
-        if [[ "${_orig_submit_after}" == "1" ]]; then
-            info "编译完成后在本地主机执行提交命令: ${SUBMIT_CMD}"
-            read -r -a _cf_submit_cmd <<< "${SUBMIT_CMD}"
-            if (cd "${PROJECT_ROOT}" && "${_cf_submit_cmd[@]}"); then
-                info "提交命令执行完成。"
-            else
-                echo "提交命令执行失败" >&2
-            fi
-        fi
     else
         echo "远程编译失败 (exit $rc)。" >&2
     fi

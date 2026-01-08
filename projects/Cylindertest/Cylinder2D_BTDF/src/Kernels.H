@@ -592,6 +592,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
 // 使用指针参数实现可选插值：
 //   - u/rho 参数传 nullptr 表示该场不可用（跳过相关插值）
 //   - uxt/uyt/rhot 传 nullptr 表示不需要该项插值
+
 template <typename P>
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void interpolate_normal_offset(P const& p,
                                                                         amrex::Array4<amrex::Real> const* u,
@@ -619,14 +620,24 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void interpolate_normal_offset(P const&
     if (rhot)
         *rhot = 0.0;
 
-    for (int x = -2; x <= 2; ++x) {
-        for (int y = -2; y <= 2; ++y) {
-            int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
-            int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+    // 越界防护：依据可用场（优先 rho，其次 u）取得有效索引范围
+    auto lo = (rho ? amrex::lbound(*rho) : amrex::lbound(*u));
+    auto hi = (rho ? amrex::ubound(*rho) : amrex::ubound(*u));
+
+    amrex::Real wsum = 0.0;
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            int xx = static_cast<int>(amrex::Math::floor(xt_sample)) + x;
+            int yy = static_cast<int>(amrex::Math::floor(yt_sample)) + y;
             int zz = 0;
+            // 防止索引越界（设备侧访问非法地址）
+            // if (xx < lo.x || xx > hi.x || yy < lo.y || yy > hi.y || zz < lo.z || zz > hi.z) {
+            //     continue;
+            // }
             amrex::Real lx = xt_sample - (xx + 0.5);
             amrex::Real ly = yt_sample - (yy + 0.5);
-            amrex::Real w = delta3p(lx) * delta3p(ly);
+            amrex::Real w = delta2p(lx) * delta2p(ly);
+            wsum += w;
 
             // 只计算需要且可用的量
             if (u && uxt)
@@ -637,7 +648,38 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void interpolate_normal_offset(P const&
                 *rhot += (*rho)(xx, yy, zz, 0) * w;
         }
     }
+
+    // 权重归一化：边界处模板被截断时，避免系统性低估
+    // if (wsum > 0.0) {
+    //     if (uxt)
+    //         *uxt /= wsum;
+    //     if (uyt)
+    //         *uyt /= wsum;
+    //     if (rhot)
+    //         *rhot /= wsum;
+    // }
 }
+
+// template <typename P>
+// AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void interpolate_normal_offset(P const& p,
+//                                                               amrex::Array4<amrex::Real> const& rho,
+//                                                               amrex::Real const delta,
+//                                                               amrex::Real& rhot) {
+//     amrex::Real xt = p.pos(0) / delta;
+//     amrex::Real yt = p.pos(1) / delta;
+//     rhot = 0.0;
+//     for (int x = -2; x <= 2; ++x) {
+//         for (int y = -2; y <= 2; ++y) {
+//             int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+//             int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+//             int zz = 0;
+//             amrex::Real lx = xt - (xx + 0.5);
+//             amrex::Real ly = yt - (yy + 0.5);
+//             amrex::Real w = delta3p(lx) * delta3p(ly);
+//             rhot += rho(xx, yy, zz, 0) * w;
+//         }
+//     }
+// }
 
 template <typename P>
 AMREX_GPU_HOST_DEVICE
