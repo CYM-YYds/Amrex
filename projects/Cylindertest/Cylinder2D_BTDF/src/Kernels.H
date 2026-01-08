@@ -511,6 +511,8 @@ Real delta3p(amrex::Real r) {
         return 0.0;
 }
 
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
 Real delta2p(amrex::Real r) {
     r = fabs(r);
     if (r <= 1.0)
@@ -617,14 +619,14 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void interpolate_normal_offset(P const&
     if (rhot)
         *rhot = 0.0;
 
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            int xx = static_cast<int>(amrex::Math::floor(xt_sample)) + x;
-            int yy = static_cast<int>(amrex::Math::floor(yt_sample)) + y;
+    for (int x = -2; x <= 2; ++x) {
+        for (int y = -2; y <= 2; ++y) {
+            int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+            int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
             int zz = 0;
             amrex::Real lx = xt_sample - (xx + 0.5);
             amrex::Real ly = yt_sample - (yy + 0.5);
-            amrex::Real w = delta2p(lx) * delta2p(ly);
+            amrex::Real w = delta3p(lx) * delta3p(ly);
 
             // 只计算需要且可用的量
             if (u && uxt)
