@@ -171,7 +171,8 @@ bool LagrangeParticleContainer::EvaluateConvergenceAndWriteCp(int lev, int step,
     // 稳态后收集并输出圆柱表面压力系数分布
     if (steady_reached && !cp_written) {
         // 在收集 Cp 之前，先确保粒子上的 rho_interp 是最新的（仅在需要时执行插值以节省开销）
-        IDF_Interpolate_normal_offset(lev, u_lev, rho_lev);
+        // IDF_Interpolate_normal_offset(lev, u_lev, rho_lev);
+        IDF_Interpolate(lev, u_lev, rho_lev);
         // 此处需与粒子坐标保持一致，否则角度会被偏移
         const Real delta0 = Geom(0).CellSize()[0];
         const Real center_x = X * delta0;
@@ -321,8 +322,8 @@ void LagrangeParticleContainer::IDF_Interpolate(int lev,
 }
 
 void LagrangeParticleContainer::IDF_Interpolate_normal_offset(int lev,
-                                                MultiFab& u_lev,
-                                                MultiFab& rho_lev) {
+                                                              MultiFab& u_lev,
+                                                              MultiFab& rho_lev) {
     const Real delta = Geom(lev).CellSize()[0];
 
     for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {

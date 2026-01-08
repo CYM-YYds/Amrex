@@ -5,6 +5,7 @@
 #include <AMReX_FArrayBox.H>
 #include <AMReX_Geometry.H>
 #include <AMReX_PhysBCFunct.H>
+#include <cmath>
 
 #include "D2Q9.H"
 
@@ -510,6 +511,14 @@ Real delta3p(amrex::Real r) {
         return 0.0;
 }
 
+Real delta2p(amrex::Real r) {
+    r = fabs(r);
+    if (r <= 1.0)
+        return (1.0 - r);
+    else
+        return 0.0;
+}
+
 //================= D_I / D_E 基础核：插值与传播 =================//
 
 // 插值：从欧拉网格插值速度和密度到粒子位置（2D）
@@ -573,6 +582,57 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
 
             amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 0), -fxt * IB_Interp);
             amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 1), -fyt * IB_Interp);
+        }
+    }
+}
+
+// 插值：使用壁面法向外移一个 delta 的采样点（2D）
+// 使用指针参数实现可选插值：
+//   - u/rho 参数传 nullptr 表示该场不可用（跳过相关插值）
+//   - uxt/uyt/rhot 传 nullptr 表示不需要该项插值
+template <typename P>
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void interpolate_normal_offset(P const& p,
+                                                                        amrex::Array4<amrex::Real> const* u,
+                                                                        amrex::Array4<amrex::Real> const* rho,
+                                                                        amrex::Real const delta,
+                                                                        amrex::Real* uxt,
+                                                                        amrex::Real* uyt,
+                                                                        amrex::Real* rhot) {
+    amrex::Real xt = p.pos(0) / delta;
+    amrex::Real yt = p.pos(1) / delta;
+
+    amrex::Real cx = X;
+    amrex::Real cy = Y;
+    amrex::Real theta = std::atan2(yt - cy, xt - cx);
+
+    // 取壁面法向外移一个 delta 的点进行插值
+    amrex::Real xt_sample = cx + (R + 1.0) * std::cos(theta);
+    amrex::Real yt_sample = cy + (R + 1.0) * std::sin(theta);
+
+    // 初始化（只对非空指针进行）
+    if (uxt)
+        *uxt = 0.0;
+    if (uyt)
+        *uyt = 0.0;
+    if (rhot)
+        *rhot = 0.0;
+
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            int xx = static_cast<int>(amrex::Math::floor(xt_sample)) + x;
+            int yy = static_cast<int>(amrex::Math::floor(yt_sample)) + y;
+            int zz = 0;
+            amrex::Real lx = xt_sample - (xx + 0.5);
+            amrex::Real ly = yt_sample - (yy + 0.5);
+            amrex::Real w = delta2p(lx) * delta2p(ly);
+
+            // 只计算需要且可用的量
+            if (u && uxt)
+                *uxt += (*u)(xx, yy, zz, 0) * w;
+            if (u && uyt)
+                *uyt += (*u)(xx, yy, zz, 1) * w;
+            if (rho && rhot)
+                *rhot += (*rho)(xx, yy, zz, 0) * w;
         }
     }
 }
