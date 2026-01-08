@@ -123,6 +123,14 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
     // 返回是否已达稳态
     bool EvaluateConvergence(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
 
+    // 重载2：只插值密度
+    void Interpolate_normal_offset_Rho(int lev, amrex::MultiFab& rho_lev);
+
+    // 重载3：插值速度和密度（原有接口）
+    void Interpolate_normal_offset(int lev,
+                                   amrex::MultiFab& u_lev,
+                                   amrex::MultiFab& rho_lev);
+
     // 计算圆柱表面压力系数分布（在距离壁面1Δx处采样）
     void ComputeCp(int lev, amrex::MultiFab& rho_lev, const std::string& filename);
 
@@ -140,10 +148,6 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
 
     // 在拉格朗日点上执行插值（欧拉->拉格朗日）
     void IDF_Interpolate(int lev,
-                         amrex::MultiFab& u_lev,
-                         amrex::MultiFab& rho_lev);
-
-    void IDF_Interpolate_normal_offset(int lev,
                          amrex::MultiFab& u_lev,
                          amrex::MultiFab& rho_lev);
 
