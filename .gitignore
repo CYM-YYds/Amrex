@@ -14,6 +14,7 @@
 *.err
 Backtrace.*
 *.txt
+*.csv
 
 # Generated directories
 **/data/
@@ -22,6 +23,7 @@ Backtrace.*
 **/plt*/
 **/.cache/
 **/chk*/
+**/amrex-23.09/
 # IDE/editor
 
 

@@ -9,7 +9,6 @@
 #include <AMReX_GpuContainers.H>
 
 #include <vector>
-#include <unordered_map>
 
 #include "D2Q9.H"
 
@@ -105,15 +104,34 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
 
     void MoveParticle();
 
+#if USE_MDF_TWO_STAGE
+    void InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev, amrex::MultiFab& force_delta_lev);
+#else
     void InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev);
+#endif
+    // 清零粒子力属性（用于 Multi-direct forcing 迭代前的初始化）
+    void ZeroParticleForce(int lev);
+
+    // 调试：输出粒子力总和
+    void DebugPrintForceSum(int lev, int step, int iter);
 
     // 返回是否已达稳态
-    bool SaveFxy(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
+    void SaveFxy(int lev, int step);
 
-    // 将稳态判断与圆柱表面压力系数统计拆分出的函数
-    // 传入已归一化的阻力系数（Cd）用于收敛评估；返回是否已达稳态
-    bool EvaluateConvergenceAndWriteCp(int lev, int step, amrex::Real cd_value, amrex::Real cl_value,
-                                       amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
+    // 稳态判断：基于 Cd 的历史波动评估收敛性
+    // 返回是否已达稳态
+    bool EvaluateConvergence(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
+
+    // 重载2：只插值密度
+    void Interpolate_normal_offset_Rho(int lev, amrex::MultiFab& rho_lev);
+
+    // 重载3：插值速度和密度（原有接口）
+    void Interpolate_normal_offset(int lev,
+                                   amrex::MultiFab& u_lev,
+                                   amrex::MultiFab& rho_lev);
+
+    // 计算圆柱表面压力系数分布（在距离壁面1Δx处采样）
+    void ComputeCp(int lev, amrex::MultiFab& rho_lev, const std::string& filename);
 
     void WriteParticle(int step);
 
@@ -131,21 +149,21 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
     void IDF_Interpolate(int lev,
                          amrex::MultiFab& u_lev,
                          amrex::MultiFab& rho_lev);
-    void IDF_Interpolate_normal_offset(int lev,
-                                       amrex::MultiFab& u_lev,
-                                       amrex::MultiFab& rho_lev);
 
     // 从粒子属性中读取插值结果到 CPU vector
+    // 可选参数 local_interp_ids: 若非空，同时返回粒子ID
     void IDF_ReadInterpResults(int lev,
                                std::vector<amrex::Real>& local_interp_ux,
                                std::vector<amrex::Real>& local_interp_uy,
-                               std::vector<amrex::Real>& local_interp_rho);
+                               std::vector<amrex::Real>& local_interp_rho,
+                               std::vector<int>* local_interp_ids = nullptr);
 
     // 将求解得到的力写回粒子属性
+    // 方案 C: 使用粒子ID直接计算全局索引（global_idx = pid - 1）
     void IDF_WriteForceToParticles(int lev,
                                    const std::vector<amrex::Real>& sol_x,
                                    const std::vector<amrex::Real>& sol_y,
-                                   const std::unordered_map<int, int>& pid_to_global_idx);
+                                   int idf_NL_global);
 
     // 将拉格朗日力传播到欧拉网格
     void IDF_SpreadForce(int lev, amrex::MultiFab& force_lev);
