@@ -5,6 +5,7 @@
 #include <AMReX_FArrayBox.H>
 #include <AMReX_Geometry.H>
 #include <AMReX_PhysBCFunct.H>
+#include <cmath>
 
 #include "D2Q9.H"
 
@@ -510,9 +511,226 @@ Real delta3p(amrex::Real r) {
         return 0.0;
 }
 
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+Real delta2p(amrex::Real r) {
+    r = fabs(r);
+    if (r <= 1.0)
+        return (1.0 - r);
+    else
+        return 0.0;
+}
+
+//================= D_I / D_E 基础核：插值与传播 =================//
+
+// 插值：从欧拉网格插值速度和密度到粒子位置（2D）
+template <typename P>
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
+                                                              amrex::Array4<amrex::Real> const& u,
+                                                              amrex::Array4<amrex::Real> const& rho,
+                                                              amrex::Real const delta,
+                                                              amrex::Real& uxt,
+                                                              amrex::Real& uyt,
+                                                              amrex::Real& rhot) {
+    amrex::Real xt = p.pos(0) / delta;
+    amrex::Real yt = p.pos(1) / delta;
+    uxt = 0.0;
+    uyt = 0.0;
+    rhot = 0.0;
+    for (int x = -2; x <= 2; ++x) {
+        for (int y = -2; y <= 2; ++y) {
+            int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+            int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+            int zz = 0;
+            amrex::Real lx = xt - (xx + 0.5);
+            amrex::Real ly = yt - (yy + 0.5);
+            amrex::Real w = delta3p(lx) * delta3p(ly);
+            uxt += u(xx, yy, zz, 0) * w;
+            uyt += u(xx, yy, zz, 1) * w;
+            rhot += rho(xx, yy, zz, 0) * w;
+        }
+    }
+}
+
+// 传播：将粒子力密度传播到欧拉网格（2D），负号累加
+template <typename P>
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
+                                                               amrex::Real const fx,
+                                                               amrex::Real const fy,
+                                                               amrex::Array4<amrex::Real> const& Ft,
+                                                               amrex::Real const delta) {
+    amrex::Real xt = p.pos(0) / delta;
+    amrex::Real yt = p.pos(1) / delta;
+    amrex::Real fxt = fx / (IB_weight * dx_min * dx_min);
+    amrex::Real fyt = fy / (IB_weight * dx_min * dx_min);
+    auto lo = amrex::lbound(Ft);
+    auto hi = amrex::ubound(Ft);
+    for (int x = -2; x <= 2; ++x) {
+        for (int y = -2; y <= 2; ++y) {
+            int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+            int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+
+            int zz = 0;
+
+            amrex::Real lx = xt - (xx + 0.5);
+            amrex::Real ly = yt - (yy + 0.5);
+
+            amrex::Real IB_Interp = delta3p(lx) * delta3p(ly) * IB_weight;
+
+            amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 0), -fxt * IB_Interp);
+            amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 1), -fyt * IB_Interp);
+        }
+    }
+}
+
+// 插值：使用壁面法向外移一个 delta 的采样点（2D）
+// 使用指针参数实现可选插值：
+//   - u/rho 参数传 nullptr 表示该场不可用（跳过相关插值）
+//   - uxt/uyt/rhot 传 nullptr 表示不需要该项插值
+
+template <typename P>
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void interpolate_normal_offset(P const& p,
+                                                                        amrex::Array4<amrex::Real> const* u,
+                                                                        amrex::Array4<amrex::Real> const* rho,
+                                                                        amrex::Real const delta,
+                                                                        amrex::Real const delta0,
+                                                                        amrex::Real* uxt,
+                                                                        amrex::Real* uyt,
+                                                                        amrex::Real* rhot) {
+    amrex::Real xt = p.pos(0) / delta;
+    amrex::Real yt = p.pos(1) / delta;
+
+    amrex::Real scale = delta0 / delta;
+
+    amrex::Real cx = X * scale;
+    amrex::Real cy = Y * scale;
+    amrex::Real theta = std::atan2(yt - cy, xt - cx);
+
+    Real dR = 1.5;
+    amrex::Real xt_sample = cx + (R * scale + dR) * std::cos(theta);
+    amrex::Real yt_sample = cy + (R * scale + dR) * std::sin(theta);
+
+    // 初始化（只对非空指针进行）
+    if (uxt)
+        *uxt = 0.0;
+    if (uyt)
+        *uyt = 0.0;
+    if (rhot)
+        *rhot = 0.0;
+
+    amrex::Real wsum = 0.0;
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            int xx = static_cast<int>(amrex::Math::floor(xt_sample)) + x;
+            int yy = static_cast<int>(amrex::Math::floor(yt_sample)) + y;
+            int zz = 0;
+
+            amrex::Real lx = xt_sample - (xx + 0.5);
+            amrex::Real ly = yt_sample - (yy + 0.5);
+            amrex::Real w = delta2p(lx) * delta2p(ly);
+
+            // 跳过权重为0的点，节省计算
+            if (w < 1e-12)
+                continue;
+
+            wsum += w;
+
+            // 只计算需要且可用的量
+            if (u && uxt)
+                *uxt += (*u)(xx, yy, zz, 0) * w;
+            if (u && uyt)
+                *uyt += (*u)(xx, yy, zz, 1) * w;
+            if (rho && rhot)
+                *rhot += (*rho)(xx, yy, zz, 0) * w;
+        }
+    }
+
+    // 权重归一化：确保插值守恒
+    // 正常情况下 wsum 应该 ≈ 1.0，如果 wsum 太小说明采样点位置有问题
+    if (wsum > 0.5) { // 至少有一半的权重有效
+        if (uxt)
+            *uxt /= wsum;
+        if (uyt)
+            *uyt /= wsum;
+        if (rhot)
+            *rhot /= wsum;
+    }
+}
+
 template <typename P>
 AMREX_GPU_HOST_DEVICE
     AMREX_FORCE_INLINE void
+#if USE_MDF_TWO_STAGE
+    force_interp_extrap(P const& p, amrex::Real& fx, amrex::Real& fy, /*amrex::Real& fz,*/ amrex::Real& ufx, amrex::Real& ufy,
+                        /*amrex::Real& ufz, amrex::Real& area,*/ amrex::Array4<amrex::Real> const& u,
+                        amrex::Array4<amrex::Real> const& rho, amrex::Array4<amrex::Real> const& Ft, amrex::Array4<amrex::Real> const& Ft_delta, amrex::Real const delta) {
+    amrex::Real xt, yt, zt, lx, ly, lz;
+    amrex::Real IB_Interp;
+    amrex::Real uxt, uyt, uzt, rhot, upx, upy, upz, fxt, fyt, fzt;
+
+    xt = p.pos(0) / delta;
+    yt = p.pos(1) / delta;
+
+    // 力修正系数：u_corrected = u + 0.5 * dt * F / (rho/cs2)
+    amrex::Real force_to_vel = 0.5 * dt_min * cs2 / p0;
+
+    uxt = 0.0;
+    uyt = 0.0;
+    uzt = 0.0;
+    rhot = 0.0;
+    upx = 0.0;
+    upy = 0.0;
+    upz = 0.0;
+
+    for (int x = -2; x <= 2; x++) {
+        for (int y = -2; y <= 2; y++) {
+            int xx = static_cast<int>(amrex::Math::floor(xt)) + x; // 拉格朗日点作用范围内真实的点坐标
+            int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+            int zz = 0;
+
+            lx = xt - (xx + 0.5);
+            ly = yt - (yy + 0.5);
+
+            IB_Interp = delta3p(lx) * delta3p(ly);
+
+            // 修正后的速度 = 原始速度 + 力对速度的修正
+            amrex::Real u_corr_x = u(xx, yy, zz, 0) + force_to_vel * Ft(xx, yy, zz, 0);
+            amrex::Real u_corr_y = u(xx, yy, zz, 1) + force_to_vel * Ft(xx, yy, zz, 1);
+
+            uxt += u_corr_x * IB_Interp;
+            uyt += u_corr_y * IB_Interp;
+            rhot += rho(xx, yy, zz, 0) * IB_Interp;
+        }
+    }
+
+    rhot = 2 * rhot / cs2 / dt_min;
+
+    fxt = rhot * (uxt - upx);
+    fyt = rhot * (uyt - upy);
+
+    ufx = uxt;
+    ufy = uyt;
+
+    for (int x = -2; x <= 2; x++) {
+        for (int y = -2; y <= 2; y++) {
+            int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+            int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+            int zz = 0;
+
+            lx = xt - (xx + 0.5);
+            ly = yt - (yy + 0.5);
+
+            IB_Interp = delta3p(lx) * delta3p(ly) * IB_weight;
+
+            amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 0), -fxt * IB_Interp);
+            amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 1), -fyt * IB_Interp);
+        }
+    }
+
+    fx += fxt * IB_weight * dx_min * dx_min;
+    fy += fyt * IB_weight * dx_min * dx_min;
+}
+#else
     force_interp_extrap(P const& p, amrex::Real& fx, amrex::Real& fy, /*amrex::Real& fz,*/ amrex::Real& ufx, amrex::Real& ufy,
                         /*amrex::Real& ufz, amrex::Real& area,*/ amrex::Array4<amrex::Real> const& u,
                         amrex::Array4<amrex::Real> const& rho, amrex::Array4<amrex::Real> const& Ft, amrex::Real const delta) {
@@ -575,5 +793,5 @@ AMREX_GPU_HOST_DEVICE
         }
     }
 }
-
+#endif
 #endif

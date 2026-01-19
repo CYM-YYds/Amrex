@@ -34,7 +34,7 @@
 set -euo pipefail
 
 # 可配置项（通过环境变量覆盖）
-MAKE_J="${MAKE_J:-16}"
+MAKE_J="${MAKE_J:-8}"
 CUDA_ARCH="${CUDA_ARCH:-80}"
 GEN_CCDB="${GEN_CCDB:-0}"
 # 生成编译数据库的方法控制（auto|wrapper|bear|intercept）

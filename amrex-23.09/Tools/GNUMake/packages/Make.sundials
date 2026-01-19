@@ -1,3 +1,0 @@
-
-CPPFLAGS += -DAMREX_USE_SUNDIALS
-include $(AMREX_HOME)/Src/Extern/SUNDIALS/Make.package

@@ -77,14 +77,14 @@ class AmrCoreLBM : public amrex::AmrCore {
     //********************************************************************//
     void InitParticle(int lev);
     void InitCpPoint(int lev);
-    void InterpForce(int lev);
+    void InterpForce(int lev);  // Multi-direct forcing 迭代次数，默认1次
     void SumForce(int lev);
     void ComputeParticle(int lev);
-    // 返回是否达稳态
-    bool ReduceFxy(int lev, int step);
+    void ReduceFxy(int lev, int step);
     void PrintParticleParm();
     void RedistributeParticle();
     void ComputeCp(int lev, int step);
+    bool EvaluateConvergence(int lev, int step);
 
     //********************************************************************//
     //                     IDF (Implicit Direct Forcing)                  //
@@ -129,6 +129,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> vorticity;
     amrex::Vector<amrex::MultiFab> shear;
     amrex::Vector<amrex::MultiFab> force;
+    // force_delta 现在作为临时局部变量在 InterpForce() 中创建，以节省常驻内存
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
 
@@ -166,20 +167,10 @@ class AmrCoreLBM : public amrex::AmrCore {
     int idf_local_offset{0};
     int idf_local_NL{0}; // 本进程拥有的拉格朗日点数
 
-    // 本进程粒子在按ID排序后全局数组中的索引列表
-    // 由于按粒子ID排序，本进程粒子可能不连续分布在全局数组中
-    std::vector<int> idf_local_lag_global_indices;
-
-    // 粒子ID到全局索引的映射（所有进程共享）
-    // 用于在写回力时将粒子ID转换为全局数组索引
-    std::unordered_map<int, int> idf_pid_to_global_idx;
 
     // MPI 通信参数（每个进程的粒子数量和偏移）
     // 在 BuildActiveEulerSet 中初始化，regrid 后更新
     std::vector<int> idf_all_NL;     // 每个进程的粒子数量
-
-    // 按粒子ID排序的索引数组（静止边界只需计算一次）
-    std::vector<int> idf_sort_indices;
 
     // 矩阵是否已构建
     bool idf_matrix_built{false};
