@@ -109,8 +109,20 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
     void SetLubVal(amrex::RealVect& force_lub);
     void SavePosition(int lev, int step);
 
+    //********************************************************************//
+    //                     MDF (Multi-Direct Forcing)                     //
+    //********************************************************************//
+#if USE_MDF_TWO_STAGE
+    void InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev, amrex::MultiFab& force_delta_lev);
+#else
     void InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev);
+#endif
+
+    // 壁面模型版本（保留原有接口）
     void InterpForceWallModel(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev);
+
+    // 清零粒子力（用于迭代开始前）
+    void ZeroParticleForce(int lev);
 
     void SaveFxy(int lev, int step);
 
@@ -118,6 +130,40 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
 
     void CollideParticle(const std::unique_ptr<LagrangeParticleContainer>& p2);
     void CollideWall();
+
+    //********************************************************************//
+    //                     IDF (Implicit Direct Forcing)                  //
+    //********************************************************************//
+
+    // 收集本进程粒子的位置和ID（用于矩阵组装）
+    // 返回本进程的粒子数量
+    int IDF_CollectParticleData(int lev,
+                                std::vector<amrex::Real>& local_lag_pos,
+                                std::vector<int>& local_lag_ids);
+
+    // 在拉格朗日点上执行插值（欧拉->拉格朗日）
+    void IDF_Interpolate(int lev,
+                         amrex::MultiFab& u_lev,
+                         amrex::MultiFab& rho_lev);
+
+    // 从粒子属性中读取插值结果到 CPU vector（3D版本：ux,uy,uz）
+    // 可选参数 local_interp_ids: 若非空，同时返回粒子ID
+    void IDF_ReadInterpResults(int lev,
+                               std::vector<amrex::Real>& local_interp_ux,
+                               std::vector<amrex::Real>& local_interp_uy,
+                               std::vector<amrex::Real>& local_interp_uz,
+                               std::vector<amrex::Real>& local_interp_rho,
+                               std::vector<int>* local_interp_ids = nullptr);
+
+    // 将求解得到的力写回粒子属性（3D版本：fx,fy,fz）
+    void IDF_WriteForceToParticles(int lev,
+                                   const std::vector<amrex::Real>& sol_x,
+                                   const std::vector<amrex::Real>& sol_y,
+                                   const std::vector<amrex::Real>& sol_z,
+                                   int idf_NL_global);
+
+    // 将拉格朗日力传播到欧拉网格
+    void IDF_SpreadForce(int lev, amrex::MultiFab& force_lev);
 
   private: // 颗粒信息
     int id;

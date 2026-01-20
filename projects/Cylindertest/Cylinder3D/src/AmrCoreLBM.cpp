@@ -13,6 +13,10 @@
 #include <sstream>
 #include <cctype>
 #include <dirent.h> // added for opendir/readdir/closedir
+#include <set>
+#include <map>
+#include <algorithm>
+#include <numeric>
 
 #ifdef AMREX_MEM_PROFILING
 #include <AMReX_MemProfiler.H>
@@ -20,6 +24,99 @@
 
 #include "AmrCoreLBM.H"
 #include "Kernels.H"
+
+// IDF: 辅助函数和线性求解器
+namespace {
+
+// 稠密矩阵乘向量
+void denseMatVec(const std::vector<amrex::Real>& A,
+                 const std::vector<amrex::Real>& x,
+                 std::vector<amrex::Real>& y) {
+    int N = static_cast<int>(x.size());
+    y.assign(N, 0.0);
+    for (int i = 0; i < N; ++i) {
+        const amrex::Real* row = &A[i * N];
+        amrex::Real acc = 0.0;
+        for (int j = 0; j < N; ++j)
+            acc += row[j] * x[j];
+        y[i] = acc;
+    }
+}
+
+// LU 分解求矩阵逆（带部分主元选择）
+static bool computeMatrixInverse(const std::vector<amrex::Real>& A,
+                                 std::vector<amrex::Real>& A_inv,
+                                 int N) {
+    if (N <= 0)
+        return false;
+
+    // 创建增广矩阵 [A | I]
+    std::vector<amrex::Real> aug(N * 2 * N, 0.0);
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            aug[i * 2 * N + j] = A[i * N + j];
+        }
+        aug[i * 2 * N + N + i] = 1.0;
+    }
+
+    // 高斯-约旦消元（带部分主元选择）
+    for (int col = 0; col < N; ++col) {
+        // 寻找主元
+        int max_row = col;
+        amrex::Real max_val = std::abs(aug[col * 2 * N + col]);
+        for (int row = col + 1; row < N; ++row) {
+            amrex::Real val = std::abs(aug[row * 2 * N + col]);
+            if (val > max_val) {
+                max_val = val;
+                max_row = row;
+            }
+        }
+
+        // 检查奇异性
+        if (max_val < 1e-14) {
+            if (amrex::ParallelDescriptor::IOProcessor()) {
+                amrex::Print() << "[MatrixInverse] Warning: Matrix is singular at col "
+                               << col << ", pivot=" << max_val << std::endl;
+            }
+            return false;
+        }
+
+        // 交换行
+        if (max_row != col) {
+            for (int j = 0; j < 2 * N; ++j) {
+                std::swap(aug[col * 2 * N + j], aug[max_row * 2 * N + j]);
+            }
+        }
+
+        // 归一化主元行
+        amrex::Real pivot = aug[col * 2 * N + col];
+        for (int j = 0; j < 2 * N; ++j) {
+            aug[col * 2 * N + j] /= pivot;
+        }
+
+        // 消元
+        for (int row = 0; row < N; ++row) {
+            if (row != col) {
+                amrex::Real factor = aug[row * 2 * N + col];
+                for (int j = 0; j < 2 * N; ++j) {
+                    aug[row * 2 * N + j] -= factor * aug[col * 2 * N + j];
+                }
+            }
+        }
+    }
+
+    // 提取逆矩阵
+    A_inv.resize(N * N);
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            A_inv[i * N + j] = aug[i * 2 * N + N + j];
+        }
+    }
+
+    return true;
+}
+
+} // namespace
 
 using namespace amrex;
 
@@ -1188,37 +1285,26 @@ void AmrCoreLBM::InitParticle(int lev) {
     for (int i = 0; i < particle_num; i++) {
         particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
         // particles[i]->InitParticle(lev);
-        //particles[i]->InitChannelParticle(lev);
+        // particles[i]->InitChannelParticle(lev);
         particles[i]->InitCylinderParticle(lev);
         //   particles[i] ->InitParticleFromFile(lev, "../../../object/sphere128");
         //   particles[i] ->InitParticleFromFile(lev, "../../../object/car_fine");
     }
 }
 
-void AmrCoreLBM::InterpForce(int lev) {
-    amrex::MultiFab& rho_lev = density[lev];
-    amrex::MultiFab& u_lev = velocity[lev];
-    amrex::MultiFab& force_lev = force[lev];
-
-    force_lev.setVal(0.0, nghost);
-    for (int i = 0; i < particle_num; i++) {
-        particles[i]->InterpForce(lev, rho_lev, u_lev, force_lev);
-        // particles[i]->InterpForceWallModel(lev, rho_lev, u_lev, force_lev);
-    }
-}
-
-void AmrCoreLBM::SumForce(int lev) {
-    MultiFab* mf_pointer = &force[lev];
-
-    mf_pointer->SumBoundary(Geom(lev).periodicity());
-}
-
 void AmrCoreLBM::ComputeParticle(int lev) {
     // amrex::AllPrint()<<"ComputeParticle on " << lev <<std::endl;
     CommunicateLevel(lev);
     ComputeMacroLevel(lev);
-    InterpForce(lev);
-    SumForce(lev);
+
+    // 用户可选择以下两种方法之一（通过注释/取消注释切换）：
+    // 方法1: IDF (Implicit Direct Forcing) - 矩阵求解法
+    ApplyIDF(lev); // 使用 IDF 时保留此行，注释掉 InterpForce(lev)
+
+    // 方法2: MDF (Multi-Direct Forcing) - 迭代求解法
+    // InterpForce(lev);    // 使用 MDF 时保留此行，注释掉 ApplyIDF(lev)
+    // 注意：MDF 的迭代次数由 D3Q19.H 中的 NF 宏控制
+    //       当 NF > 1 时自动启用两阶段迭代优化
 }
 
 void AmrCoreLBM::ReduceFxy(int lev, int step) {
@@ -1365,6 +1451,575 @@ void AmrCoreLBM::MoveParticle(int lev, amrex::Real cur_time) {
 }
 
 //********************************************************************//
+//                    IDF (Implicit Direct Forcing) 实现             //
+//********************************************************************//
+
+// 构建活跃欧拉点集合：遍历所有拉格朗日点，将其 5x5x5 邻域内落在几何域的欧拉网格点加入集合（去重）
+// 同时收集全局拉格朗日点位置用于后续矩阵组装
+void AmrCoreLBM::BuildActiveEulerSet(int lev) {
+    if (particles.size() == 0 || !particles[0])
+        return;
+
+    // 静止边界优化：
+    // 1. 矩阵 A^(-1) 只需构建一次（idf_geometry_built）
+    // 2. 本地粒子计数 idf_local_NL 需要在每次 regrid 后更新（idf_local_count_valid）
+
+    // 如果几何已构建且本地计数有效，直接返回
+    if (idf_geometry_built && idf_local_count_valid) {
+        return;
+    }
+
+    // 如果只需更新本地计数（几何已构建但 regrid 后计数过时）
+    if (idf_geometry_built && !idf_local_count_valid) {
+        // 由于粒子 redistribute 后，本进程拥有的粒子集合可能变化，仅更新本地计数
+        idf_local_NL = 0;
+        for (auto& pc : particles) {
+            if (pc) {
+                for (MyParIter pti(*pc, lev); pti.isValid(); ++pti) {
+                    idf_local_NL += pti.numParticles();
+                }
+            }
+        }
+        idf_local_count_valid = true;
+        return;
+    }
+
+    // ========== Step 1: 收集本地拉格朗日点数据和全局统计 ==========
+    std::vector<Real> local_lag_pos;
+    std::vector<int> local_lag_ids;
+    idf_local_NL = 0;
+
+    // 汇总所有粒子容器的拉格朗日点数据
+    for (auto& pc : particles) {
+        if (pc) {
+            idf_local_NL += pc->IDF_CollectParticleData(lev, local_lag_pos, local_lag_ids);
+        }
+    }
+
+    // MPI 汇总本地粒子数量到全局
+    int nprocs = ParallelDescriptor::NProcs();
+    idf_all_NL.resize(nprocs, 0);
+    MPI_Allgather(&idf_local_NL, 1, MPI_INT, idf_all_NL.data(), 1, MPI_INT,
+                  ParallelDescriptor::Communicator());
+
+    // 计算全局粒子总数和本进程偏移
+    idf_NL_global = 0;
+    idf_local_offset = 0;
+    for (int i = 0; i < nprocs; ++i) {
+        if (i < ParallelDescriptor::MyProc()) {
+            idf_local_offset += idf_all_NL[i];
+        }
+        idf_NL_global += idf_all_NL[i];
+    }
+
+    if (idf_NL_global == 0) {
+        return;
+    }
+
+    // ========== Step 2: 汇总拉格朗日点位置到全局向量 ==========
+    std::vector<int> pos_recvcounts(nprocs), pos_displs(nprocs + 1, 0);
+    for (int i = 0; i < nprocs; ++i) {
+        pos_recvcounts[i] = idf_all_NL[i] * 3; // 3D: x,y,z
+    }
+    std::partial_sum(pos_recvcounts.begin(), pos_recvcounts.end(), pos_displs.begin() + 1);
+
+    std::vector<Real> unsorted_lag_pos(idf_NL_global * 3);
+    MPI_Allgatherv(local_lag_pos.data(), idf_local_NL * 3, ParallelDescriptor::Mpi_typemap<Real>::type(),
+                   unsorted_lag_pos.data(), pos_recvcounts.data(), pos_displs.data(),
+                   ParallelDescriptor::Mpi_typemap<Real>::type(),
+                   ParallelDescriptor::Communicator());
+
+    // ========== Step 2c: 按粒子ID直接重排位置数据（无需排序）=====
+    idf_lag_pos_global.resize(idf_NL_global * 3);
+    std::vector<int> all_lag_ids(idf_NL_global);
+
+    // Allgatherv 汇总所有粒子 ID 到每个进程
+    std::vector<int> id_recvcounts(nprocs), id_displs(nprocs + 1, 0);
+    for (int i = 0; i < nprocs; ++i) {
+        id_recvcounts[i] = idf_all_NL[i];
+    }
+    std::partial_sum(id_recvcounts.begin(), id_recvcounts.end(), id_displs.begin() + 1);
+
+    MPI_Allgatherv(local_lag_ids.data(), idf_local_NL, MPI_INT,
+                   all_lag_ids.data(), id_recvcounts.data(), id_displs.data(),
+                   MPI_INT, ParallelDescriptor::Communicator());
+
+    // 按粒子 ID 直接写入全局位置数组
+    for (int i = 0; i < idf_NL_global; ++i) {
+        int pid = all_lag_ids[i];
+        int global_idx = pid - 1; // 粒子ID从1开始
+        if (global_idx >= 0 && global_idx < idf_NL_global) {
+            idf_lag_pos_global[global_idx * 3] = unsorted_lag_pos[i * 3];
+            idf_lag_pos_global[global_idx * 3 + 1] = unsorted_lag_pos[i * 3 + 1];
+            idf_lag_pos_global[global_idx * 3 + 2] = unsorted_lag_pos[i * 3 + 2];
+        }
+    }
+
+    // ========== Step 3: MPI 汇总欧拉点（各进程先独立计算，再合并去重）==========
+    std::set<IntVect> local_euler_set;
+    const Geometry& gm = Geom(lev);
+    const Box& domain = gm.Domain();
+    const Real* dx = gm.CellSize();
+
+    // 构建本进程的局部欧拉点集合（所有拉格朗日点的 5x5x5 邻域）
+    for (int p = 0; p < idf_local_NL; ++p) {
+        Real xp = local_lag_pos[p * 3];
+        Real yp = local_lag_pos[p * 3 + 1];
+        Real zp = local_lag_pos[p * 3 + 2];
+        Real xt = xp / dx[0];
+        Real yt = yp / dx[1];
+        Real zt = zp / dx[2];
+        int xx = static_cast<int>(amrex::Math::floor(xt));
+        int yy = static_cast<int>(amrex::Math::floor(yt));
+        int zz = static_cast<int>(amrex::Math::floor(zt));
+
+        for (int z = -2; z <= 2; ++z) {
+            for (int y = -2; y <= 2; ++y) {
+                for (int x = -2; x <= 2; ++x) {
+                    IntVect iv(xx + x, yy + y, zz + z);
+                    if (domain.contains(iv)) {
+                        local_euler_set.insert(iv);
+                    }
+                }
+            }
+        }
+    }
+
+    // 将本地欧拉点转为数组 [i0, j0, k0, i1, j1, k1, ...]
+    std::vector<int> local_euler_data;
+    for (const auto& iv : local_euler_set) {
+        local_euler_data.push_back(iv[0]);
+        local_euler_data.push_back(iv[1]);
+        local_euler_data.push_back(iv[2]);
+    }
+    int local_NE = local_euler_set.size();
+
+    // 收集每个进程的欧拉点数量
+    std::vector<int> all_NE(nprocs, 0);
+    MPI_Allgather(&local_NE, 1, MPI_INT, all_NE.data(), 1, MPI_INT,
+                  ParallelDescriptor::Communicator());
+
+    // 准备 Allgatherv 参数
+    int total_euler_ints = 0;
+    std::vector<int> euler_recvcounts(nprocs), euler_displs(nprocs);
+    for (int i = 0; i < nprocs; ++i) {
+        euler_recvcounts[i] = all_NE[i] * 3; // 3D: i,j,k
+        euler_displs[i] = total_euler_ints;
+        total_euler_ints += euler_recvcounts[i];
+    }
+
+    // 汇总所有欧拉点数据
+    std::vector<int> all_euler_data(total_euler_ints);
+    MPI_Allgatherv(local_euler_data.data(), local_NE * 3, MPI_INT,
+                   all_euler_data.data(), euler_recvcounts.data(), euler_displs.data(),
+                   MPI_INT, ParallelDescriptor::Communicator());
+
+    // 合并去重构建全局欧拉点集合
+    std::set<IntVect> global_euler_set;
+    for (int k = 0; k < total_euler_ints / 3; ++k) {
+        IntVect iv(all_euler_data[k * 3], all_euler_data[k * 3 + 1], all_euler_data[k * 3 + 2]);
+        global_euler_set.insert(iv);
+    }
+
+    // 更新全局欧拉点数据（每个进程都有完整副本）
+    idf_active_euler_nodes_global.assign(global_euler_set.begin(), global_euler_set.end());
+    idf_NE_global = global_euler_set.size();
+
+    // 构建全局欧拉点索引映射
+    idf_euler_index_map_global.clear();
+    for (int i = 0; i < idf_NE_global; ++i) {
+        idf_euler_index_map_global[idf_active_euler_nodes_global[i]] = i;
+    }
+
+    // 仅在第一次调用时输出详细信息
+    static bool first_call = true;
+    if (first_call && ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "[IDF_3D] BuildActiveEulerSet: NL_global=" << idf_NL_global
+                       << ", NE_global=" << idf_NE_global << std::endl;
+        first_call = false;
+    }
+
+    // 标记几何已构建（静止边界可复用）
+    idf_geometry_built = true;
+    idf_local_count_valid = true;
+}
+
+//============================================================================//
+//                     MDF (Multi-Direct Forcing) 实现                        //
+//============================================================================//
+// MDF 迭代求解：通过多次迭代收敛到目标速度
+// 当 NF > 1 时，使用两阶段迭代避免 ghost 区域重复累加
+void AmrCoreLBM::InterpForce(int lev) {
+    amrex::MultiFab& rho_lev = density[lev];
+    amrex::MultiFab& u_lev = velocity[lev];
+    amrex::MultiFab& force_lev = force[lev];
+
+    // 初始清零欧拉力场
+    force_lev.setVal(0.0, nghost);
+
+#if USE_MDF_TWO_STAGE
+    // 调试：统计 InterpForce 被调用的次数
+    // static int call_count = 0;
+    // call_count++;
+
+    // bool do_debug = (call_count >= 3120 && call_count <= 3160); // 只调试第3121到3160次调用
+
+    // if (do_debug && amrex::ParallelDescriptor::IOProcessor()) {
+    //     amrex::Print() << "[DEBUG] InterpForce call #" << call_count << " (n_iter=" << NF << ")" << std::endl;
+    // }
+
+    // MDF 两阶段迭代（NF > 1）：使用 force_delta 避免 ghost 区域重复累加
+    // MDF 两阶段迭代（NF > 1）：动态创建临时 force_delta 以节省常驻内存
+    // 临时变量在此作用域结束时自动释放，无需成员变量永久保存
+    const amrex::BoxArray& ba = force_lev.boxArray();
+    const amrex::DistributionMapping& dm = force_lev.DistributionMap();
+    amrex::MultiFab force_delta_lev(ba, dm, AMREX_SPACEDIM, nghost);
+
+    mypc->ZeroParticleForce(lev);
+
+    for (int iter = 0; iter < NF; iter++) {
+        // 1*. 清零力增量（包括 ghost 区域）
+        force_delta_lev.setVal(0.0, nghost);
+
+        // 2. 计算本次迭代的力增量 → 写入 force_delta
+        mypc->InterpForce(lev, rho_lev, u_lev, force_lev, force_delta_lev);
+
+        // 3. 通信：ghost → valid（SumBoundary）
+        force_delta_lev.SumBoundary(geom[lev].periodicity());
+
+        // 4*. 累加 force_delta 到 force（只需要 valid 区域）
+        amrex::MultiFab::Add(force_lev, force_delta_lev, 0, 0, AMREX_SPACEDIM, 0);
+
+        // 5*. 通信：valid → ghost（FillBoundary）
+        force_lev.FillBoundary(geom[lev].periodicity());
+
+        // 调试：输出粒子力
+        // if (do_debug) {
+        //     mypc->DebugPrintForceSum(lev, call_count, iter);
+        // }
+    }
+#else
+    // 单次迭代（NF = 1）：直接使用 force，无需 force_delta
+    mypc->InterpForce(lev, rho_lev, u_lev, force_lev);
+    SumForce(lev);
+
+#endif // USE_MDF_TWO_STAGE
+}
+
+// MDF 辅助函数：对 force 场进行 SumBoundary 通信（ghost → valid）
+void AmrCoreLBM::SumForce(int lev) {
+    MultiFab* mf_pointer = &force[lev];
+    mf_pointer->SumBoundary(Geom(lev).periodicity());
+}
+
+//============================================================================//
+//                     IDF (Implicit Direct Forcing) 实现                     //
+//============================================================================//
+// 主入口：按顺序执行 IDF 各阶段
+void AmrCoreLBM::ApplyIDF(int lev) {
+    // 仅在最细层执行
+    if (lev != finest_level) {
+        return;
+    }
+
+    // Step 1: 插值欧拉速度到拉格朗日点（包括全局汇总）
+    IDF_InterpolateEulerToLag(lev);
+
+    // Step 2: 组装全局矩阵 A = D_I × D_E
+    IDF_AssembleMatrix(lev);
+
+    // Step 3: 求解线性系统得到拉格朗日力
+    IDF_SolveSystem(lev);
+
+    // Step 4: 传播拉格朗日力到欧拉网格
+    IDF_SpreadLagToEuler(lev);
+
+    SumForce(lev);
+}
+
+// 插值欧拉速度到拉格朗日点，收集到全局向量
+void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev) {
+    if (particles.size() == 0 || !particles[0])
+        return;
+
+    // Step 1: 构建活跃欧拉点集合和全局拉格朗日点位置
+    BuildActiveEulerSet(lev);
+
+    if (idf_NL_global == 0) {
+        if (ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "[IDF_3D] Warning: No Lagrangian points found!" << std::endl;
+        }
+        return;
+    }
+
+    // Step 2: 使用 LagrangeParticleContainer 的接口执行插值
+    amrex::MultiFab& u_lev = velocity[lev];
+    amrex::MultiFab& rho_lev = density[lev];
+
+    for (auto& pc : particles) {
+        if (pc) {
+            pc->IDF_Interpolate(lev, u_lev, rho_lev);
+        }
+    }
+
+    // Step 2b: 从粒子属性中读取插值结果到 CPU vector
+    std::vector<Real> local_interp_ux, local_interp_uy, local_interp_uz, local_interp_rho;
+    std::vector<int> local_interp_ids;
+
+    for (auto& pc : particles) {
+        if (pc) {
+            std::vector<Real> temp_ux, temp_uy, temp_uz, temp_rho;
+            std::vector<int> temp_ids;
+            pc->IDF_ReadInterpResults(lev, temp_ux, temp_uy, temp_uz, temp_rho, &temp_ids);
+            local_interp_ux.insert(local_interp_ux.end(), temp_ux.begin(), temp_ux.end());
+            local_interp_uy.insert(local_interp_uy.end(), temp_uy.begin(), temp_uy.end());
+            local_interp_uz.insert(local_interp_uz.end(), temp_uz.begin(), temp_uz.end());
+            local_interp_rho.insert(local_interp_rho.end(), temp_rho.begin(), temp_rho.end());
+            local_interp_ids.insert(local_interp_ids.end(), temp_ids.begin(), temp_ids.end());
+        }
+    }
+
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(static_cast<int>(local_interp_ux.size()) == idf_local_NL,
+                                     "IDF_3D local buffer size mismatch");
+
+    // Step 3: 汇总插值速度到全局向量（使用 Allgatherv 一步完成广播）
+    int nprocs = ParallelDescriptor::NProcs();
+    std::vector<int> interp_displs(nprocs + 1, 0);
+    std::partial_sum(idf_all_NL.begin(), idf_all_NL.end(), interp_displs.begin() + 1);
+
+    // Step 3a: 汇总插值数据（ux, uy, uz, rho, ids）
+    std::vector<Real> unsorted_interp_ux(idf_NL_global), unsorted_interp_uy(idf_NL_global),
+        unsorted_interp_uz(idf_NL_global), unsorted_interp_rho(idf_NL_global);
+    std::vector<int> all_interp_ids(idf_NL_global);
+
+    MPI_Allgatherv(local_interp_ux.data(), idf_local_NL, ParallelDescriptor::Mpi_typemap<Real>::type(),
+                   unsorted_interp_ux.data(), idf_all_NL.data(), interp_displs.data(),
+                   ParallelDescriptor::Mpi_typemap<Real>::type(), ParallelDescriptor::Communicator());
+
+    MPI_Allgatherv(local_interp_uy.data(), idf_local_NL, ParallelDescriptor::Mpi_typemap<Real>::type(),
+                   unsorted_interp_uy.data(), idf_all_NL.data(), interp_displs.data(),
+                   ParallelDescriptor::Mpi_typemap<Real>::type(), ParallelDescriptor::Communicator());
+
+    MPI_Allgatherv(local_interp_uz.data(), idf_local_NL, ParallelDescriptor::Mpi_typemap<Real>::type(),
+                   unsorted_interp_uz.data(), idf_all_NL.data(), interp_displs.data(),
+                   ParallelDescriptor::Mpi_typemap<Real>::type(), ParallelDescriptor::Communicator());
+
+    MPI_Allgatherv(local_interp_rho.data(), idf_local_NL, ParallelDescriptor::Mpi_typemap<Real>::type(),
+                   unsorted_interp_rho.data(), idf_all_NL.data(), interp_displs.data(),
+                   ParallelDescriptor::Mpi_typemap<Real>::type(), ParallelDescriptor::Communicator());
+
+    MPI_Allgatherv(local_interp_ids.data(), idf_local_NL, MPI_INT,
+                   all_interp_ids.data(), idf_all_NL.data(), interp_displs.data(),
+                   MPI_INT, ParallelDescriptor::Communicator());
+
+    // Step 3b: 按粒子ID直接写入全局数组
+    idf_interp_u_x.resize(idf_NL_global);
+    idf_interp_u_y.resize(idf_NL_global);
+    idf_interp_u_z.resize(idf_NL_global);
+    idf_interp_rho.resize(idf_NL_global);
+
+    for (int i = 0; i < idf_NL_global; ++i) {
+        int pid = all_interp_ids[i];
+        int global_idx = pid - 1;
+        if (global_idx >= 0 && global_idx < idf_NL_global) {
+            idf_interp_u_x[global_idx] = unsorted_interp_ux[i];
+            idf_interp_u_y[global_idx] = unsorted_interp_uy[i];
+            idf_interp_u_z[global_idx] = unsorted_interp_uz[i];
+            idf_interp_rho[global_idx] = unsorted_interp_rho[i];
+        }
+    }
+
+    // Step 4: 初始化目标速度（静止边界，u_target = 0）
+    idf_target_u_x.assign(idf_NL_global, 0.0);
+    idf_target_u_y.assign(idf_NL_global, 0.0);
+    idf_target_u_z.assign(idf_NL_global, 0.0);
+
+    // 仅在第一次调用时输出
+    static bool first_interp = true;
+    if (first_interp && ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "[IDF_3D] Interpolated Euler velocity to Lagrangian points: NL_global="
+                       << idf_NL_global << ", NE_global=" << idf_NE_global << std::endl;
+        first_interp = false;
+    }
+}
+
+// 组装全局矩阵 A = D_I × D_E（每个进程独立计算完整矩阵）
+void AmrCoreLBM::IDF_AssembleMatrix(int lev) {
+    if (idf_NL_global == 0 || idf_NE_global == 0)
+        return;
+
+    // 如果矩阵已构建且大小正确，跳过
+    if (idf_matrix_built &&
+        idf_A.size() == static_cast<size_t>(idf_NL_global * idf_NL_global))
+        return;
+
+    const Geometry& gm = Geom(lev);
+    const Real* dx = gm.CellSize();
+
+    int NL = idf_NL_global;
+    int NE = idf_NE_global;
+
+    // 分配 D_I (NL × NE) 和 D_E (NE × NL) 作为稀疏表示
+    std::vector<std::vector<std::pair<int, Real>>> DI_rows(NL);
+    std::vector<std::vector<std::pair<int, Real>>> DE_cols(NL);
+
+    auto const& emap = idf_euler_index_map_global;
+
+    // 基于全局拉格朗日点位置构建 D_I 和 D_E
+    for (int p = 0; p < NL; ++p) {
+        Real xp = idf_lag_pos_global[3 * p];
+        Real yp = idf_lag_pos_global[3 * p + 1];
+        Real zp = idf_lag_pos_global[3 * p + 2];
+        Real xt = xp / dx[0];
+        Real yt = yp / dx[1];
+        Real zt = zp / dx[2];
+        int xx = static_cast<int>(amrex::Math::floor(xt));
+        int yy = static_cast<int>(amrex::Math::floor(yt));
+        int zz = static_cast<int>(amrex::Math::floor(zt));
+
+        for (int z = -2; z <= 2; ++z) {
+            for (int y = -2; y <= 2; ++y) {
+                for (int x = -2; x <= 2; ++x) {
+                    IntVect iv(xx + x, yy + y, zz + z);
+
+                    auto it = emap.find(iv);
+                    if (it == emap.end())
+                        continue;
+
+                    int eidx = it->second;
+                    Real lx = xt - (iv[0] + 0.5);
+                    Real ly = yt - (iv[1] + 0.5);
+                    Real lz = zt - (iv[2] + 0.5);
+                    Real wI = delta3p(lx) * delta3p(ly) * delta3p(lz);
+                    Real wE = wI * IB_weight;
+
+                    if (std::abs(wI) > 1e-15) {
+                        DI_rows[p].emplace_back(eidx, wI);
+                    }
+                    if (std::abs(wE) > 1e-15) {
+                        DE_cols[p].emplace_back(eidx, wE);
+                    }
+                }
+            }
+        }
+    }
+
+    // 将 D_E 按欧拉索引分组
+    std::vector<std::vector<std::pair<int, Real>>> DE_by_euler(NE);
+    for (int j = 0; j < NL; ++j) {
+        for (auto const& ew : DE_cols[j]) {
+            int eidx = ew.first;
+            Real wE = ew.second;
+            if (eidx >= 0 && eidx < NE) {
+                DE_by_euler[eidx].emplace_back(j, wE);
+            }
+        }
+    }
+
+    // 分配并构建 A = D_I × D_E (NL × NL)
+    idf_A.assign(static_cast<size_t>(NL) * NL, 0.0);
+
+    // A[i,j] = sum_e D_I[i,e] * D_E[e,j]
+    for (int i = 0; i < NL; ++i) {
+        for (auto const& ie : DI_rows[i]) {
+            int eidx = ie.first;
+            Real wI = ie.second;
+            if (eidx < 0 || eidx >= NE)
+                continue;
+            for (auto const& jw : DE_by_euler[eidx]) {
+                int j = jw.first;
+                Real wE = jw.second;
+                idf_A[i * NL + j] += wI * wE;
+            }
+        }
+    }
+
+    idf_matrix_built = true;
+
+    // ======== 静止边界优化：预计算 A 的逆矩阵 ========
+    if (!idf_inverse_built) {
+        if (ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "[IDF_3D] Computing A^(-1) for static boundary..." << std::endl;
+        }
+
+        bool success = computeMatrixInverse(idf_A, idf_A_inv, NL);
+
+        if (success) {
+            idf_inverse_built = true;
+            if (ParallelDescriptor::IOProcessor()) {
+                Real maxAinv = 0.0;
+                for (int i = 0; i < NL * NL; ++i) {
+                    maxAinv = std::max(maxAinv, std::abs(idf_A_inv[i]));
+                }
+                amrex::Print() << "[IDF_3D] A^(-1) computed successfully, max|A^(-1)|="
+                               << maxAinv << std::endl;
+            }
+        }
+    }
+}
+
+// 求解线性系统得到拉格朗日力
+void AmrCoreLBM::IDF_SolveSystem(int lev) {
+    int NL = idf_NL_global;
+    if (NL == 0)
+        return;
+
+    // Step 1: 构建 RHS: b = u_interp - u_target（在3D中，密度是真实密度，不是压力）
+    idf_rhs_x.resize(NL);
+    idf_rhs_y.resize(NL);
+    idf_rhs_z.resize(NL);
+
+    for (int i = 0; i < NL; ++i) {
+        idf_rhs_x[i] = idf_interp_u_x[i] - idf_target_u_x[i];
+        idf_rhs_y[i] = idf_interp_u_y[i] - idf_target_u_y[i];
+        idf_rhs_z[i] = idf_interp_u_z[i] - idf_target_u_z[i];
+    }
+
+    // Step 2: 求解线性系统 A * f_vel = rhs
+    idf_sol_x.resize(NL);
+    idf_sol_y.resize(NL);
+    idf_sol_z.resize(NL);
+
+    if (idf_inverse_built) {
+        // 使用预计算的 A^(-1)：矩阵-向量乘法
+        // 注意：3D模型中密度是真实密度，不是压力，所以不需要密度系数
+        denseMatVec(idf_A_inv, idf_rhs_x, idf_sol_x);
+        denseMatVec(idf_A_inv, idf_rhs_y, idf_sol_y);
+        denseMatVec(idf_A_inv, idf_rhs_z, idf_sol_z);
+    }
+
+    // Step 3: 将力写回粒子属性
+    for (auto& pc : particles) {
+        if (pc) {
+            pc->IDF_WriteForceToParticles(lev, idf_sol_x, idf_sol_y, idf_sol_z, idf_NL_global);
+        }
+    }
+}
+
+// 传播拉格朗日力到欧拉网格
+void AmrCoreLBM::IDF_SpreadLagToEuler(int lev) {
+    if (idf_NL_global == 0)
+        return;
+
+    amrex::MultiFab& force_lev = force[lev];
+    force_lev.setVal(0.0, nghost);
+
+    // 使用 LagrangeParticleContainer 接口传播力
+    for (auto& pc : particles) {
+        if (pc) {
+            pc->IDF_SpreadForce(lev, force_lev);
+        }
+    }
+
+    // 仅在第一次调用时输出
+    static bool first_spread = true;
+    if (first_spread && ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "[IDF_3D] Spread Lagrangian forces to Euler grid done." << std::endl;
+        first_spread = false;
+    }
+}
+
+//********************************************************************//
 //                     Pure virtual function                          //
 //********************************************************************//
 void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::BoxArray& ba,
@@ -1466,9 +2121,8 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
         Array4<Real> const& fold = f_old_lev.array(mfi);
         Array4<Real> const& fnew = f_new_lev.array(mfi);
 
-        amrex::ParallelForRNG(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k, RandomEngine const& rd) { 
-            init_fluid(i, j, k, fold, fnew); });
-        //init_fluid_channel(i, j, k, fold, fnew, hi, dx, rd); });
+        amrex::ParallelForRNG(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k, RandomEngine const& rd) { init_fluid(i, j, k, fold, fnew); });
+        // init_fluid_channel(i, j, k, fold, fnew, hi, dx, rd); });
     }
 }
 

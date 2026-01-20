@@ -2339,9 +2339,138 @@ Real delta3p(amrex::Real r) {
         return 0.0;
 }
 
+// MDF 两阶段迭代版本：force_delta 写入增量，force_lev 读取累积力
 template <typename P>
 AMREX_GPU_HOST_DEVICE
     AMREX_FORCE_INLINE void
+#if USE_MDF_TWO_STAGE
+    force_interp_extrap(P const& p,
+                        amrex::Real& fx, amrex::Real& fy, amrex::Real& fz,
+                        amrex::Real& tx, amrex::Real& ty, amrex::Real& tz,
+                        amrex::Real& x_local, amrex::Real& y_local, amrex::Real& z_local,
+                        amrex::Real& area,
+                        amrex::Array4<amrex::Real> const& u, amrex::Array4<amrex::Real> const& rho,
+                        amrex::Array4<amrex::Real> const& Ft, amrex::Array4<amrex::Real> const& Ft_delta,
+                        amrex::Real const delta, amrex::RealVect const& uc, amrex::RealVect const& wc, amrex::RealVect const& centre) {
+    amrex::Real xt, yt, zt, lx, ly, lz;
+    amrex::Real IB_Interp, IB_weight;
+    amrex::Real uxt, uyt, uzt, rhot, upx, upy, upz, fxt, fyt, fzt;
+
+    xt = p.pos(0) / delta;
+    yt = p.pos(1) / delta;
+    zt = p.pos(2) / delta;
+
+    IB_weight = LP_dr * area;
+
+    // 力修正系数：u_corrected = u + 0.5 * dt * F / (rho/cs2)
+    amrex::Real force_to_vel = 0.5 * dt_min * cs2 / p0;
+
+    uxt = 0.0;
+    uyt = 0.0;
+    uzt = 0.0;
+    rhot = 0.0;
+
+    upx = uc[0] + wc[2] * (-y_local) + wc[1] * (z_local);
+    upy = uc[1] + wc[2] * (x_local) + wc[0] * (-z_local);
+    upz = uc[2] + wc[0] * (y_local) + wc[1] * (-x_local);
+
+    // 第一次循环：插值速度（考虑已累积的力场修正）和密度
+    for (int x = -2; x <= 2; x++) {
+        for (int y = -2; y <= 2; y++) {
+            for (int z = -2; z <= 2; z++) {
+                int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+                int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+                int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
+
+                // 处理x方向越界
+                if (xx < 0)
+                    xx = NX + xx;
+                else if (xx > NX - 1)
+                    xx = xx - NX;
+                // 处理y方向越界
+                if (yy < 0)
+                    yy = NY + yy;
+                else if (yy > NY - 1)
+                    yy = yy - NY;
+                // 处理z方向越界
+                if (zz < 0)
+                    zz = NZ + zz;
+                else if (zz > NZ - 1)
+                    zz = zz - NZ;
+
+                lx = xt - (xx + 0.5);
+                ly = yt - (yy + 0.5);
+                lz = zt - (zz + 0.5);
+
+                IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz);
+
+                // 修正后的速度 = 原始速度 + 力对速度的修正
+                amrex::Real u_corr_x = u(xx, yy, zz, 0) + force_to_vel * Ft(xx, yy, zz, 0);
+                amrex::Real u_corr_y = u(xx, yy, zz, 1) + force_to_vel * Ft(xx, yy, zz, 1);
+                amrex::Real u_corr_z = u(xx, yy, zz, 2) + force_to_vel * Ft(xx, yy, zz, 2);
+
+                uxt += u_corr_x * IB_Interp;
+                uyt += u_corr_y * IB_Interp;
+                uzt += u_corr_z * IB_Interp;
+                rhot += rho(xx, yy, zz, 0) * IB_Interp;
+            }
+        }
+    }
+
+    rhot = 2 * rhot / cs2 / dt_min;
+
+    // 计算力增量
+    fxt = rhot * (uxt - upx);
+    fyt = rhot * (uyt - upy);
+    fzt = rhot * (uzt - upz);
+
+    fx += fxt * IB_weight * dx_min * dx_min * dx_min;
+    fy += fyt * IB_weight * dx_min * dx_min * dx_min;
+    fz += fzt * IB_weight * dx_min * dx_min * dx_min;
+
+    tx += (fzt * y_local - fyt * z_local) * IB_weight * dx_min * dx_min * dx_min;
+    ty += (fxt * z_local - fzt * x_local) * IB_weight * dx_min * dx_min * dx_min;
+    tz += (fyt * x_local - fxt * y_local) * IB_weight * dx_min * dx_min * dx_min;
+
+    // 第二次循环：将力增量写入 Ft_delta
+    for (int x = -2; x <= 2; x++) {
+        for (int y = -2; y <= 2; y++) {
+            for (int z = -2; z <= 2; z++) {
+                int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+                int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+                int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
+
+                // 处理x方向越界
+                if (xx < 0)
+                    xx = NX + xx;
+                else if (xx > NX - 1)
+                    xx = xx - NX;
+                // 处理y方向越界
+                if (yy < 0)
+                    yy = NY + yy;
+                else if (yy > NY - 1)
+                    yy = yy - NY;
+                // 处理z方向越界
+                if (zz < 0)
+                    zz = NZ + zz;
+                else if (zz > NZ - 1)
+                    zz = zz - NZ;
+
+                lx = xt - (xx + 0.5);
+                ly = yt - (yy + 0.5);
+                lz = zt - (zz + 0.5);
+
+                IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz) * IB_weight;
+
+                // 写入增量到 Ft_delta（ghost 区域可能重复写入）
+                amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 0), -fxt * IB_Interp);
+                amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 1), -fyt * IB_Interp);
+                amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 2), -fzt * IB_Interp);
+            }
+        }
+    }
+}
+#else
     force_interp_extrap(P const& p,
                         amrex::Real& fx, amrex::Real& fy, amrex::Real& fz,
                         amrex::Real& tx, amrex::Real& ty, amrex::Real& tz,
@@ -2462,7 +2591,7 @@ AMREX_GPU_HOST_DEVICE
         }
     }
 }
-
+#endif
 template <typename P>
 AMREX_GPU_HOST_DEVICE
     AMREX_FORCE_INLINE void
@@ -2602,6 +2731,119 @@ AMREX_GPU_HOST_DEVICE
     amrex::Real rhotp = rhot * cs2;
     amrex::Real m = 0.5 * rho0 * U0 * U0;
     cp = (rhotp - p0) / m;
+}
+
+//********************************************************************//
+//                    IDF (Implicit Direct Forcing) Kernels           //
+//********************************************************************//
+
+// 3D 三线性插值：将欧拉速度和密度插值到拉格朗日点
+template <typename P>
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
+                                                              amrex::Array4<amrex::Real> const& u,
+                                                              amrex::Array4<amrex::Real> const& rho,
+                                                              const amrex::Real* delta,
+                                                              amrex::Real& uxt,
+                                                              amrex::Real& uyt,
+                                                              amrex::Real& uzt,
+                                                              amrex::Real& rhot) {
+    amrex::Real xt = p.pos(0) / delta[0];
+    amrex::Real yt = p.pos(1) / delta[1];
+    amrex::Real zt = p.pos(2) / delta[2];
+    uxt = 0.0;
+    uyt = 0.0;
+    uzt = 0.0;
+    rhot = 0.0;
+
+    // 三线性插值：8个邻居网格点
+    for (int z = -1; z <= 1; ++z) {
+        for (int y = -1; y <= 1; ++y) {
+            for (int x = -1; x <= 1; ++x) {
+                int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+                int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+                int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
+
+                amrex::Real lx = xt - (xx + 0.5);
+                amrex::Real ly = yt - (yy + 0.5);
+                amrex::Real lz = zt - (zz + 0.5);
+
+                // 线性权重函数
+                amrex::Real wx = 0.5 - lx;
+                amrex::Real wy = 0.5 - ly;
+                amrex::Real wz = 0.5 - lz;
+
+                if (x == 0)
+                    wx = 0.5 - lx;
+                else
+                    wx = 0.5 + lx;
+                if (y == 0)
+                    wy = 0.5 - ly;
+                else
+                    wy = 0.5 + ly;
+                if (z == 0)
+                    wz = 0.5 - lz;
+                else
+                    wz = 0.5 + lz;
+
+                amrex::Real w = wx * wy * wz;
+                uxt += u(xx, yy, zz, 0) * w;
+                uyt += u(xx, yy, zz, 1) * w;
+                uzt += u(xx, yy, zz, 2) * w;
+                rhot += rho(xx, yy, zz, 0) * w;
+            }
+        }
+    }
+}
+
+// 3D 三线性传播：将粒子力传播到欧拉网格
+template <typename P>
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
+                                                               amrex::Real const fx,
+                                                               amrex::Real const fy,
+                                                               amrex::Real const fz,
+                                                               amrex::Array4<amrex::Real> const& Ft,
+                                                               const amrex::Real* delta) {
+    amrex::Real xt = p.pos(0) / delta[0];
+    amrex::Real yt = p.pos(1) / delta[1];
+    amrex::Real zt = p.pos(2) / delta[2];
+
+    // 三线性传播：8个邻居网格点
+    for (int z = -1; z <= 1; ++z) {
+        for (int y = -1; y <= 1; ++y) {
+            for (int x = -1; x <= 1; ++x) {
+                int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
+                int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
+                int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
+
+                amrex::Real lx = xt - (xx + 0.5);
+                amrex::Real ly = yt - (yy + 0.5);
+                amrex::Real lz = zt - (zz + 0.5);
+
+                // 线性权重函数
+                amrex::Real wx = 0.5 - lx;
+                amrex::Real wy = 0.5 - ly;
+                amrex::Real wz = 0.5 - lz;
+
+                if (x == 0)
+                    wx = 0.5 - lx;
+                else
+                    wx = 0.5 + lx;
+                if (y == 0)
+                    wy = 0.5 - ly;
+                else
+                    wy = 0.5 + ly;
+                if (z == 0)
+                    wz = 0.5 - lz;
+                else
+                    wz = 0.5 + lz;
+
+                amrex::Real w = wx * wy * wz;
+                amrex::Gpu::Atomic::Add(&Ft(xx, yy, zz, 0), w * fx);
+                amrex::Gpu::Atomic::Add(&Ft(xx, yy, zz, 1), w * fy);
+                amrex::Gpu::Atomic::Add(&Ft(xx, yy, zz, 2), w * fz);
+            }
+        }
+    }
 }
 
 #endif
