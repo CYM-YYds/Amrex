@@ -1284,9 +1284,9 @@ void AmrCoreLBM::AverageScale(int lev, int n) {
 void AmrCoreLBM::InitParticle(int lev) {
     for (int i = 0; i < particle_num; i++) {
         particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
-        // particles[i]->InitParticle(lev);
+        particles[i]->InitParticle(lev);
         // particles[i]->InitChannelParticle(lev);
-        particles[i]->InitCylinderParticle(lev);
+        // particles[i]->InitCylinderParticle(lev);
         //   particles[i] ->InitParticleFromFile(lev, "../../../object/sphere128");
         //   particles[i] ->InitParticleFromFile(lev, "../../../object/car_fine");
     }
@@ -1299,10 +1299,10 @@ void AmrCoreLBM::ComputeParticle(int lev) {
 
     // 用户可选择以下两种方法之一（通过注释/取消注释切换）：
     // 方法1: IDF (Implicit Direct Forcing) - 矩阵求解法
-    ApplyIDF(lev); // 使用 IDF 时保留此行，注释掉 InterpForce(lev)
+    // ApplyIDF(lev); // 使用 IDF 时保留此行，注释掉 InterpForce(lev)
 
     // 方法2: MDF (Multi-Direct Forcing) - 迭代求解法
-    // InterpForce(lev);    // 使用 MDF 时保留此行，注释掉 ApplyIDF(lev)
+    InterpForce(lev); // 使用 MDF 时保留此行，注释掉 ApplyIDF(lev)
     // 注意：MDF 的迭代次数由 D3Q19.H 中的 NF 宏控制
     //       当 NF > 1 时自动启用两阶段迭代优化
 }
@@ -1675,14 +1675,18 @@ void AmrCoreLBM::InterpForce(int lev) {
     const amrex::DistributionMapping& dm = force_lev.DistributionMap();
     amrex::MultiFab force_delta_lev(ba, dm, AMREX_SPACEDIM, nghost);
 
-    mypc->ZeroParticleForce(lev);
+    for (int i = 0; i < particle_num; i++) {
+        particles[i]->ZeroParticleForce(lev);
+    }
 
     for (int iter = 0; iter < NF; iter++) {
         // 1*. 清零力增量（包括 ghost 区域）
         force_delta_lev.setVal(0.0, nghost);
 
         // 2. 计算本次迭代的力增量 → 写入 force_delta
-        mypc->InterpForce(lev, rho_lev, u_lev, force_lev, force_delta_lev);
+        for (int i = 0; i < particle_num; i++) {
+            particles[i]->InterpForce(lev, rho_lev, u_lev, force_lev, force_delta_lev);
+        }
 
         // 3. 通信：ghost → valid（SumBoundary）
         force_delta_lev.SumBoundary(geom[lev].periodicity());
@@ -1695,12 +1699,17 @@ void AmrCoreLBM::InterpForce(int lev) {
 
         // 调试：输出粒子力
         // if (do_debug) {
-        //     mypc->DebugPrintForceSum(lev, call_count, iter);
+        // for (int i = 0; i < particle_num; i++) {
+        //     particles[i]->DebugPrintForceSum(lev, call_count, iter);
+        // }
         // }
     }
 #else
     // 单次迭代（NF = 1）：直接使用 force，无需 force_delta
-    mypc->InterpForce(lev, rho_lev, u_lev, force_lev);
+    for (int i = 0; i < particle_num; i++) {
+        particles[i]->InterpForce(lev, rho_lev, u_lev, force_lev);
+        // particles[i]->InterpForceWallModel(lev, rho_lev, u_lev, force_lev);
+    }
     SumForce(lev);
 
 #endif // USE_MDF_TWO_STAGE
@@ -1891,7 +1900,7 @@ void AmrCoreLBM::IDF_AssembleMatrix(int lev) {
                     Real ly = yt - (iv[1] + 0.5);
                     Real lz = zt - (iv[2] + 0.5);
                     Real wI = delta3p(lx) * delta3p(ly) * delta3p(lz);
-                    Real wE = wI * IB_weight;
+                    Real wE = wI; // 暂时删除权重IB_weight, 后续计算再添加
 
                     if (std::abs(wI) > 1e-15) {
                         DI_rows[p].emplace_back(eidx, wI);

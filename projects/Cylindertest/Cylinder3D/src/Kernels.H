@@ -345,7 +345,8 @@ AMREX_FORCE_INLINE
 void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
                    amrex::Array4<amrex::Real> const& fnew, amrex::IntVect const& hi) {
 
-    if (i == 0) {
+    if (i == 0) // 左边界
+    {
         int x = i;
         int y = j;
         int z = k;
@@ -424,7 +425,8 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         }
     }
 
-    if (j == 0) {
+    if (j == 0) // 下边界
+    {
         int x = i;
         int y = j;
         int z = k;
@@ -448,13 +450,13 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uyt1 /= rhot1;
         uzt1 /= rhot1;
 
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
+        // uxt = 0.0;
+        // uyt = 0.0;
+        // uzt = 0.0;
 
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
+        uxt = uxt1;
+        uyt = uyt1;
+        uzt = uzt1;
 
         rhot = rhot1;
 
@@ -463,7 +465,8 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         }
     }
 
-    if (j == hi[1]) {
+    if (j == hi[1]) // 上边界
+    {
         int x = i;
         int y = j;
         int z = k;
@@ -487,13 +490,13 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uyt1 /= rhot1;
         uzt1 /= rhot1;
 
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
+        // uxt = 0.0;
+        // uyt = 0.0;
+        // uzt = 0.0;
 
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
+        uxt = uxt1;
+        uyt = uyt1;
+        uzt = uzt1;
 
         rhot = rhot1;
 
@@ -502,7 +505,8 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         }
     }
 
-    if (k == 0) {
+    if (k == 0) // 后边界
+    {
         int x = i;
         int y = j;
         int z = k;
@@ -541,7 +545,8 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         }
     }
 
-    if (k == hi[2]) {
+    if (k == hi[2]) // 前边界
+    {
         int x = i;
         int y = j;
         int z = k;
@@ -2008,8 +2013,8 @@ void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold, amrex::
         int xm = i - e[q][0];
         int ym = j - e[q][1];
         int zm = k - e[q][2];
-        // 这里的设置需要跟main函数中的{AMREX_D_DECL(0, 1, 0)}的周期性设置相对应
-        if ((i > 0) && (i < hi[0]) && (j >= 0) && (j <= hi[1]) && (k > 0) && (k < hi[2])) {
+        // 这里的设置需要跟main函数中的{AMREX_D_DECL(0, 0, 0)}的周期性设置相对应
+        if ((i > 0) && (i < hi[0]) && (j > 0) && (j < hi[1]) && (k > 0) && (k < hi[2])) {
             fnew(i, j, k, q) = fold(xm, ym, zm, q);
         }
     }
