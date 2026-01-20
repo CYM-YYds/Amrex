@@ -1193,8 +1193,8 @@ void AmrCoreLBM::SumForce(int lev) {
 void AmrCoreLBM::ComputeParticle(int lev) {
     CommunicateLevel(lev);
     ComputeMacroLevel(lev);
-    ApplyIDF(lev);
-    // InterpForce(lev);
+    //ApplyIDF(lev);
+    InterpForce(lev);
 }
 
 void AmrCoreLBM::ReduceFxy(int lev, int step) {

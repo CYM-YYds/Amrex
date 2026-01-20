@@ -518,6 +518,68 @@ amrex::RealVect LagrangeParticleContainer::ReturnVelocity() {
     return vel;
 }
 
+//============================================================================//
+//                     MDF (Multi-Direct Forcing) 实现                        //
+//============================================================================//
+// 清零粒子力（用于迭代开始前）
+void LagrangeParticleContainer::ZeroParticleForce(int lev) {
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        const long n = pti.numParticles();
+
+        auto& attribs = pti.GetAttribs();
+        auto fx = attribs[PIdx::fx].data();
+        auto fy = attribs[PIdx::fy].data();
+        auto fz = attribs[PIdx::fz].data();
+
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+            fx[i] = 0.0;
+            fy[i] = 0.0;
+            fz[i] = 0.0;
+        });
+    }
+}
+
+#if USE_MDF_TWO_STAGE
+// MDF 两阶段迭代版本（NF > 1）：力增量写入 force_delta_lev，累积力读取自 force_lev
+void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, 
+                                            amrex::MultiFab& force_lev, amrex::MultiFab& force_delta_lev) {
+    const Real delta = Geom(lev).CellSize()[0];
+
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        auto& particles = pti.GetArrayOfStructs();
+        auto p_ptr = particles().data();
+        const long n = pti.numParticles();
+
+        auto& attribs = pti.GetAttribs();
+        auto fx = attribs[PIdx::fx].data();
+        auto fy = attribs[PIdx::fy].data();
+        auto fz = attribs[PIdx::fz].data();
+        auto tx = attribs[PIdx::tx].data();
+        auto ty = attribs[PIdx::ty].data();
+        auto tz = attribs[PIdx::tz].data();
+        auto xlocal = attribs[PIdx::xlocal].data();
+        auto ylocal = attribs[PIdx::ylocal].data();
+        auto zlocal = attribs[PIdx::zlocal].data();
+        auto area = attribs[PIdx::area].data();
+
+        const Array4<Real>& u = u_lev.array(pti);
+        const Array4<Real>& rho = rho_lev.array(pti);
+        const Array4<Real>& Ft = force_lev.array(pti);
+        const Array4<Real>& Ft_delta = force_delta_lev.array(pti);
+
+        const RealVect& uc = vel;
+        const RealVect& wc = angvel;
+        const RealVect& pos = centre;
+
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept { 
+            force_interp_extrap(p_ptr[i], fx[i], fy[i], fz[i], tx[i], ty[i], tz[i], 
+                                xlocal[i], ylocal[i], zlocal[i], area[i], 
+                                u, rho, Ft, Ft_delta, delta, uc, wc, pos); 
+        });
+    }
+}
+#else
+// MDF 单次迭代版本（NF = 1）：直接计算力并写入 force_lev
 void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev) {
     const Real delta = Geom(lev).CellSize()[0];
 
@@ -580,7 +642,7 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
     F_lub[1] = 0.0;
     F_lub[2] = 0.0;
 }
-
+#endif
 void LagrangeParticleContainer::InterpForceWallModel(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev) {
     const Real delta = Geom(lev).CellSize()[0];
 
@@ -915,4 +977,234 @@ void LagrangeParticleContainer::WriteParticle(int step) {
     filename += '_';
     const std::string& pltfile = amrex::Concatenate(filename, step, 5);
     WriteAsciiFile(pltfile); // 这个没啥用，只能用来调试
+}
+//********************************************************************//
+//                    IDF (Implicit Direct Forcing) 实现             //
+//********************************************************************//
+
+int LagrangeParticleContainer::IDF_CollectParticleData(int lev,
+                                                       std::vector<Real>& local_lag_pos,
+                                                       std::vector<int>& local_lag_ids) {
+    local_lag_pos.clear();
+    local_lag_ids.clear();
+    int local_NL = 0;
+
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        auto& aos = pti.GetArrayOfStructs();
+        const long n = pti.numParticles();
+        if (n == 0)
+            continue;
+
+        // 将粒子数据从 GPU 复制到 CPU
+        using ParticleType = typename LagrangeParticleContainer::ParticleType;
+        amrex::Gpu::PinnedVector<ParticleType> host_particles(n);
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              aos().begin(), aos().end(),
+                              host_particles.begin());
+        amrex::Gpu::streamSynchronize();
+
+        for (long i = 0; i < n; ++i) {
+            Real xt_phys = host_particles[i].pos(0);
+            Real yt_phys = host_particles[i].pos(1);
+            Real zt_phys = host_particles[i].pos(2);
+            int pid = host_particles[i].id();
+            local_lag_pos.push_back(xt_phys);
+            local_lag_pos.push_back(yt_phys);
+            local_lag_pos.push_back(zt_phys);
+            local_lag_ids.push_back(pid);
+            local_NL++;
+        }
+    }
+    return local_NL;
+}
+
+void LagrangeParticleContainer::IDF_Interpolate(int lev,
+                                                MultiFab& u_lev,
+                                                MultiFab& rho_lev) {
+    const Real* delta = Geom(lev).CellSize();
+
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        auto& particles = pti.GetArrayOfStructs();
+        auto p_ptr = particles().data();
+        const long n = pti.numParticles();
+
+        auto& attribs = pti.GetAttribs();
+        auto ufx = attribs[PIdx::xlocal].data();
+        auto ufy = attribs[PIdx::ylocal].data();
+        auto ufz = attribs[PIdx::zlocal].data();
+        auto rho_attr = attribs[PIdx::area].data();
+        
+        const Array4<Real>& u = u_lev.array(pti);
+        const Array4<Real>& rho = rho_lev.array(pti);
+
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+            ibm_interpolate(p_ptr[i], u, rho, delta, ufx[i], ufy[i], ufz[i], rho_attr[i]);
+        });
+    }
+    amrex::Gpu::streamSynchronize();
+}
+
+void LagrangeParticleContainer::IDF_ReadInterpResults(int lev,
+                                                      std::vector<Real>& local_interp_ux,
+                                                      std::vector<Real>& local_interp_uy,
+                                                      std::vector<Real>& local_interp_uz,
+                                                      std::vector<Real>& local_interp_rho,
+                                                      std::vector<int>* local_interp_ids) {
+    using ParticleType = typename LagrangeParticleContainer::ParticleType;
+    // 首先计算本进程粒子总数
+    long total_n = 0;
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        total_n += pti.numParticles();
+    }
+
+    local_interp_ux.resize(total_n);
+    local_interp_uy.resize(total_n);
+    local_interp_uz.resize(total_n);
+    local_interp_rho.resize(total_n);
+    if (local_interp_ids) {
+        local_interp_ids->resize(total_n);
+    }
+    int local_idx = 0;
+
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        const long n = pti.numParticles();
+        if (n == 0)
+            continue;
+
+        auto& attribs = pti.GetAttribs();
+
+        amrex::Gpu::PinnedVector<Real> host_ufx(n), host_ufy(n), host_ufz(n), host_rho(n);
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              attribs[PIdx::xlocal].begin(), attribs[PIdx::xlocal].begin() + n,
+                              host_ufx.begin());
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              attribs[PIdx::ylocal].begin(), attribs[PIdx::ylocal].begin() + n,
+                              host_ufy.begin());
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              attribs[PIdx::zlocal].begin(), attribs[PIdx::zlocal].begin() + n,
+                              host_ufz.begin());
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              attribs[PIdx::area].begin(), attribs[PIdx::area].begin() + n,
+                              host_rho.begin());
+
+        // 如果需要粒子ID，同时拷贝AoS数据
+        amrex::Gpu::PinnedVector<ParticleType> host_particles;
+        if (local_interp_ids) {
+            auto& aos = pti.GetArrayOfStructs();
+            host_particles.resize(n);
+            amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                                  aos().begin(), aos().end(),
+                                  host_particles.begin());
+        }
+        amrex::Gpu::streamSynchronize();
+
+        for (long i = 0; i < n; ++i) {
+            local_interp_ux[local_idx + i] = host_ufx[i];
+            local_interp_uy[local_idx + i] = host_ufy[i];
+            local_interp_uz[local_idx + i] = host_ufz[i];
+            local_interp_rho[local_idx + i] = host_rho[i];
+            if (local_interp_ids) {
+                (*local_interp_ids)[local_idx + i] = host_particles[i].id();
+            }
+        }
+        local_idx += n;
+    }
+}
+
+void LagrangeParticleContainer::IDF_WriteForceToParticles(int lev,
+                                                          const std::vector<Real>& sol_x,
+                                                          const std::vector<Real>& sol_y,
+                                                          const std::vector<Real>& sol_z,
+                                                          int idf_NL_global) {
+    const Real ib_coeff = LP_area * dx_min * dx_min; // 3D: 面积积分
+    int NL = static_cast<int>(sol_x.size());
+
+    // 将力密度数据复制到 GPU 可访问的内存
+    amrex::Gpu::DeviceVector<Real> d_sol_x(NL);
+    amrex::Gpu::DeviceVector<Real> d_sol_y(NL);
+    amrex::Gpu::DeviceVector<Real> d_sol_z(NL);
+    amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
+                          sol_x.data(), sol_x.data() + NL,
+                          d_sol_x.data());
+    amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
+                          sol_y.data(), sol_y.data() + NL,
+                          d_sol_y.data());
+    amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
+                          sol_z.data(), sol_z.data() + NL,
+                          d_sol_z.data());
+    amrex::Gpu::streamSynchronize();
+    const Real* d_sol_x_ptr = d_sol_x.data();
+    const Real* d_sol_y_ptr = d_sol_y.data();
+    const Real* d_sol_z_ptr = d_sol_z.data();
+
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        auto& aos = pti.GetArrayOfStructs();
+        const long n = pti.numParticles();
+        if (n == 0)
+            continue;
+
+        auto& attribs = pti.GetAttribs();
+        auto fx_attr = attribs[PIdx::fx].data();
+        auto fy_attr = attribs[PIdx::fy].data();
+        auto fz_attr = attribs[PIdx::fz].data();
+
+        // 方案 C: 使用粒子ID直接计算全局索引
+        using ParticleType = typename LagrangeParticleContainer::ParticleType;
+        amrex::Gpu::PinnedVector<ParticleType> host_particles(n);
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              aos().begin(), aos().end(),
+                              host_particles.begin());
+        amrex::Gpu::streamSynchronize();
+
+        // 构建本 tile 的全局索引数组
+        amrex::Gpu::PinnedVector<int> h_global_indices(n);
+        for (long i = 0; i < n; ++i) {
+            int pid = host_particles[i].id();
+            int global_idx = pid - 1;
+            if (global_idx >= 0 && global_idx < idf_NL_global) {
+                h_global_indices[i] = global_idx;
+            } else {
+                amrex::Print() << "[IDF_3D][ERROR] particle ID " << pid
+                               << " out of range [1, " << idf_NL_global << "]!" << std::endl;
+                h_global_indices[i] = 0;
+            }
+        }
+
+        // 复制索引数组到 GPU
+        amrex::Gpu::DeviceVector<int> d_global_indices(n);
+        amrex::Gpu::copyAsync(amrex::Gpu::hostToDevice,
+                              h_global_indices.begin(), h_global_indices.end(),
+                              d_global_indices.begin());
+        amrex::Gpu::streamSynchronize();
+        const int* d_idx_ptr = d_global_indices.data();
+
+        // 使用正确的全局索引写入粒子力属性
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+            int global_idx = d_idx_ptr[i];
+            fx_attr[i] = d_sol_x_ptr[global_idx] * ib_coeff;
+            fy_attr[i] = d_sol_y_ptr[global_idx] * ib_coeff;
+            fz_attr[i] = d_sol_z_ptr[global_idx] * ib_coeff;
+        });
+    }
+    amrex::Gpu::streamSynchronize();
+}
+
+void LagrangeParticleContainer::IDF_SpreadForce(int lev, MultiFab& force_lev) {
+    const Real* delta = Geom(lev).CellSize();
+
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        auto& particles = pti.GetArrayOfStructs();
+        auto p_ptr = particles().data();
+        const long n = pti.numParticles();
+        auto& attribs = pti.GetAttribs();
+        auto fx = attribs[PIdx::fx].data();
+        auto fy = attribs[PIdx::fy].data();
+        auto fz = attribs[PIdx::fz].data();
+        Array4<Real> const& Ft = force_lev.array(pti);
+
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+            ibm_spread_force(p_ptr[i], fx[i], fy[i], fz[i], Ft, delta);
+        });
+    }
+    amrex::Gpu::streamSynchronize();
 }

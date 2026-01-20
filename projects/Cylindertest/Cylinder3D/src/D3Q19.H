@@ -11,6 +11,16 @@ using namespace amrex;
 #define DIM 3
 #define Q 27
 
+// MDF 迭代次数：NF=1 时使用单次迭代（类似直接力法）；NF>1 时使用多次迭代收敛
+#define NF 3
+
+// MDF 两阶段实现开关：仅在 NF > 1 时启用（节省内存）
+#if (NF > 1)
+    #define USE_MDF_TWO_STAGE 1
+#else
+    #define USE_MDF_TWO_STAGE 0
+#endif
+
 const int coarsest_level = 0;
 const int max_ref_level = 0;
 const int rate = (1 << max_ref_level);
