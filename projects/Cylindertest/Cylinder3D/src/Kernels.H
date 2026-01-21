@@ -2422,7 +2422,7 @@ AMREX_GPU_HOST_DEVICE
         }
     }
 
-    rhot = 2 * rhot / cs2 / dt_min;
+    rhot = 2 * rhot / dt_min;
 
     // 计算力增量
     fxt = rhot * (uxt - upx);
