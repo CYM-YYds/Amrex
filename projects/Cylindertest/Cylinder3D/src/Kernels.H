@@ -2760,10 +2760,9 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
     uzt = 0.0;
     rhot = 0.0;
 
-    // 三线性插值：8个邻居网格点
-    for (int z = -1; z <= 1; ++z) {
-        for (int y = -1; y <= 1; ++y) {
-            for (int x = -1; x <= 1; ++x) {
+    for (int z = -2; z <= 2; ++z) {
+        for (int y = -2; y <= 2; ++y) {
+            for (int x = -2; x <= 2; ++x) {
                 int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
                 int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
                 int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
@@ -2771,26 +2770,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
                 amrex::Real lx = xt - (xx + 0.5);
                 amrex::Real ly = yt - (yy + 0.5);
                 amrex::Real lz = zt - (zz + 0.5);
-
-                // 线性权重函数
-                amrex::Real wx = 0.5 - lx;
-                amrex::Real wy = 0.5 - ly;
-                amrex::Real wz = 0.5 - lz;
-
-                if (x == 0)
-                    wx = 0.5 - lx;
-                else
-                    wx = 0.5 + lx;
-                if (y == 0)
-                    wy = 0.5 - ly;
-                else
-                    wy = 0.5 + ly;
-                if (z == 0)
-                    wz = 0.5 - lz;
-                else
-                    wz = 0.5 + lz;
-
-                amrex::Real w = wx * wy * wz;
+                amrex::Real w = delta3p(lx) * delta3p(ly) * delta3p(lz);
                 uxt += u(xx, yy, zz, 0) * w;
                 uyt += u(xx, yy, zz, 1) * w;
                 uzt += u(xx, yy, zz, 2) * w;
@@ -2800,7 +2780,6 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
     }
 }
 
-// 3D 三线性传播：将粒子力传播到欧拉网格
 template <typename P>
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
                                                                amrex::Real const fx,
@@ -2811,11 +2790,14 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
     amrex::Real xt = p.pos(0) / delta[0];
     amrex::Real yt = p.pos(1) / delta[1];
     amrex::Real zt = p.pos(2) / delta[2];
+    amrex::Real IB_weight = LP_dr * area;
+    amrex::Real fxt = fx / (dx_min * dx_min * dx_min);
+    amrex::Real fyt = fy / (dx_min * dx_min * dx_min);
+    amrex::Real fzt = fz / (dx_min * dx_min * dx_min);
 
-    // 三线性传播：8个邻居网格点
-    for (int z = -1; z <= 1; ++z) {
-        for (int y = -1; y <= 1; ++y) {
-            for (int x = -1; x <= 1; ++x) {
+    for (int z = -2; z <= 2; ++z) {
+        for (int y = -2; y <= 2; ++y) {
+            for (int x = -2; x <= 2; ++x) {
                 int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
                 int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
                 int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
@@ -2823,29 +2805,11 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
                 amrex::Real lx = xt - (xx + 0.5);
                 amrex::Real ly = yt - (yy + 0.5);
                 amrex::Real lz = zt - (zz + 0.5);
+                amrex::Real IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz);
 
-                // 线性权重函数
-                amrex::Real wx = 0.5 - lx;
-                amrex::Real wy = 0.5 - ly;
-                amrex::Real wz = 0.5 - lz;
-
-                if (x == 0)
-                    wx = 0.5 - lx;
-                else
-                    wx = 0.5 + lx;
-                if (y == 0)
-                    wy = 0.5 - ly;
-                else
-                    wy = 0.5 + ly;
-                if (z == 0)
-                    wz = 0.5 - lz;
-                else
-                    wz = 0.5 + lz;
-
-                amrex::Real w = wx * wy * wz;
-                amrex::Gpu::Atomic::Add(&Ft(xx, yy, zz, 0), w * fx);
-                amrex::Gpu::Atomic::Add(&Ft(xx, yy, zz, 1), w * fy);
-                amrex::Gpu::Atomic::Add(&Ft(xx, yy, zz, 2), w * fz);
+                amrex::Gpu::Atomic::Add(&Ft(xx, yy, zz, 0), -IB_Interp * fxt);
+                amrex::Gpu::Atomic::Add(&Ft(xx, yy, zz, 1), -IB_Interp * fyt);
+                amrex::Gpu::Atomic::Add(&Ft(xx, yy, zz, 2), -IB_Interp * fzt);
             }
         }
     }

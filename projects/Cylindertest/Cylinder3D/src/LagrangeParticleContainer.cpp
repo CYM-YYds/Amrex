@@ -1,7 +1,7 @@
 #include "LagrangeParticleContainer.H"
 #include "D3Q19.H"
 #include "Kernels.H"
-#include <algorithm>  // for std::max_element, std::min_element
+#include <algorithm> // for std::max_element, std::min_element
 using namespace amrex;
 
 void LagrangeParticleContainer::PrintParticleParm() {
@@ -139,7 +139,8 @@ void LagrangeParticleContainer::InitCylinderParticle(int lev) {
 
     int ny_layers = nt; // 轴向层数（沿 Y）
     int nt_ring = nt1;  // 每层圆周点数
-    if (nt_ring < 3) nt_ring = 3;
+    if (nt_ring < 3)
+        nt_ring = 3;
 
     // 侧壁总面积 ≈ 2*pi*R*H ，保持原 height_index 处理方式
     Real side_area = 2.0 * PI * phys_radius * (height_index * dx_min);
@@ -209,7 +210,7 @@ void LagrangeParticleContainer::InitCylinderParticle(int lev) {
     long total_local = 0;
 
     for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
-        int box_idx = pti.index();  // 当前 Box 的索引
+        int box_idx = pti.index(); // 当前 Box 的索引
         long np_in_box = pti.numParticles();
         particles_per_box[box_idx] = np_in_box;
         total_local += np_in_box;
@@ -225,11 +226,11 @@ void LagrangeParticleContainer::InitCylinderParticle(int lev) {
     // 只在 IOProc 打印
     if (ParallelDescriptor::IOProcessor()) {
         long total_particles = 0;
-        
+
         // 按 CPU 统计
         std::vector<long> particles_per_cpu(nprocs, 0);
         std::vector<int> boxes_per_cpu(nprocs, 0);
-        
+
         amrex::Print() << "┌──────────┬──────────┬──────────────────┬─────────────────────────────────┐" << std::endl;
         amrex::Print() << "│  Box ID  │  CPU ID  │  Num Particles   │           Box Range             │" << std::endl;
         amrex::Print() << "├──────────┼──────────┼──────────────────┼─────────────────────────────────┤" << std::endl;
@@ -237,13 +238,13 @@ void LagrangeParticleContainer::InitCylinderParticle(int lev) {
         for (int i = 0; i < nboxes; ++i) {
             const Box& bx = ba[i];
             int cpu_id = dm[i];
-            
+
             // 只打印有粒子的 Box (3D 可能 Box 很多)
             if (global_particles_per_box[i] > 0) {
-                amrex::Print() << "│ " << std::setw(8) << i 
-                              << " │ " << std::setw(8) << cpu_id
-                              << " │ " << std::setw(16) << global_particles_per_box[i]
-                              << " │ " << bx.smallEnd() << "-" << bx.bigEnd() << " │" << std::endl;
+                amrex::Print() << "│ " << std::setw(8) << i
+                               << " │ " << std::setw(8) << cpu_id
+                               << " │ " << std::setw(16) << global_particles_per_box[i]
+                               << " │ " << bx.smallEnd() << "-" << bx.bigEnd() << " │" << std::endl;
             }
             total_particles += global_particles_per_box[i];
             particles_per_cpu[cpu_id] += global_particles_per_box[i];
@@ -281,19 +282,19 @@ void LagrangeParticleContainer::InitCylinderParticle(int lev) {
         amrex::Print() << "│  CPU ID  │  Boxes   │  Total Particles │" << std::endl;
         amrex::Print() << "├──────────┼──────────┼──────────────────┤" << std::endl;
         for (int i = 0; i < nprocs; ++i) {
-            amrex::Print() << "│ " << std::setw(8) << i 
-                          << " │ " << std::setw(8) << boxes_per_cpu[i]
-                          << " │ " << std::setw(16) << particles_per_cpu[i] << " │" << std::endl;
+            amrex::Print() << "│ " << std::setw(8) << i
+                           << " │ " << std::setw(8) << boxes_per_cpu[i]
+                           << " │ " << std::setw(16) << particles_per_cpu[i] << " │" << std::endl;
         }
         amrex::Print() << "└──────────┴──────────┴──────────────────┘" << std::endl;
 
         long max_cpu_particles = *std::max_element(particles_per_cpu.begin(), particles_per_cpu.end());
         long min_cpu_particles = *std::min_element(particles_per_cpu.begin(), particles_per_cpu.end());
-        double imbalance = (max_cpu_particles > 0) ? 
-            (static_cast<double>(max_cpu_particles - min_cpu_particles) / max_cpu_particles * 100.0) : 0.0;
-        
+        double imbalance = (max_cpu_particles > 0) ? (static_cast<double>(max_cpu_particles - min_cpu_particles) / max_cpu_particles * 100.0) : 0.0;
+
         amrex::Print() << "  Load imbalance: " << std::fixed << std::setprecision(1) << imbalance << "%" << std::endl;
-        amrex::Print() << "╚══════════════════════════════════════════════════════╝\n" << std::endl;
+        amrex::Print() << "╚══════════════════════════════════════════════════════╝\n"
+                       << std::endl;
     }
     // ========== 打印结束 ==========
 }
@@ -541,7 +542,7 @@ void LagrangeParticleContainer::ZeroParticleForce(int lev) {
 
 #if USE_MDF_TWO_STAGE
 // MDF 两阶段迭代版本（NF > 1）：力增量写入 force_delta_lev，累积力读取自 force_lev
-void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, 
+void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev,
                                             amrex::MultiFab& force_lev, amrex::MultiFab& force_delta_lev) {
     const Real delta = Geom(lev).CellSize()[0];
 
@@ -571,10 +572,10 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
         const RealVect& wc = angvel;
         const RealVect& pos = centre;
 
-        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept { 
-            force_interp_extrap(p_ptr[i], fx[i], fy[i], fz[i], tx[i], ty[i], tz[i], 
-                                xlocal[i], ylocal[i], zlocal[i], area[i], 
-                                u, rho, Ft, Ft_delta, delta, uc, wc, pos); 
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+            force_interp_extrap(p_ptr[i], fx[i], fy[i], fz[i], tx[i], ty[i], tz[i],
+                                xlocal[i], ylocal[i], zlocal[i], area[i],
+                                u, rho, Ft, Ft_delta, delta, uc, wc, pos);
         });
     }
 
@@ -1060,7 +1061,7 @@ void LagrangeParticleContainer::IDF_Interpolate(int lev,
         auto ufy = attribs[PIdx::ylocal].data();
         auto ufz = attribs[PIdx::zlocal].data();
         auto rho_attr = attribs[PIdx::area].data();
-        
+
         const Array4<Real>& u = u_lev.array(pti);
         const Array4<Real>& rho = rho_lev.array(pti);
 
@@ -1143,7 +1144,7 @@ void LagrangeParticleContainer::IDF_WriteForceToParticles(int lev,
                                                           const std::vector<Real>& sol_y,
                                                           const std::vector<Real>& sol_z,
                                                           int idf_NL_global) {
-    const Real ib_coeff = LP_area * dx_min * dx_min; // 3D: 面积积分
+    const Real ib_coeff = dx_min * dx_min * dx_min; // 3D: 面积积分
     int NL = static_cast<int>(sol_x.size());
 
     // 将力密度数据复制到 GPU 可访问的内存
@@ -1230,7 +1231,7 @@ void LagrangeParticleContainer::IDF_SpreadForce(int lev, MultiFab& force_lev) {
         Array4<Real> const& Ft = force_lev.array(pti);
 
         amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
-            ibm_spread_force(p_ptr[i], fx[i], fy[i], fz[i], Ft, delta);
+            ibm_spread_force(p_ptr[i], fx[i], fy[i], fz[i] Ft, delta);
         });
     }
     amrex::Gpu::streamSynchronize();
