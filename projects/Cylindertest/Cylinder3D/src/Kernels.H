@@ -2367,8 +2367,8 @@ AMREX_GPU_HOST_DEVICE
 
     IB_weight = LP_dr * area;
 
-    // 力修正系数：u_corrected = u + 0.5 * dt * F / (rho/cs2)
-    amrex::Real force_to_vel = 0.5 * dt_min * cs2 / p0;
+    // 力修正系数：u_corrected = u + 0.5 * dt * F / rho
+    amrex::Real force_to_vel = 0.5 * dt_min / rho0;
 
     uxt = 0.0;
     uyt = 0.0;
