@@ -577,6 +577,33 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
                                 u, rho, Ft, Ft_delta, delta, uc, wc, pos); 
         });
     }
+
+    // 统计转矩等颗粒受力（每次迭代后累加）
+    using SPType = typename LagrangeParticleContainer::SuperParticleType;
+
+    auto fx = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal { return p.rdata(PIdx::fx); });
+    auto fy = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal { return p.rdata(PIdx::fy); });
+    auto fz = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal { return p.rdata(PIdx::fz); });
+    auto tx = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal { return p.rdata(PIdx::tx); });
+    auto ty = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal { return p.rdata(PIdx::ty); });
+    auto tz = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal { return p.rdata(PIdx::tz); });
+
+    ParallelDescriptor::ReduceRealSum(fx);
+    ParallelDescriptor::ReduceRealSum(fy);
+    ParallelDescriptor::ReduceRealSum(fz);
+    ParallelDescriptor::ReduceRealSum(tx);
+    ParallelDescriptor::ReduceRealSum(ty);
+    ParallelDescriptor::ReduceRealSum(tz);
+
+    F_tot[0] = fx;
+    F_tot[1] = fy;
+    F_tot[2] = fz;
+    T_tot[0] = tx;
+    T_tot[1] = ty;
+    T_tot[2] = tz;
+    F_lub[0] = 0.0;
+    F_lub[1] = 0.0;
+    F_lub[2] = 0.0;
 }
 #else
 // MDF 单次迭代版本（NF = 1）：直接计算力并写入 force_lev
