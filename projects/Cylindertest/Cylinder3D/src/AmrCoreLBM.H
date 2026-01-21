@@ -124,20 +124,20 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 高层入口：在时间步内调用以执行隐式直接力求解与施加
     void ApplyIDF(int lev);
 
-    // 构建活跃欧拉点集合（所有拉格朗日点周围的有效欧拉节点去重后的并集）
-    void BuildActiveEulerSet(int lev);
+    // 构建活跃欧拉点集合：针对第 particle_idx 个球体的拉格朗日点
+    void BuildActiveEulerSet(int lev, int particle_idx, IDFData& idf_data);
 
-    // 可选：预组装 / 缓存矩阵（如果粒子拓扑不变，可减少重复开销）
-    void IDF_AssembleMatrix(int lev);
+    // 组装该球体的全局矩阵 A = D_I × D_E
+    void IDF_AssembleMatrix(int lev, int particle_idx, IDFData& idf_data);
 
-    // 插值欧拉速度到拉格朗日点（D_I）
-    void IDF_InterpolateEulerToLag(int lev);
+    // 插值欧拉速度到该球体的拉格朗日点（D_I）
+    void IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& idf_data);
 
-    // 根据当前拉格朗日力（或解出的力密度）传播到欧拉网格（D_E）
-    void IDF_SpreadLagToEuler(int lev);
+    // 根据该球体的拉格朗日力传播到欧拉网格（D_E）
+    void IDF_SpreadLagToEuler(int lev, int particle_idx, IDFData& idf_data);
 
-    // 求解 A * x = b（A=D_I*D_E），更新拉格朗日力修正
-    void IDF_SolveSystem(int lev);
+    // 求解该球体的线性系统 A * x = b（A=D_I*D_E）
+    void IDF_SolveSystem(int lev, int particle_idx, IDFData& idf_data);
 
     //********************************************************************//
     //                     Pure virtual function                          //
@@ -176,6 +176,63 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<std::unique_ptr<AuxiliaryPointContainer>> particlesCp;
     amrex::Vector<amrex::RealVect> points;
 
+    //============================================================================//
+    //          IDF (Implicit Direct Forcing) 数据结构 - 多球体支持              //
+    //============================================================================//
+    // IDFData：为每个球体独立管理IDF所需的全局数据
+    // 每个球体拥有自己的粒子位置、欧拉点、矩阵等，避免球体间数据冲突
+    struct IDFData {
+        // ===== 拉格朗日点相关 =====
+        int idf_local_NL{0};                              // 本进程粒子数
+        std::vector<int> idf_all_NL;                      // 所有进程的粒子数
+        int idf_NL_global{0};                             // 全局粒子总数
+        int idf_local_offset{0};                          // 本进程在全局数组中的偏移
+        std::vector<amrex::Real> idf_lag_pos_global;      // 全局粒子位置 [x,y,z,...] 大小3*NL_global
+        
+        // ===== 欧拉点相关 =====
+        std::vector<amrex::IntVect> idf_active_euler_nodes_global; // 全局活跃欧拉点
+        std::map<amrex::IntVect, int> idf_euler_index_map_global;   // 欧拉点→索引映射
+        int idf_NE_global{0};                             // 全局欧拉点数
+        
+        // ===== 插值速度和密度 =====
+        std::vector<amrex::Real> idf_interp_u_x;         // 插值速度 ux (NL_global)
+        std::vector<amrex::Real> idf_interp_u_y;         // 插值速度 uy (NL_global)
+        std::vector<amrex::Real> idf_interp_u_z;         // 插值速度 uz (NL_global)
+        std::vector<amrex::Real> idf_interp_rho;         // 插值密度 (NL_global)
+        
+        // ===== 目标速度（静止边界：全为0） =====
+        std::vector<amrex::Real> idf_target_u_x;         // 目标速度 ux
+        std::vector<amrex::Real> idf_target_u_y;         // 目标速度 uy
+        std::vector<amrex::Real> idf_target_u_z;         // 目标速度 uz
+        
+        // ===== 线性系统的右端项 (RHS) =====
+        std::vector<amrex::Real> idf_rhs_x;              // RHS_x: target_ux - interp_ux
+        std::vector<amrex::Real> idf_rhs_y;              // RHS_y: target_uy - interp_uy
+        std::vector<amrex::Real> idf_rhs_z;              // RHS_z: target_uz - interp_uz
+        
+        // ===== 求解的拉格朗日力 =====
+        std::vector<amrex::Real> idf_sol_x;              // 求解的力 fx (NL_global)
+        std::vector<amrex::Real> idf_sol_y;              // 求解的力 fy (NL_global)
+        std::vector<amrex::Real> idf_sol_z;              // 求解的力 fz (NL_global)
+        
+        // ===== 矩阵和求解 =====
+        std::vector<amrex::Real> idf_A;                  // 全局矩阵 A = D_I × D_E (NL_global²)
+        std::vector<amrex::Real> idf_A_inv;              // 矩阵逆 (静止边界预计算)
+        
+        
+        // ===== 标志位（静止边界优化） =====
+        bool idf_geometry_built{false};      // 几何（欧拉点集、矩阵）是否已构建
+        bool idf_local_count_valid{false};   // 本地粒子计数是否有效（regrid后需更新）
+        bool idf_matrix_built{false};        // 矩阵是否已组装
+        bool idf_inverse_built{false};       // 矩阵逆是否已计算
+    };
+
+    // 为每个球体维护一个IDFData实例（支持多球体计算）
+    std::vector<IDFData> idf_data;
+    
+    // 追踪IDF数据是否已初始化（在ApplyIDF第一次调用时初始化）
+    bool idf_data_initialized{false};
+
     // Running mean accumulators for \bar{u}(y) on x=NX/2, y in [0,NH)
     amrex::Vector<amrex::Real> mean_u_sum_;
     int mean_ny_half_ = -1;
@@ -184,65 +241,6 @@ class AmrCoreLBM : public amrex::AmrCore {
 
     // Centralized runtime parameters
     RuntimeParams params_;
-
-    // ================== IDF 隐式直接力数据结构 ==================
-    // 3D 分离的力向量和速度向量
-    std::vector<amrex::Real> idf_interp_u_x; // 插值后的欧拉速度 ux (NL_global)
-    std::vector<amrex::Real> idf_interp_u_y; // 插值后的欧拉速度 uy (NL_global)
-    std::vector<amrex::Real> idf_interp_u_z; // 插值后的欧拉速度 uz (NL_global)
-    std::vector<amrex::Real> idf_interp_rho; // 插值后的密度 rho (NL_global)
-    std::vector<amrex::Real> idf_target_u_x; // 目标速度 ux (通常为0，静止边界)
-    std::vector<amrex::Real> idf_target_u_y; // 目标速度 uy
-    std::vector<amrex::Real> idf_target_u_z; // 目标速度 uz
-    std::vector<amrex::Real> idf_rhs_x;      // RHS: target_ux - interp_ux
-    std::vector<amrex::Real> idf_rhs_y;      // RHS: target_uy - interp_uy
-    std::vector<amrex::Real> idf_rhs_z;      // RHS: target_uz - interp_uz
-    std::vector<amrex::Real> idf_sol_x;      // 求解的 fx (NL_global)
-    std::vector<amrex::Real> idf_sol_y;      // 求解的 fy (NL_global)
-    std::vector<amrex::Real> idf_sol_z;      // 求解的 fz (NL_global)
-
-    // 全局矩阵 A = D_I × D_E (NL_global × NL_global，按行主序存储)
-    std::vector<amrex::Real> idf_A;
-
-    // A 的逆矩阵 A_inv (静止边界时预先计算，避免每步求解)
-    std::vector<amrex::Real> idf_A_inv;
-    bool idf_inverse_built{false}; // A_inv 是否已计算
-
-    // 全局拉格朗日点位置（所有进程共享）
-    std::vector<amrex::Real> idf_lag_pos_global; // [x0,y0,z0,x1,y1,z1,...] 大小 3*NL_global
-    int idf_NL_global{0};                        // 全局拉格朗日点总数
-
-    // 本地进程的拉格朗日点在全局数组中的起始偏移
-    int idf_local_offset{0};
-    int idf_local_NL{0}; // 本进程拥有的拉格朗日点数
-
-    // MPI 通信参数（每个进程的粒子数量和偏移）
-    // 在 BuildActiveEulerSet 中初始化，regrid 后更新
-    std::vector<int> idf_all_NL; // 每个进程的粒子数量
-
-    // 矩阵是否已构建
-    bool idf_matrix_built{false};
-
-    // 活跃欧拉点集合（仅最细层）与其数量 NE
-    amrex::Vector<amrex::IntVect> idf_active_euler_nodes; // 最细层的欧拉节点坐标列表（去重）
-    int idf_NE{0};                                        // 最细层的活跃欧拉节点数量
-
-    // 欧拉节点到索引的映射（仅最细层）
-    std::map<amrex::IntVect, int> idf_euler_index_map;
-
-    // 全局欧拉点数量
-    int idf_NE_global{0};
-    std::vector<amrex::IntVect> idf_active_euler_nodes_global;
-    std::map<amrex::IntVect, int> idf_euler_index_map_global;
-
-    // 静止边界：几何与映射只需构建一次
-    bool idf_geometry_built{false};
-    // 本地粒子计数是否有效（regrid 后需要更新）
-    bool idf_local_count_valid{false};
-
-    // 稀疏 D_I（按行：每个拉格朗日点 i 的条目列表 <e_idx, wI>）与 D_E（按列：每个拉格朗日点 j 的条目列表 <e_idx, wE>）
-    std::vector<std::vector<std::pair<int, amrex::Real>>> idf_DI_rows;
-    std::vector<std::vector<std::pair<int, amrex::Real>>> idf_DE_cols;
 };
 
 #endif

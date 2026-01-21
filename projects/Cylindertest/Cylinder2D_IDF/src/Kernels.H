@@ -563,8 +563,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
     amrex::Real yt = p.pos(1) / delta;
     amrex::Real fxt = fx / (IB_weight * dx_min * dx_min);
     amrex::Real fyt = fy / (IB_weight * dx_min * dx_min);
-    auto lo = amrex::lbound(Ft);
-    auto hi = amrex::ubound(Ft);
+
     for (int x = -2; x <= 2; ++x) {
         for (int y = -2; y <= 2; ++y) {
             int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
