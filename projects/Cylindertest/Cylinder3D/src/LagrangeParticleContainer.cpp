@@ -1049,7 +1049,7 @@ int LagrangeParticleContainer::IDF_CollectParticleData(int lev,
 void LagrangeParticleContainer::IDF_Interpolate(int lev,
                                                 MultiFab& u_lev,
                                                 MultiFab& rho_lev) {
-    const Real* delta = Geom(lev).CellSize();
+    const Real delta = Geom(lev).CellSize()[0];
 
     for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
         auto& particles = pti.GetArrayOfStructs();
@@ -1218,7 +1218,7 @@ void LagrangeParticleContainer::IDF_WriteForceToParticles(int lev,
 }
 
 void LagrangeParticleContainer::IDF_SpreadForce(int lev, MultiFab& force_lev) {
-    const Real* delta = Geom(lev).CellSize();
+    const Real delta = Geom(lev).CellSize()[0];
 
     for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
         auto& particles = pti.GetArrayOfStructs();

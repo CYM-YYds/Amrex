@@ -2747,14 +2747,14 @@ template <typename P>
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
                                                               amrex::Array4<amrex::Real> const& u,
                                                               amrex::Array4<amrex::Real> const& rho,
-                                                              const amrex::Real* delta,
+                                                              amrex::Real const delta,
                                                               amrex::Real& uxt,
                                                               amrex::Real& uyt,
                                                               amrex::Real& uzt,
                                                               amrex::Real& rhot) {
-    amrex::Real xt = p.pos(0) / delta[0];
-    amrex::Real yt = p.pos(1) / delta[1];
-    amrex::Real zt = p.pos(2) / delta[2];
+    amrex::Real xt = p.pos(0) / delta;
+    amrex::Real yt = p.pos(1) / delta;
+    amrex::Real zt = p.pos(2) / delta;
     uxt = 0.0;
     uyt = 0.0;
     uzt = 0.0;
@@ -2786,10 +2786,10 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
                                                                amrex::Real const fy,
                                                                amrex::Real const fz,
                                                                amrex::Array4<amrex::Real> const& Ft,
-                                                               const amrex::Real* delta) {
-    amrex::Real xt = p.pos(0) / delta[0];
-    amrex::Real yt = p.pos(1) / delta[1];
-    amrex::Real zt = p.pos(2) / delta[2];
+                                                               amrex::Real const delta) {
+    amrex::Real xt = p.pos(0) / delta;
+    amrex::Real yt = p.pos(1) / delta;
+    amrex::Real zt = p.pos(2) / delta;
     amrex::Real fxt = fx / (dx_min * dx_min * dx_min);
     amrex::Real fyt = fy / (dx_min * dx_min * dx_min);
     amrex::Real fzt = fz / (dx_min * dx_min * dx_min);
