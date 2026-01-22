@@ -121,23 +121,71 @@ class AmrCoreLBM : public amrex::AmrCore {
     //********************************************************************//
     //                     IDF (Implicit Direct Forcing)                  //
     //********************************************************************//
+    // IDFData：为每个球体独立管理IDF所需的全局数据
+    // 每个球体拥有自己的粒子位置、欧拉点、矩阵等，避免球体间数据冲突
+    struct IDFData {
+      // ===== 拉格朗日点相关 =====
+      int local_NL{0};                              // 本进程粒子数
+      std::vector<int> all_NL;                      // 所有进程的粒子数
+      int NL_global{0};                             // 全局粒子总数
+      int local_offset{0};                          // 本进程在全局数组中的偏移
+      std::vector<amrex::Real> lag_pos_global;      // 全局粒子位置 [x,y,z,...] 大小3*NL_global
+        
+      // ===== 欧拉点相关 =====
+      std::vector<amrex::IntVect> active_euler_nodes_global; // 全局活跃欧拉点
+      std::map<amrex::IntVect, int> euler_index_map_global;   // 欧拉点→索引映射
+      int NE_global{0};                             // 全局欧拉点数
+        
+      // ===== 插值速度和密度 =====
+      std::vector<amrex::Real> interp_u_x;         // 插值速度 ux (NL_global)
+      std::vector<amrex::Real> interp_u_y;         // 插值速度 uy (NL_global)
+      std::vector<amrex::Real> interp_u_z;         // 插值速度 uz (NL_global)
+      std::vector<amrex::Real> interp_rho;         // 插值密度 (NL_global)
+        
+      // ===== 目标速度（静止边界：全为0） =====
+      std::vector<amrex::Real> target_u_x;         // 目标速度 ux
+      std::vector<amrex::Real> target_u_y;         // 目标速度 uy
+      std::vector<amrex::Real> target_u_z;         // 目标速度 uz
+        
+      // ===== 线性系统的右端项 (RHS) =====
+      std::vector<amrex::Real> rhs_x;              // RHS_x: target_ux - interp_ux
+      std::vector<amrex::Real> rhs_y;              // RHS_y: target_uy - interp_uy
+      std::vector<amrex::Real> rhs_z;              // RHS_z: target_uz - interp_uz
+        
+      // ===== 求解的拉格朗日力 =====
+      std::vector<amrex::Real> sol_x;              // 求解的力 fx (NL_global)
+      std::vector<amrex::Real> sol_y;              // 求解的力 fy (NL_global)
+      std::vector<amrex::Real> sol_z;              // 求解的力 fz (NL_global)
+        
+      // ===== 矩阵和求解 =====
+      std::vector<amrex::Real> A;                  // 全局矩阵 A = D_I × D_E (NL_global²)
+      std::vector<amrex::Real> A_inv;              // 矩阵逆 (静止边界预计算)
+        
+        
+      // ===== 标志位（静止边界优化） =====
+      bool geometry_built{false};      // 几何（欧拉点集、矩阵）是否已构建
+      bool local_count_valid{false};   // 本地粒子计数是否有效（regrid后需更新）
+      bool matrix_built{false};        // 矩阵是否已组装
+      bool inverse_built{false};       // 矩阵逆是否已计算
+    };
+
     // 高层入口：在时间步内调用以执行隐式直接力求解与施加
     void ApplyIDF(int lev);
 
     // 构建活跃欧拉点集合：针对第 particle_idx 个球体的拉格朗日点
-    void BuildActiveEulerSet(int lev, int particle_idx, IDFData& idf_data);
+    void BuildActiveEulerSet(int lev, int particle_idx, IDFData& data);
 
     // 组装该球体的全局矩阵 A = D_I × D_E
-    void IDF_AssembleMatrix(int lev, int particle_idx, IDFData& idf_data);
+    void IDF_AssembleMatrix(int lev, int particle_idx, IDFData& data);
 
     // 插值欧拉速度到该球体的拉格朗日点（D_I）
-    void IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& idf_data);
+    void IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& data);
 
     // 根据该球体的拉格朗日力传播到欧拉网格（D_E）
-    void IDF_SpreadLagToEuler(int lev, int particle_idx, IDFData& idf_data);
+    void IDF_SpreadLagToEuler(int lev, int particle_idx, IDFData& data);
 
     // 求解该球体的线性系统 A * x = b（A=D_I*D_E）
-    void IDF_SolveSystem(int lev, int particle_idx, IDFData& idf_data);
+    void IDF_SolveSystem(int lev, int particle_idx, IDFData& data);
 
     //********************************************************************//
     //                     Pure virtual function                          //
@@ -175,57 +223,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<std::unique_ptr<LagrangeParticleContainer>> particles;
     amrex::Vector<std::unique_ptr<AuxiliaryPointContainer>> particlesCp;
     amrex::Vector<amrex::RealVect> points;
-
-    //============================================================================//
-    //          IDF (Implicit Direct Forcing) 数据结构 - 多球体支持              //
-    //============================================================================//
-    // IDFData：为每个球体独立管理IDF所需的全局数据
-    // 每个球体拥有自己的粒子位置、欧拉点、矩阵等，避免球体间数据冲突
-    struct IDFData {
-        // ===== 拉格朗日点相关 =====
-        int idf_local_NL{0};                              // 本进程粒子数
-        std::vector<int> idf_all_NL;                      // 所有进程的粒子数
-        int idf_NL_global{0};                             // 全局粒子总数
-        int idf_local_offset{0};                          // 本进程在全局数组中的偏移
-        std::vector<amrex::Real> idf_lag_pos_global;      // 全局粒子位置 [x,y,z,...] 大小3*NL_global
-        
-        // ===== 欧拉点相关 =====
-        std::vector<amrex::IntVect> idf_active_euler_nodes_global; // 全局活跃欧拉点
-        std::map<amrex::IntVect, int> idf_euler_index_map_global;   // 欧拉点→索引映射
-        int idf_NE_global{0};                             // 全局欧拉点数
-        
-        // ===== 插值速度和密度 =====
-        std::vector<amrex::Real> idf_interp_u_x;         // 插值速度 ux (NL_global)
-        std::vector<amrex::Real> idf_interp_u_y;         // 插值速度 uy (NL_global)
-        std::vector<amrex::Real> idf_interp_u_z;         // 插值速度 uz (NL_global)
-        std::vector<amrex::Real> idf_interp_rho;         // 插值密度 (NL_global)
-        
-        // ===== 目标速度（静止边界：全为0） =====
-        std::vector<amrex::Real> idf_target_u_x;         // 目标速度 ux
-        std::vector<amrex::Real> idf_target_u_y;         // 目标速度 uy
-        std::vector<amrex::Real> idf_target_u_z;         // 目标速度 uz
-        
-        // ===== 线性系统的右端项 (RHS) =====
-        std::vector<amrex::Real> idf_rhs_x;              // RHS_x: target_ux - interp_ux
-        std::vector<amrex::Real> idf_rhs_y;              // RHS_y: target_uy - interp_uy
-        std::vector<amrex::Real> idf_rhs_z;              // RHS_z: target_uz - interp_uz
-        
-        // ===== 求解的拉格朗日力 =====
-        std::vector<amrex::Real> idf_sol_x;              // 求解的力 fx (NL_global)
-        std::vector<amrex::Real> idf_sol_y;              // 求解的力 fy (NL_global)
-        std::vector<amrex::Real> idf_sol_z;              // 求解的力 fz (NL_global)
-        
-        // ===== 矩阵和求解 =====
-        std::vector<amrex::Real> idf_A;                  // 全局矩阵 A = D_I × D_E (NL_global²)
-        std::vector<amrex::Real> idf_A_inv;              // 矩阵逆 (静止边界预计算)
-        
-        
-        // ===== 标志位（静止边界优化） =====
-        bool idf_geometry_built{false};      // 几何（欧拉点集、矩阵）是否已构建
-        bool idf_local_count_valid{false};   // 本地粒子计数是否有效（regrid后需更新）
-        bool idf_matrix_built{false};        // 矩阵是否已组装
-        bool idf_inverse_built{false};       // 矩阵逆是否已计算
-    };
 
     // 为每个球体维护一个IDFData实例（支持多球体计算）
     std::vector<IDFData> idf_data;

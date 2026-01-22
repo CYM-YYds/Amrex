@@ -2790,7 +2790,6 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
     amrex::Real xt = p.pos(0) / delta[0];
     amrex::Real yt = p.pos(1) / delta[1];
     amrex::Real zt = p.pos(2) / delta[2];
-    amrex::Real IB_weight = LP_dr * area;
     amrex::Real fxt = fx / (dx_min * dx_min * dx_min);
     amrex::Real fyt = fy / (dx_min * dx_min * dx_min);
     amrex::Real fzt = fz / (dx_min * dx_min * dx_min);

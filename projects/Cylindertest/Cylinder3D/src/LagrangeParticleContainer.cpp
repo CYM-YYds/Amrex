@@ -1231,7 +1231,7 @@ void LagrangeParticleContainer::IDF_SpreadForce(int lev, MultiFab& force_lev) {
         Array4<Real> const& Ft = force_lev.array(pti);
 
         amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
-            ibm_spread_force(p_ptr[i], fx[i], fy[i], fz[i] Ft, delta);
+            ibm_spread_force(p_ptr[i], fx[i], fy[i], fz[i], Ft, delta);
         });
     }
     amrex::Gpu::streamSynchronize();
