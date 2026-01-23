@@ -1143,7 +1143,8 @@ void LagrangeParticleContainer::IDF_WriteForceToParticles(int lev,
                                                           const std::vector<Real>& sol_x,
                                                           const std::vector<Real>& sol_y,
                                                           const std::vector<Real>& sol_z,
-                                                          int idf_NL_global) {
+                                                          int idf_NL_global,
+                                                          const std::unordered_map<int, int>& pid_to_idx) {
     const Real ib_coeff = dx_min * dx_min * dx_min; // 3D: 面积积分
     int NL = static_cast<int>(sol_x.size());
 
@@ -1176,7 +1177,7 @@ void LagrangeParticleContainer::IDF_WriteForceToParticles(int lev,
         auto fy_attr = attribs[PIdx::fy].data();
         auto fz_attr = attribs[PIdx::fz].data();
 
-        // 方案 C: 使用粒子ID直接计算全局索引
+        // 使用pid_to_idx映射表计算全局索引（支持多球体）
         using ParticleType = typename LagrangeParticleContainer::ParticleType;
         amrex::Gpu::PinnedVector<ParticleType> host_particles(n);
         amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
@@ -1184,17 +1185,17 @@ void LagrangeParticleContainer::IDF_WriteForceToParticles(int lev,
                               host_particles.begin());
         amrex::Gpu::streamSynchronize();
 
-        // 构建本 tile 的全局索引数组
+        // 构建本 tile 的全局索引数组（使用映射表）
         amrex::Gpu::PinnedVector<int> h_global_indices(n);
         for (long i = 0; i < n; ++i) {
             int pid = host_particles[i].id();
-            int global_idx = pid - 1;
-            if (global_idx >= 0 && global_idx < idf_NL_global) {
-                h_global_indices[i] = global_idx;
+            auto it = pid_to_idx.find(pid);
+            if (it != pid_to_idx.end()) {
+                h_global_indices[i] = it->second;  // 使用映射表
             } else {
                 amrex::Print() << "[IDF_3D][ERROR] particle ID " << pid
-                               << " out of range [1, " << idf_NL_global << "]!" << std::endl;
-                h_global_indices[i] = 0;
+                               << " not found in pid_to_idx map!" << std::endl;
+                h_global_indices[i] = 0;  // 默认值
             }
         }
 

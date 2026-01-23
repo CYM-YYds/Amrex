@@ -1587,27 +1587,33 @@ void AmrCoreLBM::BuildActiveEulerSet(int lev, int particle_idx, IDFData& idf_dat
                    ParallelDescriptor::Mpi_typemap<Real>::type(),
                    ParallelDescriptor::Communicator());
 
-    // ===== Step 2c: 按粒子ID直接重排位置数据（无需排序） =====
-    // 粒子 ID 从 1 开始，全局索引 = ID - 1
+    // ===== Step 2c: 建立粒子ID到局部索引的映射，并重排位置数据 =====
+    // 对于多球体系统，粒子ID不是从1开始，而是全局累加
+    // 例如：球体0的ID=1~678，球体1的ID=679~1356
+    // 需要建立 pid → 局部索引[0, NL_global) 的映射
     idf_data.lag_pos_global.resize(idf_data.NL_global * 3);
 
-    // 遍历 unsorted 数据，根据粒子 ID 直接写入正确位置
-    // 需要先收集粒子 ID 来定位
+    // 先收集所有粒子ID
     std::vector<int> all_lag_ids(idf_data.NL_global);
-    // Allgatherv 汇总所有粒子 ID 到每个进程
     MPI_Allgatherv(local_lag_ids.data(), idf_data.local_NL, MPI_INT,
                    all_lag_ids.data(), idf_data.all_NL.data(), offsets.data(),
                    MPI_INT, ParallelDescriptor::Communicator());
 
-    // 按粒子 ID 直接写入全局位置数组
+    // 建立粒子ID到局部索引[0, NL_global)的映射
+    idf_data.pid_to_idx.clear();
     for (int i = 0; i < idf_data.NL_global; ++i) {
         int pid = all_lag_ids[i];
-        int global_idx = pid - 1; // 粒子ID从1开始
-        if (global_idx >= 0 && global_idx < idf_data.NL_global) {
-            idf_data.lag_pos_global[3 * global_idx + 0] = unsorted_lag_pos[3 * i + 0];
-            idf_data.lag_pos_global[3 * global_idx + 1] = unsorted_lag_pos[3 * i + 1];
-            idf_data.lag_pos_global[3 * global_idx + 2] = unsorted_lag_pos[3 * i + 2];
-        }
+        idf_data.pid_to_idx[pid] = i;  // ID映射到0-based索引
+    }
+
+    // 使用映射表重排位置数据（按粒子ID顺序存储）
+    // 注意：此时unsorted_lag_pos是按MPI进程顺序汇总的，需要重排到按ID排序
+    for (int i = 0; i < idf_data.NL_global; ++i) {
+        int pid = all_lag_ids[i];
+        int local_idx = idf_data.pid_to_idx[pid];  // 查表获取局部索引
+        idf_data.lag_pos_global[3 * local_idx + 0] = unsorted_lag_pos[3 * i + 0];
+        idf_data.lag_pos_global[3 * local_idx + 1] = unsorted_lag_pos[3 * i + 1];
+        idf_data.lag_pos_global[3 * local_idx + 2] = unsorted_lag_pos[3 * i + 2];
     }
 
     // ========== Step 3: MPI 汇总欧拉点（各进程先独立计算，再合并去重）==========
@@ -1869,19 +1875,23 @@ void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& i
                    all_interp_ids.data(), idf_data.all_NL.data(), interp_displs.data(),
                    MPI_INT, ParallelDescriptor::Communicator());
 
-    // ========== Step 3b: 按粒子ID直接写入全局数组 ==========
+    // ========== Step 3b: 按粒子ID使用映射表写入全局数组（支持多球体）==========
     idf_data.interp_u_x.resize(idf_data.NL_global);
     idf_data.interp_u_y.resize(idf_data.NL_global);
     idf_data.interp_u_z.resize(idf_data.NL_global);
     idf_data.interp_rho.resize(idf_data.NL_global);
     for (int i = 0; i < idf_data.NL_global; ++i) {
         int pid = all_interp_ids[i];
-        int global_idx = pid - 1; // 粒子ID从1开始
-        if (global_idx >= 0 && global_idx < idf_data.NL_global) {
+        auto it = idf_data.pid_to_idx.find(pid);
+        if (it != idf_data.pid_to_idx.end()) {
+            int global_idx = it->second;  // 使用映射表
             idf_data.interp_u_x[global_idx] = unsorted_interp_ux[i];
             idf_data.interp_u_y[global_idx] = unsorted_interp_uy[i];
             idf_data.interp_u_z[global_idx] = unsorted_interp_uz[i];
             idf_data.interp_rho[global_idx] = unsorted_interp_rho[i];
+        } else {
+            amrex::Print() << "[IDF][ERROR] particle ID " << pid
+                          << " not found in pid_to_idx map!" << std::endl;
         }
     }
 
@@ -2115,8 +2125,8 @@ void AmrCoreLBM::IDF_SolveSystem(int lev, int particle_idx, IDFData& idf_data) {
     }
 
     // ====== Step 4: 使用 LagrangeParticleContainer 的接口将力写回粒子属性 ======
-    // 方案 C: 使用 idf_NL_global 而非 idf_pid_to_global_idx
-    mypc->IDF_WriteForceToParticles(lev, idf_data.sol_x, idf_data.sol_y, idf_data.sol_z, idf_data.NL_global);
+    // 使用 pid_to_idx 映射表支持多球体（粒子ID全局累加）
+    mypc->IDF_WriteForceToParticles(lev, idf_data.sol_x, idf_data.sol_y, idf_data.sol_z, idf_data.NL_global, idf_data.pid_to_idx);
 
     // if (ParallelDescriptor::IOProcessor()) {
     //     static int solve_count = 0;

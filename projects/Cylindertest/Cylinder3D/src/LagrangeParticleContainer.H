@@ -160,7 +160,8 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
                                    const std::vector<amrex::Real>& sol_x,
                                    const std::vector<amrex::Real>& sol_y,
                                    const std::vector<amrex::Real>& sol_z,
-                                   int idf_NL_global);
+                                   int idf_NL_global,
+                                   const std::unordered_map<int, int>& pid_to_idx);
 
     // 将拉格朗日力传播到欧拉网格
     void IDF_SpreadForce(int lev, amrex::MultiFab& force_lev);
