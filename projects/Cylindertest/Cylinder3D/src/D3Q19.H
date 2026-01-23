@@ -112,7 +112,7 @@ const Real dt_min = dt_0 / rate;
 
 const Real rb = pow(((pow(rate * R, 3) + pow(rate * R - 1, 3)) / 2.0), (1.0 / 3.0)); // 修正的半径
 
-const Real ds0 = 1.0;
+const Real ds0 = 1.2;
 const int ns = PI * rb / ds0 + 1;  // 表面分带数
 const int nt1 = 2 * PI * rb / ds0; // 赤道上point数量
 

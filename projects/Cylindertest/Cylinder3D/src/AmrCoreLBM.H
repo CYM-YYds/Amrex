@@ -13,6 +13,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "LagrangeParticleContainer.H"
 #include "AuxiliaryPointContainer.H"
@@ -135,6 +136,7 @@ class AmrCoreLBM : public amrex::AmrCore {
       std::vector<amrex::IntVect> active_euler_nodes_global; // 全局活跃欧拉点
       std::map<amrex::IntVect, int> euler_index_map_global;   // 欧拉点→索引映射
       int NE_global{0};                             // 全局欧拉点数
+      std::unordered_map<int, int> pid_to_idx;      // 原始 PID → 压缩索引 [0,NL)
         
       // ===== 插值速度和密度 =====
       std::vector<amrex::Real> interp_u_x;         // 插值速度 ux (NL_global)
