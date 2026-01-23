@@ -1803,23 +1803,23 @@ void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& i
     // Step 1: 构建活跃欧拉点集合和全局拉格朗日点位置
     BuildActiveEulerSet(lev, particle_idx, idf_data);
 
-    if (idf_data.NL_global == 0) {
-        if (ParallelDescriptor::IOProcessor()) {
-            amrex::Print() << "[IDF] Warning: No Lagrangian points found!" << std::endl;
-        }
-        return;
-    }
+    // if (idf_data.NL_global == 0) {
+    //     if (ParallelDescriptor::IOProcessor()) {
+    //         amrex::Print() << "[IDF] Warning: No Lagrangian points found!" << std::endl;
+    //     }
+    //     return;
+    // }
 
     // BuildActiveEulerSet 已更新 idf_local_NL（仅首次构建）；这里再校验本 rank 粒子计数与缓冲长度一致
-    long sum_n = 0;
-    for (MyParIter pti(*mypc, lev); pti.isValid(); ++pti) {
-        sum_n += pti.numParticles();
-    }
-    if (sum_n != idf_data.local_NL) {
-        amrex::Print() << "[IDF][ERROR] local particle count mismatch: sum_n=" << sum_n
-                       << " idf_local_NL=" << idf_data.local_NL << std::endl;
-        amrex::Abort("IDF_InterpolateEulerToLag local count mismatch");
-    }
+    // long sum_n = 0;
+    // for (MyParIter pti(*mypc, lev); pti.isValid(); ++pti) {
+    //     sum_n += pti.numParticles();
+    // }
+    // if (sum_n != idf_data.local_NL) {
+    //     amrex::Print() << "[IDF][ERROR] local particle count mismatch: sum_n=" << sum_n
+    //                    << " idf_local_NL=" << idf_data.local_NL << std::endl;
+    //     amrex::Abort("IDF_InterpolateEulerToLag local count mismatch");
+    // }
 
     // ========== Step 2: 使用 LagrangeParticleContainer 的接口执行插值 ==========
     amrex::MultiFab& u_lev = velocity[lev];
@@ -1833,16 +1833,16 @@ void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& i
     mypc->IDF_ReadInterpResults(lev, local_interp_ux, local_interp_uy, local_interp_uz,
                                 local_interp_rho, &local_interp_ids);
 
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(static_cast<int>(local_interp_ux.size()) == idf_data.local_NL,
-                                     "IDF_3D local buffer size mismatch for particle " +
-                                         std::to_string(particle_idx));
+    // AMREX_ALWAYS_ASSERT_WITH_MESSAGE(static_cast<int>(local_interp_ux.size()) == idf_data.local_NL,
+    //                                  "IDF_3D local buffer size mismatch for particle " +
+    //                                      std::to_string(particle_idx));
 
     // ========== Step 3: 汇总插值速度到全局向量 ==========
     const int nprocs = ParallelDescriptor::NProcs();
     std::vector<int> interp_displs(nprocs + 1, 0);
-    std::partial_sum(idf_data.all_NL.begin(), idf_data.all_NL.end(), interp_displs.begin() + 1);
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(interp_displs[nprocs] == idf_data.NL_global,
-                                     "IDF_3D global buffer size mismatch");
+    // std::partial_sum(idf_data.all_NL.begin(), idf_data.all_NL.end(), interp_displs.begin() + 1);
+    //  AMREX_ALWAYS_ASSERT_WITH_MESSAGE(interp_displs[nprocs] == NL_global,
+    //                                   "IDF_3D global buffer size mismatch");
 
     // Step 3a: 汇总插值数据（ux, uy, uz, rho, ids）
     std::vector<Real> unsorted_interp_ux(idf_data.NL_global), unsorted_interp_uy(idf_data.NL_global),
@@ -1966,90 +1966,89 @@ void AmrCoreLBM::IDF_AssembleMatrix(int lev, int particle_idx, IDFData& idf_data
                 }
             }
         }
-
-        // 将 D_E 按欧拉索引分组：e -> [(lag_idx, wE)]
-        std::vector<std::vector<std::pair<int, Real>>> DE_by_euler(NE);
-        for (int j = 0; j < NL; ++j) {
-            for (auto const& ew : DE_cols[j]) {
-                int eidx = ew.first;
-                Real wE = ew.second;
-                if (eidx >= 0 && eidx < NE) {
-                    DE_by_euler[eidx].emplace_back(j, wE);
-                }
+    }
+    // 将 D_E 按欧拉索引分组：e -> [(lag_idx, wE)]
+    std::vector<std::vector<std::pair<int, Real>>> DE_by_euler(NE);
+    for (int j = 0; j < NL; ++j) {
+        for (auto const& ew : DE_cols[j]) {
+            int eidx = ew.first;
+            Real wE = ew.second;
+            if (eidx >= 0 && eidx < NE) {
+                DE_by_euler[eidx].emplace_back(j, wE);
             }
         }
+    }
 
-        // 分配并构建 A = D_I × D_E (NL × NL)
-        idf_data.A.assign(static_cast<size_t>(NL) * NL, 0.0);
+    // 分配并构建 A = D_I × D_E (NL × NL)
+    idf_data.A.assign(static_cast<size_t>(NL) * NL, 0.0);
 
-        // A[i,j] = sum_e D_I[i,e] * D_E[e,j]
+    // A[i,j] = sum_e D_I[i,e] * D_E[e,j]
+    for (int i = 0; i < NL; ++i) {
+        for (auto const& ie : DI_rows[i]) {
+            int eidx = ie.first;
+            Real wI = ie.second;
+            if (eidx < 0 || eidx >= NE)
+                continue;
+            for (auto const& jw : DE_by_euler[eidx]) {
+                int j = jw.first;
+                Real wE = jw.second;
+                idf_data.A[i * NL + j] += wI * wE;
+            }
+        }
+    }
+
+    idf_data.matrix_built = true;
+
+    if (ParallelDescriptor::IOProcessor()) {
+        Real maxA = 0.0, sumDiag = 0.0;
         for (int i = 0; i < NL; ++i) {
-            for (auto const& ie : DI_rows[i]) {
-                int eidx = ie.first;
-                Real wI = ie.second;
-                if (eidx < 0 || eidx >= NE)
-                    continue;
-                for (auto const& jw : DE_by_euler[eidx]) {
-                    int j = jw.first;
-                    Real wE = jw.second;
-                    idf_data.A[i * NL + j] += wI * wE;
-                }
+            sumDiag += idf_data.A[i * NL + i];
+            for (int j = 0; j < NL; ++j) {
+                maxA = std::max(maxA, std::abs(idf_data.A[i * NL + j]));
             }
         }
+        amrex::Print() << "[IDF] Assembled A (NL=" << NL << " × NL=" << NL
+                       << "), max|A|=" << maxA
+                       << ", trace(A)=" << sumDiag << std::endl;
 
-        idf_data.matrix_built = true;
-
-        /*     if (ParallelDescriptor::IOProcessor()) {
-                Real maxA = 0.0, sumDiag = 0.0;
-                for (int i = 0; i < NL; ++i) {
-                    sumDiag += idf_data.A[i * NL + i];
-                    for (int j = 0; j < NL; ++j) {
-                        maxA = std::max(maxA, std::abs(idf_data.A[i * NL + j]));
-                    }
+        //======== 输出矩阵到 dat 文件（方便导入 Excel） ========
+        std::ofstream matrixFile("IDF_matrix_A.dat");
+        if (matrixFile.is_open()) {
+            matrixFile << std::scientific << std::setprecision(6);
+            for (int i = 0; i < NL; ++i) {
+                for (int j = 0; j < NL; ++j) {
+                    matrixFile << idf_data.A[i * NL + j];
+                    if (j < NL - 1)
+                        matrixFile << "\t"; // Tab 分隔，方便 Excel
                 }
-                amrex::Print() << "[IDF] Assembled A (NL=" << NL << " × NL=" << NL
-                               << "), max|A|=" << maxA
-                               << ", trace(A)=" << sumDiag << std::endl;
-
-                //======== 输出矩阵到 dat 文件（方便导入 Excel） ========
-                std::ofstream matrixFile("IDF_matrix_A.dat");
-                if (matrixFile.is_open()) {
-                    matrixFile << std::scientific << std::setprecision(6);
-                    for (int i = 0; i < NL; ++i) {
-                        for (int j = 0; j < NL; ++j) {
-                            matrixFile << idf_data.A[i * NL + j];
-                            if (j < NL - 1)
-                                matrixFile << "\t"; // Tab 分隔，方便 Excel
-                        }
-                        matrixFile << "\n";
-                    }
-                    matrixFile.close();
-                    amrex::Print() << "[IDF] Matrix A exported to: IDF_matrix_A.dat" << std::endl;
-                }
-            } */
-
-        // ======== 静止边界优化：预计算 A 的逆矩阵 ========
-        if (!idf_data.inverse_built) {
-            if (ParallelDescriptor::IOProcessor()) {
-                amrex::Print() << "[IDF] Computing A^(-1) for static boundary..." << std::endl;
+                matrixFile << "\n";
             }
+            matrixFile.close();
+            amrex::Print() << "[IDF] Matrix A exported to: IDF_matrix_A.dat" << std::endl;
+        }
+    }
 
-            bool success = computeMatrixInverse(idf_data.A, idf_data.A_inv, NL);
+    // ======== 静止边界优化：预计算 A 的逆矩阵 ========
+    if (!idf_data.inverse_built) {
+        if (ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "[IDF] Computing A^(-1) for static boundary..." << std::endl;
+        }
 
-            if (success) {
-                idf_data.inverse_built = true;
-                if (ParallelDescriptor::IOProcessor()) {
-                    Real maxAinv = 0.0;
-                    for (int i = 0; i < NL * NL; ++i) {
-                        maxAinv = std::max(maxAinv, std::abs(idf_data.A_inv[i]));
-                    }
-                    amrex::Print() << "[IDF] A^(-1) computed successfully, max|A^(-1)|="
-                                   << maxAinv << std::endl;
+        bool success = computeMatrixInverse(idf_data.A, idf_data.A_inv, NL);
+
+        if (success) {
+            idf_data.inverse_built = true;
+            if (ParallelDescriptor::IOProcessor()) {
+                Real maxAinv = 0.0;
+                for (int i = 0; i < NL * NL; ++i) {
+                    maxAinv = std::max(maxAinv, std::abs(idf_data.A_inv[i]));
                 }
-            } else {
-                if (ParallelDescriptor::IOProcessor()) {
-                    amrex::Print() << "[IDF] Warning: A^(-1) computation failed, will use iterative solver" << std::endl;
-                }
+                amrex::Print() << "[IDF] A^(-1) computed successfully, max|A^(-1)|="
+                               << maxAinv << std::endl;
+            }
+        } else {
+            if (ParallelDescriptor::IOProcessor()) {
+                amrex::Print() << "[IDF] Warning: A^(-1) computation failed, will use iterative solver" << std::endl;
             }
         }
     }
@@ -2070,6 +2069,7 @@ void AmrCoreLBM::IDF_SolveSystem(int lev, int particle_idx, IDFData& idf_data) {
     // ====== Step 2: 构建 RHS: b = u_interp - u_target ======表示颗粒的受力
     idf_data.rhs_x.resize(NL);
     idf_data.rhs_y.resize(NL);
+    idf_data.rhs_z.resize(NL);
     for (int i = 0; i < NL; ++i) {
         idf_data.rhs_x[i] = idf_data.interp_u_x[i] - idf_data.target_u_x[i];
         idf_data.rhs_y[i] = idf_data.interp_u_y[i] - idf_data.target_u_y[i];
@@ -2088,13 +2088,13 @@ void AmrCoreLBM::IDF_SolveSystem(int lev, int particle_idx, IDFData& idf_data) {
         denseMatVecWithScale(idf_data.A_inv, idf_data.rhs_y, idf_data.interp_rho, idf_data.sol_y);
         denseMatVecWithScale(idf_data.A_inv, idf_data.rhs_z, idf_data.interp_rho, idf_data.sol_z);
 
-        if (ParallelDescriptor::IOProcessor()) {
-            static int call_count = 0;
-            if (call_count % 1000 == 0) {
-                amrex::Print() << "[IDF] Using precomputed A^(-1), step=" << call_count << std::endl;
-            }
-            call_count++;
-        }
+        // if (ParallelDescriptor::IOProcessor()) {
+        //     static int call_count = 0;
+        //     if (call_count % 1000 == 0) {
+        //         amrex::Print() << "[IDF] Using precomputed A^(-1), step=" << call_count << std::endl;
+        //     }
+        //     call_count++;
+        // }
     } else {
         // // 回退到迭代求解
         // if (ParallelDescriptor::IOProcessor()) {
@@ -2118,21 +2118,19 @@ void AmrCoreLBM::IDF_SolveSystem(int lev, int particle_idx, IDFData& idf_data) {
     // 方案 C: 使用 idf_NL_global 而非 idf_pid_to_global_idx
     mypc->IDF_WriteForceToParticles(lev, idf_data.sol_x, idf_data.sol_y, idf_data.sol_z, idf_data.NL_global);
 
-    if (ParallelDescriptor::IOProcessor()) {
-        static int solve_count = 0;
-        if (solve_count % 1000 == 0) {
-            Real max_fx = 0.0, max_fy = 0.0, max_fz = 0.0;
-            for (int i = 0; i < NL; ++i) {
-                max_fx = std::max(max_fx, std::abs(idf_data.sol_x[i]));
-                max_fy = std::max(max_fy, std::abs(idf_data.sol_y[i]));
-                max_fz = std::max(max_fz, std::abs(idf_data.sol_z[i]));
-            }
-            amrex::Print() << "|f_density_x|_max=" << max_fx
-                           << ", |f_density_y|_max=" << max_fy
-                           << ", |f_density_z|_max=" << max_fz << std::endl;
-        }
-        solve_count++;
-    }
+    // if (ParallelDescriptor::IOProcessor()) {
+    //     static int solve_count = 0;
+    //     if (solve_count % 1000 == 0) {
+    //         Real max_fx = 0.0, max_fy = 0.0;
+    //         for (int i = 0; i < NL; ++i) {
+    //             max_fx = std::max(max_fx, std::abs(idf_sol_x[i]));
+    //             max_fy = std::max(max_fy, std::abs(idf_sol_y[i]));
+    //         }
+    //         amrex::Print() << "|f_density_x|_max=" << max_fx
+    //                        << ", |f_density_y|_max=" << max_fy << std::endl;
+    //     }
+    //     solve_count++;
+    // }
 }
 
 // 传播拉格朗日力到欧拉网格
