@@ -1191,7 +1191,7 @@ void LagrangeParticleContainer::IDF_WriteForceToParticles(int lev,
             int pid = host_particles[i].id();
             auto it = pid_to_idx.find(pid);
             if (it != pid_to_idx.end()) {
-                h_global_indices[i] = it->second;  // 使用映射表
+                h_global_indices[i] = it->second - 1;  // 使用映射表，转换为0-based数组索引
             } else {
                 amrex::Print() << "[IDF_3D][ERROR] particle ID " << pid
                                << " not found in pid_to_idx map!" << std::endl;
