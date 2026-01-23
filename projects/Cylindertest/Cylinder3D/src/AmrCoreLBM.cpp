@@ -1593,8 +1593,8 @@ void AmrCoreLBM::BuildActiveEulerSet(int lev, int particle_idx, IDFData& idf_dat
     // 需要建立 pid → 局部索引[0, NL_global) 的映射
     idf_data.lag_pos_global.resize(idf_data.NL_global * 3);
 
-    // 先收集所有粒子ID
-    std::vector<int> all_lag_ids(idf_data.NL_global);
+    // 先收集所有粒子ID（初始化为-1以便识别未填充的位置）
+    std::vector<int> all_lag_ids(idf_data.NL_global, -1);
     MPI_Allgatherv(local_lag_ids.data(), idf_data.local_NL, MPI_INT,
                    all_lag_ids.data(), idf_data.all_NL.data(), offsets.data(),
                    MPI_INT, ParallelDescriptor::Communicator());
@@ -1603,17 +1603,21 @@ void AmrCoreLBM::BuildActiveEulerSet(int lev, int particle_idx, IDFData& idf_dat
     idf_data.pid_to_idx.clear();
     for (int i = 0; i < idf_data.NL_global; ++i) {
         int pid = all_lag_ids[i];
-        idf_data.pid_to_idx[pid] = i + 1;  // ID映射到1-based索引
+        if (pid > 0) {  // 只处理有效粒子ID（跳过0或负数）
+            idf_data.pid_to_idx[pid] = i + 1;  // ID映射到1-based索引
+        }
     }
 
     // 使用映射表重排位置数据（按粒子ID顺序存储）
     // 注意：此时unsorted_lag_pos是按MPI进程顺序汇总的，需要重排到按ID排序
     for (int i = 0; i < idf_data.NL_global; ++i) {
         int pid = all_lag_ids[i];
-        int local_idx = idf_data.pid_to_idx[pid] - 1;  // 查表获取局部索引，转换为0-based用于数组访问
-        idf_data.lag_pos_global[3 * local_idx + 0] = unsorted_lag_pos[3 * i + 0];
-        idf_data.lag_pos_global[3 * local_idx + 1] = unsorted_lag_pos[3 * i + 1];
-        idf_data.lag_pos_global[3 * local_idx + 2] = unsorted_lag_pos[3 * i + 2];
+        if (pid > 0) {  // 只处理有效粒子
+            int local_idx = idf_data.pid_to_idx[pid] - 1;  // 查表获取局部索引，转换为0-based用于数组访问
+            idf_data.lag_pos_global[3 * local_idx + 0] = unsorted_lag_pos[3 * i + 0];
+            idf_data.lag_pos_global[3 * local_idx + 1] = unsorted_lag_pos[3 * i + 1];
+            idf_data.lag_pos_global[3 * local_idx + 2] = unsorted_lag_pos[3 * i + 2];
+        }
     }
 
     // ========== Step 3: MPI 汇总欧拉点（各进程先独立计算，再合并去重）==========
@@ -1853,7 +1857,7 @@ void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& i
     // Step 3a: 汇总插值数据（ux, uy, uz, rho, ids）
     std::vector<Real> unsorted_interp_ux(idf_data.NL_global), unsorted_interp_uy(idf_data.NL_global),
         unsorted_interp_uz(idf_data.NL_global), unsorted_interp_rho(idf_data.NL_global);
-    std::vector<int> all_interp_ids(idf_data.NL_global);
+    std::vector<int> all_interp_ids(idf_data.NL_global, -1);  // 初始化为-1以便识别未填充的位置
 
     MPI_Allgatherv(local_interp_ux.data(), idf_data.local_NL, ParallelDescriptor::Mpi_typemap<Real>::type(),
                    unsorted_interp_ux.data(), idf_data.all_NL.data(), interp_displs.data(),
@@ -1882,6 +1886,8 @@ void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& i
     idf_data.interp_rho.resize(idf_data.NL_global);
     for (int i = 0; i < idf_data.NL_global; ++i) {
         int pid = all_interp_ids[i];
+        if (pid <= 0) continue;  // 跳过无效粒子ID（0或负数）
+        
         auto it = idf_data.pid_to_idx.find(pid);
         if (it != idf_data.pid_to_idx.end()) {
             int global_idx = it->second - 1;  // 使用映射表，转换为0-based数组索引
