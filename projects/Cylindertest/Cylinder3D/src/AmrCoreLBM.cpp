@@ -1599,18 +1599,18 @@ void AmrCoreLBM::BuildActiveEulerSet(int lev, int particle_idx, IDFData& idf_dat
                    all_lag_ids.data(), idf_data.all_NL.data(), offsets.data(),
                    MPI_INT, ParallelDescriptor::Communicator());
 
-    // 建立粒子ID到局部索引[0, NL_global)的映射
+    // 建立粒子ID到局部索引[1, NL_global]的映射（1-based，避免与默认值0冲突）
     idf_data.pid_to_idx.clear();
     for (int i = 0; i < idf_data.NL_global; ++i) {
         int pid = all_lag_ids[i];
-        idf_data.pid_to_idx[pid] = i;  // ID映射到0-based索引
+        idf_data.pid_to_idx[pid] = i + 1;  // ID映射到1-based索引
     }
 
     // 使用映射表重排位置数据（按粒子ID顺序存储）
     // 注意：此时unsorted_lag_pos是按MPI进程顺序汇总的，需要重排到按ID排序
     for (int i = 0; i < idf_data.NL_global; ++i) {
         int pid = all_lag_ids[i];
-        int local_idx = idf_data.pid_to_idx[pid];  // 查表获取局部索引
+        int local_idx = idf_data.pid_to_idx[pid] - 1;  // 查表获取局部索引，转换为0-based用于数组访问
         idf_data.lag_pos_global[3 * local_idx + 0] = unsorted_lag_pos[3 * i + 0];
         idf_data.lag_pos_global[3 * local_idx + 1] = unsorted_lag_pos[3 * i + 1];
         idf_data.lag_pos_global[3 * local_idx + 2] = unsorted_lag_pos[3 * i + 2];
@@ -1884,7 +1884,7 @@ void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& i
         int pid = all_interp_ids[i];
         auto it = idf_data.pid_to_idx.find(pid);
         if (it != idf_data.pid_to_idx.end()) {
-            int global_idx = it->second;  // 使用映射表
+            int global_idx = it->second - 1;  // 使用映射表，转换为0-based数组索引
             idf_data.interp_u_x[global_idx] = unsorted_interp_ux[i];
             idf_data.interp_u_y[global_idx] = unsorted_interp_uy[i];
             idf_data.interp_u_z[global_idx] = unsorted_interp_uz[i];
