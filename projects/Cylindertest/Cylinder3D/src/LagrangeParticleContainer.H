@@ -142,18 +142,16 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
                                 std::vector<int>& local_lag_ids);
 
     // 在拉格朗日点上执行插值（欧拉->拉格朗日）
+    // IDF 插值：直接写入提供的向量，避免覆盖粒子属性
     void IDF_Interpolate(int lev,
                          amrex::MultiFab& u_lev,
-                         amrex::MultiFab& rho_lev);
-
-    // 从粒子属性中读取插值结果到 CPU vector（3D版本：ux,uy,uz）
-    // 可选参数 local_interp_ids: 若非空，同时返回粒子ID
-    void IDF_ReadInterpResults(int lev,
-                               std::vector<amrex::Real>& local_interp_ux,
-                               std::vector<amrex::Real>& local_interp_uy,
-                               std::vector<amrex::Real>& local_interp_uz,
-                               std::vector<amrex::Real>& local_interp_rho,
-                               std::vector<int>* local_interp_ids = nullptr);
+                         amrex::MultiFab& rho_lev,
+                         std::vector<amrex::Real>& local_interp_ux,
+                         std::vector<amrex::Real>& local_interp_uy,
+                         std::vector<amrex::Real>& local_interp_uz,
+                         std::vector<amrex::Real>& local_interp_rho,
+                         std::vector<int>& local_interp_ids,
+                         int local_NL);
 
     // 将求解得到的力写回粒子属性（3D版本：fx,fy,fz）
     void IDF_WriteForceToParticles(int lev,

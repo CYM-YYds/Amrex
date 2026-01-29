@@ -196,9 +196,9 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     // generateSpheres(particle_num, R, NX, NY, NZ, points);
     // generateSpheres(D, NX, NY, NZ, points);
     points[0] = {X, Y, Z};
-    points[1] = {X + 2.0 * D, Y, Z};
-    // points[0] = {X + 0.03*D, Y + 0.03*D, 21.00*D};
-    // points[1] = {X - 0.03*D, Y - 0.03*D, 18.96*D};
+    //points[1] = {X + 2.0 * D, Y, Z};
+    //  points[0] = {X + 0.03*D, Y + 0.03*D, 21.00*D};
+    //  points[1] = {X - 0.03*D, Y - 0.03*D, 18.96*D};
 
     // 表面压力系数容器
     particlesCp.resize(particle_num);
@@ -1590,11 +1590,11 @@ void AmrCoreLBM::BuildActiveEulerSet(int lev, int particle_idx, IDFData& idf_dat
     // ===== Step 2c: 建立粒子ID到局部索引的映射，并重排位置数据 =====
     // 对于多球体系统，粒子ID不是从1开始，而是全局累加
     // 例如：球体0的ID=1~678，球体1的ID=679~1356
-    // 需要建立 pid → 局部索引[0, NL_global) 的映射
+    // 需要建立 pid → 局部索引[1, NL_global] 的映射
     idf_data.lag_pos_global.resize(idf_data.NL_global * 3);
 
-    // 先收集所有粒子ID（初始化为-1以便识别未填充的位置）
-    std::vector<int> all_lag_ids(idf_data.NL_global, -1);
+    // 先收集所有粒子ID
+    std::vector<int> all_lag_ids(idf_data.NL_global);
     MPI_Allgatherv(local_lag_ids.data(), idf_data.local_NL, MPI_INT,
                    all_lag_ids.data(), idf_data.all_NL.data(), offsets.data(),
                    MPI_INT, ParallelDescriptor::Communicator());
@@ -1603,20 +1603,18 @@ void AmrCoreLBM::BuildActiveEulerSet(int lev, int particle_idx, IDFData& idf_dat
     idf_data.pid_to_idx.clear();
     for (int i = 0; i < idf_data.NL_global; ++i) {
         int pid = all_lag_ids[i];
-        if (pid > 0) {  // 只处理有效粒子ID（跳过0或负数）
-            idf_data.pid_to_idx[pid] = i + 1;  // ID映射到1-based索引
-        }
+        idf_data.pid_to_idx[pid] = i + 1; // ID映射到1-based索引
     }
 
     // 使用映射表重排位置数据（按粒子ID顺序存储）
     // 注意：此时unsorted_lag_pos是按MPI进程顺序汇总的，需要重排到按ID排序
     for (int i = 0; i < idf_data.NL_global; ++i) {
         int pid = all_lag_ids[i];
-        if (pid > 0) {  // 只处理有效粒子
-            int local_idx = idf_data.pid_to_idx[pid] - 1;  // 查表获取局部索引，转换为0-based用于数组访问
-            idf_data.lag_pos_global[3 * local_idx + 0] = unsorted_lag_pos[3 * i + 0];
-            idf_data.lag_pos_global[3 * local_idx + 1] = unsorted_lag_pos[3 * i + 1];
-            idf_data.lag_pos_global[3 * local_idx + 2] = unsorted_lag_pos[3 * i + 2];
+        int global_idx = idf_data.pid_to_idx[pid] - 1; // 查表获取局部索引，转换为0-based用于数组访问
+        if (global_idx >= 0 && global_idx < idf_data.NL_global) {
+            idf_data.lag_pos_global[3 * global_idx + 0] = unsorted_lag_pos[3 * i + 0];
+            idf_data.lag_pos_global[3 * global_idx + 1] = unsorted_lag_pos[3 * i + 1];
+            idf_data.lag_pos_global[3 * global_idx + 2] = unsorted_lag_pos[3 * i + 2];
         }
     }
 
@@ -1780,6 +1778,9 @@ void AmrCoreLBM::ApplyIDF(int lev) {
         }
     }
 
+    // 每次 IDF 计算前清零力场（只清一次，避免覆盖前一个球体贡献）
+    force[lev].setVal(0.0, nghost);
+
     // 对每个球体执行独立的IDF计算
     for (int p = 0; p < particle_num; p++) {
         if (!particles[p])
@@ -1835,13 +1836,13 @@ void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& i
     amrex::MultiFab& u_lev = velocity[lev];
     amrex::MultiFab& rho_lev = density[lev];
 
-    mypc->IDF_Interpolate(lev, u_lev, rho_lev);
-
-    // ========== Step 2b: 从粒子属性中读取插值结果到 CPU vector ==========
+    // ========== Step 2b: 直接获取插值结果到 CPU vector（不覆写粒子属性） ==========
     std::vector<Real> local_interp_ux, local_interp_uy, local_interp_uz, local_interp_rho;
     std::vector<int> local_interp_ids;
-    mypc->IDF_ReadInterpResults(lev, local_interp_ux, local_interp_uy, local_interp_uz,
-                                local_interp_rho, &local_interp_ids);
+    int local_NL = idf_data.local_NL;
+    mypc->IDF_Interpolate(lev, u_lev, rho_lev,
+                          local_interp_ux, local_interp_uy, local_interp_uz,
+                          local_interp_rho, local_interp_ids, local_NL);
 
     // AMREX_ALWAYS_ASSERT_WITH_MESSAGE(static_cast<int>(local_interp_ux.size()) == idf_data.local_NL,
     //                                  "IDF_3D local buffer size mismatch for particle " +
@@ -1850,30 +1851,39 @@ void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& i
     // ========== Step 3: 汇总插值速度到全局向量 ==========
     const int nprocs = ParallelDescriptor::NProcs();
     std::vector<int> interp_displs(nprocs + 1, 0);
-    // std::partial_sum(idf_data.all_NL.begin(), idf_data.all_NL.end(), interp_displs.begin() + 1);
-    //  AMREX_ALWAYS_ASSERT_WITH_MESSAGE(interp_displs[nprocs] == NL_global,
-    //                                   "IDF_3D global buffer size mismatch");
+    std::partial_sum(idf_data.all_NL.begin(), idf_data.all_NL.end(), interp_displs.begin() + 1);
+    // AMREX_ALWAYS_ASSERT_WITH_MESSAGE(interp_displs[nprocs] == idf_data.NL_global,
+    //                                  "IDF_3D global buffer size mismatch");
 
     // Step 3a: 汇总插值数据（ux, uy, uz, rho, ids）
     std::vector<Real> unsorted_interp_ux(idf_data.NL_global), unsorted_interp_uy(idf_data.NL_global),
         unsorted_interp_uz(idf_data.NL_global), unsorted_interp_rho(idf_data.NL_global);
-    std::vector<int> all_interp_ids(idf_data.NL_global, -1);  // 初始化为-1以便识别未填充的位置
+    std::vector<int> all_interp_ids(idf_data.NL_global); // 初始化为-1以便识别未填充的位置
 
-    MPI_Allgatherv(local_interp_ux.data(), idf_data.local_NL, ParallelDescriptor::Mpi_typemap<Real>::type(),
+    MPI_Allgatherv(local_interp_ux.data(), idf_data.local_NL,
+                   ParallelDescriptor::Mpi_typemap<Real>::type(),
                    unsorted_interp_ux.data(), idf_data.all_NL.data(), interp_displs.data(),
-                   ParallelDescriptor::Mpi_typemap<Real>::type(), ParallelDescriptor::Communicator());
+                   ParallelDescriptor::Mpi_typemap<Real>::type(),
+                   ParallelDescriptor::Communicator());
 
-    MPI_Allgatherv(local_interp_uy.data(), idf_data.local_NL, ParallelDescriptor::Mpi_typemap<Real>::type(),
+    MPI_Allgatherv(local_interp_uy.data(), idf_data.local_NL,
+                   ParallelDescriptor::Mpi_typemap<Real>::type(),
                    unsorted_interp_uy.data(), idf_data.all_NL.data(), interp_displs.data(),
-                   ParallelDescriptor::Mpi_typemap<Real>::type(), ParallelDescriptor::Communicator());
+                   ParallelDescriptor::Mpi_typemap<Real>::type(),
+                   ParallelDescriptor::Communicator());
 
-    MPI_Allgatherv(local_interp_uz.data(), idf_data.local_NL, ParallelDescriptor::Mpi_typemap<Real>::type(),
+    MPI_Allgatherv(local_interp_uz.data(), idf_data.local_NL,
+                   ParallelDescriptor::Mpi_typemap<Real>::type(),
                    unsorted_interp_uz.data(), idf_data.all_NL.data(), interp_displs.data(),
-                   ParallelDescriptor::Mpi_typemap<Real>::type(), ParallelDescriptor::Communicator());
+                   ParallelDescriptor::Mpi_typemap<Real>::type(),
+                   ParallelDescriptor::Communicator());
 
-    MPI_Allgatherv(local_interp_rho.data(), idf_data.local_NL, ParallelDescriptor::Mpi_typemap<Real>::type(),
-                   unsorted_interp_rho.data(), idf_data.all_NL.data(), interp_displs.data(),
-                   ParallelDescriptor::Mpi_typemap<Real>::type(), ParallelDescriptor::Communicator());
+    MPI_Allgatherv(local_interp_rho.data(), idf_data.local_NL,
+                   ParallelDescriptor::Mpi_typemap<Real>::type(),
+                   unsorted_interp_rho.data(), idf_data.all_NL.data(),
+                   interp_displs.data(),
+                   ParallelDescriptor::Mpi_typemap<Real>::type(),
+                   ParallelDescriptor::Communicator());
 
     MPI_Allgatherv(local_interp_ids.data(), idf_data.local_NL, MPI_INT,
                    all_interp_ids.data(), idf_data.all_NL.data(), interp_displs.data(),
@@ -1886,18 +1896,16 @@ void AmrCoreLBM::IDF_InterpolateEulerToLag(int lev, int particle_idx, IDFData& i
     idf_data.interp_rho.resize(idf_data.NL_global);
     for (int i = 0; i < idf_data.NL_global; ++i) {
         int pid = all_interp_ids[i];
-        if (pid <= 0) continue;  // 跳过无效粒子ID（0或负数）
-        
         auto it = idf_data.pid_to_idx.find(pid);
         if (it != idf_data.pid_to_idx.end()) {
-            int global_idx = it->second - 1;  // 使用映射表，转换为0-based数组索引
+            int global_idx = it->second - 1; // 使用映射表，转换为0-based数组索引
             idf_data.interp_u_x[global_idx] = unsorted_interp_ux[i];
             idf_data.interp_u_y[global_idx] = unsorted_interp_uy[i];
             idf_data.interp_u_z[global_idx] = unsorted_interp_uz[i];
             idf_data.interp_rho[global_idx] = unsorted_interp_rho[i];
         } else {
             amrex::Print() << "[IDF][ERROR] particle ID " << pid
-                          << " not found in pid_to_idx map!" << std::endl;
+                           << " not found in pid_to_idx map!" << std::endl;
         }
     }
 
@@ -2015,34 +2023,34 @@ void AmrCoreLBM::IDF_AssembleMatrix(int lev, int particle_idx, IDFData& idf_data
 
     idf_data.matrix_built = true;
 
-    if (ParallelDescriptor::IOProcessor()) {
-        Real maxA = 0.0, sumDiag = 0.0;
-        for (int i = 0; i < NL; ++i) {
-            sumDiag += idf_data.A[i * NL + i];
-            for (int j = 0; j < NL; ++j) {
-                maxA = std::max(maxA, std::abs(idf_data.A[i * NL + j]));
-            }
-        }
-        amrex::Print() << "[IDF] Assembled A (NL=" << NL << " × NL=" << NL
-                       << "), max|A|=" << maxA
-                       << ", trace(A)=" << sumDiag << std::endl;
-
-        //======== 输出矩阵到 dat 文件（方便导入 Excel） ========
-        std::ofstream matrixFile("IDF_matrix_A.dat");
-        if (matrixFile.is_open()) {
-            matrixFile << std::scientific << std::setprecision(6);
+    /*     if (ParallelDescriptor::IOProcessor()) {
+            Real maxA = 0.0, sumDiag = 0.0;
             for (int i = 0; i < NL; ++i) {
+                sumDiag += idf_data.A[i * NL + i];
                 for (int j = 0; j < NL; ++j) {
-                    matrixFile << idf_data.A[i * NL + j];
-                    if (j < NL - 1)
-                        matrixFile << "\t"; // Tab 分隔，方便 Excel
+                    maxA = std::max(maxA, std::abs(idf_data.A[i * NL + j]));
                 }
-                matrixFile << "\n";
             }
-            matrixFile.close();
-            amrex::Print() << "[IDF] Matrix A exported to: IDF_matrix_A.dat" << std::endl;
-        }
-    }
+            amrex::Print() << "[IDF] Assembled A (NL=" << NL << " × NL=" << NL
+                           << "), max|A|=" << maxA
+                           << ", trace(A)=" << sumDiag << std::endl;
+
+            //======== 输出矩阵到 dat 文件（方便导入 Excel） ========
+            std::ofstream matrixFile("IDF_matrix_A.dat");
+            if (matrixFile.is_open()) {
+                matrixFile << std::scientific << std::setprecision(6);
+                for (int i = 0; i < NL; ++i) {
+                    for (int j = 0; j < NL; ++j) {
+                        matrixFile << idf_data.A[i * NL + j];
+                        if (j < NL - 1)
+                            matrixFile << "\t"; // Tab 分隔，方便 Excel
+                    }
+                    matrixFile << "\n";
+                }
+                matrixFile.close();
+                amrex::Print() << "[IDF] Matrix A exported to: IDF_matrix_A.dat" << std::endl;
+            }
+        } */
 
     // ======== 静止边界优化：预计算 A 的逆矩阵 ========
     if (!idf_data.inverse_built) {
@@ -2157,9 +2165,8 @@ void AmrCoreLBM::IDF_SpreadLagToEuler(int lev, int particle_idx, IDFData& idf_da
         return;
 
     amrex::MultiFab& force_lev = force[lev];
-    force_lev.setVal(0.0, nghost);
 
-    // 使用 LagrangeParticleContainer 接口传播力
+    // 使用 LagrangeParticleContainer 接口传播力（累加到同一个力场）
     mypc->IDF_SpreadForce(lev, force_lev);
 
     // 仅在第一次调用时输出

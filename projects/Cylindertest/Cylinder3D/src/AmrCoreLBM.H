@@ -204,7 +204,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     std::string plot_file{"plt"};
 
     int nghost = 4;
-    int particle_num = 2;
+    int particle_num = 1;
 
     amrex::Vector<amrex::BCRec> bcs;
     amrex::Vector<amrex::Real> err;

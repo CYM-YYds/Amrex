@@ -988,7 +988,7 @@ void LagrangeParticleContainer::SaveFxy(int lev, int step) {
 
     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
         std::string filename = "data/CdCl_" + std::to_string(id) + ".dat";
-        std::ofstream file(filename, std::ios::app);
+        std::ofstream file(filename, step == 1 ? std::ios::trunc : std::ios::app);
 
         if (!file.is_open()) {
             std::cerr << "Cannot open the file: " << filename << std::endl;
@@ -1048,94 +1048,64 @@ int LagrangeParticleContainer::IDF_CollectParticleData(int lev,
 
 void LagrangeParticleContainer::IDF_Interpolate(int lev,
                                                 MultiFab& u_lev,
-                                                MultiFab& rho_lev) {
+                                                MultiFab& rho_lev,
+                                                std::vector<Real>& local_interp_ux,
+                                                std::vector<Real>& local_interp_uy,
+                                                std::vector<Real>& local_interp_uz,
+                                                std::vector<Real>& local_interp_rho,
+                                                std::vector<int>& local_interp_ids,
+                                                int local_NL) {
+    using ParticleType = LagrangeParticleContainer::ParticleType;
     const Real delta = Geom(lev).CellSize()[0];
 
-    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
-        auto& particles = pti.GetArrayOfStructs();
-        auto p_ptr = particles().data();
-        const long n = pti.numParticles();
+    // 分配输出向量空间
+    local_interp_ux.assign(local_NL, 0.0);
+    local_interp_uy.assign(local_NL, 0.0);
+    local_interp_uz.assign(local_NL, 0.0);
+    local_interp_rho.assign(local_NL, 0.0);
+    local_interp_ids.resize(local_NL);
 
-        auto& attribs = pti.GetAttribs();
-        auto ufx = attribs[PIdx::xlocal].data();
-        auto ufy = attribs[PIdx::ylocal].data();
-        auto ufz = attribs[PIdx::zlocal].data();
-        auto rho_attr = attribs[PIdx::area].data();
-
-        const Array4<Real>& u = u_lev.array(pti);
-        const Array4<Real>& rho = rho_lev.array(pti);
-
-        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
-            ibm_interpolate(p_ptr[i], u, rho, delta, ufx[i], ufy[i], ufz[i], rho_attr[i]);
-        });
-    }
-    amrex::Gpu::streamSynchronize();
-}
-
-void LagrangeParticleContainer::IDF_ReadInterpResults(int lev,
-                                                      std::vector<Real>& local_interp_ux,
-                                                      std::vector<Real>& local_interp_uy,
-                                                      std::vector<Real>& local_interp_uz,
-                                                      std::vector<Real>& local_interp_rho,
-                                                      std::vector<int>* local_interp_ids) {
-    using ParticleType = typename LagrangeParticleContainer::ParticleType;
-    // 首先计算本进程粒子总数
-    long total_n = 0;
-    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
-        total_n += pti.numParticles();
-    }
-
-    local_interp_ux.resize(total_n);
-    local_interp_uy.resize(total_n);
-    local_interp_uz.resize(total_n);
-    local_interp_rho.resize(total_n);
-    if (local_interp_ids) {
-        local_interp_ids->resize(total_n);
-    }
-    int local_idx = 0;
-
+    long offset = 0;
     for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
         const long n = pti.numParticles();
         if (n == 0)
             continue;
 
-        auto& attribs = pti.GetAttribs();
+        auto& particles = pti.GetArrayOfStructs();
+        auto p_ptr = particles().data();
 
-        amrex::Gpu::PinnedVector<Real> host_ufx(n), host_ufy(n), host_ufz(n), host_rho(n);
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-                              attribs[PIdx::xlocal].begin(), attribs[PIdx::xlocal].begin() + n,
-                              host_ufx.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-                              attribs[PIdx::ylocal].begin(), attribs[PIdx::ylocal].begin() + n,
-                              host_ufy.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-                              attribs[PIdx::zlocal].begin(), attribs[PIdx::zlocal].begin() + n,
-                              host_ufz.begin());
-        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-                              attribs[PIdx::area].begin(), attribs[PIdx::area].begin() + n,
-                              host_rho.begin());
+        // 设备侧临时存储插值结果
+        amrex::Gpu::DeviceVector<Real> d_ux(n), d_uy(n), d_uz(n), d_rho(n);
+        const Array4<Real>& u = u_lev.array(pti);
+        const Array4<Real>& rho = rho_lev.array(pti);
 
-        // 如果需要粒子ID，同时拷贝AoS数据
-        amrex::Gpu::PinnedVector<ParticleType> host_particles;
-        if (local_interp_ids) {
-            auto& aos = pti.GetArrayOfStructs();
-            host_particles.resize(n);
-            amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
-                                  aos().begin(), aos().end(),
-                                  host_particles.begin());
-        }
+        Real* d_ux_ptr = d_ux.data();
+        Real* d_uy_ptr = d_uy.data();
+        Real* d_uz_ptr = d_uz.data();
+        Real* d_rho_ptr = d_rho.data();
+
+        amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+            ibm_interpolate(p_ptr[i], u, rho, delta, d_ux_ptr + i, d_uy_ptr + i, d_uz_ptr + i, d_rho_ptr + i);
+        });
+
+        // 拷贝插值结果回 host 连续段
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost, d_ux_ptr, d_ux_ptr + n, local_interp_ux.data() + offset);
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost, d_uy_ptr, d_uy_ptr + n, local_interp_uy.data() + offset);
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost, d_uz_ptr, d_uz_ptr + n, local_interp_uz.data() + offset);
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost, d_rho_ptr, d_rho_ptr + n, local_interp_rho.data() + offset);
+
+        // AoS 拷贝 PID
+        amrex::Gpu::PinnedVector<ParticleType> host_particles(n);
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              particles().begin(), particles().end(),
+                              host_particles.begin());
         amrex::Gpu::streamSynchronize();
 
         for (long i = 0; i < n; ++i) {
-            local_interp_ux[local_idx + i] = host_ufx[i];
-            local_interp_uy[local_idx + i] = host_ufy[i];
-            local_interp_uz[local_idx + i] = host_ufz[i];
-            local_interp_rho[local_idx + i] = host_rho[i];
-            if (local_interp_ids) {
-                (*local_interp_ids)[local_idx + i] = host_particles[i].id();
-            }
+            local_interp_ids[offset + i] = host_particles[i].id();
         }
-        local_idx += n;
+
+        offset += n;
     }
 }
 
@@ -1191,11 +1161,11 @@ void LagrangeParticleContainer::IDF_WriteForceToParticles(int lev,
             int pid = host_particles[i].id();
             auto it = pid_to_idx.find(pid);
             if (it != pid_to_idx.end()) {
-                h_global_indices[i] = it->second - 1;  // 使用映射表，转换为0-based数组索引
+                h_global_indices[i] = it->second - 1; // 使用映射表，转换为0-based数组索引
             } else {
                 amrex::Print() << "[IDF_3D][ERROR] particle ID " << pid
                                << " not found in pid_to_idx map!" << std::endl;
-                h_global_indices[i] = 0;  // 默认值
+                h_global_indices[i] = 0; // 默认值
             }
         }
 

@@ -2748,17 +2748,17 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
                                                               amrex::Array4<amrex::Real> const& u,
                                                               amrex::Array4<amrex::Real> const& rho,
                                                               amrex::Real const delta,
-                                                              amrex::Real& uxt,
-                                                              amrex::Real& uyt,
-                                                              amrex::Real& uzt,
-                                                              amrex::Real& rhot) {
+                                                              amrex::Real* uxt,
+                                                              amrex::Real* uyt,
+                                                              amrex::Real* uzt,
+                                                              amrex::Real* rhot) {
     amrex::Real xt = p.pos(0) / delta;
     amrex::Real yt = p.pos(1) / delta;
     amrex::Real zt = p.pos(2) / delta;
-    uxt = 0.0;
-    uyt = 0.0;
-    uzt = 0.0;
-    rhot = 0.0;
+    *uxt = 0.0;
+    *uyt = 0.0;
+    *uzt = 0.0;
+    *rhot = 0.0;
 
     for (int z = -2; z <= 2; ++z) {
         for (int y = -2; y <= 2; ++y) {
@@ -2771,10 +2771,11 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
                 amrex::Real ly = yt - (yy + 0.5);
                 amrex::Real lz = zt - (zz + 0.5);
                 amrex::Real w = delta3p(lx) * delta3p(ly) * delta3p(lz);
-                uxt += u(xx, yy, zz, 0) * w;
-                uyt += u(xx, yy, zz, 1) * w;
-                uzt += u(xx, yy, zz, 2) * w;
-                rhot += rho(xx, yy, zz, 0) * w;
+
+                *uxt += u(xx, yy, zz, 0) * w;
+                *uyt += u(xx, yy, zz, 1) * w;
+                *uzt += u(xx, yy, zz, 2) * w;
+                *rhot += rho(xx, yy, zz, 0) * w;
             }
         }
     }
