@@ -50,38 +50,36 @@ class MyParIter : public amrex::ParIter<0, 0, PIdx::nattribs> {
 //********************************************************************//
 //                     原版                                           //
 //********************************************************************//
+/**
+ * @brief 拉格朗日粒子容器类，继承自AMReX的ParticleContainer
+ * @tparam 0, 0, PIdx::nattribs 粒子容器的模板参数，分别表示网格数据索引、属性索引和属性数量
+ */
 class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::nattribs> {
   public:
     LagrangeParticleContainer(amrex::AmrCore* amr_core)
-        : amrex::ParticleContainer<0, 0, PIdx::nattribs>(amr_core->GetParGDB()) {
-        radius = rate * R; // lev=0网格下的解析度, 算球体可能要内缩一下
-
-        centre = {AMREX_D_DECL(X, Y, Z)}; // lev=0网格下
-
-        F_tot = {AMREX_D_DECL(0., 0., 0.)};
-        T_tot = {AMREX_D_DECL(0., 0., 0.)};
-        vel = {AMREX_D_DECL(0., 0., 0.)};
-        vel_old = {AMREX_D_DECL(0., 0., 0.)};
-        angvel = {AMREX_D_DECL(0., 0., 0.)};
-        angvel_old = {AMREX_D_DECL(0., 0., 0.)};
-
-        amrex::Print() << "Particle construct successed ..." << std::endl;
+        : amrex::ParticleContainer<0, 0, PIdx::nattribs>(amr_core->GetParGDB()),
+          radius(rate * R),
+          centre{AMREX_D_DECL(X, Y, Z)},
+          F_tot{AMREX_D_DECL(0., 0., 0.)},
+          T_tot{AMREX_D_DECL(0., 0., 0.)},
+          vel{AMREX_D_DECL(0., 0., 0.)},
+          vel_old{AMREX_D_DECL(0., 0., 0.)},
+          angvel{AMREX_D_DECL(0., 0., 0.)},
+          angvel_old{AMREX_D_DECL(0., 0., 0.)} {
+        amrex::Print() << "Particle construct successed ..." << std::endl; // 打印构造成功信息
     }
-
     LagrangeParticleContainer(amrex::AmrCore* amr_core, amrex::RealVect& point, const int idx)
-        : amrex::ParticleContainer<0, 0, PIdx::nattribs>(amr_core->GetParGDB()) {
-        radius = rb; // lev=0网格下的解析度, 算球体可能要内缩一下
-        id = idx;
-        centre = {AMREX_D_DECL(point[0], point[1], point[2])}; // lev=0网格下
-
-        F_tot = {AMREX_D_DECL(0., 0., 0.)};
-        T_tot = {AMREX_D_DECL(0., 0., 0.)};
-        F_lub = {AMREX_D_DECL(0., 0., 0.)};
-        vel = {AMREX_D_DECL(0., 0., 0.)};
-        vel_old = {AMREX_D_DECL(0., 0., 0.)};
-        angvel = {AMREX_D_DECL(0., 0., 0.)};
-        angvel_old = {AMREX_D_DECL(0., 0., 0.)};
-
+        : amrex::ParticleContainer<0, 0, PIdx::nattribs>(amr_core->GetParGDB()),
+          id(idx),
+          radius(rb),
+          centre{AMREX_D_DECL(point[0], point[1], point[2])},
+          F_tot{AMREX_D_DECL(0., 0., 0.)},
+          T_tot{AMREX_D_DECL(0., 0., 0.)},
+          F_lub{AMREX_D_DECL(0., 0., 0.)},
+          vel{AMREX_D_DECL(0., 0., 0.)},
+          vel_old{AMREX_D_DECL(0., 0., 0.)},
+          angvel{AMREX_D_DECL(0., 0., 0.)},
+          angvel_old{AMREX_D_DECL(0., 0., 0.)} {
         amrex::Print() << "Particle " << idx << " construct successed ..." << std::endl;
     }
 

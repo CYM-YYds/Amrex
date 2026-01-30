@@ -2,25 +2,25 @@
 # Run until nsteps == max_step or time == stop_time,
 #     whichever comes first
 # *****************************************************************
-max_step  = 3000
+max_step  = 40000
 stop_time = 10000000
 
 amr.regrid_int  = -1
 
 amr.grid_eff          = 0.7 
 amr.n_error_buf       = 2 2 2 2 2 
-amr.max_grid_size_x = 906 32 32 32
-amr.max_grid_size_y = 98 32 32 32
-amr.max_grid_size_z = 304 32 32 32
+amr.max_grid_size_x = 480 32 32 32
+amr.max_grid_size_y = 480 32 32 32
+amr.max_grid_size_z = 480 32 32 32
 amr.blocking_factor_x = 2 2 2 2
 amr.blocking_factor_y = 2 2 2 2
 amr.blocking_factor_z = 2 2 2 2
 
-amr.plot_file  = data/case_channelFlow_Ret180
-amr.plot_int   = 1000
+amr.plot_file  = data/case_CylinderFlow_Re20
+amr.plot_int   = 2000
 amr.begin_plot = 0
 checkpoint.begin_step = 0
-checkpoint.chk_int = 1000
+checkpoint.chk_int = 10000
 checkpoint.chk_prefix = chk
 checkpoint.keep_latest_only = true
 checkpoint.write_particles = true

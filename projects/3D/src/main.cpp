@@ -29,8 +29,8 @@ int main(int argc, char* argv[]) {
             pp.query("stop_time", stop_time);
         }
 
-        int chk_int = -1;               // checkpoint 写频率（步数）；<=0 表示不写（来自 ReadParameters）
-        int begin_step = 0;             // 非零则从指定步重启（来自 ReadParameters）
+        int chk_int = -1;   // checkpoint 写频率（步数）；<=0 表示不写（来自 ReadParameters）
+        int begin_step = 0; // 非零则从指定步重启（来自 ReadParameters）
 
         // no direct amr/checkpoint ParmParse here; will use AmrCoreLBM::params()
 
@@ -38,20 +38,16 @@ int main(int argc, char* argv[]) {
         amrex::Print() << "\n[RunConfig]\n"
                        << "  max_step      = " << max_step << "\n"
                        << "  stop_time     = " << stop_time << "\n"
-                       << "  ReB           = " << ReB << "\n"
-                       << "  Uc            = " << Uc << "\n"
                        << "  mv_0          = " << static_cast<amrex::Real>(mv_0) << "\n"
                        << "  tau_0         = " << static_cast<amrex::Real>(tau_0) << "\n"
-                       << "  Ut            = " << static_cast<amrex::Real>(Ut) << "\n"
-                       << "  dt_0          = " << static_cast<amrex::Real>(dt_0) << "\n"
-                       << "  FT            = " << static_cast<amrex::Real>(FT) << "\n";
+                       << "  dt_0          = " << static_cast<amrex::Real>(dt_0) << "\n";
 
         amrex::Geometry geom(
             amrex::Box({AMREX_D_DECL(0, 0, 0)}, {AMREX_D_DECL(NX - 1, NY - 1, NZ - 1)}),
             amrex::RealBox({AMREX_D_DECL(0., 0., 0.)}, {AMREX_D_DECL(nx, ny, nz)}),
             amrex::CoordSys::cartesian,
-            {AMREX_D_DECL(1, 0, 1)});
-        // AMREX_D_DECL修改了之后,stream函数也需要做出相应的修改,主要是判断是否去等号
+            {AMREX_D_DECL(0, 0, 0)});
+        // AMREX_D_DECL(0, 0, 0)需要要与stream函数相适应,主要是判断是否去等号
         amrex::AmrInfo info{
             1,             // verbose
             max_ref_level, // max_level
@@ -218,11 +214,10 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
-    // if(lev == max_ref_level)
-    // {
-    //     lid.ComputeParticle(lev);
-    //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
-    // }
+    if (lev == max_ref_level) {
+        lid.ComputeParticle(lev);
+        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+    }
 
     lid.Boundary(lev);
     lid.Collide(lev, 4);
