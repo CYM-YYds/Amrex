@@ -36,8 +36,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     //********************************************************************//
     //                           constructor                              //
     //********************************************************************//
-    AmrCoreLBM();
-    ~AmrCoreLBM() override;
+    AmrCoreLBM(); /** * @brief 构造函数，默认构造函数 */
+    ~AmrCoreLBM() override; /** * @brief 析构函数，使用override关键字确保正确覆盖基类析构函数 */
     AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const& amr_info);
     AmrCoreLBM(AmrCoreLBM&& rhs) noexcept = default;
     AmrCoreLBM& operator=(AmrCoreLBM&& rhs) noexcept = default;

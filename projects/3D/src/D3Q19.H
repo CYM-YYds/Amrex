@@ -11,6 +11,16 @@ using namespace amrex;
 #define DIM 3
 #define Q 27
 
+// MDF 迭代次数：NF=1 时使用单次迭代（类似直接力法）；NF>1 时使用多次迭代收敛
+#define NF 3
+
+// MDF 两阶段实现开关：仅在 NF > 1 时启用（节省内存）
+#if (NF > 1)
+#define USE_MDF_TWO_STAGE 1
+#else
+#define USE_MDF_TWO_STAGE 0
+#endif
+
 const int coarsest_level = 0;
 const int max_ref_level = 0;
 const int rate = (1 << max_ref_level);
@@ -33,9 +43,9 @@ const int rate = (1 << max_ref_level);
 const Real D = 16.0; // obj_dim_z;
 const Real R = D / 2.0;
 
-constexpr int NX = 906;
-constexpr int NY = 98;
-constexpr int NZ = 304;
+const int NX = 16 * D;
+const int NY = 8 * D;
+const int NZ = 8 * D;
 
 const Real nx = NX;
 const Real ny = NY;
@@ -48,30 +58,33 @@ const Real nz = NZ;
 #define cs2 (cs * cs)
 #define rho0 (1.0) //(p0 / cs2)
 #define p0 (rho0 * cs2)
-#define Ma (0.05)
+#define Ma (0.03 * sqrt(3.0))
 
 /*---------槽道流--------------------------*/
 /*参数源自Gehrke, M. & Rung, T. Scale-resolving turbulent channel flow simulations using a dynamic cumulant lattice Boltzmann method. Physics of Fluids 34, 075129 (2022).*/
-#define NH (NY / 2 - 1) // 半高
+#define NH ((NY - 6) / 2 - 1) // 半高
 #define Ret (180)
 #define ReB (pow(8 / 0.073, 4.0 / 7.0) * pow(Ret, 8.0 / 7.0) / 2.0)
 #define Uc (Ma * cs)
-#define mv_0 (Ma * NH / 1.16 / sqrt(3.0) / ReB)
-#define tau_0 (mv_0 / (cs2) + 0.5)
-#define Ut (mv_0 * Ret / NH)
-
-#define G (981)
-#define U0 (Uc)
+// #define mv_0 (Ma * NH / 1.16 / sqrt(3.0) / ReB)
+// #define tau_0 (mv_0 / (cs2) + 0.5)
+ #define Ut (mv_0 * Ret / NH)
+// #define U0 (Uc)
 #define FT (38 * NH / Ma)
 /*---------圆球绕流--------------------------*/
-// #define Del   (NZ/2.0)
-// #define Re    (3300)
-// #define Ret   (180)
-// #define U0    (0.1)
-// #define mv_0  (U0 * Del * dx_0 / Re)
-// #define Ut    (mv_0 * Ret / Del)
+#define Re (40)
+#define U0 (0.01)
+#define mv_0 (U0 * D * dx_0 / Re)
+#define tau_0 (mv_0 / (cs2 * dt_0) + 0.5)
+#define G (981)
+/*---------圆柱绕流--------------------------*/
+// #define NH (NY / 2) // 半高
+// #define Re (20)
+// #define U0 (0.1)
+// #define mv_0 (U0 * D * dx_0 / Re)
 // #define tau_0 (mv_0 / (cs2 * dt_0) + 0.5)
-// #define G     (981)
+// #define G (981)
+const int nt = NY;  // 表面分带数
 /*-----------颗粒流--------------------------*/
 // #define Re    (1.5)
 // #define U0    (1.04375) //(Ma * cs)
@@ -99,11 +112,11 @@ const Real dt_min = dt_0 / rate;
 
 const Real rb = pow(((pow(rate * R, 3) + pow(rate * R - 1, 3)) / 2.0), (1.0 / 3.0)); // 修正的半径
 
-const Real ds0 = 1.0;
+const Real ds0 = 1.2;
 const int ns = PI * rb / ds0 + 1;  // 表面分带数
 const int nt1 = 2 * PI * rb / ds0; // 赤道上point数量
 
-const Real LP_dr = 1.0;
+const Real LP_dr = 1.9;
 const Real LP_area = 4 * PI * rb * rb;
 
 // 多颗粒相关的参数
