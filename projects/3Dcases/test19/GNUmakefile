@@ -1,8 +1,5 @@
 AMREX_HOME ?=/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01
 
-
-CF_CFG_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-
 DEBUG	= FALSE
 
 TINY_PROFILE = FALSE
@@ -19,10 +16,9 @@ USE_HIP   = FALSE
 
 include $(AMREX_HOME)/Tools/GNUMake/Make.defs
 
-include $(CF_CFG_DIR)/Make.package
+include ./Make.package
 include $(AMREX_HOME)/Src/Base/Make.package
 include $(AMREX_HOME)/Src/AmrCore/Make.package
 include $(AMREX_HOME)/Src/Boundary/Make.package
 include	$(AMREX_HOME)/Src/Particle/Make.package
-
 include $(AMREX_HOME)/Tools/GNUMake/Make.rules
