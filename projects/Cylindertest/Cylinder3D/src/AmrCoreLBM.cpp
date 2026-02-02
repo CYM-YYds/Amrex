@@ -1316,10 +1316,10 @@ void AmrCoreLBM::ComputeParticle(int lev) {
 
     // 用户可选择以下两种方法之一（通过注释/取消注释切换）：
     // 方法1: IDF (Implicit Direct Forcing) - 矩阵求解法
-    ApplyIDF(lev); // 使用 IDF 时保留此行，注释掉 InterpForce(lev)
+    //ApplyIDF(lev); // 使用 IDF 时保留此行，注释掉 InterpForce(lev)
 
     // 方法2: MDF (Multi-Direct Forcing) - 迭代求解法
-    // InterpForce(lev); // 使用 MDF 时保留此行，注释掉 ApplyIDF(lev)
+    InterpForce(lev); // 使用 MDF 时保留此行，注释掉 ApplyIDF(lev)
     // 注意：MDF 的迭代次数由 D3Q19.H 中的 NF 宏控制
     //       当 NF > 1 时自动启用两阶段迭代优化
 }
