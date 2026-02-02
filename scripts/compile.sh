@@ -36,7 +36,7 @@ set -euo pipefail
 # 可配置项（通过环境变量覆盖）
 MAKE_J="${MAKE_J:-16}"
 CUDA_ARCH="${CUDA_ARCH:-80}"
-GEN_CCDB="${GEN_CCDB:-1}"
+GEN_CCDB="${GEN_CCDB:-0}"
 # 生成编译数据库的方法控制（auto|wrapper|bear|intercept）
 CCDB_METHOD="${CCDB_METHOD:-wrapper}"
 # 是否在构建遇错时继续尽量编译后续目标（有助于捕获更多编译命令，生成更完整的 CCDB）
