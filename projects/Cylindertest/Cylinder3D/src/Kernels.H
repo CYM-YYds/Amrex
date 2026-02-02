@@ -2388,20 +2388,20 @@ AMREX_GPU_HOST_DEVICE
                 int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
 
                 // 处理x方向越界
-                if (xx < 0)
-                    xx = NX + xx;
-                else if (xx > NX - 1)
-                    xx = xx - NX;
-                // 处理y方向越界
-                if (yy < 0)
-                    yy = NY + yy;
-                else if (yy > NY - 1)
-                    yy = yy - NY;
-                // 处理z方向越界
-                if (zz < 0)
-                    zz = NZ + zz;
-                else if (zz > NZ - 1)
-                    zz = zz - NZ;
+                // if (xx < 0)
+                //     xx = NX + xx;
+                // else if (xx > NX - 1)
+                //     xx = xx - NX;
+                // // 处理y方向越界
+                // if (yy < 0)
+                //     yy = NY + yy;
+                // else if (yy > NY - 1)
+                //     yy = yy - NY;
+                // // 处理z方向越界
+                // if (zz < 0)
+                //     zz = NZ + zz;
+                // else if (zz > NZ - 1)
+                //     zz = zz - NZ;
 
                 lx = xt - (xx + 0.5);
                 ly = yt - (yy + 0.5);
@@ -2446,20 +2446,20 @@ AMREX_GPU_HOST_DEVICE
                 int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
 
                 // 处理x方向越界
-                if (xx < 0)
-                    xx = NX + xx;
-                else if (xx > NX - 1)
-                    xx = xx - NX;
-                // 处理y方向越界
-                if (yy < 0)
-                    yy = NY + yy;
-                else if (yy > NY - 1)
-                    yy = yy - NY;
-                // 处理z方向越界
-                if (zz < 0)
-                    zz = NZ + zz;
-                else if (zz > NZ - 1)
-                    zz = zz - NZ;
+                // if (xx < 0)
+                //     xx = NX + xx;
+                // else if (xx > NX - 1)
+                //     xx = xx - NX;
+                // // 处理y方向越界
+                // if (yy < 0)
+                //     yy = NY + yy;
+                // else if (yy > NY - 1)
+                //     yy = yy - NY;
+                // // 处理z方向越界
+                // if (zz < 0)
+                //     zz = NZ + zz;
+                // else if (zz > NZ - 1)
+                //     zz = zz - NZ;
 
                 lx = xt - (xx + 0.5);
                 ly = yt - (yy + 0.5);
