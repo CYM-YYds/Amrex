@@ -35,12 +35,12 @@ CompileFlags:
     - -D__constant__=
     - -D__shared__=
     # Include: AMReX 主体
-    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src
-    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Base
-    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Base/Parser
-    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/AmrCore
-    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Boundary
-    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Particle
+    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-23.09/Src
+    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-23.09/Src/Base
+    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-23.09/Src/Base/Parser
+    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-23.09/Src/AmrCore
+    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-23.09/Src/Boundary
+    - -I /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-23.09/Src/Particle
     # CUDA / 设备相关头
     - -isystem
     - /home/HPCBase/compilers/cuda/12.1.0/targets/sbsa-linux/include
