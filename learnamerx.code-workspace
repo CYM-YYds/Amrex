@@ -10,21 +10,29 @@
         // 统一排除海量结果/输出目录以加速 IntelliSense
         "files.watcherExclude": {
             "**/.git/**": false,
+            "**/data/**": true,
             "**/tmp_build_dir/**": true,
             "**/case_*/**": true,
             "**/plt*/**": true,
             "**/Level_*/**": true,
+            "**/.cache/**": true,
+            "**/chk*/**": true,
+            "**/amrex-23.09/**": true,
             "**/*.ex": true,
             "**/*.log": true,
-            "**/*.zip": true
+            "**/*.zip": true,
+            "**/*.csv": true,
         },
         "search.exclude": {
             // 取消对 .git 的搜索排除，允许在全局搜索中匹配到仓库内部文件（谨慎：搜索结果可能很多）
             "**/.git": true,
-            "**/tmp_build_dir": true,
+            "**/data": true,
             "**/case_*": true,
             "**/plt*": true,
             "**/Level_*": true,
+            "**/.cache": true,
+            "**/chk*": true,
+            "**/amrex-23.09": true,
             "**/*.ex": true,
             "**/*.log": true,
             "**/*.zip": true
