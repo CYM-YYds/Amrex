@@ -42,16 +42,14 @@
             "**/.git": false
         },
         "editor.formatOnSaveMode": "modificationsIfAvailable",
-        //"clangd.path": "/home/share/huazkjdxmrsgjzdsyshi/home/lijing/wuyuchen/mambaforge3/bin/clangd",
+        "clangd.path": "/home/share/huazkjdxmrsgjzdsyshi/home/lijing/wuyuchen/mambaforge3/bin/clangd",
         "clangd.arguments": [
             "--background-index",
-            "--pch-storage=memory",
-            "--all-scopes-completion",
-            "--completion-style=detailed",
-            "--header-insertion=never",
             "--enable-config",
-            "--query-driver=/home/HPCBase/compilers/gcc/*/bin/g++;/home/HPCBase/compilers/gcc/*/bin/gcc;/usr/bin/g++;/usr/bin/gcc;/usr/local/cuda/bin/*"
+            "--query-driver=/home/HPCBase/compilers/gcc/*/bin/g++;/home/HPCBase/compilers/gcc/*/bin/gcc;/usr/bin/g++;/usr/bin/gcc;/usr/local/cuda/bin/*;/home/share/huazkjdxmrsgjzdsyshi/home/lijing/wuyuchen/mambaforge3/bin/g++;/home/share/huazkjdxmrsgjzdsyshi/home/lijing/wuyuchen/mambaforge3/bin/gcc"
         ],
+        "C_Cpp.intelliSenseEngine": "disabled",
+        "C_Cpp.errorSquiggles": "disabled",
         "[cpp]": {},
         "[c]": {},
         "[cuda-cpp]": {},

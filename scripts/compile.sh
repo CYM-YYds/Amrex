@@ -20,7 +20,6 @@
 #       例：MAKE_J=16 ./compile.sh
 #   - CUDA_ARCH: 传递给 Make 的 CUDA 架构号（默认 80）
 #       例：CUDA_ARCH=86 ./compile.sh
-#   - GEN_CCDB : 是否生成编译数据库 compile_commands.json（0 不生成；1 生成；默认 1）
 #       例：GEN_CCDB=0 ./compile.sh   # 跳过生成编译数据库，构建更快
 #   - CCDB_METHOD: 生成编译数据库的方法（auto|wrapper|bear|intercept，默认 wrapper）
 #       例：CCDB_METHOD=wrapper GEN_CCDB=1 ./compile.sh  # 强制使用包装器生成"干净"的 compile_commands.json
@@ -36,7 +35,8 @@ set -euo pipefail
 # 可配置项（通过环境变量覆盖）
 MAKE_J="${MAKE_J:-16}"
 CUDA_ARCH="${CUDA_ARCH:-80}"
-GEN_CCDB="${GEN_CCDB:-0}"
+#   - GEN_CCDB : 是否生成编译数据库 compile_commands.json（0 不生成；1 生成；默认 1）
+GEN_CCDB="${GEN_CCDB:-1}"
 # 生成编译数据库的方法控制（auto|wrapper|bear|intercept）
 CCDB_METHOD="${CCDB_METHOD:-wrapper}"
 # 是否在构建遇错时继续尽量编译后续目标（有助于捕获更多编译命令，生成更完整的 CCDB）
