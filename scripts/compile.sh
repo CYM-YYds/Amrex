@@ -55,9 +55,13 @@ SUBMIT_SSH="${SUBMIT_SSH:-/usr/bin/env -u LD_LIBRARY_PATH ssh}"
 #  - CCDB_KEEP_TMP=1    保留 nvcc 产生的临时 tmpxft_/cudafe* 记录（默认 0，不保留）
 #  - CCDB_DEDUP_BY_FILE=0 禁用按 file 去重（默认 1，启用去重）
 #  - CCDB_OUTPUT_DIR    compile_commands.json 输出目录（默认 config）
+#  - CCDB_REQUIRE_FULL=1 无采集记录时强制 make -B 全量重建（默认 0，优先复用已有数据库）
+#  - CCDB_MERGE_OLD=0   禁用将本次增量记录与旧数据库合并（默认 1，启用）
 CCDB_KEEP_TMP="${CCDB_KEEP_TMP:-0}"
 CCDB_DEDUP_BY_FILE="${CCDB_DEDUP_BY_FILE:-1}"
 CCDB_OUTPUT_DIR="${CCDB_OUTPUT_DIR:-config}"
+CCDB_REQUIRE_FULL="${CCDB_REQUIRE_FULL:-0}"
+CCDB_MERGE_OLD="${CCDB_MERGE_OLD:-1}"
 
 # 解析简单命令行参数（当前仅支持提交开关）；保留其它位置参数以便将来扩展
 parse_args() {
@@ -348,7 +352,12 @@ do_compile() {
 
         if [ "${use_wrapper}" = true ]; then
             info "未检测到 bear/intercept-build，使用 PATH 包装 gcc/g++/nvcc 写入 JSON。"
-            rm -f compile_commands.json .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
+            local PREV_CCDB=""
+            if [[ -s "$CCDB_FILE" ]]; then
+                PREV_CCDB="${CCDB_FILE}.prev.$$"
+                cp -f "$CCDB_FILE" "$PREV_CCDB"
+            fi
+            rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
             local WRAPDIR="$(pwd)/.wrapbin"
             mkdir -p "${WRAPDIR}"
 
@@ -636,26 +645,33 @@ EOS
 
             "${make_cmd[@]}" || make_status=$?
             if [[ ! -s .cc_commands.jsonl && ! -s .cxx_commands.jsonl ]]; then
+                if [[ -n "$PREV_CCDB" && "${CCDB_REQUIRE_FULL}" != "1" ]]; then
+                    mv -f "$PREV_CCDB" "$CCDB_FILE"
+                    rm -rf "${WRAPDIR}"
+                    info "未捕获到编译步骤，复用已有 compile_commands.json（跳过 -B 全量重建）。"
+                    return "${make_status}"
+                fi
                 info "未捕获到编译步骤，强制重建以生成编译数据库..."
                 make -B -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" || make_status=$?
             fi
-            echo '[' > "$CCDB_FILE"
+            local NEW_CCDB="${CCDB_FILE}.new.$$"
+            echo '[' > "$NEW_CCDB"
             local first=1
             for f in .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl; do
                 if [[ -f "$f" ]]; then
                     while IFS= read -r line; do
-                        if [[ $first -eq 1 ]]; then first=0; else echo ',' >> "$CCDB_FILE"; fi
-                        echo "$line" >> "$CCDB_FILE"
+                        if [[ $first -eq 1 ]]; then first=0; else echo ',' >> "$NEW_CCDB"; fi
+                        echo "$line" >> "$NEW_CCDB"
                     done < "$f"
                 fi
             done
-            echo ']' >> "$CCDB_FILE"
+            echo ']' >> "$NEW_CCDB"
             
             # 清理临时文件
             rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
             rm -rf "${WRAPDIR}"
             
-        python3 - "$CCDB_FILE" <<'PY' 2>/dev/null || true
+        python3 - "$NEW_CCDB" <<'PY' 2>/dev/null || true
 import re, json, shlex, sys
 p = sys.argv[1] if len(sys.argv) > 1 else 'compile_commands.json'
 try:
@@ -678,7 +694,7 @@ if changed:
 PY
 
             # 进一步规范化：拆分粘连 token、移除 nvcc 专属参数与无效 -isystem
-            python3 - "$CCDB_FILE" <<'PY' 2>/dev/null || true
+            python3 - "$NEW_CCDB" <<'PY' 2>/dev/null || true
 import json, re, os, sys
 p=sys.argv[1] if len(sys.argv) > 1 else 'compile_commands.json'
 try:
@@ -756,6 +772,41 @@ if dedup:
 if changed:
     json.dump(db, open(p,'w',encoding='utf-8'), ensure_ascii=False, indent=2)
 PY
+
+            if [[ -n "$PREV_CCDB" && "${CCDB_MERGE_OLD}" = "1" && -s "$PREV_CCDB" ]]; then
+                python3 - "$PREV_CCDB" "$NEW_CCDB" "$CCDB_FILE" <<'PY' 2>/dev/null || true
+import json, sys
+oldf, newf, outf = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    old = json.load(open(oldf, 'r', encoding='utf-8'))
+except Exception:
+    old = []
+try:
+    new = json.load(open(newf, 'r', encoding='utf-8'))
+except Exception:
+    new = []
+
+def key(e):
+    return (e.get('file'), e.get('directory'))
+
+merged = {}
+for e in old:
+    k = key(e)
+    if k[0]:
+        merged[k] = e
+for e in new:
+    k = key(e)
+    if k[0]:
+        merged[k] = e
+
+db = list(merged.values())
+json.dump(db, open(outf, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+PY
+                rm -f "$PREV_CCDB" "$NEW_CCDB"
+            else
+                mv -f "$NEW_CCDB" "$CCDB_FILE"
+                rm -f "$PREV_CCDB"
+            fi
             info "compile_commands.json 已生成到: ${CCDB_FILE}"
     fi
     else

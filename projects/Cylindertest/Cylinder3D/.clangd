@@ -6,29 +6,15 @@ CompileFlags:
   Remove:
     - "^-D__CUDA_ARCH__=.*"
     - "^-D__CUDA_ARCH_LIST__=.*"
-    - "^-DAMREX_USE_CUDA$"
-    - "^-DAMREX_USE_GPU$"
   Add:
-    - -std=c++17
-    - -DBL_USE_MPI
-    - -DAMREX_USE_MPI
-    - -DBL_NO_FORT
-    - -DNDEBUG
     - -D__host__=
     - -D__device__=
     - -D__global__=
     - -D__constant__=
     - -D__shared__=
     - -D__launch_bounds__(...)=
-    - -I/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base
-    - -I/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base/Parser
-    - -I/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/AmrCore
-    - -I/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Boundary
-    - -I/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Particle
     - -isystem
     - /home/HPCBase/compilers/cuda/12.1.0/targets/sbsa-linux/include
-    - -isystem
-    - /home/HPCBase/compilers/cuda/12.1.0/extras/CUPTI/include
     - -include
     - cuda_runtime.h
 
@@ -40,16 +26,18 @@ Diagnostics:
   ClangTidy:
     Add: []
     Remove: ['*']
-  Suppress:
-    - unknown_typename
-    - pp_file_not_found
-    - unused-parameter
-    - readability-braces-around-statements
-    - bugprone-narrowing-conversions
-    - performance-inefficient-string-concatenation
-    - readability-convert-member-functions-to-static
-    - ignored-qualifiers
-    - unused-includes
 
 Completion:
   AllScopes: true
+
+---
+If:
+  PathMatch: .*D3Q19\.H
+
+CompileFlags:
+  Add:
+    - -DAMREX_CXX_NVHPC
+    - -include
+    - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base/AMReX_REAL.H
+    - -include
+    - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base/AMReX_RealVect.H
