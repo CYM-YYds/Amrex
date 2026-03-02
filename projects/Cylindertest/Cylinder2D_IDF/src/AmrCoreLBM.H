@@ -84,6 +84,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void PrintParticleParm();
     void RedistributeParticle();
     void ComputeCp(int lev, int step);
+    void ComputeCf(int lev, int step);
     bool EvaluateConvergence(int lev, int step);
 
     //********************************************************************//

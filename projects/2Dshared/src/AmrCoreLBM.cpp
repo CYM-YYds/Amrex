@@ -13,8 +13,8 @@
 #include <cmath>
 #include <vector>
 #include <map>
-#include <unordered_map>
-#include <fstream>   // 用于输出矩阵到文件
+//#include <unordered_map>
+//#include <fstream>   // 用于输出矩阵到文件
 #include <algorithm> // 用于 std::sort, std::min_element
 #include <numeric>   // 用于 std::iota
 
@@ -1194,7 +1194,7 @@ void AmrCoreLBM::ComputeParticle(int lev) {
     CommunicateLevel(lev);
     ComputeMacroLevel(lev);
     ApplyIDF(lev);
-    // InterpForce(lev);
+    //InterpForce(lev);
 }
 
 void AmrCoreLBM::ReduceFxy(int lev, int step) {
