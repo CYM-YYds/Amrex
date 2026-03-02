@@ -130,8 +130,11 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
                                    amrex::MultiFab& u_lev,
                                    amrex::MultiFab& rho_lev);
 
-    // 计算圆柱表面压力系数分布（在距离壁面1Δx处采样）
+    // 计算圆柱表面压力系数分布（在距离壁面1.5Δx处采样）
     void ComputeCp(int lev, amrex::MultiFab& rho_lev, const std::string& filename);
+    
+    // 计算圆柱表面局部摩擦系数分布
+    void ComputeCf(int lev, amrex::MultiFab& u_lev, const std::string& filename);
 
     void WriteParticle(int step);
 

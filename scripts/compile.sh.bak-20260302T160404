@@ -20,7 +20,6 @@
 #       例：MAKE_J=16 ./compile.sh
 #   - CUDA_ARCH: 传递给 Make 的 CUDA 架构号（默认 80）
 #       例：CUDA_ARCH=86 ./compile.sh
-#   - GEN_CCDB : 是否生成编译数据库 compile_commands.json（0 不生成；1 生成；默认 1）
 #       例：GEN_CCDB=0 ./compile.sh   # 跳过生成编译数据库，构建更快
 #   - CCDB_METHOD: 生成编译数据库的方法（auto|wrapper|bear|intercept，默认 wrapper）
 #       例：CCDB_METHOD=wrapper GEN_CCDB=1 ./compile.sh  # 强制使用包装器生成"干净"的 compile_commands.json
@@ -36,19 +35,63 @@ set -euo pipefail
 # 可配置项（通过环境变量覆盖）
 MAKE_J="${MAKE_J:-16}"
 CUDA_ARCH="${CUDA_ARCH:-80}"
-GEN_CCDB="${GEN_CCDB:-0}"
+AMREX_VERSION_MODE="${AMREX_VERSION_MODE:-release}"
+AMREX_GIT_VERSION_OVERRIDE="${AMREX_GIT_VERSION_OVERRIDE:-}"
+#   - GEN_CCDB : 是否生成编译数据库 compile_commands.json（0 不生成；1 生成；默认 1）
+GEN_CCDB="${GEN_CCDB:-1}"
 # 生成编译数据库的方法控制（auto|wrapper|bear|intercept）
 CCDB_METHOD="${CCDB_METHOD:-wrapper}"
 # 是否在构建遇错时继续尽量编译后续目标（有助于捕获更多编译命令，生成更完整的 CCDB）
 MAKE_KEEP_GOING="${MAKE_KEEP_GOING:-0}"
 
+# 可选：编译成功后是否自动提交作业（默认 0 不提交）。
+# 通过 --submit / --submit-after 触发；--no-submit 显式关闭。
+SUBMIT_AFTER="${SUBMIT_AFTER:-0}"
+SUBMIT_CMD="${SUBMIT_CMD:-dsub -s ./scripts/submit.sh}"
+# 提交必须在登录节点执行（避免编译节点缺少 dsub）；默认跳转 whshare-ccs-cli-2，可通过 SUBMIT_HOST 覆盖
+SUBMIT_HOST="${SUBMIT_HOST:-whshare-ccs-cli-2}"
+# 为避免编译节点加载的 GCC/LD_LIBRARY_PATH 影响 ssh，强制用干净环境调用 ssh
+SUBMIT_SSH="${SUBMIT_SSH:-/usr/bin/env -u LD_LIBRARY_PATH ssh}"
+
 # 控制编译数据库“胖/瘦”的可选开关：
 #  - CCDB_KEEP_TMP=1    保留 nvcc 产生的临时 tmpxft_/cudafe* 记录（默认 0，不保留）
 #  - CCDB_DEDUP_BY_FILE=0 禁用按 file 去重（默认 1，启用去重）
 #  - CCDB_OUTPUT_DIR    compile_commands.json 输出目录（默认 config）
+#  - CCDB_REQUIRE_FULL=1 无采集记录时强制 make -B 全量重建（默认 0，优先复用已有数据库）
+#  - CCDB_MERGE_OLD=0   禁用将本次增量记录与旧数据库合并（默认 1，启用）
 CCDB_KEEP_TMP="${CCDB_KEEP_TMP:-0}"
 CCDB_DEDUP_BY_FILE="${CCDB_DEDUP_BY_FILE:-1}"
 CCDB_OUTPUT_DIR="${CCDB_OUTPUT_DIR:-config}"
+CCDB_REQUIRE_FULL="${CCDB_REQUIRE_FULL:-0}"
+CCDB_MERGE_OLD="${CCDB_MERGE_OLD:-1}"
+
+# 解析简单命令行参数（当前仅支持提交开关）；保留其它位置参数以便将来扩展
+parse_args() {
+    local rest=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --submit|--submit-after)
+                SUBMIT_AFTER=1
+                ;;
+            --no-submit)
+                SUBMIT_AFTER=0
+                ;;
+            --)
+                shift
+                rest+=("$@")
+                break
+                ;;
+            *)
+                rest+=("$1")
+                ;;
+        esac
+        shift || break
+    done
+    SCRIPT_ARGS=("${rest[@]}")
+}
+
+parse_args "$@"
+set -- "${SCRIPT_ARGS[@]:-}"
 
 # 简单日志函数（注意：必须在首次调用前定义）
 info() { echo "[$(date '+%F %T')] $*"; }
@@ -270,10 +313,61 @@ load_environment() {
     command -v mpirun >/dev/null 2>&1 || echo "警告: mpirun 未找到，MPI 可能不可用。" >&2
 }
 
+detect_amrex_release_from_project() {
+    local amrex_home="${AMREX_HOME:-}"
+    local line=""
+
+    if [[ -z "$amrex_home" ]]; then
+        if [[ -f "$PROJECT_ROOT/config/GNUmakefile" ]]; then
+            line="$(awk -F'\\?=' '/^[[:space:]]*AMREX_HOME[[:space:]]*\\?=/{print $2; exit}' "$PROJECT_ROOT/config/GNUmakefile" | xargs || true)"
+            amrex_home="$line"
+        fi
+    fi
+    if [[ -z "$amrex_home" ]]; then
+        if [[ -f "$PROJECT_ROOT/GNUmakefile" ]]; then
+            line="$(awk -F'\\?=' '/^[[:space:]]*AMREX_HOME[[:space:]]*\\?=/{print $2; exit}' "$PROJECT_ROOT/GNUmakefile" | xargs || true)"
+            amrex_home="$line"
+        fi
+    fi
+
+    amrex_home="${amrex_home%/}"
+
+    if [[ -n "$AMREX_GIT_VERSION_OVERRIDE" ]]; then
+        printf '%s\n' "$AMREX_GIT_VERSION_OVERRIDE"
+        return 0
+    fi
+
+    local base="$(basename "$amrex_home" 2>/dev/null || true)"
+    if [[ "$base" =~ ([0-9]{2}\.[0-9]{2}(\.[0-9]+)?) ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+        return 0
+    fi
+
+    if [[ -f "$amrex_home/CHANGES.md" ]]; then
+        grep -o -m 1 -E "[0-9]{2}\.[0-9]{2}(\.[0-9]+)?" "$amrex_home/CHANGES.md" || true
+        return 0
+    fi
+    if [[ -f "$amrex_home/CHANGES" ]]; then
+        grep -o -m 1 -E "[0-9]{2}\.[0-9]{2}(\.[0-9]+)?" "$amrex_home/CHANGES" || true
+        return 0
+    fi
+    return 0
+}
+
 # 2) 执行编译并（可选）生成 compile_commands.json
 do_compile() {
     local make_status=0
     local make_cmd=( make -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" )
+    local amrex_git_version=""
+    if [[ "${AMREX_VERSION_MODE}" == "release" ]]; then
+        amrex_git_version="$(detect_amrex_release_from_project)"
+        if [[ -n "$amrex_git_version" ]]; then
+            make_cmd+=( "AMREX_GIT_VERSION=${amrex_git_version}" )
+            info "AMREX_VERSION_MODE=release，固定 AMREX_GIT_VERSION=${amrex_git_version}"
+        else
+            info "AMREX_VERSION_MODE=release，但未解析到发布号，回退到 AMReX 默认 git describe。"
+        fi
+    fi
     if [ "${MAKE_KEEP_GOING}" = "1" ]; then
         make_cmd+=( -k )
     fi
@@ -311,7 +405,12 @@ do_compile() {
 
         if [ "${use_wrapper}" = true ]; then
             info "未检测到 bear/intercept-build，使用 PATH 包装 gcc/g++/nvcc 写入 JSON。"
-            rm -f compile_commands.json .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
+            local PREV_CCDB=""
+            if [[ -s "$CCDB_FILE" ]]; then
+                PREV_CCDB="${CCDB_FILE}.prev.$$"
+                cp -f "$CCDB_FILE" "$PREV_CCDB"
+            fi
+            rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
             local WRAPDIR="$(pwd)/.wrapbin"
             mkdir -p "${WRAPDIR}"
 
@@ -599,26 +698,38 @@ EOS
 
             "${make_cmd[@]}" || make_status=$?
             if [[ ! -s .cc_commands.jsonl && ! -s .cxx_commands.jsonl ]]; then
+                if [[ -n "$PREV_CCDB" && "${CCDB_REQUIRE_FULL}" != "1" ]]; then
+                    mv -f "$PREV_CCDB" "$CCDB_FILE"
+                    rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
+                    rm -rf "${WRAPDIR}"
+                    info "未捕获到编译步骤，复用已有 compile_commands.json（跳过 -B 全量重建）。"
+                    return "${make_status}"
+                fi
                 info "未捕获到编译步骤，强制重建以生成编译数据库..."
-                make -B -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" || make_status=$?
+                if [[ -n "$amrex_git_version" ]]; then
+                    make -B -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" AMREX_GIT_VERSION="${amrex_git_version}" || make_status=$?
+                else
+                    make -B -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" || make_status=$?
+                fi
             fi
-            echo '[' > "$CCDB_FILE"
+            local NEW_CCDB="${CCDB_FILE}.new.$$"
+            echo '[' > "$NEW_CCDB"
             local first=1
             for f in .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl; do
                 if [[ -f "$f" ]]; then
                     while IFS= read -r line; do
-                        if [[ $first -eq 1 ]]; then first=0; else echo ',' >> "$CCDB_FILE"; fi
-                        echo "$line" >> "$CCDB_FILE"
+                        if [[ $first -eq 1 ]]; then first=0; else echo ',' >> "$NEW_CCDB"; fi
+                        echo "$line" >> "$NEW_CCDB"
                     done < "$f"
                 fi
             done
-            echo ']' >> "$CCDB_FILE"
+            echo ']' >> "$NEW_CCDB"
             
             # 清理临时文件
             rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
             rm -rf "${WRAPDIR}"
             
-        python3 - "$CCDB_FILE" <<'PY' 2>/dev/null || true
+        python3 - "$NEW_CCDB" <<'PY' 2>/dev/null || true
 import re, json, shlex, sys
 p = sys.argv[1] if len(sys.argv) > 1 else 'compile_commands.json'
 try:
@@ -641,7 +752,7 @@ if changed:
 PY
 
             # 进一步规范化：拆分粘连 token、移除 nvcc 专属参数与无效 -isystem
-            python3 - "$CCDB_FILE" <<'PY' 2>/dev/null || true
+            python3 - "$NEW_CCDB" <<'PY' 2>/dev/null || true
 import json, re, os, sys
 p=sys.argv[1] if len(sys.argv) > 1 else 'compile_commands.json'
 try:
@@ -719,6 +830,41 @@ if dedup:
 if changed:
     json.dump(db, open(p,'w',encoding='utf-8'), ensure_ascii=False, indent=2)
 PY
+
+            if [[ -n "$PREV_CCDB" && "${CCDB_MERGE_OLD}" = "1" && -s "$PREV_CCDB" ]]; then
+                python3 - "$PREV_CCDB" "$NEW_CCDB" "$CCDB_FILE" <<'PY' 2>/dev/null || true
+import json, sys
+oldf, newf, outf = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    old = json.load(open(oldf, 'r', encoding='utf-8'))
+except Exception:
+    old = []
+try:
+    new = json.load(open(newf, 'r', encoding='utf-8'))
+except Exception:
+    new = []
+
+def key(e):
+    return (e.get('file'), e.get('directory'))
+
+merged = {}
+for e in old:
+    k = key(e)
+    if k[0]:
+        merged[k] = e
+for e in new:
+    k = key(e)
+    if k[0]:
+        merged[k] = e
+
+db = list(merged.values())
+json.dump(db, open(outf, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+PY
+                rm -f "$PREV_CCDB" "$NEW_CCDB"
+            else
+                mv -f "$NEW_CCDB" "$CCDB_FILE"
+                rm -f "$PREV_CCDB"
+            fi
             info "compile_commands.json 已生成到: ${CCDB_FILE}"
     fi
     else
@@ -760,6 +906,15 @@ run_here() {
     if do_compile; then
         info "编译成功！"
         verify_artifacts
+        if [[ "${SUBMIT_AFTER}" == "1" ]]; then
+            info "按请求在 ${SUBMIT_HOST} 上执行提交命令: ${SUBMIT_CMD}"
+            read -r -a _cf_submit_ssh <<< "${SUBMIT_SSH}"
+            if "${_cf_submit_ssh[@]}" "${SUBMIT_HOST}" "cd ${PROJECT_ROOT} && ${SUBMIT_CMD}"; then
+                info "提交命令执行完成。"
+            else
+                echo "提交命令执行失败" >&2
+            fi
+        fi
     else
         rc=$?
         echo "编译失败，请检查错误信息。" >&2
@@ -774,6 +929,7 @@ if [[ "$(hostname)" == "whshare-agent-1" ]]; then
     exit $?
 else
     info "正在连接到编译节点 whshare-agent-1..."
+    _orig_submit_after="$SUBMIT_AFTER"
     # 将本脚本通过标准输入传到远端执行，并传递必要的环境变量
     if [[ -z "$SCRIPT_PAYLOAD" || ! -f "$SCRIPT_PAYLOAD" ]]; then
         echo "错误: 无法找到脚本文件 $SCRIPT_PAYLOAD" >&2
@@ -785,6 +941,12 @@ else
     ssh_gen_ccdb=$(printf '%q' "$GEN_CCDB")
     ssh_ccdb_method=$(printf '%q' "$CCDB_METHOD")
     ssh_make_keep=$(printf '%q' "$MAKE_KEEP_GOING")
+    ssh_amrex_version_mode=$(printf '%q' "$AMREX_VERSION_MODE")
+    ssh_amrex_git_version_override=$(printf '%q' "$AMREX_GIT_VERSION_OVERRIDE")
+    ssh_submit_after=$(printf '%q' "0")
+    ssh_submit_cmd=$(printf '%q' "$SUBMIT_CMD")
+    ssh_submit_host=$(printf '%q' "$SUBMIT_HOST")
+    ssh_submit_ssh=$(printf '%q' "$SUBMIT_SSH")
     ssh_project_root=$(printf '%q' "$PROJECT_ROOT")
     ssh whshare-agent-1 "cd ${ssh_workdir}; \
         MAKE_J=${ssh_make_j} \
@@ -792,11 +954,26 @@ else
         GEN_CCDB=${ssh_gen_ccdb} \
         CCDB_METHOD=${ssh_ccdb_method} \
         MAKE_KEEP_GOING=${ssh_make_keep} \
+        AMREX_VERSION_MODE=${ssh_amrex_version_mode} \
+        AMREX_GIT_VERSION_OVERRIDE=${ssh_amrex_git_version_override} \
+        SUBMIT_AFTER=${ssh_submit_after} \
+        SUBMIT_CMD=${ssh_submit_cmd} \
+        SUBMIT_HOST=${ssh_submit_host} \
+        SUBMIT_SSH=${ssh_submit_ssh} \
         _CHANNELFLOW_PROJECT_ROOT=${ssh_project_root} \
         bash -s" < "${SCRIPT_PAYLOAD}"
     rc=$?
     if [ $rc -eq 0 ]; then
         info "远程编译成功。"
+        if [[ "${_orig_submit_after}" == "1" ]]; then
+            info "编译完成后在本地主机执行提交命令: ${SUBMIT_CMD}"
+            read -r -a _cf_submit_cmd <<< "${SUBMIT_CMD}"
+            if (cd "${PROJECT_ROOT}" && "${_cf_submit_cmd[@]}"); then
+                info "提交命令执行完成。"
+            else
+                echo "提交命令执行失败" >&2
+            fi
+        fi
     else
         echo "远程编译失败 (exit $rc)。" >&2
     fi

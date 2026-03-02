@@ -1024,7 +1024,7 @@ int LagrangeParticleContainer::IDF_CollectParticleData(int lev,
             continue;
 
         // 将粒子数据从 GPU 复制到 CPU
-        using ParticleType = typename LagrangeParticleContainer::ParticleType;
+        using ParticleType = LagrangeParticleContainer::ParticleType;
         amrex::Gpu::PinnedVector<ParticleType> host_particles(n);
         amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
                               aos().begin(), aos().end(),

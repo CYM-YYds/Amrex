@@ -2,6 +2,11 @@
 #define InitParticles_H_
 
 #include <AMReX_Config.H>
+#include <AMReX_REAL.H>
+#include <AMReX_RealVect.H>
+#include <AMReX_Vector.H>
+
+#include <cmath>
 #include <cstdlib> 
 #include <ctime>
 

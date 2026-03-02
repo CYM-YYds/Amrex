@@ -191,10 +191,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool idf_geometry_built{false};
     // 本地粒子计数是否有效（regrid 后需要更新）
     bool idf_local_count_valid{false};
-
-    // 稀疏 D_I（按行：每个拉格朗日点 i 的条目列表 <e_idx, wI>）与 D_E（按列：每个拉格朗日点 j 的条目列表 <e_idx, wE>）
-    std::vector<std::vector<std::pair<int, amrex::Real>>> idf_DI_rows;
-    std::vector<std::vector<std::pair<int, amrex::Real>>> idf_DE_cols;
 };
 
 #endif
