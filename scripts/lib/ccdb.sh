@@ -5,7 +5,7 @@
 #
 # 关键职责：
 #   - 组装 make 命令（含 AMREX_GIT_VERSION 策略）
-#   - 按策略选择 bear/intercept/wrapper 生成编译数据库
+#   - 使用 wrapper 方式生成编译数据库
 #   - 在 wrapper 模式下生成临时编译器包装器并汇总 jsonl
 #   - 清理临时文件并输出最终 compile_commands.json
 #
@@ -15,71 +15,48 @@
 
 # 2) 执行编译并（可选）生成 compile_commands.json
 do_compile() {
-    # 统一返回 make_status，调用方据此决定后续动作。
-    local make_status=0
-    local make_cmd=( make -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" )
-    local amrex_git_version=""
-    if [[ "${AMREX_VERSION_MODE}" == "release" ]]; then
-        amrex_git_version="$(detect_amrex_release_from_project)"
-        if [[ -n "$amrex_git_version" ]]; then
-            make_cmd+=( "AMREX_GIT_VERSION=${amrex_git_version}" )
-            info "AMREX_VERSION_MODE=release，固定 AMREX_GIT_VERSION=${amrex_git_version}"
-        else
-            info "AMREX_VERSION_MODE=release，但未解析到发布号，回退到 AMReX 默认 git describe。"
-        fi
-    fi
-    if [ "${MAKE_KEEP_GOING}" = "1" ]; then
-        make_cmd+=( -k )
-    fi
+	# 统一返回 make_status，调用方据此决定后续动作。
+	local make_status=0
+	local make_cmd=(make -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}")
+	local amrex_git_version=""
+	if [[ "${AMREX_VERSION_MODE}" == "release" ]]; then
+		amrex_git_version="$(detect_amrex_release_from_project)"
+		if [[ -n "$amrex_git_version" ]]; then
+			make_cmd+=("AMREX_GIT_VERSION=${amrex_git_version}")
+			info "AMREX_VERSION_MODE=release，固定 AMREX_GIT_VERSION=${amrex_git_version}"
+		else
+			info "AMREX_VERSION_MODE=release，但未解析到发布号，回退到 AMReX 默认 git describe。"
+		fi
+	fi
+	if [ "${MAKE_KEEP_GOING}" = "1" ]; then
+		make_cmd+=(-k)
+	fi
 
-    if [ "${GEN_CCDB}" = "1" ]; then
-        mkdir -p "${CCDB_OUTPUT_DIR}"
-        local CCDB_FILE="${CCDB_OUTPUT_DIR}/compile_commands.json"
+	if [ "${GEN_CCDB}" = "1" ]; then
+		mkdir -p "${CCDB_OUTPUT_DIR}"
+		local CCDB_FILE="${CCDB_OUTPUT_DIR}/compile_commands.json"
+		if [[ "${CCDB_METHOD:-wrapper}" != "wrapper" ]]; then
+			info "CCDB_METHOD=${CCDB_METHOD} 已弃用，固定使用 wrapper。"
+		fi
 
-        use_wrapper=false
-        case "${CCDB_METHOD}" in
-            wrapper) use_wrapper=true ;;
-            bear)    if command -v bear >/dev/null 2>&1; then
-                         info "使用 bear 捕获编译数据库..."; bear --output "$CCDB_FILE" -- "${make_cmd[@]}" || make_status=$? ;
-                      else
-                         info "未找到 bear，回退到 wrapper 方法。"; use_wrapper=true ;
-                      fi ;;
-            intercept) if command -v intercept-build >/dev/null 2>&1; then
-                          info "使用 intercept-build 捕获编译数据库...";
-                          intercept-build --override-compiler --output "$CCDB_FILE" "${make_cmd[@]}" || make_status=$?
-                        else
-                          info "未找到 intercept-build，回退到 wrapper 方法。"; use_wrapper=true ;
-                        fi ;;
-            auto|*)
-                      if command -v bear >/dev/null 2>&1; then
-                          info "使用 bear 捕获编译数据库..."; bear --output "$CCDB_FILE" -- "${make_cmd[@]}" || make_status=$?
-                      elif command -v intercept-build >/dev/null 2>&1; then
-                          info "使用 intercept-build 捕获编译数据库...";
-                          intercept-build --override-compiler --output "$CCDB_FILE" "${make_cmd[@]}" || make_status=$?
-                      else
-                          use_wrapper=true
-                      fi ;;
-        esac
+		info "使用 wrapper 捕获编译数据库（gcc/g++/nvcc 包装器）。"
+		local PREV_CCDB=""
+		if [[ -s "$CCDB_FILE" ]]; then
+			PREV_CCDB="${CCDB_FILE}.prev.$$"
+			cp -f "$CCDB_FILE" "$PREV_CCDB"
+		fi
+		rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
+		local WRAPDIR="$(pwd)/.wrapbin"
+		mkdir -p "${WRAPDIR}"
 
-        if [ "${use_wrapper}" = true ]; then
-            info "未检测到 bear/intercept-build，使用 PATH 包装 gcc/g++/nvcc 写入 JSON。"
-            local PREV_CCDB=""
-            if [[ -s "$CCDB_FILE" ]]; then
-                PREV_CCDB="${CCDB_FILE}.prev.$$"
-                cp -f "$CCDB_FILE" "$PREV_CCDB"
-            fi
-            rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
-            local WRAPDIR="$(pwd)/.wrapbin"
-            mkdir -p "${WRAPDIR}"
+		export REAL_GCC="${REAL_GCC:-$(command -v gcc || echo /home/HPCBase/compilers/gcc/10.3.1/bin/gcc)}"
+		export REAL_GXX="${REAL_GXX:-$(command -v g++ || echo /home/HPCBase/compilers/gcc/10.3.1/bin/g++)}"
+		export REAL_GIT="${REAL_GIT:-$(command -v git || echo /usr/bin/git)}"
+		export REAL_NVCC="${REAL_NVCC:-$(command -v nvcc || echo /usr/local/cuda/bin/nvcc)}"
+		export REAL_MPICXX="${REAL_MPICXX:-$(command -v mpicxx || echo /home/HPCBase/mpi/hmpi/1.2.0-huawei-sp1/bin/mpicxx)}"
+		export REAL_MPICC="${REAL_MPICC:-$(command -v mpicc || echo /home/HPCBase/mpi/hmpi/1.2.0-huawei-sp1/bin/mpicc)}"
 
-            export REAL_GCC="${REAL_GCC:-$(command -v gcc || echo /home/HPCBase/compilers/gcc/10.3.1/bin/gcc)}"
-            export REAL_GXX="${REAL_GXX:-$(command -v g++ || echo /home/HPCBase/compilers/gcc/10.3.1/bin/g++)}"
-            export REAL_GIT="${REAL_GIT:-$(command -v git || echo /usr/bin/git)}"
-            export REAL_NVCC="${REAL_NVCC:-$(command -v nvcc || echo /usr/local/cuda/bin/nvcc)}"
-            export REAL_MPICXX="${REAL_MPICXX:-$(command -v mpicxx || echo /home/HPCBase/mpi/hmpi/1.2.0-huawei-sp1/bin/mpicxx)}"
-            export REAL_MPICC="${REAL_MPICC:-$(command -v mpicc || echo /home/HPCBase/mpi/hmpi/1.2.0-huawei-sp1/bin/mpicc)}"
-
-            cat > "${WRAPDIR}/gcc" <<'EOS'
+		cat >"${WRAPDIR}/gcc" <<'EOS'
 #!/usr/bin/env bash
 out=.cc_commands.jsonl
 args=("$@")
@@ -122,7 +99,7 @@ fi
 exec "$REAL_GCC" "${filtered[@]}"
 EOS
 
-            cat > "${WRAPDIR}/g++" <<'EOS'
+		cat >"${WRAPDIR}/g++" <<'EOS'
 #!/usr/bin/env bash
 out=.cxx_commands.jsonl
 args=("$@")
@@ -165,7 +142,7 @@ fi
 exec "$REAL_GXX" "${filtered[@]}"
 EOS
 
-            cat > "${WRAPDIR}/nvcc" <<'EOS'
+		cat >"${WRAPDIR}/nvcc" <<'EOS'
 #!/usr/bin/env bash
 out=.nvcc_commands.jsonl
 args=("$@")
@@ -231,10 +208,10 @@ fi
 exec "$REAL_NVCC" "${filtered[@]}"
 EOS
 
-            chmod +x "${WRAPDIR}/gcc" "${WRAPDIR}/g++" "${WRAPDIR}/nvcc"
-            export PATH="${WRAPDIR}:$PATH"
+		chmod +x "${WRAPDIR}/gcc" "${WRAPDIR}/g++" "${WRAPDIR}/nvcc"
+		export PATH="${WRAPDIR}:$PATH"
 
-            cat > "${WRAPDIR}/mpicxx" <<'EOS'
+		cat >"${WRAPDIR}/mpicxx" <<'EOS'
 #!/usr/bin/env bash
 out=.nvcc_commands.jsonl
 args=("$@")
@@ -300,13 +277,13 @@ fi
 exec "$REAL_MPICXX" "${filtered[@]}"
 EOS
 
-            cat > "${WRAPDIR}/mpicc" <<'EOS'
+		cat >"${WRAPDIR}/mpicc" <<'EOS'
 #!/usr/bin/env bash
 exec "$REAL_MPICC" "$@"
 EOS
-            chmod +x "${WRAPDIR}/mpicxx" "${WRAPDIR}/mpicc"
+		chmod +x "${WRAPDIR}/mpicxx" "${WRAPDIR}/mpicc"
 
-            cat > "${WRAPDIR}/git" <<'EOS'
+		cat >"${WRAPDIR}/git" <<'EOS'
 #!/usr/bin/env bash
 REAL_GIT_BIN="${REAL_GIT:-$(command -v git || echo /usr/bin/git)}"
 subcmd="$1"
@@ -325,41 +302,41 @@ case "$subcmd" in
         ;;
 esac
 EOS
-            chmod +x "${WRAPDIR}/git"
+		chmod +x "${WRAPDIR}/git"
 
-            "${make_cmd[@]}" || make_status=$?
-            if [[ ! -s .cc_commands.jsonl && ! -s .cxx_commands.jsonl ]]; then
-                if [[ -n "$PREV_CCDB" && "${CCDB_REQUIRE_FULL}" != "1" ]]; then
-                    mv -f "$PREV_CCDB" "$CCDB_FILE"
-                    rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
-                    rm -rf "${WRAPDIR}"
-                    info "未捕获到编译步骤，复用已有 compile_commands.json（跳过 -B 全量重建）。"
-                    return "${make_status}"
-                fi
-                info "未捕获到编译步骤，强制重建以生成编译数据库..."
-                if [[ -n "$amrex_git_version" ]]; then
-                    make -B -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" AMREX_GIT_VERSION="${amrex_git_version}" || make_status=$?
-                else
-                    make -B -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" || make_status=$?
-                fi
-            fi
-            local NEW_CCDB="${CCDB_FILE}.new.$$"
-            echo '[' > "$NEW_CCDB"
-            local first=1
-            for f in .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl; do
-                if [[ -f "$f" ]]; then
-                    while IFS= read -r line; do
-                        if [[ $first -eq 1 ]]; then first=0; else echo ',' >> "$NEW_CCDB"; fi
-                        echo "$line" >> "$NEW_CCDB"
-                    done < "$f"
-                fi
-            done
-            echo ']' >> "$NEW_CCDB"
+		"${make_cmd[@]}" || make_status=$?
+		if [[ ! -s .cc_commands.jsonl && ! -s .cxx_commands.jsonl ]]; then
+			if [[ -n "$PREV_CCDB" && "${CCDB_REQUIRE_FULL}" != "1" ]]; then
+				mv -f "$PREV_CCDB" "$CCDB_FILE"
+				rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
+				rm -rf "${WRAPDIR}"
+				info "未捕获到编译步骤，复用已有 compile_commands.json（跳过 -B 全量重建）。"
+				return "${make_status}"
+			fi
+			info "未捕获到编译步骤，强制重建以生成编译数据库..."
+			if [[ -n "$amrex_git_version" ]]; then
+				make -B -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" AMREX_GIT_VERSION="${amrex_git_version}" || make_status=$?
+			else
+				make -B -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" || make_status=$?
+			fi
+		fi
+		local NEW_CCDB="${CCDB_FILE}.new.$$"
+		echo '[' >"$NEW_CCDB"
+		local first=1
+		for f in .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl; do
+			if [[ -f "$f" ]]; then
+				while IFS= read -r line; do
+					if [[ $first -eq 1 ]]; then first=0; else echo ',' >>"$NEW_CCDB"; fi
+					echo "$line" >>"$NEW_CCDB"
+				done <"$f"
+			fi
+		done
+		echo ']' >>"$NEW_CCDB"
 
-            rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
-            rm -rf "${WRAPDIR}"
+		rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
+		rm -rf "${WRAPDIR}"
 
-        python3 - "$NEW_CCDB" <<'PY' 2>/dev/null || true
+		python3 - "$NEW_CCDB" <<'PY' 2>/dev/null || true
 import re, json, shlex, sys
 p = sys.argv[1] if len(sys.argv) > 1 else 'compile_commands.json'
 try:
@@ -381,7 +358,7 @@ if changed:
         open(p,'w',encoding='utf-8').write(new)
 PY
 
-            python3 - "$NEW_CCDB" <<'PY' 2>/dev/null || true
+		python3 - "$NEW_CCDB" <<'PY' 2>/dev/null || true
 import json, re, os, sys
 p=sys.argv[1] if len(sys.argv) > 1 else 'compile_commands.json'
 try:
@@ -454,8 +431,8 @@ if changed:
     json.dump(db, open(p,'w',encoding='utf-8'), ensure_ascii=False, indent=2)
 PY
 
-            if [[ -n "$PREV_CCDB" && "${CCDB_MERGE_OLD}" = "1" && -s "$PREV_CCDB" ]]; then
-                python3 - "$PREV_CCDB" "$NEW_CCDB" "$CCDB_FILE" <<'PY' 2>/dev/null || true
+		if [[ -n "$PREV_CCDB" && "${CCDB_MERGE_OLD}" = "1" && -s "$PREV_CCDB" ]]; then
+			python3 - "$PREV_CCDB" "$NEW_CCDB" "$CCDB_FILE" <<'PY' 2>/dev/null || true
 import json, sys
 oldf, newf, outf = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
@@ -483,17 +460,16 @@ for e in new:
 db = list(merged.values())
 json.dump(db, open(outf, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 PY
-                rm -f "$PREV_CCDB" "$NEW_CCDB"
-            else
-                mv -f "$NEW_CCDB" "$CCDB_FILE"
-                rm -f "$PREV_CCDB"
-            fi
-            info "compile_commands.json 已生成到: ${CCDB_FILE}"
-    fi
-    else
-    info "GEN_CCDB=0，跳过生成编译数据库"
-    "${make_cmd[@]}" || make_status=$?
-    fi
+			rm -f "$PREV_CCDB" "$NEW_CCDB"
+		else
+			mv -f "$NEW_CCDB" "$CCDB_FILE"
+			rm -f "$PREV_CCDB"
+		fi
+		info "compile_commands.json 已生成到: ${CCDB_FILE}"
+	else
+		info "GEN_CCDB=0，跳过生成编译数据库"
+		"${make_cmd[@]}" || make_status=$?
+	fi
 
-    return "${make_status}"
+	return "${make_status}"
 }

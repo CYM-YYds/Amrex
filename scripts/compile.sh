@@ -28,15 +28,15 @@
 #   - CUDA_ARCH: 传递给 Make 的 CUDA 架构号（默认 80）
 #       例：CUDA_ARCH=86 ./compile.sh
 #       例：GEN_CCDB=0 ./compile.sh   # 跳过生成编译数据库，构建更快
-#   - CCDB_METHOD: 生成编译数据库的方法（auto|wrapper|bear|intercept，默认 wrapper）
-#       例：CCDB_METHOD=wrapper GEN_CCDB=1 ./compile.sh  # 强制使用包装器生成"干净"的 compile_commands.json
+#   - CCDB_METHOD: 已固定为 wrapper（保留该变量仅为兼容，不再切换其他模式）
+#       例：CCDB_METHOD=wrapper GEN_CCDB=1 ./compile.sh
 #   - CCDB_OUTPUT_DIR: compile_commands.json 输出目录（默认 config）
 #       例：CCDB_OUTPUT_DIR=. ./compile.sh  # 输出到项目根目录
 #
 # 运行逻辑：
 #   - 如果当前主机名不是 whshare-agent-1，则通过 SSH 在 whshare-agent-1 上执行本脚本；
 #   - 如果已经在 whshare-agent-1 上，则直接加载环境并构建；
-#   - 若启用编译数据库生成，优先使用 bear 或 intercept-build；若都不存在，则自动用 gcc/g++ 包装器采集命令生成 compile_commands.json。
+#   - 若启用编译数据库生成，固定使用 gcc/g++/nvcc 包装器采集命令生成 compile_commands.json。
 set -euo pipefail
 
 # 可配置项（通过环境变量覆盖）
@@ -46,8 +46,8 @@ AMREX_VERSION_MODE="${AMREX_VERSION_MODE:-release}"
 AMREX_GIT_VERSION_OVERRIDE="${AMREX_GIT_VERSION_OVERRIDE:-}"
 #   - GEN_CCDB : 是否生成编译数据库 compile_commands.json（0 不生成；1 生成；默认 1）
 GEN_CCDB="${GEN_CCDB:-1}"
-# 生成编译数据库的方法控制（auto|wrapper|bear|intercept）
-CCDB_METHOD="${CCDB_METHOD:-wrapper}"
+# 生成编译数据库的方法控制（已固定为 wrapper，保留变量仅兼容）
+CCDB_METHOD="wrapper"
 # 是否在构建遇错时继续尽量编译后续目标（有助于捕获更多编译命令，生成更完整的 CCDB）
 MAKE_KEEP_GOING="${MAKE_KEEP_GOING:-0}"
 
@@ -74,16 +74,16 @@ CCDB_MERGE_OLD="${CCDB_MERGE_OLD:-1}"
 
 # 模块目录（优先使用上游显式传入；否则按当前脚本位置推断）
 if [[ -n "${_CF_SCRIPT_DIR:-}" ]]; then
-    SCRIPT_DIR="${_CF_SCRIPT_DIR}"
+	SCRIPT_DIR="${_CF_SCRIPT_DIR}"
 else
-    _cf_src="${BASH_SOURCE[0]:-$0}"
-    SCRIPT_DIR="$(cd "$(dirname "${_cf_src}")" && pwd)"
+	_cf_src="${BASH_SOURCE[0]:-$0}"
+	SCRIPT_DIR="$(cd "$(dirname "${_cf_src}")" && pwd)"
 fi
 
 if [[ ! -f "${SCRIPT_DIR}/lib/utils.sh" ]]; then
-    echo "错误: 未找到模块目录 ${SCRIPT_DIR}/lib（当前 SCRIPT_DIR=${SCRIPT_DIR}）。" >&2
-    echo "提示: 远端 stdin 执行时请传入 _CF_SCRIPT_DIR。" >&2
-    exit 1
+	echo "错误: 未找到模块目录 ${SCRIPT_DIR}/lib（当前 SCRIPT_DIR=${SCRIPT_DIR}）。" >&2
+	echo "提示: 远端 stdin 执行时请传入 _CF_SCRIPT_DIR。" >&2
+	exit 1
 fi
 source "${SCRIPT_DIR}/lib/utils.sh"
 source "${SCRIPT_DIR}/lib/env.sh"
@@ -97,32 +97,32 @@ set -- "${SCRIPT_ARGS[@]:-}"
 
 # 记录脚本真实路径（远端通过 stdin 执行时用于回传自身内容）
 if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
-    if command -v realpath >/dev/null 2>&1; then
-        _CF_SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
-    else
-        _CF_SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-    fi
+	if command -v realpath >/dev/null 2>&1; then
+		_CF_SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+	else
+		_CF_SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+	fi
 else
-    _CF_SCRIPT_PATH=""
+	_CF_SCRIPT_PATH=""
 fi
 
-# 定位项目根目录（优先复用上游传入，失败时自动向上查找）
+#              g'h'g'h'g'g
 if [[ -n "${_CHANNELFLOW_PROJECT_ROOT:-}" ]]; then
-    PROJECT_ROOT="${_CHANNELFLOW_PROJECT_ROOT}"
+	PROJECT_ROOT="${_CHANNELFLOW_PROJECT_ROOT}"
 else
-    start_dir=""
-    if [[ -n "$_CF_SCRIPT_PATH" ]]; then
-        start_dir="$(dirname "$_CF_SCRIPT_PATH")"
-    else
-        start_dir="$(pwd)"
-    fi
-    if ! PROJECT_ROOT=$(find_project_root "$start_dir"); then
-        if ! PROJECT_ROOT=$(find_project_root "$(pwd)"); then
-            echo "错误: 未能定位 ChannelFlow 项目根目录 (起始路径: $start_dir)" >&2
-            exit 1
-        fi
-    fi
-    export _CHANNELFLOW_PROJECT_ROOT="$PROJECT_ROOT"
+	start_dir=""
+	if [[ -n "$_CF_SCRIPT_PATH" ]]; then
+		start_dir="$(dirname "$_CF_SCRIPT_PATH")"
+	else
+		start_dir="$(pwd)"
+	fi
+	if ! PROJECT_ROOT=$(find_project_root "$start_dir"); then
+		if ! PROJECT_ROOT=$(find_project_root "$(pwd)"); then
+			echo "错误: 未能定位 ChannelFlow 项目根目录 (起始路径: $start_dir)" >&2
+			exit 1
+		fi
+	fi
+	export _CHANNELFLOW_PROJECT_ROOT="$PROJECT_ROOT"
 fi
 
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd -P)"
