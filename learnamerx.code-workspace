@@ -42,6 +42,10 @@
             "**/.git": false
         },
         "editor.formatOnSaveMode": "modificationsIfAvailable",
+        "[shellscript]": {
+            "editor.defaultFormatter": "mkhl.shfmt",
+            "editor.formatOnSave": true
+        },
         "clangd.path": "/home/share/huazkjdxmrsgjzdsyshi/home/lijing/wuyuchen/mambaforge3/bin/clangd",
         "clangd.arguments": [
             "--background-index",
@@ -81,6 +85,10 @@
             "string_view": "cpp"
         },
         "Codegeex.RepoIndex": true,
-        "Codegeex.Chat.fontSize": 15
+        "Codegeex.Chat.fontSize": 15,
+        "shfmt.executablePath": "/home/share/huazkjdxmrsgjzdsyshi/home/lijing/wuyuchen/mambaforge3/bin/shfmt",
+        "shellcheck.executablePath": "/home/share/huazkjdxmrsgjzdsyshi/home/lijing/wuyuchen/mambaforge3/bin/shellcheck",
+        "clangd.restartAfterCrash": true,
+        "clangd.useScriptAsExecutable": false
     }
 }
