@@ -238,24 +238,24 @@ bool LagrangeParticleContainer::EvaluateConvergence(int lev, int step, amrex::Mu
     return steady_reached;
 }
 
-// 计算圆柱表面压力系数分布（在距离壁面1Δx处采样）
+// 计算圆柱表面压力系数分布（在距离壁面1.5Δx处采样）
 void LagrangeParticleContainer::ComputeCp(int lev, MultiFab& rho_lev, const std::string& filename) {
 
     Interpolate_normal_offset_Rho(lev, rho_lev);
 
     // 调试：检查插值后的密度范围
-    using SPType = typename LagrangeParticleContainer::SuperParticleType;
-    auto rho_min = amrex::ReduceMin(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
-        return p.rdata(PIdx::rho_interp);
-    });
-    auto rho_max = amrex::ReduceMax(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
-        return p.rdata(PIdx::rho_interp);
-    });
-    ParallelDescriptor::ReduceRealMin(rho_min);
-    ParallelDescriptor::ReduceRealMax(rho_max);
-    if (ParallelDescriptor::IOProcessor()) {
-        amrex::Print() << "[DEBUG] Interpolated rho range: [" << rho_min << ", " << rho_max << "]" << std::endl;
-    }
+    // using SPType = typename LagrangeParticleContainer::SuperParticleType;
+    // auto rho_min = amrex::ReduceMin(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
+    //     return p.rdata(PIdx::rho_interp);
+    // });
+    // auto rho_max = amrex::ReduceMax(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
+    //     return p.rdata(PIdx::rho_interp);
+    // });
+    // ParallelDescriptor::ReduceRealMin(rho_min);
+    // ParallelDescriptor::ReduceRealMax(rho_max);
+    // if (ParallelDescriptor::IOProcessor()) {
+    //     amrex::Print() << "[DEBUG] Interpolated rho range: [" << rho_min << ", " << rho_max << "]" << std::endl;
+    // }
 
     // 此处需与粒子坐标保持一致，否则角度会被偏移
     const Real delta0 = Geom(0).CellSize()[0];
@@ -332,6 +332,170 @@ void LagrangeParticleContainer::ComputeCp(int lev, MultiFab& rho_lev, const std:
             }
             cp_file.close();
             amrex::Print() << "[Cp] Steady-state Cp written ("
+                           << entries.size() << " points)" << std::endl;
+        }
+    }
+}
+
+// 计算圆柱表面局部摩擦系数分布
+void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::string& filename) {
+    const Real delta = Geom(lev).CellSize()[0];
+    const Real delta0 = Geom(0).CellSize()[0];
+
+    // 此处需与粒子坐标保持一致，否则角度会被偏移
+    const Real center_x = X * delta0;
+    const Real center_y = Y * delta0;
+    const Real q_inf = 0.5 * (p0 / cs2) * U0 * U0;
+
+    std::vector<Real> local_data;
+
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        const long n = pti.numParticles();
+        if (n == 0)
+            continue;
+
+        auto& aos = pti.GetArrayOfStructs();
+        amrex::Gpu::PinnedVector<ParticleType> host_particles(n);
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              aos().begin(), aos().end(),
+                              host_particles.begin());
+
+        const FArrayBox& u_fab = u_lev[pti];
+        const Box& ubox = u_lev[pti].box();
+        const int ilo = ubox.smallEnd(0);
+        const int ihi = ubox.bigEnd(0);
+        const int jlo = ubox.smallEnd(1);
+        const int jhi = ubox.bigEnd(1);
+        const int nx = ihi - ilo + 1;
+        const int ny = jhi - jlo + 1;
+        const long ncell = static_cast<long>(nx) * static_cast<long>(ny);
+
+        amrex::Gpu::PinnedVector<Real> host_u0(ncell);
+        amrex::Gpu::PinnedVector<Real> host_u1(ncell);
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              u_fab.dataPtr(0), u_fab.dataPtr(0) + ncell,
+                              host_u0.begin());
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              u_fab.dataPtr(1), u_fab.dataPtr(1) + ncell,
+                              host_u1.begin());
+        amrex::Gpu::streamSynchronize();
+
+        auto host_vel = [&](int ix, int iy, int comp) -> Real {
+            const long idx = static_cast<long>(ix - ilo) + static_cast<long>(iy - jlo) * static_cast<long>(nx);
+            return (comp == 0) ? host_u0[idx] : host_u1[idx];
+        };
+
+        for (long i = 0; i < n; ++i) {
+            const Real px = host_particles[i].pos(0);
+            const Real py = host_particles[i].pos(1);
+            const Real theta = std::atan2(py - center_y, px - center_x);
+
+            // 计算壁面法向和切向单位向量
+            const Real nx = std::cos(theta);
+            const Real ny = std::sin(theta);
+            const Real tx = -ny; // 切向向量（逆时针90度）
+            const Real ty = nx;
+
+            // 在离壁面不同距离处采样速度
+            const Real d1 = 1.5 * delta; // 近壁面采样点
+            const Real d2 = 2.5 * delta; // 远壁面采样点
+
+            // 计算采样点坐标
+            const Real x1 = px + d1 * nx; // 物理坐标
+            const Real y1 = py + d1 * ny;
+            const Real x2 = px + d2 * nx;
+            const Real y2 = py + d2 * ny;
+
+            // 双线性插值计算速度
+            auto interpolate_velocity = [&](Real x, Real y) -> std::pair<Real, Real> {
+                Real xt = x / delta;
+                Real yt = y / delta;
+
+                int ix = static_cast<int>(std::floor(xt));
+                int iy = static_cast<int>(std::floor(yt));
+                Real lx = xt - ix;
+                Real ly = yt - iy;
+
+                // 双线性插值
+                Real u00 = host_vel(ix, iy, 0);
+                Real u10 = host_vel(ix + 1, iy, 0);
+                Real u01 = host_vel(ix, iy + 1, 0);
+                Real u11 = host_vel(ix + 1, iy + 1, 0);
+
+                Real v00 = host_vel(ix, iy, 1);
+                Real v10 = host_vel(ix + 1, iy, 1);
+                Real v01 = host_vel(ix, iy + 1, 1);
+                Real v11 = host_vel(ix + 1, iy + 1, 1);
+
+                Real u_interp = (1 - lx) * (1 - ly) * u00 + lx * (1 - ly) * u10 +
+                                (1 - lx) * ly * u01 + lx * ly * u11;
+                Real v_interp = (1 - lx) * (1 - ly) * v00 + lx * (1 - ly) * v10 +
+                                (1 - lx) * ly * v01 + lx * ly * v11;
+
+                return {u_interp, v_interp};
+            };
+
+            // 计算两个采样点的速度
+            auto [u1, v1] = interpolate_velocity(x1, y1);
+            auto [u2, v2] = interpolate_velocity(x2, y2);
+
+            // 计算切向速度
+            Real ut1 = u1 * tx + v1 * ty; // 点1的切向速度
+            Real ut2 = u2 * tx + v2 * ty; // 点2的切向速度
+
+            // 计算切向速度沿法向的梯度
+            Real dut_dn = (ut2 - ut1) / (d2 - d1) * delta0; // 格子单位
+
+            // 计算剪切应力
+            Real rho = p0 / cs2;              // 使用参考密度
+            Real tau_w = rho * mv_0 * dut_dn; // 切向剪切应力
+
+            // 计算局部摩擦系数
+            Real cf = tau_w / q_inf;
+
+            local_data.push_back(theta);
+            local_data.push_back(cf);
+        }
+    }
+
+    const int nprocs = ParallelDescriptor::NProcs();
+    const int iorank = ParallelDescriptor::IOProcessorNumber();
+    const int local_count = static_cast<int>(local_data.size());
+
+    std::vector<int> recv_counts(nprocs, 0);
+    ParallelDescriptor::Gather(&local_count, 1, recv_counts.data(), 1, iorank);
+
+    std::vector<int> displs(nprocs, 0);
+    int total = 0;
+    if (ParallelDescriptor::MyProc() == iorank) {
+        for (int r = 0; r < nprocs; ++r) {
+            displs[r] = total;
+            total += recv_counts[r];
+        }
+    }
+
+    std::vector<Real> gathered(total);
+    ParallelDescriptor::Gatherv(local_data.data(), local_count,
+                                gathered.data(), recv_counts, displs, iorank);
+
+    if (ParallelDescriptor::IOProcessor()) {
+        std::vector<std::array<Real, 2>> entries;
+        entries.reserve(total / 2);
+        for (int k = 0; k < total / 2; ++k) {
+            entries.push_back({gathered[2 * k], gathered[2 * k + 1]});
+        }
+
+        std::sort(entries.begin(), entries.end(),
+                  [](const auto& a, const auto& b) { return a[0] < b[0]; });
+
+        std::ofstream cf_file(filename, std::ios::trunc);
+        if (cf_file.is_open()) {
+            cf_file << "# theta(rad)\tCf\n";
+            for (const auto& e : entries) {
+                cf_file << e[0] << "\t" << e[1] << "\n";
+            }
+            cf_file.close();
+            amrex::Print() << "[Cf] Steady-state Cf written ("
                            << entries.size() << " points)" << std::endl;
         }
     }
@@ -452,7 +616,9 @@ void LagrangeParticleContainer::Interpolate_normal_offset_Rho(int lev,
 void LagrangeParticleContainer::IDF_ReadInterpResults(int lev,
                                                       std::vector<Real>& local_interp_ux,
                                                       std::vector<Real>& local_interp_uy,
-                                                      std::vector<Real>& local_interp_rho) {
+                                                      std::vector<Real>& local_interp_rho,
+                                                      std::vector<int>* local_interp_ids) {
+    using ParticleType = typename LagrangeParticleContainer::ParticleType;
     // 首先计算本进程粒子总数
     long total_n = 0;
     for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
@@ -462,6 +628,9 @@ void LagrangeParticleContainer::IDF_ReadInterpResults(int lev,
     local_interp_ux.resize(total_n);
     local_interp_uy.resize(total_n);
     local_interp_rho.resize(total_n);
+    if (local_interp_ids) {
+        local_interp_ids->resize(total_n);
+    }
     int local_idx = 0;
 
     for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
@@ -481,12 +650,25 @@ void LagrangeParticleContainer::IDF_ReadInterpResults(int lev,
         amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
                               attribs[PIdx::rho_interp].begin(), attribs[PIdx::rho_interp].begin() + n,
                               host_rho.begin());
+
+        // 如果需要粒子ID，同时拷贝AoS数据
+        amrex::Gpu::PinnedVector<ParticleType> host_particles;
+        if (local_interp_ids) {
+            auto& aos = pti.GetArrayOfStructs();
+            host_particles.resize(n);
+            amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                                  aos().begin(), aos().end(),
+                                  host_particles.begin());
+        }
         amrex::Gpu::streamSynchronize();
 
         for (long i = 0; i < n; ++i) {
             local_interp_ux[local_idx + i] = host_ufx[i];
             local_interp_uy[local_idx + i] = host_ufy[i];
             local_interp_rho[local_idx + i] = host_rho[i];
+            if (local_interp_ids) {
+                (*local_interp_ids)[local_idx + i] = host_particles[i].id();
+            }
         }
         local_idx += n;
     }
@@ -495,7 +677,7 @@ void LagrangeParticleContainer::IDF_ReadInterpResults(int lev,
 void LagrangeParticleContainer::IDF_WriteForceToParticles(int lev,
                                                           const std::vector<Real>& sol_x,
                                                           const std::vector<Real>& sol_y,
-                                                          const std::unordered_map<int, int>& pid_to_global_idx) {
+                                                          int idf_NL_global) {
     const Real ib_coeff = IB_weight * dx_min * dx_min;
     int NL = static_cast<int>(sol_x.size());
 
@@ -522,7 +704,8 @@ void LagrangeParticleContainer::IDF_WriteForceToParticles(int lev,
         auto fx_attr = attribs[PIdx::fx].data();
         auto fy_attr = attribs[PIdx::fy].data();
 
-        // 将粒子数据从 GPU 复制到 CPU 以获取 ID
+        // 方案 C: 使用粒子ID直接计算全局索引（无需映射表）
+        // 粒子ID从1开始，全局索引 = ID - 1
         using ParticleType = typename LagrangeParticleContainer::ParticleType;
         amrex::Gpu::PinnedVector<ParticleType> host_particles(n);
         amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
@@ -534,12 +717,12 @@ void LagrangeParticleContainer::IDF_WriteForceToParticles(int lev,
         amrex::Gpu::PinnedVector<int> h_global_indices(n);
         for (long i = 0; i < n; ++i) {
             int pid = host_particles[i].id();
-            auto it = pid_to_global_idx.find(pid);
-            if (it != pid_to_global_idx.end()) {
-                h_global_indices[i] = it->second;
+            int global_idx = pid - 1; // 方案 C: 直接计算
+            if (global_idx >= 0 && global_idx < idf_NL_global) {
+                h_global_indices[i] = global_idx;
             } else {
                 amrex::Print() << "[IDF][ERROR] particle ID " << pid
-                               << " not found in global mapping!" << std::endl;
+                               << " out of range [1, " << idf_NL_global << "]!" << std::endl;
                 h_global_indices[i] = 0;
             }
         }
