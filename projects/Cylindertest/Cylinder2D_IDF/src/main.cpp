@@ -71,6 +71,10 @@ int main(int argc, char* argv[]) {
             // 每100步评估收敛性
             bool steady = lid.EvaluateConvergence(max_ref_level, step);
 
+            if (step == 1000) {
+                lid.ComputeCf(max_ref_level, step);
+            }
+
             if (steady) {
                 lid.ComputeCp(max_ref_level, step);
                 lid.ComputeCf(max_ref_level, step);

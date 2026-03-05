@@ -1096,29 +1096,6 @@ void AmrCoreLBM::Stream(int lev, int n) {
     }
 }
 
-void AmrCoreLBM::ComputeCf(int lev, int step) {
-    // 计算宏观量
-    ComputeMacroLevel(lev);
-
-    // 创建临时速度场，增加 ghost 层深度到 6，解决速度插值超出范围的问题
-    amrex::MultiFab temp_velocity(velocity[lev].boxArray(), velocity[lev].DistributionMap(),
-                                  AMREX_SPACEDIM, 6); // 6层ghost
-    amrex::MultiFab::Copy(temp_velocity, velocity[lev], 0, 0, AMREX_SPACEDIM, 0);
-
-    // 填充临时速度场的 ghost 层
-    if (lev == 0) {
-        // 最粗层：只填充同等级边界和周期性边界
-        temp_velocity.FillBoundary(geom[lev].periodicity());
-    } else {
-        // 细化层：先从粗网格填充c-f边界，再填充同等级边界
-        FillMacroPatch(lev, 0.0, temp_velocity);             // 粗-细网格插值
-        temp_velocity.FillBoundary(geom[lev].periodicity()); // 同等级边界填充
-    }
-
-    // 计算局部摩擦系数
-    mypc->ComputeCf(lev, temp_velocity, "Cf_steady.dat");
-}
-
 void AmrCoreLBM::SwapLevel(int lev, int n) {
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
@@ -1250,6 +1227,29 @@ void AmrCoreLBM::ComputeCp(int lev, int step) {
     // 填充密度场的 ghost 区域，确保双线性插值时能访问边界外的正确数据
     rho_lev.FillBoundary(Geom(lev).periodicity());
     mypc->ComputeCp(lev, rho_lev, "Cp_steady.dat");
+}
+
+void AmrCoreLBM::ComputeCf(int lev, int step) {
+    // 计算宏观量
+    ComputeMacroLevel(lev);
+
+    // 创建临时速度场，增加 ghost 层深度到 6，解决速度插值超出范围的问题
+    amrex::MultiFab temp_velocity(velocity[lev].boxArray(), velocity[lev].DistributionMap(),
+                                  AMREX_SPACEDIM, 6); // 6层ghost
+    amrex::MultiFab::Copy(temp_velocity, velocity[lev], 0, 0, AMREX_SPACEDIM, 0);
+
+    // 填充临时速度场的 ghost 层
+    if (lev == 0) {
+        // 最粗层：只填充同等级边界和周期性边界
+        temp_velocity.FillBoundary(geom[lev].periodicity());
+    } else {
+        // 细化层：先从粗网格填充c-f边界，再填充同等级边界
+        FillMacroPatch(lev, 0.0, temp_velocity);             // 粗-细网格插值
+        temp_velocity.FillBoundary(geom[lev].periodicity()); // 同等级边界填充
+    }
+
+    // 计算局部摩擦系数
+    mypc->ComputeCf(lev, temp_velocity, "Cf_steady.dat");
 }
 
 // 构建活跃欧拉点集合：遍历所有拉格朗日点，将其 5x5 邻域内落在几何域（非ghost、非越界）的欧拉网格点加入集合（去重）
