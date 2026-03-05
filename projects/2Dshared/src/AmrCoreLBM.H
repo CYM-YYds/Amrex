@@ -10,7 +10,7 @@
 #include <AMReX_AmrParticles.H>
 #include <AMReX_Particles.H>
 
-#include <limits> // 可移除（未直接用到）
+//#include <limits> // 可移除（未直接用到）
 #include <memory>
 #include <string>
 
@@ -84,6 +84,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void PrintParticleParm();
     void RedistributeParticle();
     void ComputeCp(int lev, int step);
+    void ComputeCf(int lev, int step);
     bool EvaluateConvergence(int lev, int step);
 
     //********************************************************************//

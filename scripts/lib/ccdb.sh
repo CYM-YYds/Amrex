@@ -305,13 +305,50 @@ EOS
 		chmod +x "${WRAPDIR}/git"
 
 		"${make_cmd[@]}" || make_status=$?
-		if [[ ! -s .cc_commands.jsonl && ! -s .cxx_commands.jsonl ]]; then
+		if [[ ! -s .cc_commands.jsonl && ! -s .cxx_commands.jsonl && ! -s .nvcc_commands.jsonl ]]; then
 			if [[ -n "$PREV_CCDB" && "${CCDB_REQUIRE_FULL}" != "1" ]]; then
-				mv -f "$PREV_CCDB" "$CCDB_FILE"
-				rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
-				rm -rf "${WRAPDIR}"
-				info "未捕获到编译步骤，复用已有 compile_commands.json（跳过 -B 全量重建）。"
-				return "${make_status}"
+				local PREV_IS_LOCAL=0
+				if python3 - "$PREV_CCDB" "$(pwd -P)" <<'PY' >/dev/null 2>&1; then
+import json, os, sys
+ccdb_path = sys.argv[1]
+project_root = os.path.realpath(sys.argv[2])
+try:
+    db = json.load(open(ccdb_path, 'r', encoding='utf-8'))
+except Exception:
+    raise SystemExit(1)
+
+def in_project(path):
+    try:
+        rp = os.path.realpath(path)
+    except Exception:
+        return False
+    return rp == project_root or rp.startswith(project_root + os.sep)
+
+for e in db:
+    d = str(e.get('directory', ''))
+    f = str(e.get('file', ''))
+    if d and in_project(d):
+        raise SystemExit(0)
+    if f:
+        if os.path.isabs(f):
+            if in_project(f):
+                raise SystemExit(0)
+        elif d and in_project(os.path.join(d, f)):
+            raise SystemExit(0)
+
+raise SystemExit(1)
+PY
+					PREV_IS_LOCAL=1
+				fi
+
+				if [[ "$PREV_IS_LOCAL" = "1" ]]; then
+					mv -f "$PREV_CCDB" "$CCDB_FILE"
+					rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
+					rm -rf "${WRAPDIR}"
+					info "未捕获到编译步骤，复用已有 compile_commands.json（跳过 -B 全量重建）。"
+					return "${make_status}"
+				fi
+				info "检测到旧 compile_commands.json 不属于当前项目目录，忽略复用并触发全量重建。"
 			fi
 			info "未捕获到编译步骤，强制重建以生成编译数据库..."
 			if [[ -n "$amrex_git_version" ]]; then
