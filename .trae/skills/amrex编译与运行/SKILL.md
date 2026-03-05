@@ -1,6 +1,6 @@
 ---
 name: Amrex编译与运行
-description: 当用户需要编译或运行Amrex项目算例时触发，提供正确的编译和运行步骤。
+description: 当用户需要编译或运行Amrex项目算例时触发，提供正确的编译和运行(任务提交)步骤。
 ---
 
 # Amrex编译与运行
