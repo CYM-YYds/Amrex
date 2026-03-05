@@ -26,6 +26,7 @@ Backtrace.*
 **/chk*/
 **/amrex-23.09/
 **/amrex-26.01/
+**/.trae/
 # IDE/editor
 
 
