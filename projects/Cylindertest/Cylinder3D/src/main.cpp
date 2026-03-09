@@ -35,7 +35,8 @@ int main(int argc, char* argv[]) {
         // no direct amr/checkpoint ParmParse here; will use AmrCoreLBM::params()
 
         // 打印本次运行的关键配置（只在 I/O 进程打印）
-        amrex::Print() << "\n[RunConfig]\n"
+        amrex::Print() << "What the fuck is this? This is a LBM code with IBM implemented by Caiyimin, based on Amrex framework.\n"
+                       << "\n[RunConfig]\n"
                        << "  max_step      = " << max_step << "\n"
                        << "  stop_time     = " << stop_time << "\n"
                        << "  mv_0          = " << static_cast<amrex::Real>(mv_0) << "\n"

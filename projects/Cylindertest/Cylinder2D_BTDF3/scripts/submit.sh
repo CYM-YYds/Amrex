@@ -1,7 +1,7 @@
 #!/bin/bash
 # DSUB headers must be in the script passed to dsub; keep them here
 #DSUB --job_type cosched
-#DSUB -n case_channelflow
+#DSUB -n case_Cylinder2D
 #DSUB -A root.huazkjdxmrsgjzdsyshi
 #DSUB -q root.default
 #DSUB -R cpu=32;mem=49152;gpu=4

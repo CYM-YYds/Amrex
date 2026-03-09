@@ -12,7 +12,7 @@ using namespace amrex;
 #define Q 27
 
 // MDF 迭代次数：NF=1 时使用单次迭代（类似直接力法）；NF>1 时使用多次迭代收敛
-#define NF 3
+#define NF 1
 
 // MDF 两阶段实现开关：仅在 NF > 1 时启用（节省内存）
 #if (NF > 1)
@@ -22,7 +22,7 @@ using namespace amrex;
 #endif
 
 const int coarsest_level = 0;
-const int max_ref_level = 0;
+const int max_ref_level = 3;
 const int rate = (1 << max_ref_level);
 
 /*-----------------复杂结构体------------------------*/
@@ -72,7 +72,7 @@ const Real nz = NZ;
 // #define U0 (Uc)
 #define FT (38 * NH / Ma)
 /*---------圆球绕流--------------------------*/
-#define Re (40)
+#define Re (100)
 #define U0 (0.01)
 #define mv_0 (U0 * D * dx_0 / Re)
 #define tau_0 (mv_0 / (cs2 * dt_0) + 0.5)
