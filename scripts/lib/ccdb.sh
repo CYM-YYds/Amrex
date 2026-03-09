@@ -96,7 +96,7 @@ if (( has_nvcc==0 && has_c==1 )); then
     for a in "${filtered[@]}"; do args_json+=",\"$(json_escape "$a")\""; done
     printf '{"directory":"%s","arguments":[%s],"file":"%s"}\n' "$(pwd)" "$args_json" "$src" >> "$out"
 fi
-exec "$REAL_GCC" "${filtered[@]}"
+exec "$REAL_GCC" "${args[@]}"
 EOS
 
 		cat >"${WRAPDIR}/g++" <<'EOS'
@@ -139,7 +139,7 @@ if (( has_nvcc==0 && has_c==1 )); then
     for a in "${filtered[@]}"; do args_json+=",\"$(json_escape "$a")\""; done
     printf '{"directory":"%s","arguments":[%s],"file":"%s"}\n' "$(pwd)" "$args_json" "$src" >> "$out"
 fi
-exec "$REAL_GXX" "${filtered[@]}"
+exec "$REAL_GXX" "${args[@]}"
 EOS
 
 		cat >"${WRAPDIR}/nvcc" <<'EOS'
@@ -205,7 +205,7 @@ if (( has_c==1 )) && [[ -n "$src" ]]; then
     args_json+=",\"$(json_escape "$src")\""
     printf '{"directory":"%s","arguments":[%s],"file":"%s"}\n' "$(pwd)" "$args_json" "$src" >> "$out"
 fi
-exec "$REAL_NVCC" "${filtered[@]}"
+exec "$REAL_NVCC" "${args[@]}"
 EOS
 
 		chmod +x "${WRAPDIR}/gcc" "${WRAPDIR}/g++" "${WRAPDIR}/nvcc"
@@ -274,7 +274,7 @@ if (( has_c==1 )) && [[ -n "$src" ]]; then
     args_json+=",\"$(json_escape "$src")\""
     printf '{"directory":"%s","arguments":[%s],"file":"%s"}\n' "$(pwd)" "$args_json" "$src" >> "$out"
 fi
-exec "$REAL_MPICXX" "${filtered[@]}"
+exec "$REAL_MPICXX" "${args[@]}"
 EOS
 
 		cat >"${WRAPDIR}/mpicc" <<'EOS'
@@ -306,6 +306,10 @@ EOS
 
 		"${make_cmd[@]}" || make_status=$?
 		if [[ ! -s .cc_commands.jsonl && ! -s .cxx_commands.jsonl && ! -s .nvcc_commands.jsonl ]]; then
+            local HAS_DEP_FILES=0
+            if find tmp_build_dir/d -type f -name '*.d' -print -quit 2>/dev/null | grep -q .; then
+                HAS_DEP_FILES=1
+            fi
 			if [[ -n "$PREV_CCDB" && "${CCDB_REQUIRE_FULL}" != "1" ]]; then
 				local PREV_IS_LOCAL=0
 				if python3 - "$PREV_CCDB" "$(pwd -P)" <<'PY' >/dev/null 2>&1; then
@@ -341,14 +345,18 @@ PY
 					PREV_IS_LOCAL=1
 				fi
 
-				if [[ "$PREV_IS_LOCAL" = "1" ]]; then
+                if [[ "$PREV_IS_LOCAL" = "1" && "$HAS_DEP_FILES" = "1" ]]; then
 					mv -f "$PREV_CCDB" "$CCDB_FILE"
 					rm -f .cc_commands.jsonl .cxx_commands.jsonl .nvcc_commands.jsonl
 					rm -rf "${WRAPDIR}"
 					info "未捕获到编译步骤，复用已有 compile_commands.json（跳过 -B 全量重建）。"
 					return "${make_status}"
 				fi
-				info "检测到旧 compile_commands.json 不属于当前项目目录，忽略复用并触发全量重建。"
+                if [[ "$PREV_IS_LOCAL" = "1" && "$HAS_DEP_FILES" != "1" ]]; then
+                    info "检测到依赖文件缺失（tmp_build_dir/d 下无 .d），执行一次 -B 全量重建以恢复头文件依赖跟踪。"
+                else
+                    info "检测到旧 compile_commands.json 不属于当前项目目录，忽略复用并触发全量重建。"
+                fi
 			fi
 			info "未捕获到编译步骤，强制重建以生成编译数据库..."
 			if [[ -n "$amrex_git_version" ]]; then

@@ -10,7 +10,6 @@
 #include <AMReX_AmrParticles.H>
 #include <AMReX_Particles.H>
 
-#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
