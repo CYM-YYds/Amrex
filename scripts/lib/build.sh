@@ -75,8 +75,6 @@ run_build_entry() {
 		ssh_gen_ccdb=$(printf '%q' "$GEN_CCDB")
 		ssh_ccdb_method=$(printf '%q' "$CCDB_METHOD")
 		ssh_make_keep=$(printf '%q' "$MAKE_KEEP_GOING")
-		ssh_amrex_version_mode=$(printf '%q' "$AMREX_VERSION_MODE")
-		ssh_amrex_git_version_override=$(printf '%q' "$AMREX_GIT_VERSION_OVERRIDE")
 		ssh_submit_after=$(printf '%q' "0")
 		ssh_submit_cmd=$(printf '%q' "$SUBMIT_CMD")
 		ssh_submit_host=$(printf '%q' "$SUBMIT_HOST")
@@ -89,8 +87,7 @@ run_build_entry() {
             GEN_CCDB=${ssh_gen_ccdb} \
             CCDB_METHOD=${ssh_ccdb_method} \
             MAKE_KEEP_GOING=${ssh_make_keep} \
-            AMREX_VERSION_MODE=${ssh_amrex_version_mode} \
-            AMREX_GIT_VERSION_OVERRIDE=${ssh_amrex_git_version_override} \
+            LOG_TO_FILE=0 \
             SUBMIT_AFTER=${ssh_submit_after} \
             SUBMIT_CMD=${ssh_submit_cmd} \
             SUBMIT_HOST=${ssh_submit_host} \

@@ -42,8 +42,6 @@ set -euo pipefail
 # 可配置项（通过环境变量覆盖）
 MAKE_J="${MAKE_J:-16}"
 CUDA_ARCH="${CUDA_ARCH:-80}"
-AMREX_VERSION_MODE="${AMREX_VERSION_MODE:-release}"
-AMREX_GIT_VERSION_OVERRIDE="${AMREX_GIT_VERSION_OVERRIDE:-}"
 #   - GEN_CCDB : 是否生成编译数据库 compile_commands.json（0 不生成；1 生成；默认 1）
 GEN_CCDB="${GEN_CCDB:-1}"
 # 生成编译数据库的方法控制（已固定为 wrapper，保留变量仅兼容）
