@@ -2,10 +2,10 @@
 # Run until nsteps == max_step or time == stop_time,
 #     whichever comes first
 # *****************************************************************
-max_step  = 100000
+max_step  = 1001
 stop_time = 10000000
 
-amr.regrid_int  = 10
+amr.regrid_int  = -1
 
 amr.grid_eff          = 0.7
 amr.n_error_buf       = 2 2 2 2 2 
@@ -17,7 +17,7 @@ amr.blocking_factor_y = 2 2 2 2
 amr.blocking_factor_z = 2 2 2 2
 
 amr.plot_file  = data/case_CylinderFlow_Re100
-amr.plot_int   = 5000
+amr.plot_int   = 1000
 amr.begin_plot = 0
 checkpoint.begin_step = 0
 checkpoint.chk_int = 10000
