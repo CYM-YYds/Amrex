@@ -1,0 +1,60 @@
+# *****************************************************************
+# Run until nsteps == max_step or time == stop_time,
+#     whichever comes first
+# *****************************************************************
+max_step  = 500000
+#max_step  = 5000
+stop_time = 1000000.0
+
+amr.regrid_int  = 10
+
+amr.grid_eff          = 0.7 
+amr.n_error_buf       = 0 0 0 0
+lbm.err = 0.6 0.8 1.0 1.2
+amr.max_grid_size     = 128 64 32 32
+amr.blocking_factor_x = 32
+amr.blocking_factor_y = 32
+amr.blocking_factor_z = 32
+
+amr.plot_file  = data/cyl_lev3_Re40_
+amr.begin_int  = 20000
+amr.plot_int   = 10000
+checkpoint.begin_step = 0
+checkpoint.chk_int = 20000
+checkpoint.chk_prefix = chk
+checkpoint.keep_latest_only = true
+checkpoint.write_particles = true
+
+
+
+# *****************************************************************
+# mesh setting
+#
+# *****************************************************************
+# geometry.prob_lo     =  0.0  0.0  0.0
+# geometry.prob_hi     =  2.0  1.0  1.0
+# geometry.is_periodic =  0    0    0
+
+# amr.n_cell           =  64 32 32
+# amr.max_level        =  0
+
+# amr.v                =  1     
+# amr.ref_ratio        =  2 2 2 2 
+
+# amr.blocking_factor_x = 8
+# amr.blocking_factor_y = 8
+# amr.blocking_factor_z = 8
+# *****************************************************************
+# Particles
+# *****************************************************************
+lbm.convergence_min_step = 30000
+lbm.convergence_check_interval = 100
+lbm.convergence_window_size = 40
+lbm.convergence_required_windows = 5
+lbm.convergence_post_hold_steps = 5000
+lbm.cd_rel_span_tol = 5e-4
+lbm.cd_slope_tol = 1e-6
+lbm.cl_abs_mean_tol = 1e-5
+lbm.cl_rms_tol = 5e-5
+lbm.u_residual_tol = 1e-7
+lbm.rho_residual_tol = 1e-7

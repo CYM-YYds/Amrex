@@ -134,6 +134,8 @@ setup_logging() {
 		fi
 		info "日志输出已重定向到: $LOGFILE"
 	else
-		info "LOG_TO_FILE=0: 未启用日志文件写入，输出仍在终端显示。"
+		if [[ "${SUPPRESS_LOG_TO_FILE_MESSAGE:-0}" != "1" ]]; then
+			info "LOG_TO_FILE=0: 未启用日志文件写入，输出仍在终端显示。"
+		fi
 	fi
 }

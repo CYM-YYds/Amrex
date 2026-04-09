@@ -393,12 +393,12 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
             // 计算壁面法向和切向单位向量
             const Real nx = std::cos(theta);
             const Real ny = std::sin(theta);
-            const Real tx = -ny; // 切向向量（逆时针90度）
-            const Real ty = nx;
+            const Real tx = ny; // 切向向量（顺时针90度）
+            const Real ty = -nx;
 
             // 在离壁面不同距离处采样速度
-            const Real d1 = 1.5 * delta; // 近壁面采样点
-            const Real d2 = 2.5 * delta; // 远壁面采样点
+            const Real d1 = 2 * delta; // 近壁面采样点
+            const Real d2 = 3 * delta; // 远壁面采样点
 
             // 计算采样点坐标
             const Real x1 = px + d1 * nx; // 物理坐标
@@ -408,8 +408,13 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
 
             // 双线性插值计算速度
             auto interpolate_velocity = [&](Real x, Real y) -> std::pair<Real, Real> {
-                Real xt = x / delta;
-                Real yt = y / delta;
+                // u 存在 cell center，坐标需减去 0.5 才与(i,j)中心一致
+                Real xt = x / delta - 0.5;
+                Real yt = y / delta - 0.5;
+
+                // 需要访问(ix,iy)与(ix+1,iy+1)，因此将连续坐标限制在可插值范围内
+                xt = std::max(static_cast<Real>(ilo), std::min(xt, static_cast<Real>(ihi) - 1.0e-12));
+                yt = std::max(static_cast<Real>(jlo), std::min(yt, static_cast<Real>(jhi) - 1.0e-12));
 
                 int ix = static_cast<int>(std::floor(xt));
                 int iy = static_cast<int>(std::floor(yt));
@@ -443,8 +448,8 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
             Real ut1 = u1 * tx + v1 * ty; // 点1的切向速度
             Real ut2 = u2 * tx + v2 * ty; // 点2的切向速度
 
-            // 计算切向速度沿法向的梯度
-            Real dut_dn = (ut2 - ut1) / (d2 - d1) * delta0; // 格子单位
+            // 计算切向速度沿法向的梯度（物理长度导数）
+            Real dut_dn = (ut2 - ut1) / (d2 - d1);
 
             // 计算剪切应力
             Real rho = p0 / cs2;              // 使用参考密度
@@ -495,8 +500,212 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
                 cf_file << e[0] << "\t" << e[1] << "\n";
             }
             cf_file.close();
+
+            // 粘性阻力系数：Cd_v = 0.5 * ∮ Cf(θ) sin(θ) dθ
+            // 这里采用按 theta 排序后的梯形积分，并补上周期闭合段
+            Real cdv = 0.0;
+            const int ntheta = static_cast<int>(entries.size());
+            if (ntheta >= 2) {
+                for (int t = 0; t < ntheta - 1; ++t) {
+                    const Real th0 = entries[t][0];
+                    const Real th1 = entries[t + 1][0];
+                    const Real f0 = entries[t][1] * std::sin(th0);
+                    const Real f1 = entries[t + 1][1] * std::sin(th1);
+                    cdv += 0.5 * (f0 + f1) * (th1 - th0);
+                }
+
+                const Real th_last = entries[ntheta - 1][0];
+                const Real th_first = entries[0][0] + 2.0 * PI;
+                const Real f_last = entries[ntheta - 1][1] * std::sin(th_last);
+                const Real f_first = entries[0][1] * std::sin(entries[0][0]);
+                cdv += 0.5 * (f_last + f_first) * (th_first - th_last);
+                cdv *= 0.5;
+            }
+
             amrex::Print() << "[Cf] Steady-state Cf written ("
-                           << entries.size() << " points)" << std::endl;
+                           << entries.size() << " points), integrated Cd_v = " << cdv << std::endl;
+        }
+    }
+}
+
+// 通过力与压力分解来计算本地摩擦系数
+// 物理理论：总力 = 压力力（法向）+ 粘性力（切向）
+// 对于圆形IBM，局部法向/切向基底会随 theta 变化。
+// 本函数将切向正方向定义为“与 +x 轴夹角不大于 90 度”（t_x >= 0），
+// 即在每个 theta 处在两种切向方向中自动选取 x 分量非负的那一个。
+// 因此，投影得到的 Cf / Cp 符号取决于局部坐标系的方向约定：
+// 同一物理力在不同角度投影到局部基底后，可能与全局 x/y 分量呈现相反符号。
+// 这不是数值错误，而是局部极坐标分解的结果。
+// 对于圆形IBM，压力力 ~ -Cp * q_inf * normal
+// 粘性力 ~ -Cf * q_inf * tangent
+// 因此可以反演求 Cf
+void LagrangeParticleContainer::ComputeCf_from_force_pressure(int lev, const std::string& filename) {
+    const Real delta0 = Geom(0).CellSize()[0];
+    const Real center_x = X * delta0;
+    const Real center_y = Y * delta0;
+    const Real q_inf = 0.5 * (p0 / cs2) * U0 * U0;
+
+    // 每个点存储 [theta, Cd_local, Cf, Cp]
+    std::vector<Real> local_data;
+
+    for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
+        const long n = pti.numParticles();
+        if (n == 0)
+            continue;
+
+        auto& aos = pti.GetArrayOfStructs();
+        amrex::Gpu::PinnedVector<ParticleType> host_particles(n);
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              aos().begin(), aos().end(),
+                              host_particles.begin());
+
+        auto& attribs = pti.GetAttribs();
+
+        // 获取粒子力
+        amrex::Gpu::PinnedVector<Real> host_fx(n);
+        amrex::Gpu::PinnedVector<Real> host_fy(n);
+
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              attribs[PIdx::fx].begin(),
+                              attribs[PIdx::fx].begin() + n,
+                              host_fx.begin());
+        amrex::Gpu::copyAsync(amrex::Gpu::deviceToHost,
+                              attribs[PIdx::fy].begin(),
+                              attribs[PIdx::fy].begin() + n,
+                              host_fy.begin());
+        amrex::Gpu::streamSynchronize();
+
+        for (long i = 0; i < n; ++i) {
+            const Real px = host_particles[i].pos(0);
+            const Real py = host_particles[i].pos(1);
+
+            // 计算角度
+            const Real theta = std::atan2(py - center_y, px - center_x);
+
+            // 法向单位向量（指向内侧）
+            const Real nx = -std::cos(theta);
+            const Real ny = -std::sin(theta);
+
+            // 切向单位向量：按“与 +x 轴成锐角/直角”约定自动翻转，使 tx >= 0
+            Real tx = std::sin(theta);
+            Real ty = -std::cos(theta);
+            if (tx < 0.0) {
+                tx = -tx;
+                ty = -ty;
+            }
+
+            // 获取粒子的力（IBM核加权后的离散力）
+            const Real fx = host_fx[i];
+            const Real fy = host_fy[i];
+
+            // 计算力在法向和切向上的分量
+            const Real f_normal = fx * nx + fy * ny;
+            const Real f_tangent = fx * tx + fy * ty;
+
+            // 由法向力定义压力系数；由切向力定义摩擦系数
+            // f_n = Cp * q_inf * ds, f_t = Cf * q_inf * ds
+            const Real cp = f_normal / (q_inf * ds0);
+            const Real cf = f_tangent / (q_inf * ds0);
+
+            // 该离散点对总阻力系数的贡献（所有点求和应接近总 Cd）
+            const Real cd_local = fx / (q_inf * ds0);
+
+            local_data.push_back(theta);
+            local_data.push_back(cd_local);
+            local_data.push_back(cf);
+            local_data.push_back(cp);
+        }
+    }
+
+    // 全局通信：收集所有MPI进程的数据
+    const int nprocs = ParallelDescriptor::NProcs();
+    const int iorank = ParallelDescriptor::IOProcessorNumber();
+    const int local_count = static_cast<int>(local_data.size());
+
+    std::vector<int> recv_counts(nprocs, 0);
+    ParallelDescriptor::Gather(&local_count, 1, recv_counts.data(), 1, iorank);
+
+    std::vector<int> displs(nprocs, 0);
+    int total = 0;
+    if (ParallelDescriptor::MyProc() == iorank) {
+        for (int r = 0; r < nprocs; ++r) {
+            displs[r] = total;
+            total += recv_counts[r];
+        }
+    }
+
+    std::vector<Real> gathered(total);
+    ParallelDescriptor::Gatherv(local_data.data(), local_count,
+                                gathered.data(), recv_counts, displs, iorank);
+
+    // IO处理：排序、积分、输出
+    if (ParallelDescriptor::IOProcessor()) {
+        std::vector<std::array<Real, 4>> entries; // [theta, Cd_local, Cf, Cp]
+        entries.reserve(total / 4);
+        for (int k = 0; k < total / 4; ++k) {
+            entries.push_back({gathered[4 * k], gathered[4 * k + 1], gathered[4 * k + 2], gathered[4 * k + 3]});
+        }
+
+        // 按theta排序
+        std::sort(entries.begin(), entries.end(),
+                  [](const auto& a, const auto& b) { return a[0] < b[0]; });
+
+        // 汇总总 Cd（按离散点贡献求和）
+        Real cd_total = 0.0;
+        for (const auto& e : entries) {
+            cd_total += e[1];
+        }
+
+        // 计算积分：
+        // Cd_v 使用当前切向定义对应的 t_x = |sin(theta)|，即 0.5 * ∮ Cf(θ) * t_x(θ) dθ
+        // Cd_p 保持 -0.5 * ∮ Cp(θ) cos(θ) dθ
+        Real cdv = 0.0;
+        Real cdp = 0.0;
+        const int ntheta = static_cast<int>(entries.size());
+        if (ntheta >= 2) {
+            for (int t = 0; t < ntheta - 1; ++t) {
+                const Real th0 = entries[t][0];
+                const Real th1 = entries[t + 1][0];
+            const Real fv0 = entries[t][2] * std::abs(std::sin(th0));
+            const Real fv1 = entries[t + 1][2] * std::abs(std::sin(th1));
+                const Real fp0 = entries[t][3] * std::cos(th0);
+                const Real fp1 = entries[t + 1][3] * std::cos(th1);
+
+                cdv += 0.5 * (fv0 + fv1) * (th1 - th0);
+                cdp -= 0.5 * (fp0 + fp1) * (th1 - th0);
+            }
+
+            // 周期闭合
+            const Real th_last = entries[ntheta - 1][0];
+            const Real th_first = entries[0][0] + 2.0 * PI;
+            const Real fv_last = entries[ntheta - 1][2] * std::abs(std::sin(th_last));
+            const Real fv_first = entries[0][2] * std::abs(std::sin(entries[0][0]));
+            const Real fp_last = entries[ntheta - 1][3] * std::cos(th_last);
+            const Real fp_first = entries[0][3] * std::cos(entries[0][0]);
+
+            cdv += 0.5 * (fv_last + fv_first) * (th_first - th_last);
+            cdp -= 0.5 * (fp_last + fp_first) * (th_first - th_last);
+            cdv *= 0.5;
+            cdp *= 0.5;
+        }
+
+        // 输出到文件
+        std::ofstream cf_file(filename, std::ios::trunc);
+        if (cf_file.is_open()) {
+            cf_file << "# Cd_total(sum local) = " << cd_total << "\n";
+            cf_file << "# Cd_p(integral Cp)   = " << cdp << "\n";
+            cf_file << "# Cd_v(integral Cf)   = " << cdv << "\n";
+            cf_file << "# Cd_p + Cd_v         = " << (cdp + cdv) << "\n";
+            cf_file << "# theta(rad)\tCd_local\tCf(from_tangent_force)\tCp(from_normal_force)\n";
+            for (const auto& e : entries) {
+                cf_file << e[0] << "\t" << e[1] << "\t" << e[2] << "\t" << e[3] << "\n";
+            }
+            cf_file.close();
+
+            amrex::Print() << "[Cf_force_pressure] Steady-state Cf written to " << filename
+                           << " (" << entries.size() << " points, Cd_total=" << cd_total
+                           << ", Cd_p=" << cdp << ", Cd_v=" << cdv << ")"
+                           << std::endl;
         }
     }
 }

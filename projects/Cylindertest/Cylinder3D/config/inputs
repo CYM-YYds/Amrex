@@ -16,7 +16,7 @@ amr.blocking_factor_x = 2 2 2 2
 amr.blocking_factor_y = 2 2 2 2
 amr.blocking_factor_z = 2 2 2 2
 
-amr.plot_file  = data/case_CylinderFlow_Re100
+amr.plot_file  = data/CylinderFlow_Re100_
 amr.plot_int   = 1000
 amr.begin_plot = 0
 checkpoint.begin_step = 0

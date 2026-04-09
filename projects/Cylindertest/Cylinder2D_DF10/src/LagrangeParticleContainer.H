@@ -9,7 +9,6 @@
 #include <AMReX_GpuContainers.H>
 
 #include <vector>
-#include <unordered_map>
 
 #include "D2Q9.H"
 
@@ -131,8 +130,15 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
                                    amrex::MultiFab& u_lev,
                                    amrex::MultiFab& rho_lev);
 
-    // 计算圆柱表面压力系数分布（在距离壁面1Δx处采样）
+    // 计算圆柱表面压力系数分布（在距离壁面1.5Δx处采样）
     void ComputeCp(int lev, amrex::MultiFab& rho_lev, const std::string& filename);
+    
+    // 计算圆柱表面局部摩擦系数分布
+    void ComputeCf(int lev, amrex::MultiFab& u_lev, const std::string& filename);
+
+    // 通过力与压力分解来计算本地摩擦系数
+    // 输出结果到文件，每行：theta, Cf(from_force), Cp
+    void ComputeCf_from_force_pressure(int lev, const std::string& filename);
 
     void WriteParticle(int step);
 
@@ -152,16 +158,19 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
                          amrex::MultiFab& rho_lev);
 
     // 从粒子属性中读取插值结果到 CPU vector
+    // 可选参数 local_interp_ids: 若非空，同时返回粒子ID
     void IDF_ReadInterpResults(int lev,
                                std::vector<amrex::Real>& local_interp_ux,
                                std::vector<amrex::Real>& local_interp_uy,
-                               std::vector<amrex::Real>& local_interp_rho);
+                               std::vector<amrex::Real>& local_interp_rho,
+                               std::vector<int>* local_interp_ids = nullptr);
 
     // 将求解得到的力写回粒子属性
+    // 方案 C: 使用粒子ID直接计算全局索引（global_idx = pid - 1）
     void IDF_WriteForceToParticles(int lev,
                                    const std::vector<amrex::Real>& sol_x,
                                    const std::vector<amrex::Real>& sol_y,
-                                   const std::unordered_map<int, int>& pid_to_global_idx);
+                                   int idf_NL_global);
 
     // 将拉格朗日力传播到欧拉网格
     void IDF_SpreadForce(int lev, amrex::MultiFab& force_lev);

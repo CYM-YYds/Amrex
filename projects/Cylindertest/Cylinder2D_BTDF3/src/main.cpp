@@ -73,6 +73,7 @@ int main(int argc, char* argv[]) {
             if (steady) {
                 lid.ComputeCp(max_ref_level, step);
                 lid.ComputeCf(max_ref_level, step);
+                lid.ComputeCf_from_force_pressure(max_ref_level);
                 lid.PrintMeshInfo();
                 lid.ComputeMacro();
                 lid.WriteVelocityFile(step, cur_time);

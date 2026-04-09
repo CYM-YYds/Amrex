@@ -455,9 +455,9 @@ if changed:
 PY
 
 		if [[ -n "$PREV_CCDB" && "${CCDB_MERGE_OLD}" = "1" && -s "$PREV_CCDB" ]]; then
-			python3 - "$PREV_CCDB" "$NEW_CCDB" "$CCDB_FILE" <<'PY' 2>/dev/null || true
-import json, sys
-oldf, newf, outf = sys.argv[1], sys.argv[2], sys.argv[3]
+			python3 - "$PREV_CCDB" "$NEW_CCDB" "$CCDB_FILE" "$(pwd -P)" <<'PY' 2>/dev/null || true
+import json, os, sys
+oldf, newf, outf, project_root = sys.argv[1], sys.argv[2], sys.argv[3], os.path.realpath(sys.argv[4])
 try:
     old = json.load(open(oldf, 'r', encoding='utf-8'))
 except Exception:
@@ -467,17 +467,32 @@ try:
 except Exception:
     new = []
 
+def in_project(entry):
+    directory = os.path.realpath(str(entry.get('directory', '') or '.'))
+    file_path = str(entry.get('file', ''))
+    if file_path:
+        if os.path.isabs(file_path):
+            resolved_file = os.path.realpath(file_path)
+        else:
+            resolved_file = os.path.realpath(os.path.join(directory, file_path))
+    else:
+        resolved_file = directory
+    return (
+        directory == project_root or directory.startswith(project_root + os.sep) or
+        resolved_file == project_root or resolved_file.startswith(project_root + os.sep)
+    )
+
 def key(e):
     return (e.get('file'), e.get('directory'))
 
 merged = {}
 for e in old:
     k = key(e)
-    if k[0]:
+    if k[0] and in_project(e):
         merged[k] = e
 for e in new:
     k = key(e)
-    if k[0]:
+    if k[0] and in_project(e):
         merged[k] = e
 
 db = list(merged.values())

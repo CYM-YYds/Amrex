@@ -4,7 +4,7 @@
 #DSUB -n case_Cylinderflow
 #DSUB -A root.huazkjdxmrsgjzdsyshi
 #DSUB -q root.default
-#DSUB -R cpu=32;mem=49152;gpu=1
+#DSUB -R cpu=32;mem=49152;gpu=4
 #DSUB -N 1
 #DSUB -o %J-out.log
 #DSUB -e %J-out.log

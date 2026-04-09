@@ -40,10 +40,10 @@ const int rate = (1 << max_ref_level);
 // const Real obj_dim_z = (obj_hi_z  - obj_lo_z);
 /*---------------------------------------------------*/
 
-const Real D = 8.0; // obj_dim_z;
+const Real D = 16.0; // obj_dim_z;
 const Real R = D / 2.0;
 
-const int NX = 16 * D;
+const int NX = 32 * D;
 const int NY = 8 * D;
 const int NZ = 8 * D;
 

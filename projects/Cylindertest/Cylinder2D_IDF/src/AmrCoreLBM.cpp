@@ -1252,6 +1252,10 @@ void AmrCoreLBM::ComputeCf(int lev, int step) {
     mypc->ComputeCf(lev, temp_velocity, "Cf_steady.dat");
 }
 
+void AmrCoreLBM::ComputeCf_from_force_pressure(int lev) {
+    mypc->ComputeCf_from_force_pressure(lev, "Cf_steady2.dat");
+}
+
 // 构建活跃欧拉点集合：遍历所有拉格朗日点，将其 5x5 邻域内落在几何域（非ghost、非越界）的欧拉网格点加入集合（去重）
 // 同时收集全局拉格朗日点位置用于后续矩阵组装
 void AmrCoreLBM::BuildActiveEulerSet(int lev) {
