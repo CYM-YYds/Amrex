@@ -136,6 +136,10 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
     // 计算圆柱表面局部摩擦系数分布
     void ComputeCf(int lev, amrex::MultiFab& u_lev, const std::string& filename);
 
+    // 通过力与压力分解来计算本地摩擦系数
+    // 输出结果到文件，每行：theta, Cf(from_force), Cp
+    void ComputeCf_from_force_pressure(int lev, const std::string& filename);
+
     void WriteParticle(int step);
 
     //********************************************************************//

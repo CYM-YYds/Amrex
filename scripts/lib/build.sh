@@ -74,6 +74,11 @@ run_build_entry() {
 		ssh_cuda_arch=$(printf '%q' "$CUDA_ARCH")
 		ssh_gen_ccdb=$(printf '%q' "$GEN_CCDB")
 		ssh_ccdb_method=$(printf '%q' "$CCDB_METHOD")
+		ssh_ccdb_keep_tmp=$(printf '%q' "${CCDB_KEEP_TMP:-0}")
+		ssh_ccdb_dedup=$(printf '%q' "${CCDB_DEDUP_BY_FILE:-1}")
+		ssh_ccdb_output_dir=$(printf '%q' "${CCDB_OUTPUT_DIR:-config}")
+		ssh_ccdb_require_full=$(printf '%q' "${CCDB_REQUIRE_FULL:-0}")
+		ssh_ccdb_merge_old=$(printf '%q' "${CCDB_MERGE_OLD:-1}")
 		ssh_make_keep=$(printf '%q' "$MAKE_KEEP_GOING")
 		ssh_submit_after=$(printf '%q' "0")
 		ssh_submit_cmd=$(printf '%q' "$SUBMIT_CMD")
@@ -86,8 +91,14 @@ run_build_entry() {
             CUDA_ARCH=${ssh_cuda_arch} \
             GEN_CCDB=${ssh_gen_ccdb} \
             CCDB_METHOD=${ssh_ccdb_method} \
+            CCDB_KEEP_TMP=${ssh_ccdb_keep_tmp} \
+            CCDB_DEDUP_BY_FILE=${ssh_ccdb_dedup} \
+            CCDB_OUTPUT_DIR=${ssh_ccdb_output_dir} \
+            CCDB_REQUIRE_FULL=${ssh_ccdb_require_full} \
+            CCDB_MERGE_OLD=${ssh_ccdb_merge_old} \
             MAKE_KEEP_GOING=${ssh_make_keep} \
             LOG_TO_FILE=0 \
+            SUPPRESS_LOG_TO_FILE_MESSAGE=1 \
             SUBMIT_AFTER=${ssh_submit_after} \
             SUBMIT_CMD=${ssh_submit_cmd} \
             SUBMIT_HOST=${ssh_submit_host} \

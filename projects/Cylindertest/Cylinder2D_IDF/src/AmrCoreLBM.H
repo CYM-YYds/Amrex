@@ -85,6 +85,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void RedistributeParticle();
     void ComputeCp(int lev, int step);
     void ComputeCf(int lev, int step);
+    void ComputeCf_from_force_pressure(int lev);
     bool EvaluateConvergence(int lev, int step);
 
     //********************************************************************//

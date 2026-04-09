@@ -10,7 +10,7 @@
 #include <AMReX_AmrParticles.H>
 #include <AMReX_Particles.H>
 
-#include <limits> // 可移除（未直接用到）
+//#include <limits> // 可移除（未直接用到）
 #include <memory>
 #include <string>
 
@@ -84,6 +84,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void PrintParticleParm();
     void RedistributeParticle();
     void ComputeCp(int lev, int step);
+    void ComputeCf(int lev, int step);
+    void ComputeCf_from_force_pressure(int lev);
     bool EvaluateConvergence(int lev, int step);
 
     //********************************************************************//
@@ -167,20 +169,10 @@ class AmrCoreLBM : public amrex::AmrCore {
     int idf_local_offset{0};
     int idf_local_NL{0}; // 本进程拥有的拉格朗日点数
 
-    // 本进程粒子在按ID排序后全局数组中的索引列表
-    // 由于按粒子ID排序，本进程粒子可能不连续分布在全局数组中
-    std::vector<int> idf_local_lag_global_indices;
-
-    // 粒子ID到全局索引的映射（所有进程共享）
-    // 用于在写回力时将粒子ID转换为全局数组索引
-    std::unordered_map<int, int> idf_pid_to_global_idx;
 
     // MPI 通信参数（每个进程的粒子数量和偏移）
     // 在 BuildActiveEulerSet 中初始化，regrid 后更新
     std::vector<int> idf_all_NL;     // 每个进程的粒子数量
-
-    // 按粒子ID排序的索引数组（静止边界只需计算一次）
-    std::vector<int> idf_sort_indices;
 
     // 矩阵是否已构建
     bool idf_matrix_built{false};
@@ -201,10 +193,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool idf_geometry_built{false};
     // 本地粒子计数是否有效（regrid 后需要更新）
     bool idf_local_count_valid{false};
-
-    // 稀疏 D_I（按行：每个拉格朗日点 i 的条目列表 <e_idx, wI>）与 D_E（按列：每个拉格朗日点 j 的条目列表 <e_idx, wE>）
-    std::vector<std::vector<std::pair<int, amrex::Real>>> idf_DI_rows;
-    std::vector<std::vector<std::pair<int, amrex::Real>>> idf_DE_cols;
 };
 
 #endif
