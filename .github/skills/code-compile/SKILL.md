@@ -1,6 +1,6 @@
 ---
 name: code-compile
-description: 当用户需要编译或运行Amrex项目算例时触发，进行正确的编译和运行步骤。
+description: 当需要编译或运行Amrex项目算例时触发，进行正确的编译和运行步骤。
 ---
 # Amrex编译与运行
 
