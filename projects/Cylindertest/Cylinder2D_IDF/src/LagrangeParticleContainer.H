@@ -120,7 +120,7 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
 
     // 稳态判断：基于 Cd 的历史波动评估收敛性
     // 返回是否已达稳态
-    bool EvaluateConvergence(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
+    bool EvaluateConvergence(int lev, int step);
 
     // 重载2：只插值密度
     void Interpolate_normal_offset_Rho(int lev, amrex::MultiFab& rho_lev);

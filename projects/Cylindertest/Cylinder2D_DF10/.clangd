@@ -41,3 +41,19 @@ CompileFlags:
     - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base/AMReX_REAL.H
     - -include
     - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base/AMReX_RealVect.H
+
+---
+If:
+  # Skip files outside this case root.
+  PathMatch: ^\.\./.*
+
+Index:
+  Background: Skip
+
+---
+If:
+  # Re-enable AMReX source tree indexing using absolute path.
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26\.01/.*
+
+Index:
+  Background: Build

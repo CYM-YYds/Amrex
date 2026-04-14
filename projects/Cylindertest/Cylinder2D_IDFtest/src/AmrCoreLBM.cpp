@@ -1459,9 +1459,7 @@ void AmrCoreLBM::ReduceFxy(int lev, int step) {
 }
 
 bool AmrCoreLBM::EvaluateConvergence(int lev, int step) {
-    amrex::MultiFab& u_lev = velocity[lev];
-    amrex::MultiFab& rho_lev = density[lev];
-    return mypc->EvaluateConvergence(lev, step, u_lev, rho_lev);
+    return mypc->EvaluateConvergence(lev, step);
 }
 
 void AmrCoreLBM::PrintParticleParm() {

@@ -16,6 +16,7 @@ Backtrace.*
 *.txt
 *.csv
 ./learnamerx.code-workspace
+compile_commands.json
 
 # Generated directories
 **/data/

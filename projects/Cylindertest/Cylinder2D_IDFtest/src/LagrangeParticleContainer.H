@@ -8,9 +8,6 @@
 #include <AMReX_AmrParticles.H>
 #include <AMReX_GpuContainers.H>
 
-#include <limits>
-#include <memory>
-#include <ostream>
 #include <string>
 #include <vector>
 
@@ -89,42 +86,9 @@ class MyParIter : public amrex::ParIter<0, 0, PIdx::nattribs> {
 //********************************************************************//
 class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::nattribs> {
   public:
-    struct ConvergenceParams {
-        int min_check_step = 30000;
-        int check_interval = 100;
-        int window_size = 40;
-        int required_consecutive_windows = 5;
-        int post_steady_hold_steps = 5000;
-        amrex::Real cd_rel_span_tol = 5.0e-4;
-        amrex::Real cd_slope_tol = 1.0e-6;
-        amrex::Real cl_abs_mean_tol = 1.0e-5;
-        amrex::Real cl_rms_tol = 5.0e-5;
-        amrex::Real u_residual_tol = 1.0e-7;
-        amrex::Real rho_residual_tol = 1.0e-7;
-    };
-
-    struct ConvergenceStats {
-        int step = -1;
-        amrex::Real cd = 0.0;
-        amrex::Real cl = 0.0;
-        amrex::Real cd_mean = 0.0;
-        amrex::Real cd_rel_span = 0.0;
-        amrex::Real cd_slope = 0.0;
-        amrex::Real cl_mean = 0.0;
-        amrex::Real cl_rms = 0.0;
-        amrex::Real u_residual = std::numeric_limits<amrex::Real>::infinity();
-        amrex::Real rho_residual = std::numeric_limits<amrex::Real>::infinity();
-        int consecutive_windows = 0;
-        int candidate_start_step = -1;
-        bool window_ok = false;
-        bool steady_candidate = false;
-        bool steady_confirmed = false;
-    };
-
     LagrangeParticleContainer(amrex::AmrCore* amr_core)
         : amrex::ParticleContainer<0, 0, PIdx::nattribs>(amr_core->GetParGDB()) {
         amrex::Print() << "Particle construct successed ..." << std::endl;
-        ReadConvergenceParameters();
     }
 
     ~LagrangeParticleContainer() override = default;
@@ -155,8 +119,8 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
     // 返回是否已达稳态
     void SaveFxy(int lev, int step);
 
-    // 更新稳态监控状态；仅在完成持稳阶段后返回 true
-    bool EvaluateConvergence(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
+    // 仅基于 Cd 相邻采样点的相对变化判断稳态
+    bool EvaluateConvergence(int lev, int step);
 
     // 重载2：只插值密度
     void Interpolate_normal_offset_Rho(int lev, amrex::MultiFab& rho_lev);
@@ -212,26 +176,15 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
     void IDF_SpreadForce(int lev, amrex::MultiFab& force_lev);
 
   private:
-    void ReadConvergenceParameters();
-    ConvergenceStats BuildConvergenceStats(int lev,
-                                           int step,
-                                           amrex::MultiFab& u_lev,
-                                           amrex::MultiFab& rho_lev);
-    void WriteConvergenceMonitor(const ConvergenceStats& stats) const;
-    void WriteSteadySummaryHeader(std::ostream& os) const;
-
-    ConvergenceParams convergence_params_;
-    std::vector<int> sample_steps_;
-    std::vector<amrex::Real> cd_samples_;
-    std::vector<amrex::Real> cl_samples_;
-    std::unique_ptr<amrex::MultiFab> prev_u_snapshot_;
-    std::unique_ptr<amrex::MultiFab> prev_rho_snapshot_;
-    mutable bool convergence_monitor_initialized_ = false;
-    int consecutive_window_hits_ = 0;
-    int steady_candidate_start_step_ = -1;
-    bool steady_candidate_active_ = false;
     bool steady_confirmed_ = false;
-    ConvergenceStats final_convergence_stats_;
+    int steady_stop_step_ = -1;
+    int previous_check_step_ = -1;
+    amrex::Real previous_check_cd_ = 0.0;
+    int steady_previous_step_ = -1;
+    amrex::Real steady_cd_ = 0.0;
+    amrex::Real steady_cl_ = 0.0;
+    amrex::Real steady_previous_cd_ = 0.0;
+    amrex::Real steady_cd_rel_change_ = 0.0;
 };
 
 #endif // LAGRANGEPARTICLECONTAINER_H_
