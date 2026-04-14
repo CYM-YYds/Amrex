@@ -7,13 +7,116 @@ set -Eeuo pipefail
 # ===== 配置区域（请按需修改） =====
 # 源目录（默认：脚本所在目录）
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-SOURCE_DIR="/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/Cylindertest/Cylinder2D_IDF" # <--- 修改为你希望复制的源目录绝对路径
+SOURCE_DIR="/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/Cylindertest/Cylinder2D_IDFtest2" # <--- 修改为你希望复制的源目录绝对路径
 
 # 目标目录（最终落地目录名，可不存在，会被创建）
-DEST_DIR="/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/Cylindertest/Cylinder2D_IDFtest" # <--- 修改为你希望复制到的目标目录绝对路径
+DEST_DIR="/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/Cylindertest/Cylinder2D_IDFtest3" # <--- 修改为你希望复制到的目标目录绝对路径
 
 # 注意：该脚本会实际复制（无 dry-run/删除开关）；如需试运行建议临时手动在 rsync 命令上添加 -n。
 # ===== 配置结束 =====
+
+escape_regex() {
+	local value=${1:-}
+	value=${value//\\/\\\\}
+	value=${value//./\\.}
+	value=${value//^/\\^}
+	value=${value//\$/\\$}
+	value=${value//\*/\\*}
+	value=${value//+/\\+}
+	value=${value//\?/\\?}
+	value=${value//\(/\\(}
+	value=${value//\)/\\)}
+	value=${value//\[/\\[}
+	value=${value//\]/\\]}
+	value=${value//|/\\|}
+	printf '%s' "$value"
+}
+
+rewrite_clangd() {
+	local clangd_file=$1
+	local case_root=$2
+	local repo_root=$3
+	local amrex_root="$repo_root/amrex-26.01"
+	local case_root_re repo_root_re amrex_root_re
+
+	if [[ ! -f "$clangd_file" ]]; then
+		return 0
+	fi
+
+	case_root_re=$(escape_regex "$case_root")
+	repo_root_re=$(escape_regex "$repo_root")
+	amrex_root_re=$(escape_regex "$amrex_root")
+
+	cat >"$clangd_file" <<EOF
+If:
+  PathMatch: .*
+
+CompileFlags:
+  CompilationDatabase: config
+  Remove:
+    - "^-D__CUDA_ARCH__=.*"
+    - "^-D__CUDA_ARCH_LIST__=.*"
+  Add:
+    - -D__host__=
+    - -D__device__=
+    - -D__global__=
+    - -D__constant__=
+    - -D__shared__=
+    - -D__launch_bounds__(...)=
+    - -isystem
+    - /home/HPCBase/compilers/cuda/12.1.0/targets/sbsa-linux/include
+    - -include
+    - cuda_runtime.h
+
+Index:
+  Background: Build
+  StandardLibrary: Yes
+
+Diagnostics:
+  ClangTidy:
+    Add: []
+    Remove: ['*']
+
+Completion:
+  AllScopes: true
+
+---
+If:
+  PathMatch: .*D2Q9\.H
+
+CompileFlags:
+  Add:
+    - -DAMREX_CXX_NVHPC
+    - -include
+    - $amrex_root/Src/Base/AMReX_REAL.H
+    - -include
+    - $amrex_root/Src/Base/AMReX_RealVect.H
+
+---
+If:
+  # Index only this case root using absolute path.
+  PathMatch: ^$case_root_re/.*
+
+Index:
+  Background: Build
+
+---
+If:
+  # Re-enable AMReX source tree indexing using absolute path.
+  PathMatch: ^$amrex_root_re/.*
+
+Index:
+  Background: Build
+
+---
+If:
+  # Skip other repository paths to reduce cross-case symbol pollution.
+  PathMatch: ^$repo_root_re/.*
+
+Index:
+  Background: Skip
+EOF
+}
 
 if ! command -v rsync >/dev/null 2>&1; then
 	echo "错误: 未找到 rsync，请安装后重试。" >&2
@@ -31,9 +134,16 @@ mkdir -p "$DEST_DIR"
 echo "源: $SOURCE_DIR"
 echo "目标: $DEST_DIR"
 
+if command -v git >/dev/null 2>&1 && git -C "$SOURCE_DIR" rev-parse --show-toplevel >/dev/null 2>&1; then
+	REPO_ROOT=$(git -C "$SOURCE_DIR" rev-parse --show-toplevel)
+elif command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --show-toplevel >/dev/null 2>&1; then
+	REPO_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
+else
+	REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
+fi
+
 # 优先使用 git 文件清单，严格按 .gitignore 语义处理（包含未被忽略的未跟踪文件，支持 ! 反选）
 if command -v git >/dev/null 2>&1 && git -C "$SOURCE_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-	REPO_ROOT=$(git -C "$SOURCE_DIR" rev-parse --show-toplevel)
 	# 计算 SOURCE_DIR 相对于仓库根的路径
 	if command -v realpath >/dev/null 2>&1; then
 		SOURCE_REL=$(realpath --relative-to="$REPO_ROOT" "$SOURCE_DIR")
@@ -69,6 +179,7 @@ PY
 
 	if [[ -s "$tmp_list" ]]; then
 		rsync "${RSYNC_OPTS[@]}" --files-from="$tmp_list" --from0 "$WORK_DIR/" "$DEST_DIR/"
+		rewrite_clangd "$DEST_DIR/.clangd" "$DEST_DIR" "$REPO_ROOT"
 		echo "完成：$DEST_DIR"
 		exit 0
 	else
@@ -76,6 +187,7 @@ PY
 		# 回退：使用 rsync 的 per-dir .gitignore 过滤（不完美，不支持 ! 反选）
 		RSYNC_OPTS=(-a -v -m --exclude '.git/' --filter ":- .gitignore")
 		rsync "${RSYNC_OPTS[@]}" "$SOURCE_DIR/" "$DEST_DIR/"
+		rewrite_clangd "$DEST_DIR/.clangd" "$DEST_DIR" "$REPO_ROOT"
 		echo "完成：$DEST_DIR"
 		exit 0
 	fi
@@ -86,5 +198,6 @@ RSYNC_OPTS=(-a -v -m --exclude '.git/' --filter ":- .gitignore")
 
 echo "模式: 使用 rsync + .gitignore（回退）"
 rsync "${RSYNC_OPTS[@]}" "$SOURCE_DIR/" "$DEST_DIR/"
+rewrite_clangd "$DEST_DIR/.clangd" "$DEST_DIR" "$REPO_ROOT"
 
 echo "完成：$DEST_DIR"
