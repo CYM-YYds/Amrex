@@ -2,8 +2,6 @@
 #include "D2Q9.H"
 #include "Kernels.H"
 
-#include <AMReX_ParmParse.H>
-
 #include <algorithm>
 #include <array>
 #include <cstdlib>
@@ -11,7 +9,6 @@
 #include <fstream>
 #include <iomanip>
 #include <ios>
-#include <numeric>
 #include <ostream>
 #include <vector>
 using namespace amrex;
@@ -26,7 +23,6 @@ struct GlobalForceCoefficients {
 };
 
 constexpr char kCdClFile[] = "CdCl.dat";
-constexpr char kConvergenceMonitorFile[] = "convergence_monitor.dat";
 
 Real DynamicPressure() {
     return 0.5 * (p0 / cs2) * U0 * U0;
@@ -63,241 +59,7 @@ GlobalForceCoefficients ComputeGlobalForceCoefficients(const LagrangeParticleCon
     return coeffs;
 }
 
-Real ComputeLinfResidual(const MultiFab& current, const MultiFab* previous) {
-    if (previous == nullptr) {
-        return std::numeric_limits<Real>::infinity();
-    }
-
-    MultiFab diff(current.boxArray(), current.DistributionMap(), current.nComp(), 0);
-    MultiFab::Copy(diff, current, 0, 0, current.nComp(), 0);
-    MultiFab::Subtract(diff, *previous, 0, 0, current.nComp(), 0);
-    return diff.norm0(0, current.nComp(), IntVect(0), false);
-}
-
-Real ComputeWindowSlope(const std::vector<int>& steps, const std::vector<Real>& values) {
-    const int n = static_cast<int>(steps.size());
-    if (n < 2) {
-        return 0.0;
-    }
-
-    const Real mean_step = std::accumulate(steps.begin(), steps.end(), Real(0.0)) / static_cast<Real>(n);
-    const Real mean_value = std::accumulate(values.begin(), values.end(), Real(0.0)) / static_cast<Real>(n);
-
-    Real numerator = 0.0;
-    Real denominator = 0.0;
-    for (int i = 0; i < n; ++i) {
-        const Real dt = static_cast<Real>(steps[i]) - mean_step;
-        numerator += dt * (values[i] - mean_value);
-        denominator += dt * dt;
-    }
-
-    if (denominator <= 0.0) {
-        return 0.0;
-    }
-
-    return numerator / denominator;
-}
-
 } // namespace
-
-void LagrangeParticleContainer::ReadConvergenceParameters() {
-    ParmParse pp("lbm");
-    pp.query("convergence_min_step", convergence_params_.min_check_step);
-    pp.query("convergence_check_interval", convergence_params_.check_interval);
-    pp.query("convergence_window_size", convergence_params_.window_size);
-    pp.query("convergence_required_windows", convergence_params_.required_consecutive_windows);
-    pp.query("convergence_post_hold_steps", convergence_params_.post_steady_hold_steps);
-    pp.query("cd_rel_span_tol", convergence_params_.cd_rel_span_tol);
-    pp.query("cd_slope_tol", convergence_params_.cd_slope_tol);
-    pp.query("cl_abs_mean_tol", convergence_params_.cl_abs_mean_tol);
-    pp.query("cl_rms_tol", convergence_params_.cl_rms_tol);
-    pp.query("u_residual_tol", convergence_params_.u_residual_tol);
-    pp.query("rho_residual_tol", convergence_params_.rho_residual_tol);
-
-    if (ParallelDescriptor::IOProcessor()) {
-        amrex::Print() << "[Params] convergence:\n"
-                       << "  min_check_step    = " << convergence_params_.min_check_step << "\n"
-                       << "  check_interval    = " << convergence_params_.check_interval << "\n"
-                       << "  window_size       = " << convergence_params_.window_size << "\n"
-                       << "  required_windows  = " << convergence_params_.required_consecutive_windows << "\n"
-                       << "  post_hold_steps   = " << convergence_params_.post_steady_hold_steps << "\n"
-                       << "  cd_rel_span_tol   = " << convergence_params_.cd_rel_span_tol << "\n"
-                       << "  cd_slope_tol      = " << convergence_params_.cd_slope_tol << "\n"
-                       << "  cl_abs_mean_tol   = " << convergence_params_.cl_abs_mean_tol << "\n"
-                       << "  cl_rms_tol        = " << convergence_params_.cl_rms_tol << "\n"
-                       << "  u_residual_tol    = " << convergence_params_.u_residual_tol << "\n"
-                       << "  rho_residual_tol  = " << convergence_params_.rho_residual_tol << "\n";
-    }
-}
-
-LagrangeParticleContainer::ConvergenceStats
-LagrangeParticleContainer::BuildConvergenceStats(int lev,
-                                                 int step,
-                                                 amrex::MultiFab& u_lev,
-                                                 amrex::MultiFab& rho_lev) {
-    amrex::ignore_unused(lev);
-
-    ConvergenceStats stats;
-    stats.step = step;
-
-    const auto coeffs = ComputeGlobalForceCoefficients(*this);
-    stats.cd = coeffs.cd;
-    stats.cl = coeffs.cl;
-
-    sample_steps_.push_back(step);
-    cd_samples_.push_back(stats.cd);
-    cl_samples_.push_back(stats.cl);
-
-    const int max_size = std::max(convergence_params_.window_size, 1);
-    if (static_cast<int>(sample_steps_.size()) > max_size) {
-        sample_steps_.erase(sample_steps_.begin());
-        cd_samples_.erase(cd_samples_.begin());
-        cl_samples_.erase(cl_samples_.begin());
-    }
-
-    stats.u_residual = ComputeLinfResidual(u_lev, prev_u_snapshot_.get());
-    stats.rho_residual = ComputeLinfResidual(rho_lev, prev_rho_snapshot_.get());
-
-    if (!prev_u_snapshot_) {
-        prev_u_snapshot_ = std::make_unique<MultiFab>(u_lev.boxArray(), u_lev.DistributionMap(), u_lev.nComp(), 0);
-    }
-    if (!prev_rho_snapshot_) {
-        prev_rho_snapshot_ = std::make_unique<MultiFab>(rho_lev.boxArray(), rho_lev.DistributionMap(), rho_lev.nComp(), 0);
-    }
-    MultiFab::Copy(*prev_u_snapshot_, u_lev, 0, 0, u_lev.nComp(), 0);
-    MultiFab::Copy(*prev_rho_snapshot_, rho_lev, 0, 0, rho_lev.nComp(), 0);
-
-    const int nsamples = static_cast<int>(cd_samples_.size());
-    if (nsamples < convergence_params_.window_size) {
-        return stats;
-    }
-
-    const auto cd_minmax = std::minmax_element(cd_samples_.begin(), cd_samples_.end());
-    stats.cd_mean = std::accumulate(cd_samples_.begin(), cd_samples_.end(), Real(0.0)) / static_cast<Real>(nsamples);
-    stats.cd_rel_span =
-        (*cd_minmax.second - *cd_minmax.first) / std::max(std::abs(stats.cd_mean), Real(1.0e-12));
-    stats.cd_slope = ComputeWindowSlope(sample_steps_, cd_samples_);
-
-    stats.cl_mean = std::accumulate(cl_samples_.begin(), cl_samples_.end(), Real(0.0)) / static_cast<Real>(nsamples);
-    Real cl_sq_sum = 0.0;
-    for (Real value : cl_samples_) {
-        cl_sq_sum += value * value;
-    }
-    stats.cl_rms = std::sqrt(cl_sq_sum / static_cast<Real>(nsamples));
-
-    stats.window_ok =
-        stats.cd_rel_span <= convergence_params_.cd_rel_span_tol &&
-        std::abs(stats.cd_slope) <= convergence_params_.cd_slope_tol &&
-        std::abs(stats.cl_mean) <= convergence_params_.cl_abs_mean_tol &&
-        stats.cl_rms <= convergence_params_.cl_rms_tol &&
-        stats.u_residual <= convergence_params_.u_residual_tol &&
-        stats.rho_residual <= convergence_params_.rho_residual_tol;
-
-    if (stats.window_ok) {
-        ++consecutive_window_hits_;
-    } else {
-        consecutive_window_hits_ = 0;
-        steady_candidate_active_ = false;
-        steady_candidate_start_step_ = -1;
-    }
-
-    stats.consecutive_windows = consecutive_window_hits_;
-
-    if (!steady_candidate_active_ &&
-        consecutive_window_hits_ >= convergence_params_.required_consecutive_windows) {
-        steady_candidate_active_ = true;
-        steady_candidate_start_step_ = step;
-        if (ParallelDescriptor::IOProcessor()) {
-            amrex::Print() << "[Convergence] Steady candidate accepted at step " << step
-                           << ", entering hold period of "
-                           << convergence_params_.post_steady_hold_steps << " steps." << std::endl;
-        }
-    }
-
-    stats.candidate_start_step = steady_candidate_start_step_;
-    stats.steady_candidate = steady_candidate_active_;
-
-    if (steady_candidate_active_ &&
-        step - steady_candidate_start_step_ >= convergence_params_.post_steady_hold_steps) {
-        steady_confirmed_ = true;
-        stats.steady_confirmed = true;
-        final_convergence_stats_ = stats;
-        if (ParallelDescriptor::IOProcessor()) {
-            amrex::Print() << "[Convergence] Hold completed at step " << step
-                           << ", safe to stop." << std::endl;
-        }
-    }
-
-    return stats;
-}
-
-void LagrangeParticleContainer::WriteConvergenceMonitor(const ConvergenceStats& stats) const {
-    if (!ParallelDescriptor::IOProcessor()) {
-        return;
-    }
-
-    const bool need_header = !convergence_monitor_initialized_ &&
-                             !std::ifstream(kConvergenceMonitorFile).good();
-    std::ofstream file(kConvergenceMonitorFile, need_header ? std::ios::trunc : std::ios::app);
-    if (!file.is_open()) {
-        std::cerr << "Cannot open the file: " << kConvergenceMonitorFile << std::endl;
-        std::exit(1);
-    }
-
-    if (need_header) {
-        file << "# check_interval=" << convergence_params_.check_interval
-             << " window_size=" << convergence_params_.window_size
-             << " required_windows=" << convergence_params_.required_consecutive_windows
-             << " post_hold_steps=" << convergence_params_.post_steady_hold_steps << "\n";
-        file << "# cd_rel_span_tol=" << convergence_params_.cd_rel_span_tol
-             << " cd_slope_tol=" << convergence_params_.cd_slope_tol
-             << " cl_abs_mean_tol=" << convergence_params_.cl_abs_mean_tol
-             << " cl_rms_tol=" << convergence_params_.cl_rms_tol
-             << " u_residual_tol=" << convergence_params_.u_residual_tol
-             << " rho_residual_tol=" << convergence_params_.rho_residual_tol << "\n";
-        file << "# step\tCd\tCl\tCd_mean\tCd_span_rel\tCd_slope\tCl_mean\tCl_rms\tu_residual\t"
-                "rho_residual\twindow_ok\tsteady_candidate\tsteady_confirmed\n";
-    }
-
-    file << stats.step << "\t" << stats.cd << "\t" << stats.cl << "\t"
-         << stats.cd_mean << "\t" << stats.cd_rel_span << "\t" << stats.cd_slope << "\t"
-         << stats.cl_mean << "\t" << stats.cl_rms << "\t"
-         << stats.u_residual << "\t" << stats.rho_residual << "\t"
-         << (stats.window_ok ? 1 : 0) << "\t"
-         << (stats.steady_candidate ? 1 : 0) << "\t"
-         << (stats.steady_confirmed ? 1 : 0) << "\n";
-
-    convergence_monitor_initialized_ = true;
-}
-
-void LagrangeParticleContainer::WriteSteadySummaryHeader(std::ostream& os) const {
-    if (!steady_confirmed_) {
-        return;
-    }
-
-    os << "# steady_stop_step      = " << final_convergence_stats_.step << "\n";
-    os << "# steady_candidate_step = " << final_convergence_stats_.candidate_start_step << "\n";
-    os << "# min_check_step        = " << convergence_params_.min_check_step << "\n";
-    os << "# check_interval        = " << convergence_params_.check_interval << "\n";
-    os << "# window_size           = " << convergence_params_.window_size << "\n";
-    os << "# required_windows      = " << convergence_params_.required_consecutive_windows << "\n";
-    os << "# post_hold_steps       = " << convergence_params_.post_steady_hold_steps << "\n";
-    os << "# cd_rel_span_tol       = " << convergence_params_.cd_rel_span_tol << "\n";
-    os << "# cd_slope_tol          = " << convergence_params_.cd_slope_tol << "\n";
-    os << "# cl_abs_mean_tol       = " << convergence_params_.cl_abs_mean_tol << "\n";
-    os << "# cl_rms_tol            = " << convergence_params_.cl_rms_tol << "\n";
-    os << "# u_residual_tol        = " << convergence_params_.u_residual_tol << "\n";
-    os << "# rho_residual_tol      = " << convergence_params_.rho_residual_tol << "\n";
-    os << "# final_cd              = " << final_convergence_stats_.cd << "\n";
-    os << "# final_cl              = " << final_convergence_stats_.cl << "\n";
-    os << "# final_cd_mean         = " << final_convergence_stats_.cd_mean << "\n";
-    os << "# final_cd_span_rel     = " << final_convergence_stats_.cd_rel_span << "\n";
-    os << "# final_cd_slope        = " << final_convergence_stats_.cd_slope << "\n";
-    os << "# final_cl_mean         = " << final_convergence_stats_.cl_mean << "\n";
-    os << "# final_cl_rms          = " << final_convergence_stats_.cl_rms << "\n";
-    os << "# final_u_residual      = " << final_convergence_stats_.u_residual << "\n";
-    os << "# final_rho_residual    = " << final_convergence_stats_.rho_residual << "\n";
-}
 
 void LagrangeParticleContainer::PrintParticleParm() {
     amrex::Print() << "╔══════════════════════════════════════════════════════╗" << std::endl;
@@ -455,21 +217,60 @@ void LagrangeParticleContainer::WriteParticle(int step) {
     WriteAsciiFile(pltfile);
 }
 
-// 稳态判断：基于 Cd 的历史波动评估收敛性
-bool LagrangeParticleContainer::EvaluateConvergence(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev) {
+// 稳态判断：每隔固定步长比较两次 Cd 采样的相对变化
+bool LagrangeParticleContainer::EvaluateConvergence(int lev, int step) {
+    amrex::ignore_unused(lev);
+    constexpr int min_check_step = 30000;
+    constexpr int check_interval = 1000;
+    constexpr Real cd_rel_change_tol = 1.0e-6;
+
     if (steady_confirmed_) {
         return true;
     }
 
-    if (step < convergence_params_.min_check_step ||
-        convergence_params_.check_interval <= 0 ||
-        step % convergence_params_.check_interval != 0) {
+    if (step < min_check_step ||
+        check_interval <= 0 ||
+        step % check_interval != 0) {
         return false;
     }
 
-    ConvergenceStats stats = BuildConvergenceStats(lev, step, u_lev, rho_lev);
-    WriteConvergenceMonitor(stats);
-    return stats.steady_confirmed;
+    const auto coeffs = ComputeGlobalForceCoefficients(*this);
+    const Real cd_value = coeffs.cd;
+    const Real cl_value = coeffs.cl;
+
+    if (previous_check_step_ < 0) {
+        previous_check_step_ = step;
+        previous_check_cd_ = cd_value;
+        return false;
+    }
+
+    const Real denom = std::max(std::abs(previous_check_cd_), Real(1.0e-12));
+    const Real cd_rel_change = std::abs(cd_value - previous_check_cd_) / denom;
+
+    if (cd_rel_change < cd_rel_change_tol) {
+        steady_confirmed_ = true;
+        steady_stop_step_ = step;
+        steady_previous_step_ = previous_check_step_;
+        steady_cd_ = cd_value;
+        steady_cl_ = cl_value;
+        steady_previous_cd_ = previous_check_cd_;
+        steady_cd_rel_change_ = cd_rel_change;
+
+        if (ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "[Convergence] Cd converged at step " << step
+                           << ", previous step = " << previous_check_step_
+                           << ", Cd = " << cd_value
+                           << ", relative change = " << cd_rel_change << std::endl;
+        }
+
+        previous_check_step_ = step;
+        previous_check_cd_ = cd_value;
+        return true;
+    }
+
+    previous_check_step_ = step;
+    previous_check_cd_ = cd_value;
+    return false;
 }
 
 // 计算圆柱表面压力系数分布（在距离壁面1.5Δx处采样）
@@ -560,7 +361,14 @@ void LagrangeParticleContainer::ComputeCp(int lev, MultiFab& rho_lev, const std:
 
         std::ofstream cp_file(filename, std::ios::trunc);
         if (cp_file.is_open()) {
-            WriteSteadySummaryHeader(cp_file);
+            if (steady_confirmed_) {
+                cp_file << "# steady_stop_step      = " << steady_stop_step_ << "\n";
+                cp_file << "# final_cd              = " << steady_cd_ << "\n";
+                cp_file << "# final_cl              = " << steady_cl_ << "\n";
+                cp_file << "# previous_step         = " << steady_previous_step_ << "\n";
+                cp_file << "# previous_cd           = " << steady_previous_cd_ << "\n";
+                cp_file << "# final_cd_rel_change   = " << steady_cd_rel_change_ << "\n";
+            }
             cp_file << "# theta(rad)\tCp\n";
             for (const auto& e : entries) {
                 cp_file << e[0] << "\t" << e[1] << "\n";
@@ -730,7 +538,14 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
 
         std::ofstream cf_file(filename, std::ios::trunc);
         if (cf_file.is_open()) {
-            WriteSteadySummaryHeader(cf_file);
+            if (steady_confirmed_) {
+                cf_file << "# steady_stop_step      = " << steady_stop_step_ << "\n";
+                cf_file << "# final_cd              = " << steady_cd_ << "\n";
+                cf_file << "# final_cl              = " << steady_cl_ << "\n";
+                cf_file << "# previous_step         = " << steady_previous_step_ << "\n";
+                cf_file << "# previous_cd           = " << steady_previous_cd_ << "\n";
+                cf_file << "# final_cd_rel_change   = " << steady_cd_rel_change_ << "\n";
+            }
             cf_file << "# theta(rad)\tCf\n";
             for (const auto& e : entries) {
                 cf_file << e[0] << "\t" << e[1] << "\n";
@@ -932,7 +747,14 @@ void LagrangeParticleContainer::ComputeCf_from_force_pressure(int lev, const std
         // 输出到文件
         std::ofstream cf_file(filename, std::ios::trunc);
         if (cf_file.is_open()) {
-            WriteSteadySummaryHeader(cf_file);
+            if (steady_confirmed_) {
+                cf_file << "# steady_stop_step      = " << steady_stop_step_ << "\n";
+                cf_file << "# final_cd              = " << steady_cd_ << "\n";
+                cf_file << "# final_cl              = " << steady_cl_ << "\n";
+                cf_file << "# previous_step         = " << steady_previous_step_ << "\n";
+                cf_file << "# previous_cd           = " << steady_previous_cd_ << "\n";
+                cf_file << "# final_cd_rel_change   = " << steady_cd_rel_change_ << "\n";
+            }
             cf_file << "# q_inf               = " << q_inf << "\n";
             cf_file << "# D_phys              = " << d_phys << "\n";
             cf_file << "# ds(actual arc)      = " << ds << "\n";

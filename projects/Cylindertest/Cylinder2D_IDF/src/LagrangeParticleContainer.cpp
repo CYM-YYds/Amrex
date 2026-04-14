@@ -183,7 +183,7 @@ void LagrangeParticleContainer::WriteParticle(int step) {
 }
 
 // 稳态判断：基于 Cd 的历史波动评估收敛性
-bool LagrangeParticleContainer::EvaluateConvergence(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev) {
+bool LagrangeParticleContainer::EvaluateConvergence(int lev, int step) {
     // 近期采样Cd历史与标志（跨多次调用保持）
     static std::vector<Real> cd_history(30);
     static bool steady_reached = false;

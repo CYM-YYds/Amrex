@@ -41,3 +41,27 @@ CompileFlags:
     - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base/AMReX_REAL.H
     - -include
     - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base/AMReX_RealVect.H
+
+---
+If:
+  # Index only this case root using absolute path.
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/Cylindertest/Cylinder2D_IDF/.*
+
+Index:
+  Background: Build
+
+---
+If:
+  # Re-enable AMReX source tree indexing using absolute path.
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26\.01/.*
+
+Index:
+  Background: Build
+
+---
+If:
+  # Skip other repository paths to reduce cross-case symbol pollution.
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/.*
+
+Index:
+  Background: Skip

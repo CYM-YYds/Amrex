@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
     {
         const Real start_time = amrex::second();
 
-        int max_step, regrid_int, plot_int, begin_int;
+        int max_step;
         amrex::Real stop_time;
 
         {
@@ -26,9 +26,6 @@ int main(int argc, char* argv[]) {
             pp.query("max_step", max_step);
             pp.query("stop_time", stop_time);
         }
-        int chk_int = -1;
-        int begin_step = 0;
-
         amrex::Geometry geom(
             amrex::Box({AMREX_D_DECL(0, 0, 0)}, {AMREX_D_DECL(NX - 1, NY - 1, NZ - 1)}),
             amrex::RealBox({AMREX_D_DECL(0., 0., 0.)}, {AMREX_D_DECL(nx, ny, nz)}),
@@ -42,20 +39,16 @@ int main(int argc, char* argv[]) {
             amrex::Vector<amrex::IntVect>{(size_t)max_ref_level + 1, {AMREX_D_DECL(128, 128, 128)}}};
 
         AmrCoreLBM lid(geom, info);
-        begin_step = lid.params().begin_step;
-        chk_int = lid.params().chk_int;
-        regrid_int = lid.params().regrid_int;
-        plot_int = lid.params().plot_int;
-        begin_int = lid.params().begin_int;
+        const auto& runtime = lid.params();
 
-        amrex::Real cur_time = begin_step * dt_0;
+        amrex::Real cur_time = runtime.begin_step * dt_0;
 
-        if (begin_step > 0) {
+        if (runtime.begin_step > 0) {
             lid.ReadCheckpoint();
             lid.PrintMeshInfo();
             lid.PrintLbmParm();
             lid.PrintParticleParm();
-            amrex::Print() << "[Checkpoint] Restarted at step=" << begin_step
+            amrex::Print() << "[Checkpoint] Restarted at step=" << runtime.begin_step
                            << ", time=" << cur_time << "\n";
         } else {
             lid.InitMesh(cur_time);
@@ -65,11 +58,11 @@ int main(int argc, char* argv[]) {
             lid.PrintParticleParm();
         }
 
-        int start_step = begin_step + 1;
+        int start_step = runtime.begin_step + 1;
         for (int step = start_step; step <= max_step && cur_time < stop_time; step++) {
             amrex::Print() << "STEP " << step << "starts ..." << std::endl;
 
-            if (step >= 0 && step % regrid_int == 0) {
+            if (step >= 0 && step % runtime.regrid_int == 0) {
                 lid.AverageDownValid();
                 lid.RefineMesh(cur_time);
                 lid.RedistributeParticle();
@@ -81,7 +74,7 @@ int main(int argc, char* argv[]) {
             // 每步保存 Cd/Cl 数据
             lid.ReduceFxy(max_ref_level, step);
 
-            // 由粒子容器内部的多指标状态机决定是否可以安全停机
+            // 仅基于相邻两次 Cd 采样的相对变化判断是否停机
             bool steady = lid.EvaluateConvergence(max_ref_level, step);
             if (steady) {
                 lid.ComputeCp(max_ref_level, step);
@@ -90,20 +83,20 @@ int main(int argc, char* argv[]) {
                 lid.PrintMeshInfo();
                 lid.ComputeMacro();
                 lid.WriteVelocityFile(step, cur_time);
-                amrex::Print() << "Steady hold completed at step " << step
+                amrex::Print() << "Cd-based convergence reached at step " << step
                                << ", final outputs written and simulation stopping." << std::endl;
                 break;
             }
 
             cur_time += dt_0;
 
-            if (step >= begin_int && step % plot_int == 0) {
+            if (step >= runtime.begin_int && step % runtime.plot_int == 0) {
                 lid.PrintMeshInfo();
                 lid.ComputeMacro();
                 lid.WriteVelocityFile(step, cur_time);
             }
 
-            if (chk_int > 0 && step % chk_int == 0) {
+            if (runtime.chk_int > 0 && step % runtime.chk_int == 0) {
                 lid.WriteCheckpoint(step, cur_time);
             }
         }
