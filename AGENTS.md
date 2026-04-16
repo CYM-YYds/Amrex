@@ -68,6 +68,9 @@ Important notes:
 - Start from one concrete case and stay scoped to it unless the task clearly spans multiple cases.
 - Treat checked-in outputs as normal for this repo: executables, `*-out.log`, `.dat`, `logs/`, and generated data may already exist.
 - Do not assume a conventional unit-test layout; verification is often case build success or simulation behavior.
+- Before making any code edit, first create a review baseline commit by running `git add -A` and `git commit -m "before codex"`.
+- If `git commit -m "before codex"` reports there is nothing to commit, continue without creating a commit.
+- If the baseline commit fails for another reason, stop and report the failure before editing files.
 - Prefer reading `config/inputs` before changing physics, stepping, output cadence, or AMR behavior.
 - If a task touches compilation behavior, inspect `scripts/compile.sh` and the target case `config/GNUmakefile`.
 - If a task touches runtime launch behavior, inspect the case `scripts/submit.sh`.

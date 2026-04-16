@@ -692,6 +692,9 @@ void LagrangeParticleContainer::ComputeCf_from_force_pressure(int lev, const std
     ParallelDescriptor::Gatherv(local_data.data(), local_count,
                                 gathered.data(), recv_counts, displs, iorank);
 
+    // 这里必须在所有 MPI rank 上共同参与归约，不能只放在 IOProcessor 分支内。
+    const Real cd_raw = ComputeGlobalForceCoefficients(*this).cd;
+
     // IO处理：排序、积分、输出
     if (ParallelDescriptor::IOProcessor()) {
         std::vector<std::array<Real, 4>> entries; // [theta, Cd_density_x, Cf, Cp]
@@ -708,8 +711,6 @@ void LagrangeParticleContainer::ComputeCf_from_force_pressure(int lev, const std
         for (const auto& e : entries) {
             cd_local_sum += e[1] * ds / d_phys;
         }
-
-        const Real cd_raw = ComputeGlobalForceCoefficients(*this).cd;
 
         // 计算积分：
         // Cd_v 使用当前切向定义对应的 t_x = |sin(theta)|，即 0.5 * ∮ Cf(θ) * t_x(θ) dθ

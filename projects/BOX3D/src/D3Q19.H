@@ -2,7 +2,6 @@
 #define D3Q19_H_
 
 #include <AMReX_Array4.H>
-#include <cmath>
 
 #define PI (3.141592653589793238462643383279)
 
@@ -11,18 +10,8 @@ using namespace amrex;
 #define DIM 3
 #define Q 27
 
-// MDF 迭代次数：NF=1 时使用单次迭代（类似直接力法）；NF>1 时使用多次迭代收敛
-#define NF 1
-
-// MDF 两阶段实现开关：仅在 NF > 1 时启用（节省内存）
-#if (NF > 1)
-#define USE_MDF_TWO_STAGE 1
-#else
-#define USE_MDF_TWO_STAGE 0
-#endif
-
 const int coarsest_level = 0;
-const int max_ref_level = 0;
+const int max_ref_level = 3;
 const int rate = (1 << max_ref_level);
 
 /*-----------------复杂结构体------------------------*/
@@ -43,9 +32,9 @@ const int rate = (1 << max_ref_level);
 const Real D = 16.0; // obj_dim_z;
 const Real R = D / 2.0;
 
-const int NX = 32 * D;
-const int NY = 8 * D;
-const int NZ = 8 * D;
+const int NX = 4 * D;
+const int NY = 4 * D;
+const int NZ = 4 * D;
 
 const Real nx = NX;
 const Real ny = NY;
@@ -58,33 +47,14 @@ const Real nz = NZ;
 #define cs2 (cs * cs)
 #define rho0 (1.0) //(p0 / cs2)
 #define p0 (rho0 * cs2)
-#define Ma (0.03 * sqrt(3.0))
+#define Ma (0.03)
 
-/*---------槽道流--------------------------*/
-/*参数源自Gehrke, M. & Rung, T. Scale-resolving turbulent channel flow simulations using a dynamic cumulant lattice Boltzmann method. Physics of Fluids 34, 075129 (2022).*/
-#define NH ((NY - 6) / 2 - 1) // 半高
-#define Ret (180)
-#define ReB (pow(8 / 0.073, 4.0 / 7.0) * pow(Ret, 8.0 / 7.0) / 2.0)
-#define Uc (Ma * cs)
-// #define mv_0 (Ma * NH / 1.16 / sqrt(3.0) / ReB)
-// #define tau_0 (mv_0 / (cs2) + 0.5)
-#define Ut (mv_0 * Ret / NH)
-// #define U0 (Uc)
-#define FT (38 * NH / Ma)
 /*---------圆球绕流--------------------------*/
-#define Re (100)
-#define U0 (0.01)
-#define mv_0 (U0 * D * dx_0 / Re)
+#define Re (1000)
+#define U0 (Ma * cs)
+#define mv_0 (U0 * NX * dx_0 / Re)
 #define tau_0 (mv_0 / (cs2 * dt_0) + 0.5)
 #define G (981)
-/*---------圆柱绕流--------------------------*/
-// #define NH (NY / 2) // 半高
-// #define Re (20)
-// #define U0 (0.1)
-// #define mv_0 (U0 * D * dx_0 / Re)
-// #define tau_0 (mv_0 / (cs2 * dt_0) + 0.5)
-// #define G (981)
-const int nt = NY; // 表面分带数
 /*-----------颗粒流--------------------------*/
 // #define Re    (1.5)
 // #define U0    (1.04375) //(Ma * cs)
@@ -101,7 +71,7 @@ const int nt = NY; // 表面分带数
 #define Mp_iner (Mp * D * dx_0 * D * dx_0 / 10.0)
 #define Mf_iner (Mf * D * dx_0 * D * dx_0 / 10.0)
 
-const Real X = 6.0 * D; // NX / 2.0;
+const Real X = NX / 2.0;
 const Real Y = NY / 2.0;
 const Real Z = NZ / 2.0;
 const Real center[DIM] = {X, Y, Z};
@@ -112,11 +82,11 @@ const Real dt_min = dt_0 / rate;
 
 const Real rb = pow(((pow(rate * R, 3) + pow(rate * R - 1, 3)) / 2.0), (1.0 / 3.0)); // 修正的半径
 
-const Real ds0 = 1.2;
+const Real ds0 = 1.0;
 const int ns = PI * rb / ds0 + 1;  // 表面分带数
 const int nt1 = 2 * PI * rb / ds0; // 赤道上point数量
 
-const Real LP_dr = 1.9;
+const Real LP_dr = 1.0;
 const Real LP_area = 4 * PI * rb * rb;
 
 // 多颗粒相关的参数
@@ -125,6 +95,30 @@ const Real Epp1 = 0.25;
 const Real Epp2 = 0.02;
 const Real Epw1 = 0.125;
 const Real Epw2 = 0.01;
+
+// D3Q19-opt
+// AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+//     IntVect e[Q] =
+//         {
+//             {0, 0, 0},
+//             {1, 0, 0},
+//             {-1, 0, 0},
+//             {0, 1, 0},
+//             {0, -1, 0},
+//             {0, 0, 1},
+//             {0, 0, -1},
+//             {1, 1, 0},
+//             {-1, -1, 0},
+//             {1, 0, 1},
+//             {-1, 0, -1},
+//             {0, 1, 1},
+//             {0, -1, -1},
+//             {1, -1, 0},
+//             {-1, 1, 0},
+//             {1, 0, -1},
+//             {-1, 0, 1},
+//             {0, 1, -1},
+//             {0, -1, 1}};
 
 // D3Q19
 // AMREX_GPU_DEVICE AMREX_FORCE_INLINE
@@ -151,30 +145,29 @@ const Real Epw2 = 0.01;
 //             {0, -1, 1}};
 
 // AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-// Real w[Q] =
-// {
-//     1./3.,
-//     1./18.,
-//     1./18.,
-//     1./18.,
-//     1./18.,
-//     1./18.,
-//     1./18.,
-//     1./36.,
-//     1./36.,
-//     1./36.,
-//     1./36.,
-//     1./36.,
-//     1./36.,
-//     1./36.,
-//     1./36.,
-//     1./36.,
-//     1./36.,
-//     1./36.,
-//     1./36.
-// };
+//     Real w[Q] =
+//         {
+//             1. / 3.,
+//             1. / 18.,
+//             1. / 18.,
+//             1. / 18.,
+//             1. / 18.,
+//             1. / 18.,
+//             1. / 18.,
+//             1. / 36.,
+//             1. / 36.,
+//             1. / 36.,
+//             1. / 36.,
+//             1. / 36.,
+//             1. / 36.,
+//             1. / 36.,
+//             1. / 36.,
+//             1. / 36.,
+//             1. / 36.,
+//             1. / 36.,
+//             1. / 36.};
 
-// D3Q27_CUMULANT
+// //D3Q27_CUMULANT
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     IntVect e[Q] =
         {
