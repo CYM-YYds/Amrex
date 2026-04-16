@@ -1,14 +1,14 @@
-#!/bin/sh
+# !/bin/sh
 
-#DSUB --job_type cosched
-#DSUB -n case_channelflow
-#DSUB -A root.huazkjdxmrsgjzdsyshi
-#DSUB -q root.default
-#DSUB -R cpu=32;mem=49152;gpu=4
-#DSUB -N 1
-#DSUB -o %J-out.log
-#DSUB -e %J-out.log
-#DSUB -l cuda122
+# #DSUB --job_type cosched
+# #DSUB -n case_channelflow
+# #DSUB -A root.huazkjdxmrsgjzdsyshi
+# #DSUB -q root.default
+# #DSUB -R cpu=32;mem=49152;gpu=1
+# #DSUB -N 1
+# #DSUB -o %J-out.log
+# #DSUB -e %J-out.log
+# #DSUB -l cuda122
 
 #===========================================================
 #加载环境变量
