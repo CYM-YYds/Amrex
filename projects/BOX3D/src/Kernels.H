@@ -2532,7 +2532,8 @@ AMREX_GPU_HOST_DEVICE // 论文风格: 目标层级映射到 refine tag
     // 论文用块内最大涡量决定目标层级；这里先做单元级的目标层级映射，
     // 再由 AMReX 的 tag 聚类/box generation 来近似块结构行为。
 
-    constexpr int n_start = -3;
+    // Lower the target-level threshold so higher AMR levels trigger more readily.
+    constexpr int n_start = -4;
     constexpr int n_inc = 1;
 
     amrex::Real epsilon = amrex::min(1.0, log2(vort(i, j, k, 1)));

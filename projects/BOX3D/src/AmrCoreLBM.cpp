@@ -214,21 +214,21 @@ double AmrCoreLBM::ComputeWeightedLatticeUpdatesPerCoarseStep() const {
     double weighted_updates = 0.0;
 
     for (int lev = 0; lev <= finest_level; ++lev) {
-        double nlev = static_cast<double>(boxArray(lev).numPts());
-        double nvalid = nlev;
+        double nlev = static_cast<double>(boxArray(lev).numPts()); // 获取当前层级总网格点数
+        double nvalid = nlev;                                      // 设置有效点数
 
         if (lev < finest_level) {
-            auto rr = refRatio(lev);
+            auto rr = refRatio(lev); // 获取细化比例
             long nc = 1;
             for (int idim = 0; idim < AMREX_SPACEDIM; ++idim) {
-                nc *= rr[idim];
+                nc *= rr[idim]; // 计算细化比例乘积 nc
             }
 
-            double nfine = static_cast<double>(boxArray(lev + 1).numPts());
-            nvalid -= nfine / static_cast<double>(nc);
+            double nfine = static_cast<double>(boxArray(lev + 1).numPts()); // 获取下一层级网格点数
+            nvalid -= nfine / static_cast<double>(nc);                      // 更新有效点数
         }
 
-        weighted_updates += static_cast<double>(1 << lev) * nvalid;
+        weighted_updates += static_cast<double>(1 << lev) * nvalid; // 计算加权更新 2^lev * nvalid
     }
 
     return weighted_updates;
