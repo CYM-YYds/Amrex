@@ -1481,7 +1481,8 @@ void AmrCoreLBM::ComputeCp(int lev, int step) {
     amrex::MultiFab& rho_lev = density[lev];
     // 填充密度场的 ghost 区域，确保双线性插值时能访问边界外的正确数据
     rho_lev.FillBoundary(Geom(lev).periodicity());
-    mypc->ComputeCp(lev, rho_lev, "Cp_steady.dat");
+    const std::string filename = "Cp_steady_step" + std::to_string(step) + ".dat";
+    mypc->ComputeCp(lev, rho_lev, filename);
 }
 
 void AmrCoreLBM::ComputeCf(int lev, int step) {
@@ -1504,11 +1505,13 @@ void AmrCoreLBM::ComputeCf(int lev, int step) {
     }
 
     // 计算局部摩擦系数
-    mypc->ComputeCf(lev, temp_velocity, "Cf_steady.dat");
+    const std::string filename = "Cf_steady_step" + std::to_string(step) + ".dat";
+    mypc->ComputeCf(lev, temp_velocity, filename);
 }
 
-void AmrCoreLBM::ComputeCf_from_force_pressure(int lev) {
-    mypc->ComputeCf_from_force_pressure(lev, "Cf_steady2.dat");
+void AmrCoreLBM::ComputeCf_from_force_pressure(int lev, int step) {
+    const std::string filename = "Cf_steady2_step" + std::to_string(step) + ".dat";
+    mypc->ComputeCf_from_force_pressure(lev, filename);
 }
 
 // 构建活跃欧拉点集合：遍历所有拉格朗日点，将其 5x5 邻域内落在几何域（非ghost、非越界）的欧拉网格点加入集合（去重）

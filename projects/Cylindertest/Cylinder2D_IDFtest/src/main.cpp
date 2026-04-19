@@ -74,12 +74,16 @@ int main(int argc, char* argv[]) {
             // 每步保存 Cd/Cl 数据
             lid.ReduceFxy(max_ref_level, step);
 
+            if (step >= 0 && step % 200 == 0) {
+                lid.ComputeCf_from_force_pressure(max_ref_level, step);
+            }
+
             // 仅基于相邻两次 Cd 采样的相对变化判断是否停机
             bool steady = lid.EvaluateConvergence(max_ref_level, step);
             if (steady) {
                 lid.ComputeCp(max_ref_level, step);
                 lid.ComputeCf(max_ref_level, step);
-                lid.ComputeCf_from_force_pressure(max_ref_level);
+                lid.ComputeCf_from_force_pressure(max_ref_level, step);
                 lid.PrintMeshInfo();
                 lid.ComputeMacro();
                 lid.WriteVelocityFile(step, cur_time);

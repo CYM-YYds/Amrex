@@ -440,8 +440,8 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
             const Real ty = -nx;
 
             // 在离壁面不同距离处采样速度
-            const Real d1 = 2 * delta; // 近壁面采样点
-            const Real d2 = 3 * delta; // 远壁面采样点
+            const Real d1 = 1.5 * delta; // 近壁面采样点
+            const Real d2 = 2.5 * delta; // 远壁面采样点
 
             // 计算采样点坐标
             const Real x1 = px + d1 * nx; // 物理坐标
@@ -492,7 +492,8 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
             Real ut2 = u2 * tx + v2 * ty; // 点2的切向速度
 
             // 计算切向速度沿法向的梯度（物理长度导数）
-            Real dut_dn = (ut2 - ut1) / (d2 - d1);
+            // Real dut_dn = (ut2 - ut1) / (d2 - d1);
+            Real dut_dn = ut1 / d1;
 
             // 计算剪切应力
             Real rho = p0 / cs2;              // 使用参考密度

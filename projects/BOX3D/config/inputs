@@ -9,10 +9,10 @@ amr.regrid_int  = 10
 
 amr.grid_eff          = 0.7 
 amr.n_error_buf       = 0 0 0 0 0
-amr.max_grid_size     = 64 64 64 64
-amr.blocking_factor_x = 16 16 16 16
-amr.blocking_factor_y = 16 16 16 16
-amr.blocking_factor_z = 16 16 16 16
+amr.max_grid_size     = 64 32 32 32
+amr.blocking_factor_x = 16 32 32 32
+amr.blocking_factor_y = 16 32 32 32
+amr.blocking_factor_z = 16 32 32 32
 
 amr.plot_file  = case_Re1_4p_
 amr.plot_int   = 10000
