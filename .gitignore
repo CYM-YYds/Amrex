@@ -37,6 +37,7 @@ compile_commands.json
 *.tar
 *.zip
 *.dat
+*.pdf
 
 # Compile DB (optional keep)
 # compile_commands.json

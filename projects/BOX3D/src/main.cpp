@@ -4,6 +4,7 @@
 #include <AMReX.H>
 #include <AMReX_BLProfiler.H>
 #include <AMReX_ParallelDescriptor.H>
+#include <AMReX_Utility.H>
 
 #include "AmrCoreLBM.H"
 
@@ -28,12 +29,8 @@ int main(int argc, char* argv[]) {
             pp.query("max_step", max_step);
             pp.query("stop_time", stop_time);
         }
-        {
-            amrex::ParmParse pp("amr");
-            pp.query("regrid_int", regrid_int);
-            pp.query("plot_int", plot_int);
-            pp.query("begin_plot", begin_plot);
-        }
+        int chk_int = -1;
+        int begin_step = 0;
 
         amrex::Geometry geom(
             amrex::Box({AMREX_D_DECL(0, 0, 0)}, {AMREX_D_DECL(NX - 1, NY - 1, NZ - 1)}),
@@ -47,15 +44,29 @@ int main(int argc, char* argv[]) {
             amrex::Vector<amrex::IntVect>{(size_t)max_ref_level + 1, {AMREX_D_DECL(8, 8, 8)}},
             amrex::Vector<amrex::IntVect>{(size_t)max_ref_level + 1, {AMREX_D_DECL(128, 128, 128)}}};
 
-        amrex::Real cur_time = 0.0;
-
         AmrCoreLBM lid(geom, info);
-        lid.InitMesh(cur_time);
-        lid.PrintMeshInfo();
-        lid.PrintLbmParm();
-        lid.InitParticle(max_ref_level);
-        lid.InitCpPoint(max_ref_level);
-        lid.PrintParticleParm();
+        begin_step = lid.params().begin_step;
+        chk_int = lid.params().chk_int;
+        regrid_int = lid.params().regrid_int;
+        plot_int = lid.params().plot_int;
+        begin_plot = lid.params().begin_plot;
+
+        amrex::Real cur_time = begin_step * dt_0;
+
+        if (begin_step > 0) {
+            lid.ReadCheckpoint();
+            lid.PrintMeshInfo();
+            lid.PrintLbmParm();
+            amrex::Print() << "[Checkpoint] Restarted at step=" << begin_step
+                           << ", time=" << cur_time << "\n";
+        } else {
+            lid.InitMesh(cur_time);
+            lid.PrintMeshInfo();
+            lid.PrintLbmParm();
+            lid.InitParticle(max_ref_level);
+            lid.InitCpPoint(max_ref_level);
+            lid.PrintParticleParm();
+        }
 
         float compute_time = 0.0f;
         float regrid_time = 0.0f;
@@ -63,7 +74,8 @@ int main(int argc, char* argv[]) {
         double weighted_updates_window = 0.0;
         int stats_steps = 0;
         lid.ResetPerfStats();
-        for (int step = 1; step <= max_step && cur_time < stop_time; step++) {
+        int start_step = begin_step + 1;
+        for (int step = start_step; step <= max_step && cur_time < stop_time; step++) {
             amrex::Print() << "STEP " << step << "starts ..." << std::endl;
             auto start_time_compute_time = std::chrono::high_resolution_clock::now();
             auto start_time_regrid_time = std::chrono::high_resolution_clock::now();
@@ -160,6 +172,10 @@ int main(int argc, char* argv[]) {
                 // lid.WriteParticleFile(step, cur_time);
                 // lid.WriteVorticityFile(step, cur_time);
                 // lid.WriteVelocityFileWithParticle(step, cur_time);
+            }
+
+            if (chk_int > 0 && step % chk_int == 0) {
+                lid.WriteCheckpoint(step, cur_time);
             }
         }
 

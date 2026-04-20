@@ -21,6 +21,17 @@ class AmrCoreLBM : public amrex::AmrCore
 {
 
 public:
+    struct RuntimeParams {
+        int regrid_int = -1;
+        int plot_int = -1;
+        int begin_plot = 0;
+        int chk_int = -1;
+        int begin_step = 0;
+        std::string chk_prefix = "chk";
+        bool keep_latest_only = true;
+        bool write_particles = true;
+    };
+
     struct PerfStats {
         double interp = 0.0;
         double collide = 0.0;
@@ -58,6 +69,9 @@ public:
     void WriteVorticityFile(const int step, const amrex::Real time);
     void WriteVelocityFile(const int step, const amrex::Real time, const int lev);
     void WriteVelocityFileWithParticle(const int step, const amrex::Real time);
+    void WriteCheckpoint(int step, amrex::Real time) const;
+    void ReadCheckpoint();
+    const RuntimeParams& params() const { return params_; }
     //********************************************************************//
     //                           mesh function                            //
     //********************************************************************//
@@ -146,6 +160,7 @@ private:
     amrex::Vector<std::unique_ptr<AuxiliaryPointContainer>> particlesCp;
     amrex::Vector<amrex::RealVect> points;
     PerfStats perf_stats;
+    RuntimeParams params_;
 };
 
 

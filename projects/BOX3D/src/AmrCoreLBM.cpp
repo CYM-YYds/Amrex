@@ -5,8 +5,15 @@
 #include <AMReX_ParmParse.H>
 #include <AMReX_PhysBCFunct.H>
 #include <AMReX_PlotFileUtil.H>
+#include <AMReX_Utility.H>
 #include <AMReX_VisMF.H>
 #include <AMReX_Gpu.H>
+
+#include <algorithm>
+#include <cctype>
+#include <dirent.h>
+#include <fstream>
+#include <sstream>
 
 #ifdef AMREX_MEM_PROFILING
 #include <AMReX_MemProfiler.H>
@@ -262,6 +269,9 @@ void AmrCoreLBM::ReadParameters() {
         ParmParse pp("amr");
         pp.query("plot_file", plot_file);
         pp.query("grid_eff", grid_eff);
+        pp.query("regrid_int", params_.regrid_int);
+        pp.query("plot_int", params_.plot_int);
+        pp.query("begin_plot", params_.begin_plot);
 
         // Read in the n_error_buf
         int cnt = pp.countval("n_error_buf");
@@ -441,6 +451,28 @@ void AmrCoreLBM::ReadParameters() {
         int n = pp.countval("err");
         if (n > 0) {
             pp.getarr("err", err, 0, n);
+        }
+    }
+
+    {
+        ParmParse pp_ckpt("checkpoint");
+        pp_ckpt.query("chk_int", params_.chk_int);
+        pp_ckpt.query("begin_step", params_.begin_step);
+        pp_ckpt.query("chk_prefix", params_.chk_prefix);
+        pp_ckpt.query("keep_latest_only", params_.keep_latest_only);
+        pp_ckpt.query("write_particles", params_.write_particles);
+
+        if (amrex::ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "[Params] checkpoint:\n"
+                           << "  begin_step       = " << params_.begin_step << "\n"
+                           << "  chk_int          = " << params_.chk_int << "\n"
+                           << "  chk_prefix       = '" << params_.chk_prefix << "'\n"
+                           << "  keep_latest_only = " << (params_.keep_latest_only ? "true" : "false") << "\n"
+                           << "  write_particles  = " << (params_.write_particles ? "true" : "false") << "\n";
+            amrex::Print() << "[Params] amr:\n"
+                           << "  plot_int         = " << params_.plot_int << "\n"
+                           << "  begin_plot       = " << params_.begin_plot << "\n"
+                           << "  regrid_int       = " << params_.regrid_int << "\n";
         }
     }
 }
@@ -1324,5 +1356,202 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
             // state_error_5(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
             state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
         });
+    }
+}
+
+void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
+    const std::string level_prefix = "Level_";
+    const bool isIOP = ParallelDescriptor::IOProcessor();
+    const std::string out_chkname = amrex::Concatenate(params_.chk_prefix, step, 8);
+    const bool write_particles = params_.write_particles;
+
+    if (isIOP) {
+        amrex::Print() << "[Checkpoint] Writing '" << out_chkname
+                       << "' step=" << step << " time=" << time << '\n';
+
+        amrex::UtilCreateCleanDirectory(out_chkname, false);
+
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            const std::string level_dir = out_chkname + "/" + level_prefix + std::to_string(lev);
+            amrex::UtilCreateDirectory(level_dir, 0755);
+        }
+
+        if (write_particles) {
+            for (int i = 0; i < particle_num; ++i) {
+                const std::string pdir = out_chkname + "/particles_" + std::to_string(i);
+                amrex::UtilCreateDirectory(pdir, 0755);
+            }
+        }
+    }
+    ParallelDescriptor::Barrier();
+
+    if (isIOP) {
+        std::ofstream header(out_chkname + "/Header", std::ios::out | std::ios::trunc);
+        if (!header.is_open()) {
+            amrex::Print() << "[Checkpoint][ERROR] Cannot open '" << out_chkname
+                           << "/Header' for writing. Abort checkpoint write for this step.\n";
+            return;
+        }
+        header.precision(17);
+        header << "LBMCheckpoint" << '\n';
+        header << step << '\n';
+        header << time << '\n';
+        header << finest_level << '\n';
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            boxArray(lev).writeOn(header);
+            header << '\n';
+            DistributionMap(lev).writeOn(header);
+            header << '\n';
+        }
+        header.flush();
+    }
+
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        VisMF::Write(f_old[lev], MultiFabFileFullPrefix(lev, out_chkname, level_prefix, "f_old"));
+        VisMF::Write(f_new[lev], MultiFabFileFullPrefix(lev, out_chkname, level_prefix, "f_new"));
+    }
+
+    if (!write_particles) {
+        if (isIOP) {
+            amrex::Print() << "[Checkpoint] Skip particle containers (checkpoint.write_particles=0)\n";
+        }
+    } else {
+        for (int i = 0; i < particle_num; ++i) {
+            if (particles[i]) {
+                const std::string pname = "particles_" + std::to_string(i);
+                particles[i]->Checkpoint(out_chkname, pname);
+            }
+        }
+    }
+    ParallelDescriptor::Barrier();
+
+    if (params_.keep_latest_only && isIOP) {
+        DIR* dir = opendir(".");
+        if (dir) {
+            struct dirent* entry;
+            int removed_count = 0;
+            const auto is_chk_dir = [&](const std::string& name) {
+                if (name == out_chkname) {
+                    return false;
+                }
+                if (name.rfind(params_.chk_prefix, 0) != 0) {
+                    return false;
+                }
+                if (name.size() <= params_.chk_prefix.size()) {
+                    return false;
+                }
+                return std::all_of(name.begin() + params_.chk_prefix.size(), name.end(),
+                                   [](unsigned char ch) { return std::isdigit(ch); });
+            };
+
+            while ((entry = readdir(dir)) != nullptr) {
+                std::string name(entry->d_name);
+                if (is_chk_dir(name)) {
+                    amrex::Print() << "[Checkpoint] Removing old checkpoint directory '" << name << "'\n";
+                    std::string cmd = "rm -rf '" + name + "'";
+                    int rc = std::system(cmd.c_str());
+                    if (rc != 0) {
+                        amrex::Print() << "[Checkpoint][WARN] Failed to remove '" << name
+                                       << "' rc=" << rc << '\n';
+                    } else {
+                        ++removed_count;
+                    }
+                }
+            }
+            closedir(dir);
+            amrex::Print() << "[Checkpoint] Old checkpoint cleanup done. removed=" << removed_count << "\n";
+        } else {
+            amrex::Print() << "[Checkpoint][WARN] Could not open current directory for deleting old checkpoints\n";
+        }
+    }
+}
+
+void AmrCoreLBM::ReadCheckpoint() {
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params_.begin_step > 0,
+                                     "checkpoint.begin_step must be > 0 when restarting.");
+    const std::string chkname = amrex::Concatenate(params_.chk_prefix, params_.begin_step, 8);
+    const std::string header_file = chkname + "/Header";
+
+    if (!amrex::FileExists(header_file)) {
+        amrex::Abort("[Checkpoint] Specified restart directory '" + chkname + "' is missing Header file.");
+    }
+
+    if (ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "[Checkpoint] Restart directory resolved to '" << chkname
+                       << "' (begin_step=" << params_.begin_step << ")" << std::endl;
+    }
+
+    amrex::Vector<char> header_chars;
+    ParallelDescriptor::ReadAndBcastFile(header_file, header_chars);
+    std::string header_str(header_chars.dataPtr());
+    std::istringstream is(header_str);
+
+    std::string label;
+    std::getline(is, label);
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(label == "LBMCheckpoint", "Invalid checkpoint header");
+
+    {
+        std::string tmp;
+        std::getline(is, tmp);
+    }
+    {
+        std::string tmp;
+        std::getline(is, tmp);
+    }
+
+    int finest_in_file;
+    is >> finest_in_file;
+    {
+        std::string tmp;
+        std::getline(is, tmp);
+    }
+
+    amrex::Vector<amrex::BoxArray> ba_file(finest_in_file + 1);
+    amrex::Vector<amrex::DistributionMapping> dm_file(finest_in_file + 1);
+    for (int lev = 0; lev <= finest_in_file; ++lev) {
+        ba_file[lev].readFrom(is);
+        {
+            std::string tmp;
+            std::getline(is, tmp);
+        }
+        dm_file[lev].readFrom(is);
+        {
+            std::string tmp;
+            std::getline(is, tmp);
+        }
+    }
+
+    SetFinestLevel(finest_in_file);
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        SetBoxArray(lev, ba_file[lev]);
+        SetDistributionMap(lev, dm_file[lev]);
+    }
+
+    const std::string level_prefix = "Level_";
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        ClearLevel(lev);
+        f_old[lev].define(boxArray(lev), DistributionMap(lev), Q, nghost);
+        f_new[lev].define(boxArray(lev), DistributionMap(lev), Q, nghost);
+        velocity[lev].define(boxArray(lev), DistributionMap(lev), AMREX_SPACEDIM, nghost);
+        density[lev].define(boxArray(lev), DistributionMap(lev), 1, nghost);
+        vorticity[lev].define(boxArray(lev), DistributionMap(lev), 2, nghost);
+        shear[lev].define(boxArray(lev), DistributionMap(lev), 1, nghost);
+        force[lev].define(boxArray(lev), DistributionMap(lev), AMREX_SPACEDIM, nghost);
+
+        VisMF::Read(f_old[lev], MultiFabFileFullPrefix(lev, chkname, level_prefix, "f_old"));
+        VisMF::Read(f_new[lev], MultiFabFileFullPrefix(lev, chkname, level_prefix, "f_new"));
+
+        velocity[lev].setVal(0.0, nghost);
+        density[lev].setVal(0.0, nghost);
+        vorticity[lev].setVal(0.0, nghost);
+        shear[lev].setVal(0.0, nghost);
+        force[lev].setVal(0.0, nghost);
+    }
+
+    for (int i = 0; i < particle_num; ++i) {
+        const std::string pname = "particles_" + std::to_string(i);
+        particles[i].reset();
+        particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
+        particles[i]->Restart(chkname, pname);
     }
 }
