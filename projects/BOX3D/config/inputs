@@ -2,24 +2,24 @@
 # Run until nsteps == max_step or time == stop_time,
 #     whichever comes first
 # *****************************************************************
-max_step  = 220000
+max_step  = 64000
 stop_time = 2500000.0
 
 amr.regrid_int  = 32
 
 amr.grid_eff          = 0.7 
 amr.n_error_buf       = 0 0 0 0 0
-amr.max_grid_size     = 64 32 32 32
+amr.max_grid_size     = 64 64 64 64
 amr.blocking_factor_x = 16 32 32 32
 amr.blocking_factor_y = 16 32 32 32
 amr.blocking_factor_z = 16 32 32 32
 
-amr.plot_file  = data/case_Re1_4p_
-amr.plot_int   = 20000
+amr.plot_file  = data32qi/case_Re1_4p_
+amr.plot_int   = 1000
 amr.begin_plot = 0
 
-checkpoint.begin_step = 200000
-checkpoint.chk_int = 1000
+checkpoint.begin_step = 0
+checkpoint.chk_int = 100000
 checkpoint.chk_prefix = chk
 checkpoint.keep_latest_only = true
 checkpoint.write_particles = true
