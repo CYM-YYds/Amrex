@@ -137,7 +137,7 @@ private:
 
     std::string plot_file {"plt"};    
 
-    int nghost = 2;
+    int nghost = 4;
     int particle_num = 1;
   
     amrex::Vector<amrex::BCRec> bcs;
