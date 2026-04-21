@@ -72,6 +72,7 @@ public:
     void WriteCheckpoint(int step, amrex::Real time) const;
     void ReadCheckpoint();
     const RuntimeParams& params() const { return params_; }
+    int ghostCells() const { return nghost; }
     //********************************************************************//
     //                           mesh function                            //
     //********************************************************************//
@@ -137,7 +138,7 @@ private:
 
     std::string plot_file {"plt"};    
 
-    int nghost = 4;
+    int nghost = 2;
     int particle_num = 1;
   
     amrex::Vector<amrex::BCRec> bcs;
