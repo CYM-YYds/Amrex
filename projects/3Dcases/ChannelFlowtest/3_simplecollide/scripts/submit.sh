@@ -6,8 +6,8 @@
 #DSUB -q root.default
 #DSUB -R cpu=128;mem=41960;gpu=4
 #DSUB -N 1
-#DSUB -o %J-out.log
-#DSUB -e %J-out.log
+#DSUB -o logs/submit/%J-out.log
+#DSUB -e logs/submit/%J-out.log
 
 
 #EXE = 'main3d.gnu.MPI.CUDA.ex'
