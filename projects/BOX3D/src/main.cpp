@@ -247,6 +247,7 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 /*---------------用于计算静止圆球绕流----------------------------------*/
 void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+    const int nghost = lid.ghostCells();
 
     if (lev < max_ref_level) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
@@ -259,10 +260,10 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     // }
 
     lid.Boundary(lev);
-    lid.Collide(lev, 4);
+    lid.Collide(lev, nghost);
     lid.CommunicateLevel(lev);
-    lid.Stream(lev, 4);
-    lid.SwapLevel(lev, 4);
+    lid.Stream(lev, nghost);
+    lid.SwapLevel(lev, nghost);
 
     if (lev < max_ref_level) {
         JaberCycle(lev + 1, cur_time, lid);
@@ -286,10 +287,10 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     // }
 
     lid.Boundary(lev);
-    lid.Collide(lev, 4);
+    lid.Collide(lev, nghost);
     lid.CommunicateLevel(lev);
-    lid.Stream(lev, 4);
-    lid.SwapLevel(lev, 4);
+    lid.Stream(lev, nghost);
+    lid.SwapLevel(lev, nghost);
 
     if (lev < max_ref_level) {
         JaberCycle(lev + 1, cur_time, lid);
@@ -359,6 +360,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 /*---------------用于计算多颗粒自由运动----------------------------------*/
 void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+    const int nghost = lid.ghostCells();
 
     if (lev < max_ref_level) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
@@ -372,10 +374,10 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
-    lid.Collide(lev, 4);
+    lid.Collide(lev, nghost);
     lid.CommunicateLevel(lev);
-    lid.Stream(lev, 4);
-    lid.SwapLevel(lev, 4);
+    lid.Stream(lev, nghost);
+    lid.SwapLevel(lev, nghost);
 
     if (lev < max_ref_level) {
         JaberCycleMultiParticle(lev + 1, cur_time, lid);
@@ -400,10 +402,10 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
-    lid.Collide(lev, 4);
+    lid.Collide(lev, nghost);
     lid.CommunicateLevel(lev);
-    lid.Stream(lev, 4);
-    lid.SwapLevel(lev, 4);
+    lid.Stream(lev, nghost);
+    lid.SwapLevel(lev, nghost);
 
     if (lev < max_ref_level) {
         JaberCycleMultiParticle(lev + 1, cur_time, lid);
