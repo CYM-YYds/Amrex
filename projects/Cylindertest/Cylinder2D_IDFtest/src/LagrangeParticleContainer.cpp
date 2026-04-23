@@ -436,8 +436,13 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
             // 计算壁面法向和切向单位向量
             const Real nx = std::cos(theta);
             const Real ny = std::sin(theta);
-            const Real tx = ny; // 切向向量（顺时针90度）
-            const Real ty = -nx;
+            // 切向正方向与 ComputeCf_from_force_pressure 对齐：自动翻转，使 tx >= 0
+            Real tx = std::sin(theta);
+            Real ty = -std::cos(theta);
+            if (tx < 0.0) {
+                tx = -tx;
+                ty = -ty;
+            }
 
             // 在离壁面不同距离处采样速度
             const Real d1 = 2 * delta; // 近壁面采样点
@@ -552,7 +557,8 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
             }
             cf_file.close();
 
-            // 粘性阻力系数：Cd_v = 0.5 * ∮ Cf(θ) sin(θ) dθ
+            // 粘性阻力系数：当前切向定义对应 t_x = |sin(theta)|
+            // Cd_v = 0.5 * ∮ Cf(θ) |sin(θ)| dθ
             // 这里采用按 theta 排序后的梯形积分，并补上周期闭合段
             Real cdv = 0.0;
             const int ntheta = static_cast<int>(entries.size());
@@ -560,15 +566,15 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
                 for (int t = 0; t < ntheta - 1; ++t) {
                     const Real th0 = entries[t][0];
                     const Real th1 = entries[t + 1][0];
-                    const Real f0 = entries[t][1] * std::sin(th0);
-                    const Real f1 = entries[t + 1][1] * std::sin(th1);
+                    const Real f0 = entries[t][1] * std::abs(std::sin(th0));
+                    const Real f1 = entries[t + 1][1] * std::abs(std::sin(th1));
                     cdv += 0.5 * (f0 + f1) * (th1 - th0);
                 }
 
                 const Real th_last = entries[ntheta - 1][0];
                 const Real th_first = entries[0][0] + 2.0 * PI;
-                const Real f_last = entries[ntheta - 1][1] * std::sin(th_last);
-                const Real f_first = entries[0][1] * std::sin(entries[0][0]);
+                const Real f_last = entries[ntheta - 1][1] * std::abs(std::sin(th_last));
+                const Real f_first = entries[0][1] * std::abs(std::sin(entries[0][0]));
                 cdv += 0.5 * (f_last + f_first) * (th_first - th_last);
                 cdv *= 0.5;
             }
