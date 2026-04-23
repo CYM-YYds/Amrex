@@ -1,0 +1,11 @@
+metric	total_seconds
+windows	64
+JaberCycle_windows	64
+Interp.	3162.052122970
+Average	1525.262807910
+Comm.	528.158932347
+Collide	2055.416119640
+Stream	1011.503232020
+Boundary	680.985096365
+Solv.	8967.589085900
+JaberCycle_time	8967.589086000

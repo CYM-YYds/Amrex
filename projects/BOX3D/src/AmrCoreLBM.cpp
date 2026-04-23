@@ -1012,8 +1012,8 @@ void AmrCoreLBM::Collide(int lev, int n) {
         const Array4<Real>& Ft = force_lev.array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            // collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-            collide_cumulant(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+            collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+            // collide_cumulant(i, j, k, fold, s, Ft, tau_lev, dt, hi);
             // collide_cumulant_opt2(i, j, k, fold, s, Ft, tau_lev, dt, hi);
         });
     }
