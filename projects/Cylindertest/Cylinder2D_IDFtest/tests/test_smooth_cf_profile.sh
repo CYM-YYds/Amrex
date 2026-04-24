@@ -25,6 +25,7 @@ cat > "$input" <<'DATA'
 DATA
 
 python3 "$case_dir/scripts/smooth_cf_profile.py" "$input" \
+    --method split-fourier \
     --keep-modes 1 \
     --output "$output"
 
@@ -33,8 +34,9 @@ if [[ ! -s "$output" ]]; then
     exit 1
 fi
 
-grep -q "# smoothing_method      = fourier_lowpass" "$output"
+grep -q "# smoothing_method      = split_fourier_lowpass" "$output"
 grep -q "# keep_modes            = 1" "$output"
+grep -q "# split_boundary        = theta=0, no cross-boundary filtering" "$output"
 grep -q "# theta(rad).*Cf_smooth" "$output"
 
 data_rows="$(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "$output")"

@@ -6,7 +6,7 @@ import argparse
 import cmath
 import math
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import List, Sequence, Tuple
 
 
 def default_output_path(path: Path) -> Path:
@@ -117,6 +117,26 @@ def fourier_lowpass_pure_python(values: Sequence[float], keep_modes: int) -> Lis
     return smoothed
 
 
+def split_fourier_lowpass(theta: Sequence[float], values: Sequence[float], keep_modes: int) -> List[float]:
+    if len(theta) != len(values):
+        raise ValueError("theta and values must have the same length")
+
+    smoothed = list(values)
+    negative_indices = [i for i, th in enumerate(theta) if th < 0.0]
+    positive_indices = [i for i, th in enumerate(theta) if th > 0.0]
+
+    for indices in (negative_indices, positive_indices):
+        if not indices:
+            continue
+        side_values = [values[i] for i in indices]
+        side_keep_modes = min(keep_modes, len(side_values) // 2)
+        side_smoothed = fourier_lowpass(side_values, side_keep_modes)
+        for index, value in zip(indices, side_smoothed):
+            smoothed[index] = value
+
+    return smoothed
+
+
 def periodic_integral(theta: Sequence[float], values: Sequence[float]) -> float:
     if len(theta) != len(values):
         raise ValueError("theta and values must have the same length")
@@ -163,6 +183,7 @@ def write_output(
     cdv_like_before: float,
     cdv_like_after: float,
     preserve_cdv_like: bool,
+    method: str,
 ) -> None:
     with path.open("w", encoding="utf-8") as fh:
         for line in header_lines:
@@ -170,8 +191,11 @@ def write_output(
                 continue
             fh.write(f"{line}\n")
 
-        fh.write("# smoothing_method      = fourier_lowpass\n")
+        smoothing_method = "split_fourier_lowpass" if method == "split-fourier" else "fourier_lowpass"
+        fh.write(f"# smoothing_method      = {smoothing_method}\n")
         fh.write(f"# keep_modes            = {keep_modes}\n")
+        if method == "split-fourier":
+            fh.write("# split_boundary        = theta=0, no cross-boundary filtering\n")
         fh.write(f"# preserve_cdv_like     = {'yes' if preserve_cdv_like else 'no'}\n")
         fh.write(f"# cf_theta_integral_raw = {format_float(cf_integral_before)}\n")
         fh.write(f"# cf_theta_integral_smooth = {format_float(cf_integral_after)}\n")
@@ -185,7 +209,8 @@ def write_output(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Smooth a periodic cylinder Cf(theta) profile with Fourier low-pass filtering. "
+            "Smooth a cylinder Cf(theta) profile with Fourier low-pass filtering. "
+            "The default split mode is intended for tx>=0 folded Cf definitions. "
             "The original columns are preserved and a Cf_smooth column is appended."
         )
     )
@@ -207,6 +232,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of positive Fourier modes to keep, plus the mean mode (default: 32)",
     )
     parser.add_argument(
+        "--method",
+        choices=("split-fourier", "periodic-fourier"),
+        default="split-fourier",
+        help=(
+            "Smoothing method. split-fourier filters theta<0 and theta>0 separately "
+            "for tx>=0 folded Cf profiles; periodic-fourier treats the full profile "
+            "as one periodic signal (default: split-fourier)."
+        ),
+    )
+    parser.add_argument(
         "--preserve-cdv-like",
         action="store_true",
         help="Scale Cf_smooth so integral Cf_smooth*abs(sin(theta)) dtheta matches the raw value",
@@ -224,7 +259,10 @@ def main() -> int:
 
     theta = [row[theta_index] for row in rows]
     cf = [row[cf_index] for row in rows]
-    smoothed = fourier_lowpass(cf, args.keep_modes)
+    if args.method == "split-fourier":
+        smoothed = split_fourier_lowpass(theta, cf, args.keep_modes)
+    else:
+        smoothed = fourier_lowpass(cf, args.keep_modes)
 
     cf_integral_before = periodic_integral(theta, cf)
     cdv_like_before = weighted_abs_sin_integral(theta, cf)
@@ -250,11 +288,13 @@ def main() -> int:
         cdv_like_before,
         cdv_like_after,
         args.preserve_cdv_like,
+        args.method,
     )
 
     print(f"input={args.input}")
     print(f"output={output}")
     print(f"rows={len(rows)} keep_modes={args.keep_modes}")
+    print(f"method={args.method}")
     print(f"cf_theta_integral_raw={format_float(cf_integral_before)}")
     print(f"cf_theta_integral_smooth={format_float(cf_integral_after)}")
     print(f"cdv_like_abs_sin_raw={format_float(cdv_like_before)}")
