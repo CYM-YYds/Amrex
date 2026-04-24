@@ -513,6 +513,18 @@ Real delta3p(amrex::Real r) {
 
 AMREX_GPU_HOST_DEVICE
 AMREX_FORCE_INLINE
+Real delta3pSmoothed(Real r) {
+    r = fabs(r);
+    if (r <= 1.0)
+        return (17. / 48. + sqrt(3.) * PI / 108. + r / 4. - r * r / 4. + (1. - 2. * r) / 16. * sqrt(-12. * r * r + 12. * r + 1.) - sqrt(3.) / 12. * asin(sqrt(3.) / 2. * (2. * r - 1.)));
+    else if (r <= 2.0)
+        return (55. / 48. - sqrt(3.) * PI / 108. - 13. * r / 12. + r * r / 4. + (2. * r - 3.) / 48. * sqrt(-12. * r * r + 36. * r - 23.) + sqrt(3.) / 36. * asin(sqrt(3.) / 2. * (2. * r - 3.)));
+    else
+        return 0.0;
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
 Real delta2p(amrex::Real r) {
     r = fabs(r);
     if (r <= 1.0)

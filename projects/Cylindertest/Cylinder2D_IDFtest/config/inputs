@@ -2,7 +2,7 @@
 # Run until nsteps == max_step or time == stop_time,
 #     whichever comes first
 # *****************************************************************
-max_step  = 900000
+max_step  = 600000
 #max_step  = 5000
 stop_time = 1000000.0
 
@@ -17,9 +17,9 @@ amr.blocking_factor_y = 32
 amr.blocking_factor_z = 32
 
 amr.plot_file  = data/cyl_lev3_Re40_
-amr.begin_int  = 20000
+amr.begin_int  = 0
 amr.plot_int   = 10000
-checkpoint.begin_step = 0
+checkpoint.begin_step = 500000
 checkpoint.chk_int = 20000
 checkpoint.chk_prefix = chk
 checkpoint.keep_latest_only = true
