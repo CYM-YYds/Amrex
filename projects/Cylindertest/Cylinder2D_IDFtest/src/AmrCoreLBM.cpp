@@ -1450,8 +1450,8 @@ void AmrCoreLBM::SumForce(int lev) {
 void AmrCoreLBM::ComputeParticle(int lev) {
     CommunicateLevel(lev);
     ComputeMacroLevel(lev);
-    ApplyIDF(lev);
-    // InterpForce(lev);
+    // ApplyIDF(lev);
+    InterpForce(lev);
 }
 
 void AmrCoreLBM::ReduceFxy(int lev, int step) {
@@ -1582,7 +1582,7 @@ void AmrCoreLBM::BuildActiveEulerSet(int lev) {
 
                 Real lx = xt - (xx + 0.5);
                 Real ly = yt - (yy + 0.5);
-                Real IB_Interp = delta3p(lx) * delta3p(ly);
+                Real IB_Interp = delta3pSmoothed(lx) * delta3pSmoothed(ly);
 
                 if (IB_Interp > 1e-15) {
                     local_euler_set.insert(iv);
@@ -1872,7 +1872,7 @@ void AmrCoreLBM::IDF_AssembleMatrix(int lev) {
                 int eidx = it->second;
                 Real lx = xt - (iv[0] + 0.5);
                 Real ly = yt - (iv[1] + 0.5);
-                Real wI = delta3p(lx) * delta3p(ly);
+                Real wI = delta3pSmoothed(lx) * delta3pSmoothed(ly);
                 Real wE = wI * IB_weight;
 
                 if (std::abs(wI) > 1e-15) {
