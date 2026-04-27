@@ -200,7 +200,9 @@ void LagrangeParticleContainer::SaveFxy(int lev, int step) {
     const auto coeffs = ComputeGlobalForceCoefficients(*this);
 
     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
-        std::ofstream file(kCdClFile, step == 1 ? std::ios::trunc : std::ios::app);
+        static bool cdcl_file_initialized = false;
+        const auto open_mode = cdcl_file_initialized ? std::ios::app : std::ios::trunc;
+        std::ofstream file(kCdClFile, open_mode);
 
         if (!file.is_open()) {
             std::cerr << "Cannot open the file: " << kCdClFile << std::endl;
@@ -209,6 +211,7 @@ void LagrangeParticleContainer::SaveFxy(int lev, int step) {
 
         file << step << "\t" << coeffs.cd << "\t" << coeffs.cl << "\n";
         file.close();
+        cdcl_file_initialized = true;
     }
 }
 
