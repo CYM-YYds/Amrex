@@ -6,7 +6,7 @@
 所有脚本都支持：
 
 ```bash
-python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/<script>.py --help
+python3 scripts/Cylinder2Dscripts/<script>.py --help
 ```
 
 查看当前参数说明。
@@ -18,7 +18,7 @@ python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/<script>.py --help
 基本用法：
 
 ```bash
-python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/analyze_cd_convergence.py \
+python3 scripts/Cylinder2Dscripts/analyze_cd_convergence.py \
   projects/Cylindertest/Cylinder2D_IDFtest/CdCl.dat
 ```
 
@@ -30,7 +30,7 @@ python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/analyze_cd_convergence.
 示例：
 
 ```bash
-python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/analyze_cd_convergence.py \
+python3 scripts/Cylinder2Dscripts/analyze_cd_convergence.py \
   projects/Cylindertest/Cylinder2D_IDFtest/CdCl.dat \
   --interval 1000 \
   --rel-tol 1e-6
@@ -45,7 +45,7 @@ python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/analyze_cd_convergence.
 基本用法：
 
 ```bash
-python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/smooth_cf_profile.py \
+python3 scripts/Cylinder2Dscripts/smooth_cf_profile.py \
   projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000.dat
 ```
 
@@ -59,6 +59,7 @@ Cf_steady2_step523000_smooth.dat
 
 - `--output <path>`：指定输出文件路径。
 - `--column Cf`：指定要平滑的列，可以是列名子串或 1-based 列号；默认匹配 `Cf`。
+- `--theta-column theta`：指定角度列，可以是列名子串或 1-based 列号；默认使用表头中第一个 `theta*` 列，因此 `_retheta.dat` 文件会默认使用 `theta_new(rad)`。
 - `--keep-modes 32`：保留的正频傅里叶模态数，默认 `32`。
 - `--method split-fourier`：默认方法，分别平滑 `theta < 0` 和 `theta > 0` 两侧，适合当前 `tx>=0` 折叠后的 Cf 定义。
 - `--method periodic-fourier`：把整条曲线当作一个周期信号平滑。
@@ -67,7 +68,7 @@ Cf_steady2_step523000_smooth.dat
 示例：
 
 ```bash
-python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/smooth_cf_profile.py \
+python3 scripts/Cylinder2Dscripts/smooth_cf_profile.py \
   projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000.dat \
   --keep-modes 12 \
   --preserve-cdv-like \
@@ -83,7 +84,7 @@ python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/smooth_cf_profile.py \
 基本用法：
 
 ```bash
-python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/smooth_cf_profile_folded_periodic.py \
+python3 scripts/Cylinder2Dscripts/smooth_cf_profile_folded_periodic.py \
   projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000.dat
 ```
 
@@ -93,13 +94,14 @@ python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/smooth_cf_profile_folde
 
 - `--output <path>`：指定输出文件路径。
 - `--column Cf`：指定要平滑的 Cf 列，可以是列名子串或 1-based 列号。
+- `--theta-column theta`：指定角度列；默认使用表头中第一个 `theta*` 列，因此 `_retheta.dat` 文件会默认使用 `theta_new(rad)`，如果要按原始角度处理可传 `--theta-column 'theta(rad)'`。
 - `--keep-modes 32`：保留的正频傅里叶模态数，默认 `32`。
 - `--preserve-cdv-like`：缩放最终折回后的 `Cf_smooth`，保持 `integral Cf_smooth*abs(sin(theta)) dtheta` 与原始值一致。
 
 示例：
 
 ```bash
-python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/smooth_cf_profile_folded_periodic.py \
+python3 scripts/Cylinder2Dscripts/smooth_cf_profile_folded_periodic.py \
   projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000.dat \
   --keep-modes 12 \
   --output projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000_folded_periodic_k12.dat
@@ -120,7 +122,7 @@ theta_new = MOD(PI() - theta(rad) + PI(), 2*PI()) - PI()
 基本用法：
 
 ```bash
-python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/sort_by_redefined_theta.py \
+python3 scripts/Cylinder2Dscripts/sort_by_redefined_theta.py \
   projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000.dat
 ```
 
@@ -140,7 +142,7 @@ Cf_steady2_step523000_retheta.dat
 示例：
 
 ```bash
-python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/sort_by_redefined_theta.py \
+python3 scripts/Cylinder2Dscripts/sort_by_redefined_theta.py \
   projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000_smooth_k12.dat \
   --output projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000_smooth_k12_retheta.dat
 ```
@@ -150,12 +152,12 @@ python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/sort_by_redefined_theta
 如果要先平滑 Cf，再按新角度排序，可以按以下顺序执行：
 
 ```bash
-python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/smooth_cf_profile_folded_periodic.py \
+python3 scripts/Cylinder2Dscripts/smooth_cf_profile_folded_periodic.py \
   projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000.dat \
   --keep-modes 12 \
   --output projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000_smooth_k12.dat
 
-python3 projects/Cylindertest/Cylinder2D_IDFtest/scripts/sort_by_redefined_theta.py \
+python3 scripts/Cylinder2Dscripts/sort_by_redefined_theta.py \
   projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000_smooth_k12.dat \
   --output projects/Cylindertest/Cylinder2D_IDFtest/Cf_steady2_step523000_smooth_k12_retheta.dat
 ```

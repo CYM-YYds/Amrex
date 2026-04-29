@@ -56,6 +56,12 @@ Submit on the cluster:
 dsub -s ./scripts/submit.sh
 ```
 
+Build and submit in one step:
+
+```bash
+./scripts/compile.sh --submit
+```    
+
 Important notes:
 
 - The root `scripts/compile.sh` is the real build entrypoint; case-local compile scripts are wrappers.

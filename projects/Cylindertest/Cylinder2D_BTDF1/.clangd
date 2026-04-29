@@ -44,11 +44,11 @@ CompileFlags:
 
 ---
 If:
-  # Skip files outside this case root.
-  PathMatch: ^\.\./.*
+  # Index only this case root using absolute path.
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/Cylindertest/Cylinder2D_BTDF1/.*
 
 Index:
-  Background: Skip
+  Background: Build
 
 ---
 If:
@@ -57,3 +57,11 @@ If:
 
 Index:
   Background: Build
+
+---
+If:
+  # Skip other repository paths to reduce cross-case symbol pollution.
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/.*
+
+Index:
+  Background: Skip

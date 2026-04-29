@@ -7,14 +7,19 @@
 #include <AMReX_MFIter.H>
 #include <AMReX_ParIter.H>
 #include <AMReX_GpuContainers.H> // 用于 Gpu::PinnedVector
+#include <AMReX_Utility.H>
 
 #include <mpi.h> // 显式包含 MPI 用于 Allgatherv
+#include <dirent.h>
+#include <cctype>
+#include <cstdlib>
 #include <set>
 #include <cmath>
+#include <fstream>
+#include <sstream>
 #include <vector>
 #include <map>
 // #include <unordered_map>
-// #include <fstream>   // 用于输出矩阵到文件
 #include <algorithm> // 用于 std::sort, std::min_element
 #include <numeric>   // 用于 std::iota
 
@@ -386,6 +391,37 @@ AmrCoreLBM::AmrCoreLBM() {
 }
 AmrCoreLBM::~AmrCoreLBM() = default;
 
+void AmrCoreLBM::ResetIDFCheckpointState() {
+    idf_interp_u_x.clear();
+    idf_interp_u_y.clear();
+    idf_interp_rho.clear();
+    idf_target_u_x.clear();
+    idf_target_u_y.clear();
+    idf_rhs_x.clear();
+    idf_rhs_y.clear();
+    idf_sol_x.clear();
+    idf_sol_y.clear();
+    idf_A.clear();
+    idf_A_inv.clear();
+    idf_lag_pos_global.clear();
+    idf_all_NL.clear();
+    idf_active_euler_nodes.clear();
+    idf_euler_index_map.clear();
+    idf_active_euler_nodes_global.clear();
+    idf_euler_index_map_global.clear();
+
+    idf_inverse_built = false;
+    idf_matrix_built = false;
+    idf_geometry_built = false;
+    idf_local_count_valid = false;
+
+    idf_NL_global = 0;
+    idf_local_offset = 0;
+    idf_local_NL = 0;
+    idf_NE = 0;
+    idf_NE_global = 0;
+}
+
 //********************************************************************//
 //                           help function                            //
 //********************************************************************//
@@ -621,6 +657,35 @@ void AmrCoreLBM::ReadParameters() {
             pp.getarr("err", err, 0, n);
         }
     }
+
+    {
+        ParmParse pp_amr("amr");
+        pp_amr.query("regrid_int", params_.regrid_int);
+        pp_amr.query("plot_int", params_.plot_int);
+        pp_amr.query("begin_int", params_.begin_int);
+    }
+
+    {
+        ParmParse pp_ckpt("checkpoint");
+        pp_ckpt.query("chk_int", params_.chk_int);
+        pp_ckpt.query("begin_step", params_.begin_step);
+        pp_ckpt.query("chk_prefix", params_.chk_prefix);
+        pp_ckpt.query("keep_latest_only", params_.keep_latest_only);
+        pp_ckpt.query("write_particles", params_.write_particles);
+
+        if (amrex::ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "[Params] checkpoint:\n"
+                           << "  begin_step       = " << params_.begin_step << "\n"
+                           << "  chk_int          = " << params_.chk_int << "\n"
+                           << "  chk_prefix       = '" << params_.chk_prefix << "'\n"
+                           << "  keep_latest_only = " << (params_.keep_latest_only ? "true" : "false") << "\n"
+                           << "  write_particles  = " << (params_.write_particles ? "true" : "false") << "\n";
+            amrex::Print() << "[Params] amr:\n"
+                           << "  plot_int         = " << params_.plot_int << "\n"
+                           << "  begin_int        = " << params_.begin_int << "\n"
+                           << "  regrid_int       = " << params_.regrid_int << "\n";
+        }
+    }
 }
 
 void AmrCoreLBM::WriteVelocityFile(const int step, const amrex::Real time) {
@@ -656,6 +721,198 @@ void AmrCoreLBM::WriteVorticityFile(const int step, const amrex::Real time) {
 
 void AmrCoreLBM::WriteParticleFile(const int step, const amrex::Real time) {
     mypc->WriteParticle(step);
+}
+
+void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
+    const std::string level_prefix = "Level_";
+    const bool is_iop = ParallelDescriptor::IOProcessor();
+    const std::string out_chkname = amrex::Concatenate(params_.chk_prefix, step, 8);
+
+    if (is_iop) {
+        amrex::Print() << "[Checkpoint] Writing '" << out_chkname
+                       << "' step=" << step << " time=" << time << '\n';
+
+        amrex::UtilCreateCleanDirectory(out_chkname, false);
+
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            const std::string level_dir = out_chkname + "/" + level_prefix + std::to_string(lev);
+            amrex::UtilCreateDirectory(level_dir, 0755);
+        }
+
+        if (params_.write_particles) {
+            amrex::UtilCreateDirectory(out_chkname + "/particles", 0755);
+        }
+    }
+    ParallelDescriptor::Barrier();
+
+    if (is_iop) {
+        std::ofstream header(out_chkname + "/Header", std::ios::out | std::ios::trunc);
+        if (!header.is_open()) {
+            amrex::Print() << "[Checkpoint][ERROR] Cannot open '" << out_chkname
+                           << "/Header' for writing. Abort checkpoint write for this step.\n";
+            return;
+        }
+
+        header.precision(17);
+        header << "LBMCheckpoint" << '\n';
+        header << step << '\n';
+        header << time << '\n';
+        header << finest_level << '\n';
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            boxArray(lev).writeOn(header);
+            header << '\n';
+            DistributionMap(lev).writeOn(header);
+            header << '\n';
+        }
+        header.flush();
+    }
+
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        VisMF::Write(f_old[lev], MultiFabFileFullPrefix(lev, out_chkname, level_prefix, "f_old"));
+        VisMF::Write(f_new[lev], MultiFabFileFullPrefix(lev, out_chkname, level_prefix, "f_new"));
+    }
+
+    if (params_.write_particles) {
+        if (mypc) {
+            mypc->Checkpoint(out_chkname, "particles");
+        }
+    } else if (is_iop) {
+        amrex::Print() << "[Checkpoint] Skip particle container (checkpoint.write_particles=0)\n";
+    }
+    ParallelDescriptor::Barrier();
+
+    if (params_.keep_latest_only && is_iop) {
+        DIR* dir = opendir(".");
+        if (dir != nullptr) {
+            struct dirent* entry;
+            int removed_count = 0;
+            const auto is_chk_dir = [&](const std::string& name) {
+                if (name == out_chkname) {
+                    return false;
+                }
+                if (name.rfind(params_.chk_prefix, 0) != 0) {
+                    return false;
+                }
+                if (name.size() <= params_.chk_prefix.size()) {
+                    return false;
+                }
+                return std::all_of(name.begin() + params_.chk_prefix.size(), name.end(),
+                                   [](unsigned char ch) { return std::isdigit(ch); });
+            };
+
+            while ((entry = readdir(dir)) != nullptr) {
+                std::string name(entry->d_name);
+                if (!is_chk_dir(name)) {
+                    continue;
+                }
+
+                amrex::Print() << "[Checkpoint] Removing old checkpoint directory '" << name << "'\n";
+                std::string cmd = "rm -rf '" + name + "'";
+                int rc = std::system(cmd.c_str());
+                if (rc != 0) {
+                    amrex::Print() << "[Checkpoint][WARN] Failed to remove '" << name
+                                   << "' rc=" << rc << '\n';
+                } else {
+                    ++removed_count;
+                }
+            }
+            closedir(dir);
+            amrex::Print() << "[Checkpoint] Old checkpoint cleanup done. removed=" << removed_count << "\n";
+        } else {
+            amrex::Print() << "[Checkpoint][WARN] Could not open current directory for deleting old checkpoints\n";
+        }
+    }
+}
+
+void AmrCoreLBM::ReadCheckpoint() {
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params_.begin_step > 0,
+                                     "checkpoint.begin_step must be > 0 when restarting.");
+
+    const std::string chkname = amrex::Concatenate(params_.chk_prefix, params_.begin_step, 8);
+    const std::string header_file = chkname + "/Header";
+    if (!amrex::FileExists(header_file)) {
+        amrex::Abort("[Checkpoint] Specified restart directory '" + chkname + "' is missing Header file.");
+    }
+
+    if (ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "[Checkpoint] Restart directory resolved to '" << chkname
+                       << "' (begin_step=" << params_.begin_step << ")\n";
+    }
+
+    amrex::Vector<char> header_chars;
+    ParallelDescriptor::ReadAndBcastFile(header_file, header_chars);
+    std::string header_str(header_chars.dataPtr());
+    std::istringstream is(header_str);
+
+    std::string label;
+    std::getline(is, label);
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(label == "LBMCheckpoint", "Invalid checkpoint header");
+
+    {
+        std::string tmp;
+        std::getline(is, tmp);
+    }
+    {
+        std::string tmp;
+        std::getline(is, tmp);
+    }
+
+    int finest_in_file = 0;
+    is >> finest_in_file;
+    {
+        std::string tmp;
+        std::getline(is, tmp);
+    }
+
+    amrex::Vector<amrex::BoxArray> ba_file(finest_in_file + 1);
+    amrex::Vector<amrex::DistributionMapping> dm_file(finest_in_file + 1);
+    for (int lev = 0; lev <= finest_in_file; ++lev) {
+        ba_file[lev].readFrom(is);
+        {
+            std::string tmp;
+            std::getline(is, tmp);
+        }
+        dm_file[lev].readFrom(is);
+        {
+            std::string tmp;
+            std::getline(is, tmp);
+        }
+    }
+
+    SetFinestLevel(finest_in_file);
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        SetBoxArray(lev, ba_file[lev]);
+        SetDistributionMap(lev, dm_file[lev]);
+    }
+
+    const std::string level_prefix = "Level_";
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        ClearLevel(lev);
+        f_old[lev].define(boxArray(lev), DistributionMap(lev), Q, nghost);
+        f_new[lev].define(boxArray(lev), DistributionMap(lev), Q, nghost);
+        velocity[lev].define(boxArray(lev), DistributionMap(lev), AMREX_SPACEDIM, nghost);
+        density[lev].define(boxArray(lev), DistributionMap(lev), 1, nghost);
+        vorticity[lev].define(boxArray(lev), DistributionMap(lev), 1, nghost);
+        shear[lev].define(boxArray(lev), DistributionMap(lev), 1, nghost);
+        force[lev].define(boxArray(lev), DistributionMap(lev), AMREX_SPACEDIM, nghost);
+
+        VisMF::Read(f_old[lev], MultiFabFileFullPrefix(lev, chkname, level_prefix, "f_old"));
+        VisMF::Read(f_new[lev], MultiFabFileFullPrefix(lev, chkname, level_prefix, "f_new"));
+
+        velocity[lev].setVal(0.0, nghost);
+        density[lev].setVal(0.0, nghost);
+        vorticity[lev].setVal(0.0, nghost);
+        shear[lev].setVal(0.0, nghost);
+        force[lev].setVal(0.0, nghost);
+    }
+
+    mypc.reset();
+    mypc = std::make_unique<LagrangeParticleContainer>(this);
+    if (params_.write_particles) {
+        mypc->Restart(chkname, "particles");
+    }
+
+    ResetIDFCheckpointState();
 }
 //********************************************************************//
 //                           mesh function                            //
@@ -1202,9 +1459,7 @@ void AmrCoreLBM::ReduceFxy(int lev, int step) {
 }
 
 bool AmrCoreLBM::EvaluateConvergence(int lev, int step) {
-    amrex::MultiFab& u_lev = velocity[lev];
-    amrex::MultiFab& rho_lev = density[lev];
-    return mypc->EvaluateConvergence(lev, step, u_lev, rho_lev);
+    return mypc->EvaluateConvergence(lev, step);
 }
 
 void AmrCoreLBM::PrintParticleParm() {
@@ -1226,7 +1481,8 @@ void AmrCoreLBM::ComputeCp(int lev, int step) {
     amrex::MultiFab& rho_lev = density[lev];
     // 填充密度场的 ghost 区域，确保双线性插值时能访问边界外的正确数据
     rho_lev.FillBoundary(Geom(lev).periodicity());
-    mypc->ComputeCp(lev, rho_lev, "Cp_steady.dat");
+    const std::string filename = "Cp_steady_step" + std::to_string(step) + ".dat";
+    mypc->ComputeCp(lev, rho_lev, filename);
 }
 
 void AmrCoreLBM::ComputeCf(int lev, int step) {
@@ -1249,11 +1505,13 @@ void AmrCoreLBM::ComputeCf(int lev, int step) {
     }
 
     // 计算局部摩擦系数
-    mypc->ComputeCf(lev, temp_velocity, "Cf_steady.dat");
+    const std::string filename = "Cf_steady_step" + std::to_string(step) + ".dat";
+    mypc->ComputeCf(lev, temp_velocity, filename);
 }
 
-void AmrCoreLBM::ComputeCf_from_force_pressure(int lev) {
-    mypc->ComputeCf_from_force_pressure(lev, "Cf_steady2.dat");
+void AmrCoreLBM::ComputeCf_from_force_pressure(int lev, int step) {
+    const std::string filename = "Cf_steady2_step" + std::to_string(step) + ".dat";
+    mypc->ComputeCf_from_force_pressure(lev, filename);
 }
 
 // 构建活跃欧拉点集合：遍历所有拉格朗日点，将其 5x5 邻域内落在几何域（非ghost、非越界）的欧拉网格点加入集合（去重）
@@ -1324,7 +1582,7 @@ void AmrCoreLBM::BuildActiveEulerSet(int lev) {
 
                 Real lx = xt - (xx + 0.5);
                 Real ly = yt - (yy + 0.5);
-                Real IB_Interp = delta3p(lx) * delta3p(ly);
+                Real IB_Interp = delta3pSmoothed(lx) * delta3pSmoothed(ly);
 
                 if (IB_Interp > 1e-15) {
                     local_euler_set.insert(iv);
@@ -1614,7 +1872,7 @@ void AmrCoreLBM::IDF_AssembleMatrix(int lev) {
                 int eidx = it->second;
                 Real lx = xt - (iv[0] + 0.5);
                 Real ly = yt - (iv[1] + 0.5);
-                Real wI = delta3p(lx) * delta3p(ly);
+                Real wI = delta3pSmoothed(lx) * delta3pSmoothed(ly);
                 Real wE = wI * IB_weight;
 
                 if (std::abs(wI) > 1e-15) {

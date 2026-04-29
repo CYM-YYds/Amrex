@@ -8,9 +8,58 @@
 #include <cmath>
 #include <fstream>
 #include <iomanip>
-#include <numeric>
+#include <ios>
+#include <ostream>
 #include <vector>
 using namespace amrex;
+
+namespace {
+
+struct GlobalForceCoefficients {
+    Real fx_sum = 0.0;
+    Real fy_sum = 0.0;
+    Real cd = 0.0;
+    Real cl = 0.0;
+};
+
+constexpr char kCdClFile[] = "CdCl.dat";
+
+Real DynamicPressure() {
+    return 0.5 * (p0 / cs2) * U0 * U0;
+}
+
+Real ReferenceDiameter() {
+    return D * dx_0;
+}
+
+Real DragReferenceForce() {
+    return DynamicPressure() * ReferenceDiameter();
+}
+
+GlobalForceCoefficients ComputeGlobalForceCoefficients(const LagrangeParticleContainer& pc) {
+    using SPType = typename LagrangeParticleContainer::SuperParticleType;
+
+    auto fx_sum = amrex::ReduceSum(pc, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
+        return p.rdata(PIdx::fx);
+    });
+
+    auto fy_sum = amrex::ReduceSum(pc, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
+        return p.rdata(PIdx::fy);
+    });
+
+    ParallelDescriptor::ReduceRealSum(fx_sum);
+    ParallelDescriptor::ReduceRealSum(fy_sum);
+
+    const Real force_ref = DragReferenceForce();
+    GlobalForceCoefficients coeffs;
+    coeffs.fx_sum = fx_sum;
+    coeffs.fy_sum = fy_sum;
+    coeffs.cd = fx_sum / force_ref;
+    coeffs.cl = fy_sum / force_ref;
+    return coeffs;
+}
+
+} // namespace
 
 void LagrangeParticleContainer::PrintParticleParm() {
     amrex::Print() << "╔══════════════════════════════════════════════════════╗" << std::endl;
@@ -89,10 +138,10 @@ void LagrangeParticleContainer::DebugPrintForceSum(int lev, int step, int iter) 
     ParallelDescriptor::ReduceRealSum(fy_sum);
 
     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
-        Real m = 0.5 * (p0 / cs2) * U0 * U0 * D * dx_0;
         amrex::Print() << "[DEBUG] Step " << step << " iter " << iter
                        << " Particle fx_sum=" << fx_sum << " fy_sum=" << fy_sum
-                       << " (Cd=" << fx_sum / m << " Cl=" << fy_sum / m << ")" << std::endl;
+                       << " (Cd=" << fx_sum / DragReferenceForce()
+                       << " Cl=" << fy_sum / DragReferenceForce() << ")" << std::endl;
     }
 }
 
@@ -147,33 +196,22 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
 }
 #endif
 void LagrangeParticleContainer::SaveFxy(int lev, int step) {
-    using SPType = typename LagrangeParticleContainer::SuperParticleType;
-
-    auto fx = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
-        return p.rdata(PIdx::fx);
-    });
-
-    auto fy = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
-        return p.rdata(PIdx::fy);
-    });
-
-    ParallelDescriptor::ReduceRealSum(fx);
-    ParallelDescriptor::ReduceRealSum(fy);
+    amrex::ignore_unused(lev);
+    const auto coeffs = ComputeGlobalForceCoefficients(*this);
 
     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
-        Real m = 0.5 * (p0 / cs2) * U0 * U0 * D * dx_0;
-        fx /= m;
-        fy /= m;
-        std::string filename = "CdCl.dat";
-        std::ofstream file(filename, step == 1 ? std::ios::trunc : std::ios::app);
+        static bool cdcl_file_initialized = false;
+        const auto open_mode = cdcl_file_initialized ? std::ios::app : std::ios::trunc;
+        std::ofstream file(kCdClFile, open_mode);
 
         if (!file.is_open()) {
-            std::cerr << "Cannot open the file: " << filename << std::endl;
+            std::cerr << "Cannot open the file: " << kCdClFile << std::endl;
             std::exit(1); // 错误退出
         }
 
-        file << step << "\t" << fx << "\t" << fy << "\n";
+        file << step << "\t" << coeffs.cd << "\t" << coeffs.cl << "\n";
         file.close();
+        cdcl_file_initialized = true;
     }
 }
 
@@ -182,60 +220,60 @@ void LagrangeParticleContainer::WriteParticle(int step) {
     WriteAsciiFile(pltfile);
 }
 
-// 稳态判断：基于 Cd 的历史波动评估收敛性
-bool LagrangeParticleContainer::EvaluateConvergence(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev) {
-    // 近期采样Cd历史与标志（跨多次调用保持）
-    static std::vector<Real> cd_history(30);
-    static bool steady_reached = false;
+// 稳态判断：每隔固定步长比较两次 Cd 采样的相对变化
+bool LagrangeParticleContainer::EvaluateConvergence(int lev, int step) {
+    amrex::ignore_unused(lev);
+    constexpr int min_check_step = 30000;
+    constexpr int check_interval = 1000;
+    constexpr Real cd_rel_change_tol = 1.0e-6;
 
-    using SPType = typename LagrangeParticleContainer::SuperParticleType;
-
-    // 每100步评估一次收敛：最近30个采样内相对波动<0.1%
-    if (!steady_reached && step % 100 == 0) {
-        // 计算当前的 Cd 和 Cl
-        auto fx = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
-            return p.rdata(PIdx::fx);
-        });
-
-        auto fy = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
-            return p.rdata(PIdx::fy);
-        });
-
-        ParallelDescriptor::ReduceRealSum(fx);
-        ParallelDescriptor::ReduceRealSum(fy);
-
-        // 归一化为 Cd 和 Cl
-        Real m = 0.5 * (p0 / cs2) * U0 * U0 * D * dx_0;
-        Real cd_value = fx / m;
-        Real cl_value = fy / m;
-
-        // 存储 Cd 历史用于收敛判断
-        static int current_idx = 0;
-        static bool filled_once = false;
-
-        cd_history[current_idx] = cd_value;
-        current_idx = (current_idx + 1) % 30;
-        if (current_idx == 0)
-            filled_once = true;
-
-        if (filled_once) {
-            auto minmax_cd = std::minmax_element(cd_history.begin(), cd_history.end());
-            const Real avg_cd = std::accumulate(cd_history.begin(), cd_history.end(), Real(0.0)) / 30.0;
-            const Real span_cd = *minmax_cd.second - *minmax_cd.first;
-            const Real rel_span = span_cd / std::max(std::abs(avg_cd), Real(1.0e-12));
-
-            if (rel_span < 1.0e-3) {
-                steady_reached = true;
-                if (ParallelDescriptor::IOProcessor()) {
-                    amrex::Print() << "Steady state reached at step " << step
-                                   << ", Cd = " << cd_value
-                                   << ", Cl = " << cl_value << std::endl;
-                }
-            }
-        }
+    if (steady_confirmed_) {
+        return true;
     }
 
-    return steady_reached;
+    if (step < min_check_step ||
+        check_interval <= 0 ||
+        step % check_interval != 0) {
+        return false;
+    }
+
+    const auto coeffs = ComputeGlobalForceCoefficients(*this);
+    const Real cd_value = coeffs.cd;
+    const Real cl_value = coeffs.cl;
+
+    if (previous_check_step_ < 0) {
+        previous_check_step_ = step;
+        previous_check_cd_ = cd_value;
+        return false;
+    }
+
+    const Real denom = std::max(std::abs(previous_check_cd_), Real(1.0e-12));
+    const Real cd_rel_change = std::abs(cd_value - previous_check_cd_) / denom;
+
+    if (cd_rel_change < cd_rel_change_tol) {
+        steady_confirmed_ = true;
+        steady_stop_step_ = step;
+        steady_previous_step_ = previous_check_step_;
+        steady_cd_ = cd_value;
+        steady_cl_ = cl_value;
+        steady_previous_cd_ = previous_check_cd_;
+        steady_cd_rel_change_ = cd_rel_change;
+
+        if (ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "[Convergence] Cd converged at step " << step
+                           << ", previous step = " << previous_check_step_
+                           << ", Cd = " << cd_value
+                           << ", relative change = " << cd_rel_change << std::endl;
+        }
+
+        previous_check_step_ = step;
+        previous_check_cd_ = cd_value;
+        return true;
+    }
+
+    previous_check_step_ = step;
+    previous_check_cd_ = cd_value;
+    return false;
 }
 
 // 计算圆柱表面压力系数分布（在距离壁面1.5Δx处采样）
@@ -262,7 +300,7 @@ void LagrangeParticleContainer::ComputeCp(int lev, MultiFab& rho_lev, const std:
     const Real center_x = X * delta0;
     const Real center_y = Y * delta0;
     const Real p_ref = p0;
-    const Real q_inf = 0.5 * (p0 / cs2) * U0 * U0;
+    const Real q_inf = DynamicPressure();
 
     std::vector<Real> local_data;
     for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
@@ -326,6 +364,14 @@ void LagrangeParticleContainer::ComputeCp(int lev, MultiFab& rho_lev, const std:
 
         std::ofstream cp_file(filename, std::ios::trunc);
         if (cp_file.is_open()) {
+            if (steady_confirmed_) {
+                cp_file << "# steady_stop_step      = " << steady_stop_step_ << "\n";
+                cp_file << "# final_cd              = " << steady_cd_ << "\n";
+                cp_file << "# final_cl              = " << steady_cl_ << "\n";
+                cp_file << "# previous_step         = " << steady_previous_step_ << "\n";
+                cp_file << "# previous_cd           = " << steady_previous_cd_ << "\n";
+                cp_file << "# final_cd_rel_change   = " << steady_cd_rel_change_ << "\n";
+            }
             cp_file << "# theta(rad)\tCp\n";
             for (const auto& e : entries) {
                 cp_file << e[0] << "\t" << e[1] << "\n";
@@ -345,7 +391,7 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
     // 此处需与粒子坐标保持一致，否则角度会被偏移
     const Real center_x = X * delta0;
     const Real center_y = Y * delta0;
-    const Real q_inf = 0.5 * (p0 / cs2) * U0 * U0;
+    const Real q_inf = DynamicPressure();
 
     std::vector<Real> local_data;
 
@@ -393,8 +439,13 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
             // 计算壁面法向和切向单位向量
             const Real nx = std::cos(theta);
             const Real ny = std::sin(theta);
-            const Real tx = ny; // 切向向量（顺时针90度）
-            const Real ty = -nx;
+            // 切向正方向与 ComputeCf_from_force_pressure 对齐：自动翻转，使 tx >= 0
+            Real tx = std::sin(theta);
+            Real ty = -std::cos(theta);
+            if (tx < 0.0) {
+                tx = -tx;
+                ty = -ty;
+            }
 
             // 在离壁面不同距离处采样速度
             const Real d1 = 2 * delta; // 近壁面采样点
@@ -449,7 +500,7 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
             Real ut2 = u2 * tx + v2 * ty; // 点2的切向速度
 
             // 计算切向速度沿法向的梯度（物理长度导数）
-            Real dut_dn = (ut2 - ut1) / (d2 - d1);
+            Real dut_dn = (d2 * d2 * ut1 - d1 * d1 * ut2) / (d2 - d1) / (d1 * d2);
 
             // 计算剪切应力
             Real rho = p0 / cs2;              // 使用参考密度
@@ -495,13 +546,22 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
 
         std::ofstream cf_file(filename, std::ios::trunc);
         if (cf_file.is_open()) {
+            if (steady_confirmed_) {
+                cf_file << "# steady_stop_step      = " << steady_stop_step_ << "\n";
+                cf_file << "# final_cd              = " << steady_cd_ << "\n";
+                cf_file << "# final_cl              = " << steady_cl_ << "\n";
+                cf_file << "# previous_step         = " << steady_previous_step_ << "\n";
+                cf_file << "# previous_cd           = " << steady_previous_cd_ << "\n";
+                cf_file << "# final_cd_rel_change   = " << steady_cd_rel_change_ << "\n";
+            }
             cf_file << "# theta(rad)\tCf\n";
             for (const auto& e : entries) {
                 cf_file << e[0] << "\t" << e[1] << "\n";
             }
             cf_file.close();
 
-            // 粘性阻力系数：Cd_v = 0.5 * ∮ Cf(θ) sin(θ) dθ
+            // 粘性阻力系数：当前切向定义对应 t_x = |sin(theta)|
+            // Cd_v = 0.5 * ∮ Cf(θ) |sin(θ)| dθ
             // 这里采用按 theta 排序后的梯形积分，并补上周期闭合段
             Real cdv = 0.0;
             const int ntheta = static_cast<int>(entries.size());
@@ -509,15 +569,15 @@ void LagrangeParticleContainer::ComputeCf(int lev, MultiFab& u_lev, const std::s
                 for (int t = 0; t < ntheta - 1; ++t) {
                     const Real th0 = entries[t][0];
                     const Real th1 = entries[t + 1][0];
-                    const Real f0 = entries[t][1] * std::sin(th0);
-                    const Real f1 = entries[t + 1][1] * std::sin(th1);
+                    const Real f0 = entries[t][1] * std::abs(std::sin(th0));
+                    const Real f1 = entries[t + 1][1] * std::abs(std::sin(th1));
                     cdv += 0.5 * (f0 + f1) * (th1 - th0);
                 }
 
                 const Real th_last = entries[ntheta - 1][0];
                 const Real th_first = entries[0][0] + 2.0 * PI;
-                const Real f_last = entries[ntheta - 1][1] * std::sin(th_last);
-                const Real f_first = entries[0][1] * std::sin(entries[0][0]);
+                const Real f_last = entries[ntheta - 1][1] * std::abs(std::sin(th_last));
+                const Real f_first = entries[0][1] * std::abs(std::sin(entries[0][0]));
                 cdv += 0.5 * (f_last + f_first) * (th_first - th_last);
                 cdv *= 0.5;
             }
@@ -543,9 +603,11 @@ void LagrangeParticleContainer::ComputeCf_from_force_pressure(int lev, const std
     const Real delta0 = Geom(0).CellSize()[0];
     const Real center_x = X * delta0;
     const Real center_y = Y * delta0;
-    const Real q_inf = 0.5 * (p0 / cs2) * U0 * U0;
+    const Real q_inf = DynamicPressure();
+    const Real d_phys = ReferenceDiameter();
+    const Real ds = ds_r * dx_min;
 
-    // 每个点存储 [theta, Cd_local, Cf, Cp]
+    // 每个点存储 [theta, Cd_density_x, Cf, Cp]
     std::vector<Real> local_data;
 
     for (MyParIter pti(*this, lev); pti.isValid(); ++pti) {
@@ -602,13 +664,14 @@ void LagrangeParticleContainer::ComputeCf_from_force_pressure(int lev, const std
             const Real f_normal = fx * nx + fy * ny;
             const Real f_tangent = fx * tx + fy * ty;
 
-            // 由法向力定义压力系数；由切向力定义摩擦系数
+            // 使用真实离散弧长 ds = R * dtheta，而不是初设的 ds0。
+            // 这样用角度积分重构得到的阻力才能与离散总力保持一致。
             // f_n = Cp * q_inf * ds, f_t = Cf * q_inf * ds
-            const Real cp = f_normal / (q_inf * ds0);
-            const Real cf = f_tangent / (q_inf * ds0);
+            const Real cp = f_normal / (q_inf * ds);
+            const Real cf = f_tangent / (q_inf * ds);
 
-            // 该离散点对总阻力系数的贡献（所有点求和应接近总 Cd）
-            const Real cd_local = fx / (q_inf * ds0);
+            // x 向局部力系数密度；其角度积分应重构总 Cd
+            const Real cd_local = fx / (q_inf * ds);
 
             local_data.push_back(theta);
             local_data.push_back(cd_local);
@@ -638,9 +701,12 @@ void LagrangeParticleContainer::ComputeCf_from_force_pressure(int lev, const std
     ParallelDescriptor::Gatherv(local_data.data(), local_count,
                                 gathered.data(), recv_counts, displs, iorank);
 
+    // 这里必须在所有 MPI rank 上共同参与归约，不能只放在 IOProcessor 分支内。
+    const Real cd_raw = ComputeGlobalForceCoefficients(*this).cd;
+
     // IO处理：排序、积分、输出
     if (ParallelDescriptor::IOProcessor()) {
-        std::vector<std::array<Real, 4>> entries; // [theta, Cd_local, Cf, Cp]
+        std::vector<std::array<Real, 4>> entries; // [theta, Cd_density_x, Cf, Cp]
         entries.reserve(total / 4);
         for (int k = 0; k < total / 4; ++k) {
             entries.push_back({gathered[4 * k], gathered[4 * k + 1], gathered[4 * k + 2], gathered[4 * k + 3]});
@@ -650,10 +716,9 @@ void LagrangeParticleContainer::ComputeCf_from_force_pressure(int lev, const std
         std::sort(entries.begin(), entries.end(),
                   [](const auto& a, const auto& b) { return a[0] < b[0]; });
 
-        // 汇总总 Cd（按离散点贡献求和）
-        Real cd_total = 0.0;
+        Real cd_local_sum = 0.0;
         for (const auto& e : entries) {
-            cd_total += e[1];
+            cd_local_sum += e[1] * ds / d_phys;
         }
 
         // 计算积分：
@@ -666,8 +731,8 @@ void LagrangeParticleContainer::ComputeCf_from_force_pressure(int lev, const std
             for (int t = 0; t < ntheta - 1; ++t) {
                 const Real th0 = entries[t][0];
                 const Real th1 = entries[t + 1][0];
-            const Real fv0 = entries[t][2] * std::abs(std::sin(th0));
-            const Real fv1 = entries[t + 1][2] * std::abs(std::sin(th1));
+                const Real fv0 = entries[t][2] * std::abs(std::sin(th0));
+                const Real fv1 = entries[t + 1][2] * std::abs(std::sin(th1));
                 const Real fp0 = entries[t][3] * std::cos(th0);
                 const Real fp1 = entries[t + 1][3] * std::cos(th1);
 
@@ -692,18 +757,31 @@ void LagrangeParticleContainer::ComputeCf_from_force_pressure(int lev, const std
         // 输出到文件
         std::ofstream cf_file(filename, std::ios::trunc);
         if (cf_file.is_open()) {
-            cf_file << "# Cd_total(sum local) = " << cd_total << "\n";
+            if (steady_confirmed_) {
+                cf_file << "# steady_stop_step      = " << steady_stop_step_ << "\n";
+                cf_file << "# final_cd              = " << steady_cd_ << "\n";
+                cf_file << "# final_cl              = " << steady_cl_ << "\n";
+                cf_file << "# previous_step         = " << steady_previous_step_ << "\n";
+                cf_file << "# previous_cd           = " << steady_previous_cd_ << "\n";
+                cf_file << "# final_cd_rel_change   = " << steady_cd_rel_change_ << "\n";
+            }
+            cf_file << "# q_inf               = " << q_inf << "\n";
+            cf_file << "# D_phys              = " << d_phys << "\n";
+            cf_file << "# ds(actual arc)      = " << ds << "\n";
+            cf_file << "# Cd_raw(sum force)   = " << cd_raw << "\n";
+            cf_file << "# Cd_local_sum        = " << cd_local_sum << "\n";
+            cf_file << "# Cd_reconstructed    = " << (cdp + cdv) << "\n";
             cf_file << "# Cd_p(integral Cp)   = " << cdp << "\n";
             cf_file << "# Cd_v(integral Cf)   = " << cdv << "\n";
-            cf_file << "# Cd_p + Cd_v         = " << (cdp + cdv) << "\n";
-            cf_file << "# theta(rad)\tCd_local\tCf(from_tangent_force)\tCp(from_normal_force)\n";
+            cf_file << "# theta(rad)\tCd_x_density\tCf(from_tangent_force)\tCp(from_normal_force)\n";
             for (const auto& e : entries) {
                 cf_file << e[0] << "\t" << e[1] << "\t" << e[2] << "\t" << e[3] << "\n";
             }
             cf_file.close();
 
             amrex::Print() << "[Cf_force_pressure] Steady-state Cf written to " << filename
-                           << " (" << entries.size() << " points, Cd_total=" << cd_total
+                           << " (" << entries.size() << " points, Cd_raw=" << cd_raw
+                           << ", Cd_local_sum=" << cd_local_sum
                            << ", Cd_p=" << cdp << ", Cd_v=" << cdv << ")"
                            << std::endl;
         }

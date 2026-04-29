@@ -19,6 +19,16 @@
 class AmrCoreLBM : public amrex::AmrCore {
 
   public:
+    struct RuntimeParams {
+        int regrid_int = -1;
+        int plot_int = -1;
+        int begin_int = 0;
+        int chk_int = -1;
+        int begin_step = 0;
+        std::string chk_prefix = "chk";
+        bool keep_latest_only = true;
+        bool write_particles = true;
+    };
     //********************************************************************//
     //                           constructor                              //
     //********************************************************************//
@@ -39,6 +49,11 @@ class AmrCoreLBM : public amrex::AmrCore {
     void WriteVelocityFile(const int step, const amrex::Real time);
     void WriteParticleFile(const int step, const amrex::Real time);
     void WriteVorticityFile(const int step, const amrex::Real time);
+    void WriteCheckpoint(int step, amrex::Real time) const;
+    void ReadCheckpoint();
+    const RuntimeParams& params() const {
+        return params_;
+    }
     //********************************************************************//
     //                           mesh function                            //
     //********************************************************************//
@@ -85,7 +100,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void RedistributeParticle();
     void ComputeCp(int lev, int step);
     void ComputeCf(int lev, int step);
-    void ComputeCf_from_force_pressure(int lev);
+    void ComputeCf_from_force_pressure(int lev, int step);
     bool EvaluateConvergence(int lev, int step);
 
     //********************************************************************//
@@ -119,6 +134,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow) override;
 
   private:
+    RuntimeParams params_;
     std::string plot_file{"plt"};
 
     int nghost = 4;
@@ -193,6 +209,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool idf_geometry_built{false};
     // 本地粒子计数是否有效（regrid 后需要更新）
     bool idf_local_count_valid{false};
+
+    void ResetIDFCheckpointState();
 };
 
 #endif

@@ -67,6 +67,14 @@ def resolve_column(column: str, column_names: Sequence[str]) -> int:
     raise ValueError(f"Column {column!r} is ambiguous. Available columns: {', '.join(column_names)}")
 
 
+def resolve_theta_column(column: str, column_names: Sequence[str]) -> int:
+    if column == "theta":
+        theta_like = [i for i, name in enumerate(column_names) if name.startswith("theta")]
+        if theta_like:
+            return theta_like[0]
+    return resolve_column(column, column_names)
+
+
 def fourier_lowpass(values: Sequence[float], keep_modes: int) -> List[float]:
     n = len(values)
     if n < 3:
@@ -184,6 +192,7 @@ def write_output(
     cdv_like_after: float,
     preserve_cdv_like: bool,
     method: str,
+    theta_column_name: str,
 ) -> None:
     with path.open("w", encoding="utf-8") as fh:
         for line in header_lines:
@@ -193,6 +202,7 @@ def write_output(
 
         smoothing_method = "split_fourier_lowpass" if method == "split-fourier" else "fourier_lowpass"
         fh.write(f"# smoothing_method      = {smoothing_method}\n")
+        fh.write(f"# theta_column          = {theta_column_name}\n")
         fh.write(f"# keep_modes            = {keep_modes}\n")
         if method == "split-fourier":
             fh.write("# split_boundary        = theta=0, no cross-boundary filtering\n")
@@ -226,6 +236,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Cf column name substring or 1-based index (default: Cf)",
     )
     parser.add_argument(
+        "--theta-column",
+        default="theta",
+        help=(
+            "Theta column name substring or 1-based index. The default 'theta' uses "
+            "the first theta-like column, so retheta files use theta_new(rad)."
+        ),
+    )
+    parser.add_argument(
         "--keep-modes",
         type=int,
         default=32,
@@ -254,7 +272,7 @@ def main() -> int:
     args = parser.parse_args()
 
     header_lines, column_names, rows = parse_table(args.input)
-    theta_index = resolve_column("theta", column_names)
+    theta_index = resolve_theta_column(args.theta_column, column_names)
     cf_index = resolve_column(args.column, column_names)
 
     theta = [row[theta_index] for row in rows]
@@ -289,6 +307,7 @@ def main() -> int:
         cdv_like_after,
         args.preserve_cdv_like,
         args.method,
+        column_names[theta_index],
     )
 
     print(f"input={args.input}")
