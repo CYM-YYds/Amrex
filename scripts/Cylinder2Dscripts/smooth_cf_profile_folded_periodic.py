@@ -13,6 +13,7 @@ from smooth_cf_profile import (
     parse_table,
     periodic_integral,
     resolve_column,
+    resolve_theta_column,
     weighted_abs_sin_integral,
 )
 
@@ -45,6 +46,7 @@ def write_output(
     cdv_like_before: float,
     cdv_like_after: float,
     preserve_cdv_like: bool,
+    theta_column_name: str,
 ) -> None:
     with path.open("w", encoding="utf-8") as fh:
         for line in header_lines:
@@ -53,6 +55,7 @@ def write_output(
             fh.write(f"{line}\n")
 
         fh.write("# smoothing_method      = folded_periodic_fourier_lowpass\n")
+        fh.write(f"# theta_column          = {theta_column_name}\n")
         fh.write(f"# keep_modes            = {keep_modes}\n")
         fh.write("# unfold_rule           = negate theta<0 before periodic Fourier\n")
         fh.write("# refold_rule           = negate theta<0 after periodic Fourier\n")
@@ -86,6 +89,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Cf column name substring or 1-based index (default: Cf)",
     )
     parser.add_argument(
+        "--theta-column",
+        default="theta",
+        help=(
+            "Theta column name substring or 1-based index. The default 'theta' uses "
+            "the first theta-like column, so retheta files use theta_new(rad)."
+        ),
+    )
+    parser.add_argument(
         "--keep-modes",
         type=int,
         default=32,
@@ -104,7 +115,7 @@ def main() -> int:
     args = parser.parse_args()
 
     header_lines, column_names, rows = parse_table(args.input)
-    theta_index = resolve_column("theta", column_names)
+    theta_index = resolve_theta_column(args.theta_column, column_names)
     cf_index = resolve_column(args.column, column_names)
 
     theta = [row[theta_index] for row in rows]
@@ -138,6 +149,7 @@ def main() -> int:
         cdv_like_before,
         cdv_like_after,
         args.preserve_cdv_like,
+        column_names[theta_index],
     )
 
     print(f"input={args.input}")

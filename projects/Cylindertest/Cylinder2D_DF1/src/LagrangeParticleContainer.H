@@ -8,6 +8,7 @@
 #include <AMReX_AmrParticles.H>
 #include <AMReX_GpuContainers.H>
 
+#include <string>
 #include <vector>
 
 #include "D2Q9.H"
@@ -118,9 +119,8 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
     // 返回是否已达稳态
     void SaveFxy(int lev, int step);
 
-    // 稳态判断：基于 Cd 的历史波动评估收敛性
-    // 返回是否已达稳态
-    bool EvaluateConvergence(int lev, int step, amrex::MultiFab& u_lev, amrex::MultiFab& rho_lev);
+    // 仅基于 Cd 相邻采样点的相对变化判断稳态
+    bool EvaluateConvergence(int lev, int step);
 
     // 重载2：只插值密度
     void Interpolate_normal_offset_Rho(int lev, amrex::MultiFab& rho_lev);
@@ -174,6 +174,17 @@ class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::na
 
     // 将拉格朗日力传播到欧拉网格
     void IDF_SpreadForce(int lev, amrex::MultiFab& force_lev);
+
+  private:
+    bool steady_confirmed_ = false;
+    int steady_stop_step_ = -1;
+    int previous_check_step_ = -1;
+    amrex::Real previous_check_cd_ = 0.0;
+    int steady_previous_step_ = -1;
+    amrex::Real steady_cd_ = 0.0;
+    amrex::Real steady_cl_ = 0.0;
+    amrex::Real steady_previous_cd_ = 0.0;
+    amrex::Real steady_cd_rel_change_ = 0.0;
 };
 
 #endif // LAGRANGEPARTICLECONTAINER_H_

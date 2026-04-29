@@ -3,6 +3,7 @@
 #include <AMReX.H>
 #include <AMReX_BLProfiler.H>
 #include <AMReX_ParallelDescriptor.H>
+#include <AMReX_Utility.H>
 
 #include "AmrCoreLBM.H"
 
@@ -17,7 +18,7 @@ int main(int argc, char* argv[]) {
     {
         const Real start_time = amrex::second();
 
-        int max_step, regrid_int, plot_int, begin_int;
+        int max_step;
         amrex::Real stop_time;
 
         {
@@ -25,13 +26,6 @@ int main(int argc, char* argv[]) {
             pp.query("max_step", max_step);
             pp.query("stop_time", stop_time);
         }
-        {
-            amrex::ParmParse pp("amr");
-            pp.query("regrid_int", regrid_int);
-            pp.query("plot_int", plot_int);
-            pp.query("begin_int", begin_int);
-        }
-
         amrex::Geometry geom(
             amrex::Box({AMREX_D_DECL(0, 0, 0)}, {AMREX_D_DECL(NX - 1, NY - 1, NZ - 1)}),
             amrex::RealBox({AMREX_D_DECL(0., 0., 0.)}, {AMREX_D_DECL(nx, ny, nz)}),
@@ -44,19 +38,31 @@ int main(int argc, char* argv[]) {
             amrex::Vector<amrex::IntVect>{(size_t)max_ref_level + 1, {AMREX_D_DECL(32, 32, 32)}},
             amrex::Vector<amrex::IntVect>{(size_t)max_ref_level + 1, {AMREX_D_DECL(128, 128, 128)}}};
 
-        amrex::Real cur_time = 0.0;
-
         AmrCoreLBM lid(geom, info);
-        lid.InitMesh(cur_time);
-        lid.PrintMeshInfo();
-        lid.PrintLbmParm();
-        lid.InitParticle(max_ref_level);
-        lid.PrintParticleParm();
+        const auto& runtime = lid.params();
 
-        for (int step = 1; step <= max_step && cur_time < stop_time; step++) {
+        amrex::Real cur_time = runtime.begin_step * dt_0;
+
+        if (runtime.begin_step > 0) {
+            lid.ReadCheckpoint();
+            lid.PrintMeshInfo();
+            lid.PrintLbmParm();
+            lid.PrintParticleParm();
+            amrex::Print() << "[Checkpoint] Restarted at step=" << runtime.begin_step
+                           << ", time=" << cur_time << "\n";
+        } else {
+            lid.InitMesh(cur_time);
+            lid.PrintMeshInfo();
+            lid.PrintLbmParm();
+            lid.InitParticle(max_ref_level);
+            lid.PrintParticleParm();
+        }
+
+        int start_step = runtime.begin_step + 1;
+        for (int step = start_step; step <= max_step && cur_time < stop_time; step++) {
             amrex::Print() << "STEP " << step << "starts ..." << std::endl;
 
-            if (step >= 0 && step % regrid_int == 0) {
+            if (step >= 0 && step % runtime.regrid_int == 0) {
                 lid.AverageDownValid();
                 lid.RefineMesh(cur_time);
                 lid.RedistributeParticle();
@@ -68,25 +74,30 @@ int main(int argc, char* argv[]) {
             // 每步保存 Cd/Cl 数据
             lid.ReduceFxy(max_ref_level, step);
 
-            // 每100步评估收敛性
+            // 仅基于相邻两次 Cd 采样的相对变化判断是否停机
             bool steady = lid.EvaluateConvergence(max_ref_level, step);
             if (steady) {
                 lid.ComputeCp(max_ref_level, step);
                 lid.ComputeCf(max_ref_level, step);
-                lid.ComputeCf_from_force_pressure(max_ref_level);
+                lid.ComputeCf_from_force_pressure(max_ref_level, step);
                 lid.PrintMeshInfo();
                 lid.ComputeMacro();
                 lid.WriteVelocityFile(step, cur_time);
-                amrex::Print() << "Steady state detected at step " << step << ", stopping simulation." << std::endl;
+                amrex::Print() << "Cd-based convergence reached at step " << step
+                               << ", final outputs written and simulation stopping." << std::endl;
                 break;
             }
 
             cur_time += dt_0;
 
-            if (step >= begin_int && step % plot_int == 0) {
+            if (step >= runtime.begin_int && step % runtime.plot_int == 0) {
                 lid.PrintMeshInfo();
                 lid.ComputeMacro();
                 lid.WriteVelocityFile(step, cur_time);
+            }
+
+            if (runtime.chk_int > 0 && step % runtime.chk_int == 0) {
+                lid.WriteCheckpoint(step, cur_time);
             }
         }
 

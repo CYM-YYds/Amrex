@@ -513,6 +513,18 @@ Real delta3p(amrex::Real r) {
 
 AMREX_GPU_HOST_DEVICE
 AMREX_FORCE_INLINE
+Real delta3pSmoothed(Real r) {
+    r = fabs(r);
+    if (r <= 1.0)
+        return (17. / 48. + sqrt(3.) * PI / 108. + r / 4. - r * r / 4. + (1. - 2. * r) / 16. * sqrt(-12. * r * r + 12. * r + 1.) - sqrt(3.) / 12. * asin(sqrt(3.) / 2. * (2. * r - 1.)));
+    else if (r <= 2.0)
+        return (55. / 48. - sqrt(3.) * PI / 108. - 13. * r / 12. + r * r / 4. + (2. * r - 3.) / 48. * sqrt(-12. * r * r + 36. * r - 23.) + sqrt(3.) / 36. * asin(sqrt(3.) / 2. * (2. * r - 3.)));
+    else
+        return 0.0;
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
 Real delta2p(amrex::Real r) {
     r = fabs(r);
     if (r <= 1.0)
@@ -544,7 +556,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
             int zz = 0;
             amrex::Real lx = xt - (xx + 0.5);
             amrex::Real ly = yt - (yy + 0.5);
-            amrex::Real w = delta3p(lx) * delta3p(ly);
+            amrex::Real w = delta3pSmoothed(lx) * delta3pSmoothed(ly);
             uxt += u(xx, yy, zz, 0) * w;
             uyt += u(xx, yy, zz, 1) * w;
             rhot += rho(xx, yy, zz, 0) * w;
@@ -574,7 +586,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
             amrex::Real lx = xt - (xx + 0.5);
             amrex::Real ly = yt - (yy + 0.5);
 
-            amrex::Real IB_Interp = delta3p(lx) * delta3p(ly) * IB_weight;
+            amrex::Real IB_Interp = delta3pSmoothed(lx) * delta3pSmoothed(ly) * IB_weight;
 
             amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 0), -fxt * IB_Interp);
             amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 1), -fyt * IB_Interp);
@@ -690,7 +702,7 @@ AMREX_GPU_HOST_DEVICE
             lx = xt - (xx + 0.5);
             ly = yt - (yy + 0.5);
 
-            IB_Interp = delta3p(lx) * delta3p(ly);
+            IB_Interp = delta3pSmoothed(lx) * delta3pSmoothed(ly);
 
             // 修正后的速度 = 原始速度 + 力对速度的修正
             amrex::Real u_corr_x = u(xx, yy, zz, 0) + force_to_vel * Ft(xx, yy, zz, 0);
@@ -719,7 +731,7 @@ AMREX_GPU_HOST_DEVICE
             lx = xt - (xx + 0.5);
             ly = yt - (yy + 0.5);
 
-            IB_Interp = delta3p(lx) * delta3p(ly) * IB_weight;
+            IB_Interp = delta3pSmoothed(lx) * delta3pSmoothed(ly) * IB_weight;
 
             amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 0), -fxt * IB_Interp);
             amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 1), -fyt * IB_Interp);
@@ -757,7 +769,7 @@ AMREX_GPU_HOST_DEVICE
             lx = xt - (xx + 0.5);
             ly = yt - (yy + 0.5);
 
-            IB_Interp = delta3p(lx) * delta3p(ly);
+            IB_Interp = delta3pSmoothed(lx) * delta3pSmoothed(ly);
 
             uxt += u(xx, yy, zz, 0) * IB_Interp;
             uyt += u(xx, yy, zz, 1) * IB_Interp;
@@ -785,7 +797,7 @@ AMREX_GPU_HOST_DEVICE
             lx = xt - (xx + 0.5);
             ly = yt - (yy + 0.5);
 
-            IB_Interp = delta3p(lx) * delta3p(ly) * IB_weight;
+            IB_Interp = delta3pSmoothed(lx) * delta3pSmoothed(ly) * IB_weight;
 
             amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 0), -fxt * IB_Interp);
             amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 1), -fyt * IB_Interp);
