@@ -1,0 +1,67 @@
+If:
+  PathMatch: .*
+
+CompileFlags:
+  CompilationDatabase: config
+  Remove:
+    - "^-D__CUDA_ARCH__=.*"
+    - "^-D__CUDA_ARCH_LIST__=.*"
+  Add:
+    - -D__host__=
+    - -D__device__=
+    - -D__global__=
+    - -D__constant__=
+    - -D__shared__=
+    - -D__launch_bounds__(...)=
+    - -isystem
+    - /home/HPCBase/compilers/cuda/12.1.0/targets/sbsa-linux/include
+    - -include
+    - cuda_runtime.h
+
+Index:
+  Background: Build
+  StandardLibrary: Yes
+
+Diagnostics:
+  ClangTidy:
+    Add: []
+    Remove: ['*']
+
+Completion:
+  AllScopes: true
+
+---
+If:
+  PathMatch: .*D2Q9\.H
+
+CompileFlags:
+  Add:
+    - -DAMREX_CXX_NVHPC
+    - -include
+    - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base/AMReX_REAL.H
+    - -include
+    - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base/AMReX_RealVect.H
+
+---
+If:
+  # Index only this case root using absolute path.
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/Cylindertest/Cylinder2D_IDFtest/.*
+
+Index:
+  Background: Build
+
+---
+If:
+  # Re-enable AMReX source tree indexing using absolute path.
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26\.01/.*
+
+Index:
+  Background: Build
+
+---
+If:
+  # Skip other repository paths to reduce cross-case symbol pollution.
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/.*
+
+Index:
+  Background: Skip
