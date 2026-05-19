@@ -47,6 +47,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void PrintLbmParm();
     void ReadParameters();
     void WriteVelocityFile(const int step, const amrex::Real time);
+    void WriteForceFile(const int step, const amrex::Real time);
     void WriteParticleFile(const int step, const amrex::Real time);
     void WriteVorticityFile(const int step, const amrex::Real time);
     void WriteCheckpoint(int step, amrex::Real time) const;

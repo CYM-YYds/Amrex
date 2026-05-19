@@ -703,6 +703,21 @@ void AmrCoreLBM::WriteVelocityFile(const int step, const amrex::Real time) {
                                    Geom(), time, Vector<int>(finest_level + 1, step), refRatio());
 }
 
+void AmrCoreLBM::WriteForceFile(const int step, const amrex::Real time) {
+    const std::string& plotfilename = amrex::Concatenate(plot_file + "force_", step, 5);
+
+    amrex::Vector<const amrex::MultiFab*> mf;
+
+    for (int i = 0; i <= finest_level; ++i) {
+        mf.push_back(&force[i]);
+    }
+
+    amrex::Vector<std::string> varnames = {"Fx", "Fy"};
+
+    amrex::WriteMultiLevelPlotfile(plotfilename, finest_level + 1, mf, varnames,
+                                   Geom(), time, Vector<int>(finest_level + 1, step), refRatio());
+}
+
 void AmrCoreLBM::WriteVorticityFile(const int step, const amrex::Real time) {
     std::string plot_file_vort{plot_file + "vort_"};
     const std::string& plotfilename = amrex::Concatenate(plot_file_vort, step, 5);
