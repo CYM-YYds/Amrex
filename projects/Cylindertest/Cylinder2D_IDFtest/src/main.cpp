@@ -83,6 +83,7 @@ int main(int argc, char* argv[]) {
                 lid.PrintMeshInfo();
                 lid.ComputeMacro();
                 lid.WriteVelocityFile(step, cur_time);
+                lid.WriteForceFile(step, cur_time);
                 amrex::Print() << "Cd-based convergence reached at step " << step
                                << ", final outputs written and simulation stopping." << std::endl;
                 break;
