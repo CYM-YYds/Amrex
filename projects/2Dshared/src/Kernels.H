@@ -513,12 +513,56 @@ Real delta3p(amrex::Real r) {
 
 AMREX_GPU_HOST_DEVICE
 AMREX_FORCE_INLINE
+Real delta3pSmoothed(Real r) {
+    r = fabs(r);
+    if (r <= 1.0)
+        return (17. / 48. + sqrt(3.) * PI / 108. + r / 4. - r * r / 4. + (1. - 2. * r) / 16. * sqrt(-12. * r * r + 12. * r + 1.) - sqrt(3.) / 12. * asin(sqrt(3.) / 2. * (2. * r - 1.)));
+    else if (r <= 2.0)
+        return (55. / 48. - sqrt(3.) * PI / 108. - 13. * r / 12. + r * r / 4. + (2. * r - 3.) / 48. * sqrt(-12. * r * r + 36. * r - 23.) + sqrt(3.) / 36. * asin(sqrt(3.) / 2. * (2. * r - 3.)));
+    else
+        return 0.0;
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
 Real delta2p(amrex::Real r) {
     r = fabs(r);
     if (r <= 1.0)
         return (1.0 - r);
     else
         return 0.0;
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+Real delta4p(amrex::Real r) {
+    r = fabs(r);
+    if (r <= 1.0)
+        return (3.0 - 2.0 * r + sqrt(1.0 + 4.0 * r - 4.0 * r * r)) / 8.0;
+    else if (r <= 2.0)
+        return (5.0 - 2.0 * r - sqrt(-7.0 + 12.0 * r - 4.0 * r * r)) / 8.0;
+    else
+        return 0.0;
+}
+
+#ifndef IBM_DELTA_KERNEL
+#define IBM_DELTA_KERNEL 30
+#endif
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+Real ibm_delta(amrex::Real r) {
+#if IBM_DELTA_KERNEL == 2
+    return delta2p(r);
+#elif IBM_DELTA_KERNEL == 3
+    return delta3p(r);
+#elif IBM_DELTA_KERNEL == 4
+    return delta4p(r);
+#elif IBM_DELTA_KERNEL == 30
+    return delta3pSmoothed(r);
+#else
+#error "Unsupported IBM_DELTA_KERNEL. Use 2, 3, 4, or 30 for delta3pSmoothed."
+#endif
 }
 
 //================= D_I / D_E 基础核：插值与传播 =================//
@@ -544,7 +588,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_interpolate(P const& p,
             int zz = 0;
             amrex::Real lx = xt - (xx + 0.5);
             amrex::Real ly = yt - (yy + 0.5);
-            amrex::Real w = delta3p(lx) * delta3p(ly);
+            amrex::Real w = ibm_delta(lx) * ibm_delta(ly);
             uxt += u(xx, yy, zz, 0) * w;
             uyt += u(xx, yy, zz, 1) * w;
             rhot += rho(xx, yy, zz, 0) * w;
@@ -574,7 +618,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void ibm_spread_force(P const& p,
             amrex::Real lx = xt - (xx + 0.5);
             amrex::Real ly = yt - (yy + 0.5);
 
-            amrex::Real IB_Interp = delta3p(lx) * delta3p(ly) * IB_weight;
+            amrex::Real IB_Interp = ibm_delta(lx) * ibm_delta(ly) * IB_weight;
 
             amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 0), -fxt * IB_Interp);
             amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 1), -fyt * IB_Interp);
@@ -690,7 +734,7 @@ AMREX_GPU_HOST_DEVICE
             lx = xt - (xx + 0.5);
             ly = yt - (yy + 0.5);
 
-            IB_Interp = delta3p(lx) * delta3p(ly);
+            IB_Interp = ibm_delta(lx) * ibm_delta(ly);
 
             // 修正后的速度 = 原始速度 + 力对速度的修正
             amrex::Real u_corr_x = u(xx, yy, zz, 0) + force_to_vel * Ft(xx, yy, zz, 0);
@@ -719,7 +763,7 @@ AMREX_GPU_HOST_DEVICE
             lx = xt - (xx + 0.5);
             ly = yt - (yy + 0.5);
 
-            IB_Interp = delta3p(lx) * delta3p(ly) * IB_weight;
+            IB_Interp = ibm_delta(lx) * ibm_delta(ly) * IB_weight;
 
             amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 0), -fxt * IB_Interp);
             amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 1), -fyt * IB_Interp);
@@ -757,7 +801,7 @@ AMREX_GPU_HOST_DEVICE
             lx = xt - (xx + 0.5);
             ly = yt - (yy + 0.5);
 
-            IB_Interp = delta3p(lx) * delta3p(ly);
+            IB_Interp = ibm_delta(lx) * ibm_delta(ly);
 
             uxt += u(xx, yy, zz, 0) * IB_Interp;
             uyt += u(xx, yy, zz, 1) * IB_Interp;
@@ -785,7 +829,7 @@ AMREX_GPU_HOST_DEVICE
             lx = xt - (xx + 0.5);
             ly = yt - (yy + 0.5);
 
-            IB_Interp = delta3p(lx) * delta3p(ly) * IB_weight;
+            IB_Interp = ibm_delta(lx) * ibm_delta(ly) * IB_weight;
 
             amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 0), -fxt * IB_Interp);
             amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 1), -fyt * IB_Interp);

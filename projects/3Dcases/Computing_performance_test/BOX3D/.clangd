@@ -45,7 +45,7 @@ CompileFlags:
 ---
 If:
   # Index only this case root using absolute path.
-  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/BOX3D/.*
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D/.*
 
 Index:
   Background: Build

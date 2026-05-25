@@ -363,3 +363,213 @@ BTDF 的思路是：
 ```
 
 MLS 的作用不是“扩散力”，而是让界面流体点的期望速度 `u_d` 在不规则粒子分布和薄壁附近仍然平滑、稳定。
+
+## 15. 当前示例里的两个性能优化
+
+`Circle_IBM_MLSDirect()` 里加入了两个局部优化，用来展示 MLSDirect 后续迁移到 AMReX/GPU 时应该采用的思路。
+
+### 15.1 窄带化
+
+原始教学版直接扫描全场：
+
+```text
+for i in whole domain:
+    for j in whole domain:
+        if point is not interface:
+            continue
+```
+
+优化后先生成 `interface_points`：
+
+```text
+for i,j in cylinder bounding box:
+    phi = signedDistance(i,j)
+    if 0 <= phi <= d:
+        interface_points.push_back(i,j)
+```
+
+主 MLS 循环随后只遍历这个列表：
+
+```text
+for target in interface_points:
+    do MLS direct forcing
+```
+
+这样避免了每个时间步在整个流场上做大量必然 `continue` 的判断。
+
+### 15.2 拉格朗日点邻居表
+
+原始教学版对每个 interface point 都遍历全部边界点：
+
+```text
+for target interface point:
+    for every Lagrange point:
+        check distance
+```
+
+优化后把拉格朗日点按空间位置放进 `lag_bins`：
+
+```text
+bin_id = floor(x / bin_size), floor(y / bin_size)
+lag_bins[bin_id].push_back(p)
+```
+
+查找边界源点时，只看目标点附近几个 bin：
+
+```text
+for nearby bin:
+    for p in lag_bins[bin]:
+        check distance
+```
+
+这把边界点查找从“扫描全部拉氏点”改成了“扫描附近拉氏点”。圆柱测试里 `np` 不大，收益有限；复杂结构或 3D 情况下，这一步很关键。
+
+对，你这样收窄以后，真正麻烦的就剩 **入口重构、GPU 数据结构、MPI/粒子邻居可见性**。而且可以进一步降难度。
+
+**问题 1：算法入口**
+这个其实不难，建议不要硬塞进现有 `LagrangeParticleContainer::InterpForce()`。
+
+现有 `InterpForce()` 是粒子驱动：
+
+```text
+for each Lagrange particle:
+    插值速度
+    算边界力
+    spread 到欧拉 force
+```
+
+MLSDirect 应该放成一个新的欧拉驱动入口，例如：
+
+```cpp
+void AmrCoreLBM::ApplyMLSDirect(int lev);
+```
+
+然后在 `ComputeParticle()` 里临时切换：
+
+```cpp
+void AmrCoreLBM::ComputeParticle(int lev) {
+    CommunicateLevel(lev);
+    ComputeMacroLevel(lev);
+
+    ApplyMLSDirect(lev);
+    // ApplyIDF(lev);
+    // InterpForce(lev);
+}
+```
+
+这样最清楚：`ApplyMLSDirect` 直接操作 `velocity[lev]`、`density[lev]`、`force[lev]`，暂时不依赖粒子容器的 `fx/fy` 统计逻辑。  
+所以问题 1 不算大，主要是架构上不要试图复用旧的“粒子算力”接口。
+
+**问题 4：GPU 上不能用动态 vector**
+这是最关键的工程问题。单 CPU 代码里的：
+
+```cpp
+std::vector<MlsSource> sources;
+sources.push_back(...);
+```
+
+不能直接搬进 GPU kernel。
+
+但因为你现在是圆柱、固定 `MLS_SUPPORT_RADIUS = 2dx`，可以用固定小数组解决。比如每个界面点最多查：
+
+```text
+欧拉源点：大约 5x5 或 7x7
+拉格朗日源点：附近少量点
+```
+
+可以写成：
+
+```cpp
+constexpr int MaxMlsSources = 96;
+
+Real sx[MaxMlsSources];
+Real sy[MaxMlsSources];
+Real sux[MaxMlsSources];
+Real suy[MaxMlsSources];
+Real sw[MaxMlsSources];
+int ns = 0;
+```
+
+在 GPU kernel 内：
+
+```cpp
+if (ns < MaxMlsSources) {
+    sx[ns] = ...;
+    sy[ns] = ...;
+    sux[ns] = ...;
+    suy[ns] = ...;
+    sw[ns] = ...;
+    ns++;
+}
+```
+
+这比建复杂的 GPU 动态邻居表简单很多。  
+对于圆柱教学版，我会优先用这种固定容量方案，而不是一开始就做通用 compact-list。
+
+**问题 5：MPI/粒子邻居可见性**
+你如果把所有受力点和交互点都强制放在最细层，这解决了 AMR 层级问题，但不自动解决 MPI rank 边界问题。
+
+不过圆柱边界点本来是固定几何，最简单做法是：**不要从粒子容器动态查拉格朗日点，直接在 `ApplyMLSDirect` 里按公式生成圆柱边界点。**
+
+也就是不用：
+
+```text
+遍历 LagrangeParticleContainer
+```
+
+而是在每个界面点附近按角度估算可能的边界点索引：
+
+```text
+theta = atan2(y - yc, x - xc)
+p0 = round(theta / 2pi * np)
+只检查 p0 附近若干个边界点
+```
+
+边界点坐标由公式生成：
+
+```cpp
+xb = xc + Rm * cos(2*pi*p/np);
+yb = yc + Rm * sin(2*pi*p/np);
+```
+
+这样完全绕过 MPI 粒子可见性问题，因为每个 rank 都能独立算出圆柱边界点。  
+这对“圆柱专用版本”非常合适，也和你现在的单 CPU 代码目标一致。
+
+所以如果按你的限制条件，我会把难度重新评估为：
+
+```text
+教学/验证版：中等
+生产通用版：偏高
+```
+
+推荐第一版实现策略：
+
+```text
+ApplyMLSDirect(lev)
+    force[lev].setVal(0)
+
+    for each tile validbox:
+        ParallelFor(validbox)
+            1. 用 signedDistance 判断是否为 interface cell
+            2. 如果不是，return
+            3. 用固定小数组收集 inner Euler sources
+            4. 用圆柱解析公式生成附近 Lagrange boundary sources
+            5. 构造 3x3 MLS 矩阵
+            6. 求 u_d
+            7. force(i,j,0/1) = rho * (u_d - u) / dt
+```
+
+这版不需要：
+- AMR 粗细层特殊处理；
+- Cd/Cl 统计；
+- 粒子容器邻居表；
+- MPI 粒子 ghost；
+- 动态 GPU vector。
+
+真正需要小心的是：
+- `validbox` 是否包含圆柱窄带区域；
+- `force` 的 ghost/valid 通信是否还需要 `FillBoundary` 或 `SumBoundary`；
+- `rho` 在代码里是物理密度还是 LBM 压力换算密度；
+- `force` 的符号要和 Guo forcing 当前约定一致。
+
+如果你要我后面实现，我建议就按这个“圆柱解析边界点 + GPU 固定数组 + 新入口 `ApplyMLSDirect`”做第一版。这样是最稳的。

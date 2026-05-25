@@ -5,7 +5,7 @@ CF_CFG_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 DEBUG	= FALSE
 
-TINY_PROFILE = TRUE
+TINY_PROFILE = FALSE
 
 DIM	= 3
 

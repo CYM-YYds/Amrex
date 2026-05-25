@@ -89,13 +89,12 @@ int main(int argc, char* argv[]) {
         for (int step = start_step; step <= max_step && cur_time < stop_time; step++) {
             amrex::Print() << "STEP " << step << "starts ..." << std::endl;
 
-            // if(step >= 0 && step % regrid_int == 0)
-            // {
-            //     lid.AverageDownValid();
-            //     lid.FindCentre();
-            //     lid.RefineMesh(cur_time);
-            //     lid.RedistributeParticle();
-            // }
+            if (step >= 0 && step % regrid_int == 0) {
+                lid.AverageDownValid();
+                lid.FindCentre();
+                lid.RefineMesh(cur_time);
+                lid.RedistributeParticle();
+            }
 
             /*---------------用于计算静止圆球绕流----------------------------------*/
             // RohdeCycle(0, cur_time, lid);
@@ -241,11 +240,10 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
-    // if(lev == max_ref_level)
-    // {
-    //     lid.ComputeParticle(lev);
-    //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
-    // }
+    if (lev == max_ref_level) {
+        lid.ComputeParticle(lev);
+        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+    }
 
     lid.Boundary(lev);
     lid.Collide(lev, 4);

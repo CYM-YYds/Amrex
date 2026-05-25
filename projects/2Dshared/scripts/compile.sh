@@ -1,5 +1,5 @@
 #!/bin/bash
-# 代理脚本：转发到仓库级 compile.sh，并将 BOX3D 编译日志放入独立目录。
+# 代理脚本：转发到仓库级 compile.sh，并将 Cylinder2D_IDFtest 编译日志放入独立目录。
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"

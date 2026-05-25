@@ -690,6 +690,12 @@ void Circle_IBM_MLSDirect() {
     dfloat w0; // 权重
   };
 
+  // 简单网格点坐标，用于保存窄带内的目标界面点。
+  struct GridIndex {
+    int i;
+    int j;
+  };
+
   // 初始化流体力数组
   for (int i = 0; i <= LX; i++) {
     for (int j = 0; j <= LY; j++) {
@@ -706,117 +712,192 @@ void Circle_IBM_MLSDirect() {
   // 计算支撑域大小
   const int support_cells = static_cast<int>(ceil(MLS_SUPPORT_RADIUS / dx)) + 1;
 
-  // 遍历所有网格点
-  for (int i = 0; i <= LX; i++) {
-    for (int j = 0; j <= LY; j++) {
-      // 计算当前点的符号距离
-      dfloat phi_i = signedDistance(i, j);
-      // 如果点不在界面附近，跳过
-      if (phi_i < 0.0 || phi_i > MLS_INTERFACE_DISTANCE)
-        continue;
+  // ========== 优化缓存（只初始化一次） ==========
+  static bool mls_cached = false;
+  static std::vector<GridIndex> interface_points_cache;
+  static std::vector<std::vector<int>> lag_bins_cache;
+  static int lag_bins_x_cache = 0;
+  static int lag_bins_y_cache = 0;
+  static int lag_bin_search_radius_cache = 0;
+  static dfloat support_radius_sq = MLS_SUPPORT_RADIUS * MLS_SUPPORT_RADIUS;
 
-      // 存储MLS源点的容器
-      std::vector<MlsSource> sources;
-      sources.reserve(64);
+  const dfloat lag_bin_size = max(MLS_SUPPORT_RADIUS, dx);
+  const int lag_bins_x =
+      max(1, static_cast<int>(ceil(static_cast<dfloat>(NX) / lag_bin_size)));
+  const int lag_bins_y =
+      max(1, static_cast<int>(ceil(static_cast<dfloat>(NY) / lag_bin_size)));
 
-      // 内层流体点：圆柱外侧、且不在界面强制层内的网格点。
-      for (int di = -support_cells; di <= support_cells; di++) {
-        for (int dj = -support_cells; dj <= support_cells; dj++) {
-          int ii = i + di;
-          int jj = j + dj;
-          auto [ii_bc, jj_bc] = applyBoundary(ii, jj);
+  auto lagBinX = [lag_bin_size, lag_bins_x](dfloat x) -> int {
+    int bx = static_cast<int>(floor(x / lag_bin_size));
+    return max(0, min(lag_bins_x - 1, bx));
+  };
+  auto lagBinY = [lag_bin_size, lag_bins_y](dfloat y) -> int {
+    int by = static_cast<int>(floor(y / lag_bin_size));
+    return max(0, min(lag_bins_y - 1, by));
+  };
+  auto lagBinId = [lag_bins_x](int bx, int by) -> int {
+    return by * lag_bins_x + bx;
+  };
 
-          dfloat rx = i - ii;
-          dfloat ry = j - jj;
-          if (rx * rx + ry * ry >
-              MLS_SUPPORT_RADIUS *
-                  MLS_SUPPORT_RADIUS) // 避免sqrt计算，直接比较距离平方和支持域半径平方
-            continue;
+  if (!mls_cached) {
+    // 窄带化
+    interface_points_cache.clear();
+    interface_points_cache.reserve(
+        static_cast<size_t>(4.0 * PI * R * MLS_INTERFACE_DISTANCE));
 
-          dfloat phi_j = signedDistance(ii_bc, jj_bc);
-          if (phi_j <= MLS_INTERFACE_DISTANCE)
-            continue;
+    const dfloat target_outer_radius = R + MLS_INTERFACE_DISTANCE;
+    const int band_i_min =
+        max(0, static_cast<int>(floor(xc - target_outer_radius)) - 1);
+    const int band_i_max =
+        min(LX, static_cast<int>(ceil(xc + target_outer_radius)) + 1);
+    const int band_j_min =
+        max(0, static_cast<int>(floor(yc - target_outer_radius)) - 1);
+    const int band_j_max =
+        min(LY, static_cast<int>(ceil(yc + target_outer_radius)) + 1);
 
-          dfloat w0 = mlsKernel(rx, ry);
-          if (w0 <= MLS_MIN_WEIGHT)
-            continue;
-
-          sources.push_back({static_cast<dfloat>(ii), static_cast<dfloat>(jj),
-                             points[ii_bc][jj_bc].u[0],
-                             points[ii_bc][jj_bc].u[1], w0});
-        }
+    for (int ii = band_i_min; ii <= band_i_max; ii++) {
+      for (int jj = band_j_min; jj <= band_j_max; jj++) {
+        dfloat phi_i = signedDistance(ii, jj);
+        if (phi_i >= 0.0 && phi_i <= MLS_INTERFACE_DISTANCE)
+          interface_points_cache.push_back({ii, jj});
       }
+    }
 
-      // 结构边界点：速度为静止壁面速度(0,0)。
-      for (int p = 0; p < np; p++) {
-        dfloat rx = i - xl[p][0];
-        dfloat ry = j - xl[p][1];
-        if (rx * rx + ry * ry > MLS_SUPPORT_RADIUS * MLS_SUPPORT_RADIUS)
+    // 拉格朗日点邻居表
+    lag_bins_cache.assign(static_cast<size_t>(lag_bins_x * lag_bins_y),
+                          std::vector<int>());
+    for (int p = 0; p < np; p++) {
+      int bx = lagBinX(xl[p][0]);
+      int by = lagBinY(xl[p][1]);
+      lag_bins_cache[lagBinId(bx, by)].push_back(p);
+    }
+
+    lag_bins_x_cache = lag_bins_x;
+    lag_bins_y_cache = lag_bins_y;
+    lag_bin_search_radius_cache =
+        static_cast<int>(ceil(MLS_SUPPORT_RADIUS / lag_bin_size)) + 1;
+
+    mls_cached = true;
+  }
+
+  // 为后续使用设定本次引用
+  const std::vector<GridIndex> &interface_points = interface_points_cache;
+  const std::vector<std::vector<int>> &lag_bins = lag_bins_cache;
+  const int lag_bin_search_radius = lag_bin_search_radius_cache;
+
+  // 主循环现在只遍历窄带界面点，而不是全场网格点。
+  std::vector<MlsSource> sources;
+  sources.reserve(64);
+  for (const auto &target : interface_points) {
+    int i = target.i;
+    int j = target.j;
+
+    // 存储MLS源点的容器
+    sources.clear();
+
+    // 内层流体点：圆柱外侧、且不在界面强制层内的网格点。
+    for (int di = -support_cells; di <= support_cells; di++) {
+      for (int dj = -support_cells; dj <= support_cells; dj++) {
+        int ii = i + di;
+        int jj = j + dj;
+        auto [ii_bc, jj_bc] = applyBoundary(ii, jj);
+
+        dfloat rx = i - ii;
+        dfloat ry = j - jj;
+        if (rx * rx + ry * ry > support_radius_sq)
+          continue;
+
+        dfloat phi_j = signedDistance(ii_bc, jj_bc);
+        if (phi_j <= MLS_INTERFACE_DISTANCE)
           continue;
 
         dfloat w0 = mlsKernel(rx, ry);
         if (w0 <= MLS_MIN_WEIGHT)
           continue;
 
-        sources.push_back({xl[p][0], xl[p][1], 0.0, 0.0, w0});
+        sources.push_back({static_cast<dfloat>(ii), static_cast<dfloat>(jj),
+                           points[ii_bc][jj_bc].u[0], points[ii_bc][jj_bc].u[1],
+                           w0});
       }
+    }
 
-      if (sources.size() < 3)
-        continue;
+    // 结构边界点：速度为静止壁面速度(0,0)。
+    int target_bx = lagBinX(i);
+    int target_by = lagBinY(j);
+    for (int by = max(0, target_by - lag_bin_search_radius);
+         by <= min(lag_bins_y - 1, target_by + lag_bin_search_radius); by++) {
+      for (int bx = max(0, target_bx - lag_bin_search_radius);
+           bx <= min(lag_bins_x - 1, target_bx + lag_bin_search_radius); bx++) {
+        const auto &bin = lag_bins[lagBinId(bx, by)];
+        for (int p : bin) {
+          dfloat rx = i - xl[p][0];
+          dfloat ry = j - xl[p][1];
+          if (rx * rx + ry * ry > support_radius_sq)
+            continue;
 
-      dfloat A[3][3] = {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+          dfloat w0 = mlsKernel(rx, ry);
+          if (w0 <= MLS_MIN_WEIGHT)
+            continue;
+
+          sources.push_back({xl[p][0], xl[p][1], 0.0, 0.0, w0});
+        }
+      }
+    }
+
+    if (sources.size() < 3)
+      continue;
+    dfloat A[3][3] = {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+    for (const auto &src : sources) {
+      dfloat basis[3] = {1.0, i - src.x, j - src.y};
+      for (int r = 0; r < 3; r++) {
+        for (int col = 0; col < 3; col++) {
+          A[r][col] += basis[r] * basis[col] * src.w0;
+        }
+      }
+    }
+
+    dfloat invA[3][3];
+    dfloat udx = 0.0;
+    dfloat udy = 0.0;
+
+    if (invert3x3(A, invA)) {
+      // 2D MLS权重：W_j^MLS = [1,0,0] A^{-1} [1, x_ij, y_ij]^T W_j
       for (const auto &src : sources) {
         dfloat basis[3] = {1.0, i - src.x, j - src.y};
-        for (int r = 0; r < 3; r++) {
-          for (int col = 0; col < 3; col++) {
-            A[r][col] += basis[r] * basis[col] * src.w0;
-          }
-        }
+        dfloat beta_dot_basis = invA[0][0] * basis[0] + invA[0][1] * basis[1] +
+                                invA[0][2] * basis[2];
+        dfloat w_mls = beta_dot_basis * src.w0;
+        udx += w_mls * src.ux;
+        udy += w_mls * src.uy;
       }
-
-      dfloat invA[3][3];
-      dfloat udx = 0.0;
-      dfloat udy = 0.0;
-
-      if (invert3x3(A, invA)) {
-        // 2D MLS权重：W_j^MLS = [1,0,0] A^{-1} [1, x_ij, y_ij]^T W_j
-        for (const auto &src : sources) {
-          dfloat basis[3] = {1.0, i - src.x, j - src.y};
-          dfloat beta_dot_basis = invA[0][0] * basis[0] +
-                                  invA[0][1] * basis[1] + invA[0][2] * basis[2];
-          dfloat w_mls = beta_dot_basis * src.w0;
-          udx += w_mls * src.ux;
-          udy += w_mls * src.uy;
-        }
-      } else {
-        // 支撑域退化时保守回退到归一化核插值，避免单CPU测试直接中断。
-        dfloat wsum = 0.0;
-        for (const auto &src : sources) {
-          udx += src.w0 * src.ux;
-          udy += src.w0 * src.uy;
-          wsum += src.w0;
-        }
-        if (wsum <= MLS_MIN_WEIGHT)
-          continue;
-        udx /= wsum;
-        udy /= wsum;
+    } else {
+      // 支撑域退化时保守回退到归一化核插值，避免单CPU测试直接中断。
+      dfloat wsum = 0.0;
+      for (const auto &src : sources) {
+        udx += src.w0 * src.ux;
+        udy += src.w0 * src.uy;
+        wsum += src.w0;
       }
-
-      // 论文式直接强制：f_i = rho_i * (u_d - u_i*) / dt。
-      // 这里u_i*取当前宏观速度；如果以后加入半步预测，可在这里替换。
-      dfloat ftx = MLS_DIRECT_FORCE_FACTOR * points[i][j].rho *
-                   (udx - points[i][j].u[0]) / dt;
-      dfloat fty = MLS_DIRECT_FORCE_FACTOR * points[i][j].rho *
-                   (udy - points[i][j].u[1]) / dt;
-
-      points[i][j].Ft[0] += ftx;
-      points[i][j].Ft[1] += fty;
-
-      // 输出Cd/Cl仍沿用fxl数组：把流体所受力的反作用力记到最近边界点。
-      int p_near = nearestLagIndex(i, j);
-      fxl[p_near][0] -= ftx * dx * dx;
-      fxl[p_near][1] -= fty * dx * dx;
+      if (wsum <= MLS_MIN_WEIGHT)
+        continue;
+      udx /= wsum;
+      udy /= wsum;
     }
+
+    // 论文式直接强制：f_i = rho_i * (u_d - u_i*) / dt。
+    // 这里u_i*取当前宏观速度；如果以后加入半步预测，可在这里替换。
+    dfloat ftx = MLS_DIRECT_FORCE_FACTOR * points[i][j].rho *
+                 (udx - points[i][j].u[0]) / dt;
+    dfloat fty = MLS_DIRECT_FORCE_FACTOR * points[i][j].rho *
+                 (udy - points[i][j].u[1]) / dt;
+
+    points[i][j].Ft[0] += ftx;
+    points[i][j].Ft[1] += fty;
+
+    // 输出Cd/Cl仍沿用fxl数组：把流体所受力的反作用力记到最近边界点。
+    int p_near = nearestLagIndex(i, j);
+    fxl[p_near][0] -= ftx * dx * dx;
+    fxl[p_near][1] -= fty * dx * dx;
   }
 }
 
