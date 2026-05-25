@@ -35,7 +35,8 @@ int main(int argc, char* argv[]) {
         // no direct amr/checkpoint ParmParse here; will use AmrCoreLBM::params()
 
         // 打印本次运行的关键配置（只在 I/O 进程打印）
-        amrex::Print() << "\n[RunConfig]\n"
+        amrex::Print() << "What the fuck is this? This is a LBM code with IBM implemented by Caiyimin, based on Amrex framework.\n"
+                       << "\n[RunConfig]\n"
                        << "  max_step      = " << max_step << "\n"
                        << "  stop_time     = " << stop_time << "\n"
                        << "  mv_0          = " << static_cast<amrex::Real>(mv_0) << "\n"
@@ -88,13 +89,12 @@ int main(int argc, char* argv[]) {
         for (int step = start_step; step <= max_step && cur_time < stop_time; step++) {
             amrex::Print() << "STEP " << step << "starts ..." << std::endl;
 
-            // if(step >= 0 && step % regrid_int == 0)
-            // {
-            //     lid.AverageDownValid();
-            //     lid.FindCentre();
-            //     lid.RefineMesh(cur_time);
-            //     lid.RedistributeParticle();
-            // }
+            if (step >= 0 && step % regrid_int == 0) {
+                lid.AverageDownValid();
+                lid.FindCentre();
+                lid.RefineMesh(cur_time);
+                lid.RedistributeParticle();
+            }
 
             /*---------------用于计算静止圆球绕流----------------------------------*/
             // RohdeCycle(0, cur_time, lid);
@@ -240,11 +240,10 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
-    // if(lev == max_ref_level)
-    // {
-    //     lid.ComputeParticle(lev);
-    //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
-    // }
+    if (lev == max_ref_level) {
+        lid.ComputeParticle(lev);
+        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+    }
 
     lid.Boundary(lev);
     lid.Collide(lev, 4);

@@ -32,7 +32,7 @@ Completion:
 
 ---
 If:
-  PathMatch: .*D3Q19\.H
+  PathMatch: .*D2Q9\.H
 
 CompileFlags:
   Add:
@@ -44,11 +44,11 @@ CompileFlags:
 
 ---
 If:
-  # Skip files outside this case root.
-  PathMatch: ^\.\./.*
+  # Index only this case root using absolute path.
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/3Dshared/.*
 
 Index:
-  Background: Skip
+  Background: Build
 
 ---
 If:
@@ -60,16 +60,8 @@ Index:
 
 ---
 If:
-  # Skip files outside this case root.
-  PathMatch: ^\.\./.*
+  # Skip other repository paths to reduce cross-case symbol pollution.
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/.*
 
 Index:
   Background: Skip
-
----
-If:
-  # Re-enable AMReX source tree indexing using absolute path.
-  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26\.01/.*
-
-Index:
-  Background: Build

@@ -196,9 +196,9 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     // generateSpheres(particle_num, R, NX, NY, NZ, points);
     // generateSpheres(D, NX, NY, NZ, points);
     points[0] = {X, Y, Z};
-    //points[1] = {X + 2.0 * D, Y, Z};
-    //  points[0] = {X + 0.03*D, Y + 0.03*D, 21.00*D};
-    //  points[1] = {X - 0.03*D, Y - 0.03*D, 18.96*D};
+    // points[1] = {X + 2.0 * D, Y, Z};
+    //   points[0] = {X + 0.03*D, Y + 0.03*D, 21.00*D};
+    //   points[1] = {X - 0.03*D, Y - 0.03*D, 18.96*D};
 
     // 表面压力系数容器
     particlesCp.resize(particle_num);
@@ -1301,8 +1301,8 @@ void AmrCoreLBM::AverageScale(int lev, int n) {
 void AmrCoreLBM::InitParticle(int lev) {
     for (int i = 0; i < particle_num; i++) {
         particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
-        particles[i]->InitParticle(lev);
-        // particles[i]->InitChannelParticle(lev);
+        // particles[i]->InitParticle(lev);
+        particles[i]->InitChannelParticle(lev);
         // particles[i]->InitCylinderParticle(lev);
         //   particles[i] ->InitParticleFromFile(lev, "../../../object/sphere128");
         //   particles[i] ->InitParticleFromFile(lev, "../../../object/car_fine");
@@ -1316,7 +1316,7 @@ void AmrCoreLBM::ComputeParticle(int lev) {
 
     // 用户可选择以下两种方法之一（通过注释/取消注释切换）：
     // 方法1: IDF (Implicit Direct Forcing) - 矩阵求解法
-    //ApplyIDF(lev); // 使用 IDF 时保留此行，注释掉 InterpForce(lev)
+    // ApplyIDF(lev); // 使用 IDF 时保留此行，注释掉 InterpForce(lev)目前的IDF代码优化不足，对于三维的情况很容易爆内存
 
     // 方法2: MDF (Multi-Direct Forcing) - 迭代求解法
     InterpForce(lev); // 使用 MDF 时保留此行，注释掉 ApplyIDF(lev)
