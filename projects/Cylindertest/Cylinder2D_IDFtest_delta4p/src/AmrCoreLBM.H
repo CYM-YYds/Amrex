@@ -69,6 +69,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     //********************************************************************//
     void ComputeMacroLevel(int lev);
     void ComputeMacro();
+    void ComputeMacroForceCorrectedLevel(int lev);
+    void ComputeMacroForceCorrected();
     void ComputeVorticityLevel(int lev);
     void ComputeVorticity(amrex::Real time);
     void ComputeShearLevel(int lev);

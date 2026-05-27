@@ -41,6 +41,27 @@ void compute_macro(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
+void compute_macro_force_corrected(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
+                                   amrex::Array4<amrex::Real> const& Ft,
+                                   amrex::Array4<amrex::Real> const& rho,
+                                   amrex::Array4<amrex::Real> const& u,
+                                   amrex::Real dt) {
+    Real uxt = 0.0, uyt = 0.0, rhot = 0.0, ft = 0.0;
+
+    for (int q = 0; q < Q; q++) {
+        ft = fold(i, j, k, q);
+        rhot += ft;
+        uxt += ft * e[q][0];
+        uyt += ft * e[q][1];
+    }
+
+    u(i, j, k, 0) = uxt / p0 + 0.5 * dt * Ft(i, j, k, 0) / (p0 / (cs * cs));
+    u(i, j, k, 1) = uyt / p0 + 0.5 * dt * Ft(i, j, k, 1) / (p0 / (cs * cs));
+    rho(i, j, k, 0) = rhot;
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
 void compute_vorticity(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
                        amrex::Array4<amrex::Real> const& vort, amrex::Real dt) {
     Real u_x = (u(i + 1, j, k, 0) - u(i - 1, j, k, 0)) / (2 * dt);

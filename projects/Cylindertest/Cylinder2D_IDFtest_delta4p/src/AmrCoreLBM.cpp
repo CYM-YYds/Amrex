@@ -1132,6 +1132,32 @@ void AmrCoreLBM::ComputeMacro() {
     }
 }
 
+void AmrCoreLBM::ComputeMacroForceCorrectedLevel(int lev) {
+    amrex::MultiFab& f_old_lev = f_old[lev];
+    amrex::MultiFab& force_lev = force[lev];
+    amrex::MultiFab& rho_lev = density[lev];
+    amrex::MultiFab& u_lev = velocity[lev];
+    amrex::Real dt = Geom(lev).CellSizeArray()[0];
+
+    for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        const Box& bx = mfi.validbox();
+        Array4<Real> const& fold = f_old_lev.array(mfi);
+        Array4<Real> const& Ft = force_lev.array(mfi);
+        Array4<Real> const& rho = rho_lev.array(mfi);
+        Array4<Real> const& u = u_lev.array(mfi);
+
+        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+            compute_macro_force_corrected(i, j, k, fold, Ft, rho, u, dt);
+        });
+    }
+}
+
+void AmrCoreLBM::ComputeMacroForceCorrected() {
+    for (int lev = 0; lev <= finest_level; lev++) {
+        ComputeMacroForceCorrectedLevel(lev);
+    }
+}
+
 void AmrCoreLBM::ComputeVorticityLevel(int lev) {
     // amrex::AllPrint()<<"ComputeVorticityLevel on " << lev <<std::endl;
 
@@ -1501,8 +1527,8 @@ void AmrCoreLBM::ComputeCp(int lev, int step) {
 }
 
 void AmrCoreLBM::ComputeCf(int lev, int step) {
-    // 计算宏观量
-    ComputeMacroLevel(lev);
+    // Cf is a statistic, so use the physical velocity with the half-step force correction.
+    ComputeMacroForceCorrectedLevel(lev);
 
     // 创建临时速度场，增加 ghost 层深度到 6，解决速度插值超出范围的问题
     amrex::MultiFab temp_velocity(velocity[lev].boxArray(), velocity[lev].DistributionMap(),

@@ -81,7 +81,7 @@ int main(int argc, char* argv[]) {
                 lid.ComputeCf(max_ref_level, step);
                 lid.ComputeCf_from_force_pressure(max_ref_level, step);
                 lid.PrintMeshInfo();
-                lid.ComputeMacro();
+                lid.ComputeMacroForceCorrected();
                 lid.WriteVelocityFile(step, cur_time);
                 lid.WriteForceFile(step, cur_time);
                 amrex::Print() << "Cd-based convergence reached at step " << step
@@ -93,7 +93,7 @@ int main(int argc, char* argv[]) {
 
             if (step >= runtime.begin_int && step % runtime.plot_int == 0) {
                 lid.PrintMeshInfo();
-                lid.ComputeMacro();
+                lid.ComputeMacroForceCorrected();
                 lid.WriteVelocityFile(step, cur_time);
             }
 
