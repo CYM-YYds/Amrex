@@ -393,7 +393,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uyt1 /= rhot1;
         uzt1 /= rhot1;
 
-        uxt = U0;
+        uxt = 0.0;
         uyt = 0.0;
         uzt = 0.0;
 
@@ -433,13 +433,13 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uyt1 /= rhot1;
         uzt1 /= rhot1;
 
-        // uxt = 0.0;
-        // uyt = 0.0;
-        // uzt = 0.0;
+        uxt = 0.0;
+        uyt = 0.0;
+        uzt = 0.0;
 
-        uxt = uxt1;
-        uyt = uyt1;
-        uzt = uzt1;
+        // uxt = uxt1;
+        // uyt = uyt1;
+        // uzt = uzt1;
 
         rhot = rhot1;
 
@@ -473,13 +473,13 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uyt1 /= rhot1;
         uzt1 /= rhot1;
 
-        // uxt = 0.0;
-        // uyt = 0.0;
-        // uzt = 0.0;
+        uxt = 0.0;
+        uyt = 0.0;
+        uzt = 0.0;
 
-        uxt = uxt1;
-        uyt = uyt1;
-        uzt = uzt1;
+        // uxt = uxt1;
+        // uyt = uyt1;
+        // uzt = uzt1;
 
         rhot = rhot1;
 
@@ -513,13 +513,13 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uyt1 /= rhot1;
         uzt1 /= rhot1;
 
-        // uxt = 0.0;
-        // uyt = 0.0;
-        // uzt = 0.0;
+        uxt = 0.0;
+        uyt = 0.0;
+        uzt = 0.0;
 
-        uxt = uxt1;
-        uyt = uyt1;
-        uzt = uzt1;
+        // uxt = uxt1;
+        // uyt = uyt1;
+        // uzt = uzt1;
 
         rhot = rhot1;
 
@@ -553,13 +553,13 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uyt1 /= rhot1;
         uzt1 /= rhot1;
 
-        // uxt = 0.0;
-        // uyt = 0.0;
-        // uzt = 0.0;
+        uxt = 0.0;
+        uyt = 0.0;
+        uzt = 0.0;
 
-        uxt = uxt1;
-        uyt = uyt1;
-        uzt = uzt1;
+        // uxt = uxt1;
+        // uyt = uyt1;
+        // uzt = uzt1;
 
         rhot = rhot1;
 
@@ -593,13 +593,13 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         uyt1 /= rhot1;
         uzt1 /= rhot1;
 
-        // uxt = 0.0;
-        // uyt = 0.0;
-        // uzt = 0.0;
+        uxt = 0.0;
+        uyt = 0.0;
+        uzt = 0.0;
 
-        uxt = uxt1;
-        uyt = uyt1;
-        uzt = uzt1;
+        // uxt = uxt1;
+        // uyt = uyt1;
+        // uzt = uzt1;
 
         rhot = rhot1;
 
@@ -674,7 +674,7 @@ void collide_cumulant(int i, int j, int k, amrex::Array4<amrex::Real> const& fol
         uzt += ft * e[q][2];
     }
 
-    Ftx = Ft(i, j, k, 0);
+    Ftx = Ft(i, j, k, 0) + mv_0 * mv_0 * Ret * Ret / (NH * NH * NH);
     Fty = Ft(i, j, k, 1);
     Ftz = Ft(i, j, k, 2);
 
@@ -2036,8 +2036,8 @@ void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold, amrex::
         int xm = i - e[q][0];
         int ym = j - e[q][1];
         int zm = k - e[q][2];
-        // 这里的设置需要跟main函数中的{AMREX_D_DECL(0, 0, 0)}的周期性设置相对应
-        if ((i > 0) && (i < hi[0]) && (j > 0) && (j < hi[1]) && (k > 0) && (k < hi[2])) {
+        // 这里的设置需要跟main函数中的{AMREX_D_DECL(1, 0, 1)}的周期性设置相对应
+        if ((i >= 0) && (i <= hi[0]) && (j > 0) && (j < hi[1]) && (k >= 0) && (k <= hi[2])) {
             fnew(i, j, k, q) = fold(xm, ym, zm, q);
         }
     }
@@ -2380,13 +2380,24 @@ AMREX_GPU_HOST_DEVICE
                         amrex::Array4<amrex::Real> const& u, amrex::Array4<amrex::Real> const& rho,
                         amrex::Array4<amrex::Real> const& Ft, amrex::Array4<amrex::Real> const& Ft_delta,
                         amrex::Real const delta, amrex::RealVect const& uc, amrex::RealVect const& wc, amrex::RealVect const& centre) {
-    amrex::Real xt, yt, zt, lx, ly, lz;
-    amrex::Real IB_Interp, IB_weight;
+    amrex::Real xt, yt, zt;
+    amrex::Real IB_weight;
     amrex::Real uxt, uyt, uzt, rhot, upx, upy, upz, fxt, fyt, fzt;
 
     xt = p.pos(0) / delta;
     yt = p.pos(1) / delta;
     zt = p.pos(2) / delta;
+
+    const int ix0 = static_cast<int>(amrex::Math::floor(xt));
+    const int iy0 = static_cast<int>(amrex::Math::floor(yt));
+    const int iz0 = static_cast<int>(amrex::Math::floor(zt));
+    amrex::Real wx[3], wy[3], wz[3];
+    for (int d = -1; d <= 1; ++d) {
+        const int slot = d + 1;
+        wx[slot] = delta3p(xt - (ix0 + d + 0.5));
+        wy[slot] = delta3p(yt - (iy0 + d + 0.5));
+        wz[slot] = delta3p(zt - (iz0 + d + 0.5));
+    }
 
     IB_weight = LP_dr * area;
 
@@ -2403,35 +2414,17 @@ AMREX_GPU_HOST_DEVICE
     upz = uc[2] + wc[0] * (y_local) + wc[1] * (-x_local);
 
     // 第一次循环：插值速度（考虑已累积的力场修正）和密度
-    for (int x = -2; x <= 2; x++) {
-        for (int y = -2; y <= 2; y++) {
-            for (int z = -2; z <= 2; z++) {
-                int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
-                int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
-                int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
-
-                // 处理x方向越界
-                // if (xx < 0)
-                //     xx = NX + xx;
-                // else if (xx > NX - 1)
-                //     xx = xx - NX;
-                // // 处理y方向越界
-                // if (yy < 0)
-                //     yy = NY + yy;
-                // else if (yy > NY - 1)
-                //     yy = yy - NY;
-                // // 处理z方向越界
-                // if (zz < 0)
-                //     zz = NZ + zz;
-                // else if (zz > NZ - 1)
-                //     zz = zz - NZ;
-
-                lx = xt - (xx + 0.5);
-                ly = yt - (yy + 0.5);
-                lz = zt - (zz + 0.5);
-
-                IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz);
-
+    for (int x = -1; x <= 1; ++x) {
+        const int sx = x + 1;
+        const int xx = ix0 + x;
+        for (int y = -1; y <= 1; ++y) {
+            const int sy = y + 1;
+            const int yy = iy0 + y;
+            const amrex::Real wxy = wx[sx] * wy[sy];
+            for (int z = -1; z <= 1; ++z) {
+                const int sz = z + 1;
+                const int zz = iz0 + z;
+                const amrex::Real IB_Interp = wxy * wz[sz];
                 // 修正后的速度 = 原始速度 + 力对速度的修正
                 amrex::Real u_corr_x = u(xx, yy, zz, 0) + force_to_vel * Ft(xx, yy, zz, 0);
                 amrex::Real u_corr_y = u(xx, yy, zz, 1) + force_to_vel * Ft(xx, yy, zz, 1);
@@ -2461,35 +2454,17 @@ AMREX_GPU_HOST_DEVICE
     tz += (fyt * x_local - fxt * y_local) * IB_weight * dx_min * dx_min * dx_min;
 
     // 第二次循环：将力增量写入 Ft_delta
-    for (int x = -2; x <= 2; x++) {
-        for (int y = -2; y <= 2; y++) {
-            for (int z = -2; z <= 2; z++) {
-                int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
-                int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
-                int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
-
-                // 处理x方向越界
-                // if (xx < 0)
-                //     xx = NX + xx;
-                // else if (xx > NX - 1)
-                //     xx = xx - NX;
-                // // 处理y方向越界
-                // if (yy < 0)
-                //     yy = NY + yy;
-                // else if (yy > NY - 1)
-                //     yy = yy - NY;
-                // // 处理z方向越界
-                // if (zz < 0)
-                //     zz = NZ + zz;
-                // else if (zz > NZ - 1)
-                //     zz = zz - NZ;
-
-                lx = xt - (xx + 0.5);
-                ly = yt - (yy + 0.5);
-                lz = zt - (zz + 0.5);
-
-                IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz) * IB_weight;
-
+    for (int x = -1; x <= 1; ++x) {
+        const int sx = x + 1;
+        const int xx = ix0 + x;
+        for (int y = -1; y <= 1; ++y) {
+            const int sy = y + 1;
+            const int yy = iy0 + y;
+            const amrex::Real wxy = wx[sx] * wy[sy];
+            for (int z = -1; z <= 1; ++z) {
+                const int sz = z + 1;
+                const int zz = iz0 + z;
+                const amrex::Real IB_Interp = wxy * wz[sz] * IB_weight;
                 // 写入增量到 Ft_delta（ghost 区域可能重复写入）
                 amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 0), -fxt * IB_Interp);
                 amrex::Gpu::Atomic::AddNoRet(&Ft_delta(xx, yy, zz, 1), -fyt * IB_Interp);
@@ -2506,13 +2481,43 @@ AMREX_GPU_HOST_DEVICE
                         amrex::Real& area,
                         amrex::Array4<amrex::Real> const& u, amrex::Array4<amrex::Real> const& rho, amrex::Array4<amrex::Real> const& Ft,
                         amrex::Real const delta, amrex::RealVect const& uc, amrex::RealVect const& wc, amrex::RealVect const& centre) {
-    amrex::Real xt, yt, zt, lx, ly, lz;
-    amrex::Real IB_Interp, IB_weight;
+    amrex::Real xt, yt, zt;
+    amrex::Real IB_weight;
     amrex::Real uxt, uyt, uzt, rhot, upx, upy, upz, fxt, fyt, fzt;
 
     xt = p.pos(0) / delta;
     yt = p.pos(1) / delta;
     zt = p.pos(2) / delta;
+
+    const int ix0 = static_cast<int>(amrex::Math::floor(xt));
+    const int iy0 = static_cast<int>(amrex::Math::floor(yt));
+    const int iz0 = static_cast<int>(amrex::Math::floor(zt));
+    amrex::Real wx[3], wy[3], wz[3];
+    for (int d = -1; d <= 1; ++d) {
+        const int slot = d + 1;
+        int xx = ix0 + d;
+        int yy = iy0 + d;
+        int zz = iz0 + d;
+
+        if (xx < 0)
+            xx = NX + xx;
+        else if (xx > NX - 1)
+            xx = xx - NX;
+
+        if (yy < 0)
+            yy = NY + yy;
+        else if (yy > NY - 1)
+            yy = yy - NY;
+
+        if (zz < 0)
+            zz = NZ + zz;
+        else if (zz > NZ - 1)
+            zz = zz - NZ;
+
+        wx[slot] = delta3p(xt - (xx + 0.5));
+        wy[slot] = delta3p(yt - (yy + 0.5));
+        wz[slot] = delta3p(zt - (zz + 0.5));
+    }
 
     IB_weight = LP_dr * area;
 
@@ -2529,37 +2534,32 @@ AMREX_GPU_HOST_DEVICE
     // upy = 0.0;
     // upz = 0.0;
 
-    for (int x = -2; x <= 2; x++) {
-        for (int y = -2; y <= 2; y++) {
-            for (int z = -2; z <= 2; z++) {
-                int xx = static_cast<int>(amrex::Math::floor(xt)) + x; // 拉格朗日点作用范围内真实的点坐标
-                int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
-                int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
+    for (int x = -1; x <= 1; ++x) {
+        const int sx = x + 1;
+        int xx = ix0 + x;
+        if (xx < 0)
+            xx = NX + xx;
+        else if (xx > NX - 1)
+            xx = xx - NX;
 
-                // 处理x方向越界
-                if (xx < 0)
-                    xx = NX + xx;
-                else if (xx > NX - 1)
-                    xx = xx - NX;
+        for (int y = -1; y <= 1; ++y) {
+            const int sy = y + 1;
+            int yy = iy0 + y;
+            if (yy < 0)
+                yy = NY + yy;
+            else if (yy > NY - 1)
+                yy = yy - NY;
 
-                // 处理y方向越界
-                if (yy < 0)
-                    yy = NY + yy;
-                else if (yy > NY - 1)
-                    yy = yy - NY;
-
-                // 处理z方向越界
+            const amrex::Real wxy = wx[sx] * wy[sy];
+            for (int z = -1; z <= 1; ++z) {
+                const int sz = z + 1;
+                int zz = iz0 + z;
                 if (zz < 0)
                     zz = NZ + zz;
                 else if (zz > NZ - 1)
                     zz = zz - NZ;
 
-                lx = xt - (xx + 0.5);
-                ly = yt - (yy + 0.5);
-                lz = zt - (zz + 0.5);
-
-                IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz);
-
+                const amrex::Real IB_Interp = wxy * wz[sz];
                 uxt += u(xx, yy, zz, 0) * IB_Interp;
                 uyt += u(xx, yy, zz, 1) * IB_Interp;
                 uzt += u(xx, yy, zz, 2) * IB_Interp;
@@ -2582,36 +2582,32 @@ AMREX_GPU_HOST_DEVICE
     ty = (fxt * z_local - fzt * x_local) * IB_weight * dx_min * dx_min * dx_min;
     tz = (fyt * x_local - fxt * y_local) * IB_weight * dx_min * dx_min * dx_min;
 
-    for (int x = -2; x <= 2; x++) {
-        for (int y = -2; y <= 2; y++) {
-            for (int z = -2; z <= 2; z++) {
-                int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
-                int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
-                int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
+    for (int x = -1; x <= 1; ++x) {
+        const int sx = x + 1;
+        int xx = ix0 + x;
+        if (xx < 0)
+            xx = NX + xx;
+        else if (xx > NX - 1)
+            xx = xx - NX;
 
-                // 处理x方向越界
-                if (xx < 0)
-                    xx = NX + xx;
-                else if (xx > NX - 1)
-                    xx = xx - NX;
-                // 处理y方向越界
-                if (yy < 0)
-                    yy = NY + yy;
-                else if (yy > NY - 1)
-                    yy = yy - NY;
+        for (int y = -1; y <= 1; ++y) {
+            const int sy = y + 1;
+            int yy = iy0 + y;
+            if (yy < 0)
+                yy = NY + yy;
+            else if (yy > NY - 1)
+                yy = yy - NY;
 
-                // 处理z方向越界
+            const amrex::Real wxy = wx[sx] * wy[sy];
+            for (int z = -1; z <= 1; ++z) {
+                const int sz = z + 1;
+                int zz = iz0 + z;
                 if (zz < 0)
                     zz = NZ + zz;
                 else if (zz > NZ - 1)
                     zz = zz - NZ;
 
-                lx = xt - (xx + 0.5);
-                ly = yt - (yy + 0.5);
-                lz = zt - (zz + 0.5);
-
-                IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz) * IB_weight;
-
+                const amrex::Real IB_Interp = wxy * wz[sz] * IB_weight;
                 amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 0), -fxt * IB_Interp);
                 amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 1), -fyt * IB_Interp);
                 amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 2), -fzt * IB_Interp);

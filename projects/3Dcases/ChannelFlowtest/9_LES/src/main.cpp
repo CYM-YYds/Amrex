@@ -39,16 +39,19 @@ int main(int argc, char* argv[]) {
                        << "\n[RunConfig]\n"
                        << "  max_step      = " << max_step << "\n"
                        << "  stop_time     = " << stop_time << "\n"
+                       << "  ReB           = " << ReB << "\n"
+                       << "  Uc            = " << Uc << "\n"
                        << "  mv_0          = " << static_cast<amrex::Real>(mv_0) << "\n"
                        << "  tau_0         = " << static_cast<amrex::Real>(tau_0) << "\n"
-                       << "  dt_0          = " << static_cast<amrex::Real>(dt_0) << "\n";
-
+                       << "  Ut            = " << Ut << "\n"
+                       << "  dt_0          = " << static_cast<amrex::Real>(dt_0) << "\n"
+                       << "  FT            = " << static_cast<amrex::Real>(FT) << "\n";
         amrex::Geometry geom(
             amrex::Box({AMREX_D_DECL(0, 0, 0)}, {AMREX_D_DECL(NX - 1, NY - 1, NZ - 1)}),
             amrex::RealBox({AMREX_D_DECL(0., 0., 0.)}, {AMREX_D_DECL(nx, ny, nz)}),
             amrex::CoordSys::cartesian,
-            {AMREX_D_DECL(0, 0, 0)});
-        // AMREX_D_DECL(0, 0, 0)需要要与stream函数相适应,主要是判断是否去等号
+            {AMREX_D_DECL(1, 0, 1)});
+        // AMREX_D_DECL(1, 0, 1)需要要与stream函数相适应,主要是判断是否去等号
         amrex::AmrInfo info{
             1,             // verbose
             max_ref_level, // max_level
