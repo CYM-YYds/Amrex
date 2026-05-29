@@ -41,10 +41,10 @@ int main(int argc, char* argv[]) {
                        << "  stop_time     = " << stop_time << "\n"
                        << "  ReB           = " << ReB << "\n"
                        << "  Uc            = " << Uc << "\n"
-                       << "  mv_0          = " << static_cast<amrex::Real>(mv_0) << "\n"
-                       << "  tau_0         = " << static_cast<amrex::Real>(tau_0) << "\n"
+                       << "  mv_0          = " << mv_0 << "\n"
+                       << "  tau_0         = " << tau_0 << "\n"
                        << "  Ut            = " << Ut << "\n"
-                       << "  dt_0          = " << static_cast<amrex::Real>(dt_0) << "\n"
+                       << "  dt_0          = " << dt_0 << "\n"
                        << "  FT            = " << static_cast<amrex::Real>(FT) << "\n";
         amrex::Geometry geom(
             amrex::Box({AMREX_D_DECL(0, 0, 0)}, {AMREX_D_DECL(NX - 1, NY - 1, NZ - 1)}),
@@ -92,12 +92,12 @@ int main(int argc, char* argv[]) {
         for (int step = start_step; step <= max_step && cur_time < stop_time; step++) {
             amrex::Print() << "STEP " << step << "starts ..." << std::endl;
 
-            if (step >= 0 && step % regrid_int == 0) {
-                lid.AverageDownValid();
-                lid.FindCentre();
-                lid.RefineMesh(cur_time);
-                lid.RedistributeParticle();
-            }
+            // if (step >= 0 && step % regrid_int == 0) {
+            //     lid.AverageDownValid();
+            //     lid.FindCentre();
+            //     lid.RefineMesh(cur_time);
+            //     lid.RedistributeParticle();
+            // }
 
             /*---------------用于计算静止圆球绕流----------------------------------*/
             // RohdeCycle(0, cur_time, lid);
@@ -126,6 +126,7 @@ int main(int argc, char* argv[]) {
                 lid.ComputeMacroForceCorrected();
                 lid.ComputeVorticity(cur_time);
                 lid.WriteVelocityFile(step, cur_time);
+                // lid.WriteForceDat(max_ref_level, step);
                 // lid.WriteDensityFile(step, cur_time);
                 // lid.ComputeCp(max_ref_level, step);
                 // lid.WriteMultiParticleFile(step, cur_time);
@@ -217,10 +218,10 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
-    if (lev == max_ref_level) {
-        lid.ComputeParticle(lev);
-        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
-    }
+    // if (lev == max_ref_level) {
+    //     lid.ComputeParticle(lev);
+    //     lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+    // }
 
     lid.Boundary(lev);
     lid.Collide(lev, 4);

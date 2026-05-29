@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
         lid.PrintMeshInfo();
         lid.PrintLbmParm();
         lid.InitParticle(max_ref_level);
-        lid.InitCpPoint(max_ref_level); //球体周向生成一圈“辅助采样点”，用来后续插值并输出压强系数 Cp 分布
+        lid.InitCpPoint(max_ref_level); // 球体周向生成一圈“辅助采样点”，用来后续插值并输出压强系数 Cp 分布
         lid.PrintParticleParm();
 
         for (int step = 1; step <= max_step && cur_time < stop_time; step++) {
@@ -107,14 +107,14 @@ int main(int argc, char* argv[]) {
                 lid.ComputeMacro();
                 lid.ComputeVorticity(cur_time);
                 lid.WriteVelocityFile(step, cur_time);
-                //lid.WriteForceDat(max_ref_level, step);
-                // lid.WriteDensityFile(step, cur_time);
-                // lid.ComputeCp(max_ref_level, step);
-                // lid.WriteMultiParticleFile(step, cur_time);
-                // lid.WriteVelocityFile(step, cur_time, max_ref_level);
-                // lid.WriteParticleFile(step, cur_time);
-                // lid.WriteVorticityFile(step, cur_time);
-                // lid.WriteVelocityFileWithParticle(step, cur_time);
+                // lid.WriteForceDat(max_ref_level, step);
+                //  lid.WriteDensityFile(step, cur_time);
+                //  lid.ComputeCp(max_ref_level, step);
+                //  lid.WriteMultiParticleFile(step, cur_time);
+                //  lid.WriteVelocityFile(step, cur_time, max_ref_level);
+                //  lid.WriteParticleFile(step, cur_time);
+                //  lid.WriteVorticityFile(step, cur_time);
+                //  lid.WriteVelocityFileWithParticle(step, cur_time);
             }
 
             // 每步调用，函数内部根据 step 与 FT 判断是否真正采样
@@ -221,10 +221,9 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
-    if(lev == max_ref_level)
-    {
+    if (lev == max_ref_level) {
         lid.ComputeParticle(lev);
-        lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
+        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
     }
 
     lid.Boundary(lev);

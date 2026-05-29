@@ -22,7 +22,7 @@ using namespace amrex;
 #endif
 
 const int coarsest_level = 0;
-const int max_ref_level = 1;
+const int max_ref_level = 0;
 const int rate = (1 << max_ref_level);
 
 /*-----------------复杂结构体------------------------*/
@@ -40,7 +40,7 @@ const int rate = (1 << max_ref_level);
 // const Real obj_dim_z = (obj_hi_z  - obj_lo_z);
 /*---------------------------------------------------*/
 
-const Real D = 8.0; // obj_dim_z;
+const Real D = 16.0; // obj_dim_z;
 const Real R = D / 2.0;
 
 constexpr int NX = 906;
@@ -114,11 +114,11 @@ const Real dt_min = dt_0 / rate;
 
 const Real rb = pow(((pow(rate * R, 3) + pow(rate * R - 1, 3)) / 2.0), (1.0 / 3.0)); // 修正的半径
 
-const Real ds0 = 1.2;
+const Real ds0 = 1.0;
 const int ns = PI * rb / ds0 + 1;  // 表面分带数
 const int nt1 = 2 * PI * rb / ds0; // 赤道上point数量
 
-const Real LP_dr = 1.9;
+const Real LP_dr = 1.0;
 const Real LP_area = 4 * PI * rb * rb;
 
 // 多颗粒相关的参数

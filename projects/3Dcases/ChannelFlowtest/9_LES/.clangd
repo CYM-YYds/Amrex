@@ -32,7 +32,7 @@ Completion:
 
 ---
 If:
-  PathMatch: .*D2Q9\.H
+  PathMatch: .*D3Q19\.H
 
 CompileFlags:
   Add:
