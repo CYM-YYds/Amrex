@@ -194,10 +194,9 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
-    // if(lev == max_ref_level)
-    // {
+    // if (lev == max_ref_level) {
     //     lid.ComputeParticle(lev);
-    //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
+    //     lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
     // }
 
     lid.Boundary(lev);

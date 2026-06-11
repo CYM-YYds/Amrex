@@ -2,7 +2,7 @@
 # Run until nsteps == max_step or time == stop_time,
 #     whichever comes first
 # *****************************************************************
-max_step  = 1000
+max_step  = 100000
 stop_time = 10000000
 
 amr.regrid_int  = -1
@@ -17,7 +17,7 @@ amr.blocking_factor_y = 2 2 2 2
 amr.blocking_factor_z = 2 2 2 2
 
 amr.plot_file  = data/case_channelFlow_Ret180
-amr.plot_int   = 1000
+amr.plot_int   = 50000
 amr.begin_plot = 0
 
 lbm.err = 0.6 0.8 1.0 1.2 1.4 1.5 1.6 1.7
