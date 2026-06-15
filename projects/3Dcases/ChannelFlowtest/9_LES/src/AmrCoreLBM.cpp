@@ -2338,8 +2338,9 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
         Array4<Real> const& fold = f_old_lev.array(mfi);
         Array4<Real> const& fnew = f_new_lev.array(mfi);
 
-        amrex::ParallelForRNG(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k, RandomEngine const& rd) { init_fluid(i, j, k, fold, fnew); });
-        // init_fluid_channel(i, j, k, fold, fnew, hi, dx, rd); });
+        amrex::ParallelForRNG(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k, RandomEngine const& rd) { // init_fluid(i, j, k, fold, fnew); });
+            init_fluid_channel(i, j, k, fold, fnew, hi, dx, rd);
+        });
     }
 }
 
