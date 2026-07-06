@@ -13,13 +13,25 @@ Date: 2026-05-27
 此笔记记录了针对 `projects/3Dcases/ChannelFlowtest/9_LES` 情况下
 `src/Kernels.H` 中 `force_interp_extrap()` 的首次优化迭代。
 
-活动运行路径为：
+当时的普通 MDF 活动运行路径为：
 
 1. `main.cpp` 调用 `JaberCycle()`。
 2. `JaberCycle()` 在最细网格上调用 `AmrCoreLBM::ComputeParticle()`。
 3. `ComputeParticle()` 调用 `AmrCoreLBM::InterpForce()`。
 4. 在 `NF = 1` 时，`InterpForce()` 使用 `LagrangeParticleContainer::InterpForce()` 的单次 MDF 重载。
 5. 这会对每个本地拉格朗日点调用一次 `force_interp_extrap()`。
+
+截至 2026-06-15，`9_LES` 的默认 `NF=1` 路径已切换到壁面模型：
+
+```text
+AmrCoreLBM::InterpForce()
+  -> LagrangeParticleContainer::InterpForceWallModel()
+  -> Kernels.H::force_wall_model()
+```
+
+因此本文记录的 `force_interp_extrap()` 优化仍可作为普通 MDF 内核参考，但不再是
+当前 `9_LES` 默认粒子力路径的性能瓶颈。壁面模型实现与验证见
+`docs/壁面模型AI实现手册.md` 和 `scripts/check_wall_model_nf1.sh`。
 
 ## 问题
 

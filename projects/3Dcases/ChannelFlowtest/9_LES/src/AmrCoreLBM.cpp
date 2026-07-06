@@ -1800,8 +1800,8 @@ void AmrCoreLBM::InterpForce(int lev) {
 #else
     // 单次迭代（NF = 1）：直接使用 force，无需 force_delta
     for (int i = 0; i < particle_num; i++) {
-        particles[i]->InterpForce(lev, rho_lev, u_lev, force_lev);
-        // particles[i]->InterpForceWallModel(lev, rho_lev, u_lev, force_lev);
+        // particles[i]->InterpForce(lev, rho_lev, u_lev, force_lev);
+        particles[i]->InterpForceWallModel(lev, rho_lev, u_lev, force_lev);
     }
     SumForce(lev);
 

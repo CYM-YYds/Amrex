@@ -290,7 +290,7 @@ AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void compute_shear(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
                    amrex::Array4<amrex::Real> const& shear, amrex::Real dt) {
-    Real SS, Q_CSM, E_CSM, F_CSM, C_CSM;
+    Real SS, Q_, E_, F_CS, C;
 
     Real u_x = (u(i + 1, j, k, 0) - u(i - 1, j, k, 0)) / (2 * dt);
     Real u_y = (u(i, j + 1, k, 0) - u(i, j - 1, k, 0)) / (2 * dt);
@@ -313,31 +313,30 @@ void compute_shear(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
                 XY * XY + YY * YY + YZ * YZ +
                 XZ * XZ + YZ * YZ + ZZ * ZZ);
 
-    Q_CSM = (-0.5) * (u_x * u_x + u_y * v_x + u_z * w_x +
+    Q_ = (-0.5) * (u_x * u_x + u_y * v_x + u_z * w_x +
                       v_x * u_y + v_y * v_y + v_z * w_y +
                       w_x * u_z + w_y * v_z + w_z * w_z);
 
-    E_CSM = 0.5 * (u_x * u_x + v_x * v_x + w_x * w_x +
+    E_ = 0.5 * (u_x * u_x + v_x * v_x + w_x * w_x +
                    u_y * u_y + v_y * v_y + w_y * w_y +
                    u_z * u_z + v_z * v_z + w_z * w_z);
-    if (E_CSM != 0.0)
-        F_CSM = Q_CSM / E_CSM;
+    if (E_ != 0.0)
+        F_CS = Q_ / E_;
     else
-        F_CSM = 0.0;
-    if (F_CSM < (-1.0))
-        F_CSM = -1.0;
-    if (F_CSM > (1.0))
-        F_CSM = 1.0;
-    C_CSM = 1.0 / 22.0 * pow(fabs(F_CSM), 1.5) * (1.0 - F_CSM);
+        F_CS = 0.0;
+    if (F_CS < (-1.0))
+        F_CS = -1.0;
+    if (F_CS > (1.0))
+        F_CS = 1.0;
+    C = 1.0 / 22.0 * pow(fabs(F_CS), 1.5) * (1.0 - F_CS);
 
-    shear(i, j, k, 0) = C_CSM * dt * dt * sqrt(SS); // 不知道这样直接从三维改到二维对不对
+    shear(i, j, k, 0) = C * dt * dt * sqrt(SS); // 不知道这样直接从三维改到二维对不对
 }
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void compute_shear2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
                     amrex::Array4<amrex::Real> const& shear, amrex::Real dt) {
-    Real SS, Q_CSM, E_CSM, F_CSM, C_CSM;
 
     Real u_x = (u(i + 1, j, k, 0) - u(i - 1, j, k, 0)) / (2 * dt);
     Real u_y = (u(i, j + 1, k, 0) - u(i, j - 1, k, 0)) / (2 * dt);
@@ -2367,6 +2366,215 @@ Real delta3p(amrex::Real r) {
         return 0.0;
 }
 
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+int ibm_wrap_index(int i, int n) {
+    if (i < 0)
+        return n + i;
+    if (i > n - 1)
+        return i - n;
+    return i;
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+void ibm_interp_u_rho_at(amrex::Real xp, amrex::Real yp, amrex::Real zp,
+                         amrex::Array4<amrex::Real> const& u,
+                         amrex::Array4<amrex::Real> const& rho,
+                         amrex::Real& ux,
+                         amrex::Real& uy,
+                         amrex::Real& uz,
+                         amrex::Real& rho_interp) {
+    ux = 0.0;
+    uy = 0.0;
+    uz = 0.0;
+    rho_interp = 0.0;
+
+    const int ix0 = static_cast<int>(amrex::Math::floor(xp));
+    const int iy0 = static_cast<int>(amrex::Math::floor(yp));
+    const int iz0 = static_cast<int>(amrex::Math::floor(zp));
+
+    for (int x = -1; x <= 1; ++x) {
+        const int xx = ibm_wrap_index(ix0 + x, NX);
+        const amrex::Real wx = delta3p(xp - (xx + 0.5));
+        for (int y = -1; y <= 1; ++y) {
+            const int yy = ibm_wrap_index(iy0 + y, NY);
+            const amrex::Real wy = delta3p(yp - (yy + 0.5));
+            for (int z = -1; z <= 1; ++z) {
+                const int zz = ibm_wrap_index(iz0 + z, NZ);
+                const amrex::Real wz = delta3p(zp - (zz + 0.5));
+                const amrex::Real w_interp = wx * wy * wz;
+
+                ux += u(xx, yy, zz, 0) * w_interp;
+                uy += u(xx, yy, zz, 1) * w_interp;
+                uz += u(xx, yy, zz, 2) * w_interp;
+                rho_interp += rho(xx, yy, zz, 0) * w_interp;
+            }
+        }
+    }
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+amrex::Real ibm_interp_rho_at(amrex::Real xp, amrex::Real yp, amrex::Real zp,
+                              amrex::Array4<amrex::Real> const& rho) {
+    amrex::Real rho_interp = 0.0;
+
+    const int ix0 = static_cast<int>(amrex::Math::floor(xp));
+    const int iy0 = static_cast<int>(amrex::Math::floor(yp));
+    const int iz0 = static_cast<int>(amrex::Math::floor(zp));
+
+    for (int x = -1; x <= 1; ++x) {
+        const int xx = ibm_wrap_index(ix0 + x, NX);
+        const amrex::Real wx = delta3p(xp - (xx + 0.5));
+        for (int y = -1; y <= 1; ++y) {
+            const int yy = ibm_wrap_index(iy0 + y, NY);
+            const amrex::Real wy = delta3p(yp - (yy + 0.5));
+            for (int z = -1; z <= 1; ++z) {
+                const int zz = ibm_wrap_index(iz0 + z, NZ);
+                const amrex::Real wz = delta3p(zp - (zz + 0.5));
+                rho_interp += rho(xx, yy, zz, 0) * wx * wy * wz;
+            }
+        }
+    }
+
+    return rho_interp;
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+amrex::Real compute_u_tau_werner_wengle(amrex::Real ur_xi,
+                                        amrex::Real nu,
+                                        amrex::Real etaP) {
+    constexpr amrex::Real A = 8.3;
+    constexpr amrex::Real B = 1.0 / 7.0;
+    constexpr amrex::Real eta_c = 11.81;
+
+    const amrex::Real u_tau_lam = std::sqrt(ur_xi * nu / etaP);
+    const amrex::Real eta_plus_lam = etaP * u_tau_lam / nu;
+
+    if (eta_plus_lam <= eta_c) {
+        return u_tau_lam;
+    }
+
+    return std::pow(nu / etaP, B / (B + 1.0)) * std::pow(ur_xi / A, 1.0 / (B + 1.0));
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+amrex::Real compute_uD_apgpl(amrex::Real ur_xi,
+                             amrex::Real nu,
+                             amrex::Real rhoP,
+                             amrex::Real etaP,
+                             amrex::Real dpdxi) {
+    constexpr amrex::Real a = 7.5789;
+    constexpr amrex::Real b = -1.4489;
+    constexpr amrex::Real c_apgpl = 191.1799;
+
+    const amrex::Real term1 = a * std::sqrt((etaP / rhoP) * dpdxi);
+    const amrex::Real log_arg = c_apgpl * etaP * etaP * etaP * dpdxi / (rhoP * nu * nu);
+
+    const amrex::Real term2 = b * std::pow((nu / rhoP) * dpdxi, 1.0 / 3.0) * std::log(log_arg);
+
+    return ur_xi - term1 - term2;
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+amrex::Real residual_eta_c_apgpl(amrex::Real eta, amrex::Real rhs) {
+    constexpr amrex::Real A = 8.3;
+    constexpr amrex::Real B = 1.0 / 7.0;
+
+    return eta * eta - A * std::pow(eta, B + 1.0) - rhs;
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+amrex::Real derivative_eta_c_apgpl(amrex::Real eta) {
+    constexpr amrex::Real A = 8.3;
+    constexpr amrex::Real B = 1.0 / 7.0;
+
+    return 2.0 * eta - A * (B + 1.0) * std::pow(eta, B);
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+amrex::Real compute_eta_c_apgpl(amrex::Real rhoP,
+                                amrex::Real nu,
+                                amrex::Real etaP,
+                                amrex::Real dpdxi) {
+    constexpr amrex::Real a = 7.5789;
+    constexpr amrex::Real b = -1.4489;
+    constexpr amrex::Real c_apgpl = 191.1799;
+    constexpr amrex::Real eta_c_ww = 11.81;
+
+    const amrex::Real K = etaP * etaP * etaP * dpdxi / (rhoP * nu * nu);
+
+    const amrex::Real rhs = a * std::sqrt(K)
+                          + b * std::pow(K, 1.0 / 3.0) * std::log(c_apgpl * K);
+
+    amrex::Real lo = 11.78;
+    amrex::Real hi = 2.0 * eta_c_ww;
+    amrex::Real f_lo = residual_eta_c_apgpl(lo, rhs);
+    amrex::Real f_hi = residual_eta_c_apgpl(hi, rhs);
+
+    if (f_lo > 0.0) {
+        return eta_c_ww;
+    }
+
+    if (f_hi < 0.0) {
+        return hi;
+    }
+
+    amrex::Real eta = eta_c_ww;
+    for (int iter = 0; iter < 5; ++iter) {
+        const amrex::Real f_eta = residual_eta_c_apgpl(eta, rhs);
+        const amrex::Real df_eta = derivative_eta_c_apgpl(eta);
+        amrex::Real eta_next = 0.5 * (lo + hi);
+
+        if (df_eta != 0.0) {
+            eta_next = eta - f_eta / df_eta;
+        }
+
+        if (eta_next <= lo || eta_next >= hi || eta_next != eta_next) {
+            eta_next = 0.5 * (lo + hi);
+        }
+
+        const amrex::Real f_next = residual_eta_c_apgpl(eta_next, rhs);
+        if (f_next <= 0.0) {
+            lo = eta_next;
+        } else {
+            hi = eta_next;
+        }
+
+        eta = eta_next;
+    }
+
+    return eta;
+}
+
+AMREX_GPU_HOST_DEVICE
+AMREX_FORCE_INLINE
+amrex::Real compute_u_tau_apgpl(amrex::Real ur_xi,
+                                amrex::Real uD,
+                                amrex::Real rhoP,
+                                amrex::Real nu,
+                                amrex::Real etaP,
+                                amrex::Real dpdxi) {
+    constexpr amrex::Real A = 8.3;
+    constexpr amrex::Real B = 1.0 / 7.0;
+
+    const amrex::Real u_tau_lam = std::sqrt(ur_xi * nu / etaP);
+    const amrex::Real eta_plus_lam = etaP * u_tau_lam / nu;
+    const amrex::Real eta_c = compute_eta_c_apgpl(rhoP, nu, etaP, dpdxi);
+
+    if (eta_plus_lam <= eta_c) {
+        return u_tau_lam;
+    }
+
+    return std::pow(nu / etaP, B / (B + 1.0)) * std::pow(uD / A, 1.0 / (B + 1.0));
+}
+
 // MDF 两阶段迭代版本：force_delta 写入增量，force_lev 读取累积力
 template <typename P>
 AMREX_GPU_HOST_DEVICE
@@ -2626,91 +2834,140 @@ AMREX_GPU_HOST_DEVICE
                      amrex::Real& area,
                      amrex::Array4<amrex::Real> const& u, amrex::Array4<amrex::Real> const& rho, amrex::Array4<amrex::Real> const& Ft,
                      amrex::Real const delta, amrex::RealVect const& uc, amrex::RealVect const& wc, amrex::RealVect const& centre) {
-    amrex::Real xc, yc, zc, lx, ly, lz;
-    amrex::Real IB_Interp, IB_weight;
-    amrex::Real xq, yq, zq, xRef, yRef, zRef;
-    amrex::Real uxRef, uyRef, uzRef, rhoRef;
-    amrex::Real fxt, fyt, fzt;
+    const amrex::Real xt = p.pos(0) / delta;
+    const amrex::Real yt = p.pos(1) / delta;
+    const amrex::Real zt = p.pos(2) / delta;
+    const amrex::Real IB_weight = LP_dr * area;
 
-    xc = centre[0] / delta;
-    yc = centre[1] / delta;
-    zc = centre[2] / delta;
+    const amrex::Real y_mid = 0.5 * (3.5 + (NY - 3.5)) * dx_min;
+    const bool is_bottom_wall = (p.pos(1) < y_mid);
 
-    IB_weight = LP_dr * area;
+    const amrex::Real nx = 0.0;
+    const amrex::Real ny = is_bottom_wall ? 1.0 : -1.0;
+    const amrex::Real nz = 0.0;
 
-    // 找到Ref和Q的坐标
-    amrex::Real distSum = std::sqrt(x_local * x_local + y_local * y_local + z_local * z_local);
-    amrex::RealVect normal = {x_local / distSum, y_local / distSum, z_local / distSum};
+    const amrex::Real UBx = uc[0] + wc[2] * (-y_local) + wc[1] * z_local;
+    const amrex::Real UBy = uc[1] + wc[2] * x_local + wc[0] * (-z_local);
+    const amrex::Real UBz = uc[2] + wc[0] * y_local + wc[1] * (-x_local);
 
-    xq = xc + x_local / delta + normal[0] * 0.25;
-    yq = yc + y_local / delta + normal[1] * 0.25;
-    zq = zc + z_local / delta + normal[2] * 0.25;
+    amrex::Real uLagx, uLagy, uLagz, rhoLag;
+    ibm_interp_u_rho_at(xt, yt, zt, u, rho, uLagx, uLagy, uLagz, rhoLag);
 
-    xRef = xc + x_local / delta + normal[0] * 2.5;
-    yRef = yc + y_local / delta + normal[1] * 2.5;
-    zRef = zc + z_local / delta + normal[2] * 2.5;
+    amrex::Real UBRx = UBx;
+    amrex::Real UBRy = UBy;
+    amrex::Real UBRz = UBz;
 
-    // 插值得到Ref点的速度，密度
-    for (int x = -2; x <= 2; x++) {
-        for (int y = -2; y <= 2; y++) {
-            for (int z = -2; z <= 2; z++) {
-                int xx = static_cast<int>(amrex::Math::floor(xRef)) + x; // 拉格朗日点作用范围内真实的点坐标
-                int yy = static_cast<int>(amrex::Math::floor(yRef)) + y;
-                int zz = static_cast<int>(amrex::Math::floor(zRef)) + z;
+    const amrex::Real eps = 1.0e-14;
+    const amrex::Real etaP = 3.0 * delta;
+    const amrex::Real probe_offset = etaP / delta;
+    const amrex::Real xP = xt + probe_offset * nx;
+    const amrex::Real yP = yt + probe_offset * ny;
+    const amrex::Real zP = zt + probe_offset * nz;
 
-                lx = xRef - (xx + 0.5);
-                ly = yRef - (yy + 0.5);
-                lz = zRef - (zz + 0.5);
+    // Wall-model sample points are flow-dependent: e_xi comes from the current
+    // probe velocity, so P_plus/P_minus cannot be cached like fixed IBM weights.
+    // Only the final Lagrangian-point spreading stencil is a good low-risk
+    // candidate for later wx/wy/wz reuse, as in force_interp_extrap().
+    amrex::Real UPx, UPy, UPz, rhoP;
+    ibm_interp_u_rho_at(xP, yP, zP, u, rho, UPx, UPy, UPz, rhoP);
 
-                IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz);
+    const amrex::Real UP_eta = UPx * nx + UPy * ny + UPz * nz;
+    const amrex::Real exi_raw_x = UPx - UP_eta * nx;
+    const amrex::Real exi_raw_y = UPy - UP_eta * ny;
+    const amrex::Real exi_raw_z = UPz - UP_eta * nz;
+    const amrex::Real UP_xi = std::sqrt(exi_raw_x * exi_raw_x + exi_raw_y * exi_raw_y + exi_raw_z * exi_raw_z);
 
-                uxRef += u(xx, yy, zz, 0) * IB_Interp;
-                uyRef += u(xx, yy, zz, 1) * IB_Interp;
-                uzRef += u(xx, yy, zz, 2) * IB_Interp;
-                rhoRef += rho(xx, yy, zz, 0) * IB_Interp;
+    if (UP_xi > eps && rhoP > eps && rhoLag > eps) {
+        const amrex::Real exi_x = exi_raw_x / UP_xi;
+        const amrex::Real exi_y = exi_raw_y / UP_xi;
+        const amrex::Real exi_z = exi_raw_z / UP_xi;
+
+        const amrex::Real UB_xi = UBx * exi_x + UBy * exi_y + UBz * exi_z;
+        const amrex::Real UB_eta = UBx * nx + UBy * ny + UBz * nz;
+        const amrex::Real ur_xi = UP_xi - UB_xi;
+
+        if (ur_xi > eps) {
+            const amrex::Real dpdxi_half_step = delta;
+            const amrex::Real h_grid = dpdxi_half_step / delta;
+            const amrex::Real rho_plus = ibm_interp_rho_at(
+                xP + h_grid * exi_x,
+                yP + h_grid * exi_y,
+                zP + h_grid * exi_z,
+                rho);
+            const amrex::Real rho_minus = ibm_interp_rho_at(
+                xP - h_grid * exi_x,
+                yP - h_grid * exi_y,
+                zP - h_grid * exi_z,
+                rho);
+            const amrex::Real dpdxi = cs2 * (rho_plus - rho_minus) / (2.0 * dpdxi_half_step);
+
+            amrex::Real u_tau = 0.0;
+            bool use_wall_model = true;
+
+            if (dpdxi <= 0.0) {
+                u_tau = compute_u_tau_werner_wengle(ur_xi, mv_0, etaP);
+            } else {
+                const amrex::Real uD = compute_uD_apgpl(ur_xi, mv_0, rhoP, etaP, dpdxi);
+                if (uD <= 0.0) {
+                    use_wall_model = false;
+                } else {
+                    u_tau = compute_u_tau_apgpl(ur_xi, uD, rhoP, mv_0, etaP, dpdxi);
+                }
+            }
+
+            if (use_wall_model) {
+                const amrex::Real tau_w = rhoP * u_tau * u_tau;
+                const amrex::Real eta_plus = etaP * u_tau / mv_0;
+                const amrex::Real vd = 1.0 - std::exp(-eta_plus / 19.0);
+                const amrex::Real nu_t = mv_0 * 0.41 * eta_plus * vd * vd;
+                const amrex::Real Gp = (tau_w + dpdxi * etaP) / (rhoP * (mv_0 + nu_t));
+
+                amrex::Real UBR_xi = UP_xi - Gp * etaP;
+
+                if (Gp < 0.0) {
+                    UBR_xi = UP_xi;
+                }
+
+                if (dpdxi > 0.0 && UBR_xi < UB_xi) {
+                    UBR_xi = UB_xi;
+                }
+
+                UBRx = UBR_xi * exi_x + UB_eta * nx;
+                UBRy = UBR_xi * exi_y + UB_eta * ny;
+                UBRz = UBR_xi * exi_z + UB_eta * nz;
             }
         }
     }
 
-    // 找到切向
-    amrex::Real dotProduct = uxRef * normal[0] + uyRef * normal[1] + uzRef * normal[2];
-    amrex::Real vTangX = uxRef - dotProduct * normal[0];
-    amrex::Real vTangY = uyRef - dotProduct * normal[1];
-    amrex::Real vTangZ = uzRef - dotProduct * normal[2];
-    amrex::Real vTangSum = std::sqrt(vTangX * vTangX + vTangY * vTangY + vTangZ * vTangZ);
-    amrex::RealVect tangent = {vTangX / vTangSum, vTangY / vTangSum, vTangZ / vTangSum};
+    const amrex::Real rhot = 2.0 * rhoLag / dt_min;
+    const amrex::Real fxt = rhot * (uLagx - UBRx);
+    const amrex::Real fyt = rhot * (uLagy - UBRy);
+    const amrex::Real fzt = rhot * (uLagz - UBRz);
+    const amrex::Real scale = IB_weight * dx_min * dx_min * dx_min;
 
-    // 幂定律计算tw
-    amrex::Real velNormal = std::abs(dotProduct);
-    amrex::Real velTang = vTangSum;
+    fx = fxt * scale;
+    fy = fyt * scale;
+    fz = fzt * scale;
 
-    amrex::Real tw = rhoRef * std::pow((velTang / 8.3), (2 / (1.0 + 1.0 / 7.0))) * std::pow((mv_0 / 2.5), (2.0 / 7.0 / (1.0 + 1.0 / 7.0)));
+    tx = (fzt * y_local - fyt * z_local) * scale;
+    ty = (fxt * z_local - fzt * x_local) * scale;
+    tz = (fyt * x_local - fxt * y_local) * scale;
 
-    // 计算Q点剪切应力和体积力
-    rhoRef = 2 * rhoRef / dt_min;
-    amrex::Real fTang = 2.0 * tw / dx_min;
-    amrex::Real fNormal = rhoRef * (velNormal - 0.0);
+    const int ix0 = static_cast<int>(amrex::Math::floor(xt));
+    const int iy0 = static_cast<int>(amrex::Math::floor(yt));
+    const int iz0 = static_cast<int>(amrex::Math::floor(zt));
 
-    // 力外推
-    fxt = fNormal * normal[0] + fTang * tangent[0];
-    fyt = fNormal * normal[1] + fTang * tangent[1];
-    fzt = fNormal * normal[2] + fTang * tangent[2];
-    fx = fxt * IB_weight * dx_min * dx_min * dx_min;
-    fy = fyt * IB_weight * dx_min * dx_min * dx_min;
-    fz = fzt * IB_weight * dx_min * dx_min * dx_min;
-
-    for (int x = -2; x <= 2; x++) {
-        for (int y = -2; y <= 2; y++) {
-            for (int z = -2; z <= 2; z++) {
-                int xx = static_cast<int>(amrex::Math::floor(xq)) + x;
-                int yy = static_cast<int>(amrex::Math::floor(yq)) + y;
-                int zz = static_cast<int>(amrex::Math::floor(zq)) + z;
-
-                lx = xq - (xx + 0.5);
-                ly = yq - (yy + 0.5);
-                lz = zq - (zz + 0.5);
-
-                IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz) * IB_weight;
+    for (int x = -1; x <= 1; ++x) {
+        const int xx = ibm_wrap_index(ix0 + x, NX);
+        const amrex::Real wx = delta3p(xt - (xx + 0.5));
+        for (int y = -1; y <= 1; ++y) {
+            const int yy = ibm_wrap_index(iy0 + y, NY);
+            const amrex::Real wy = delta3p(yt - (yy + 0.5));
+            const amrex::Real wxy = wx * wy;
+            for (int z = -1; z <= 1; ++z) {
+                const int zz = ibm_wrap_index(iz0 + z, NZ);
+                const amrex::Real wz = delta3p(zt - (zz + 0.5));
+                const amrex::Real IB_Interp = wxy * wz * IB_weight;
 
                 amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 0), -fxt * IB_Interp);
                 amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 1), -fyt * IB_Interp);

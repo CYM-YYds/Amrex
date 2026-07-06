@@ -9,6 +9,24 @@ projects/3Dcases/ChannelFlowtest/9_LES
 本轮只实现三维槽道流上下壁面的 `NF=1` MDF 壁面模型版本，不处理 `NF>1`
 两阶段迭代，不实现完整三维切平面分解。
 
+## 0. 当前实现状态
+
+截至 2026-07-06，本文描述的 `NF=1` 第一版已经在当前 case 中落地：
+
+- `src/AmrCoreLBM.cpp` 的 `USE_MDF_TWO_STAGE=0` 分支调用
+  `particles[i]->InterpForceWallModel(lev, rho_lev, u_lev, force_lev)`。
+- `src/Kernels.H::force_wall_model()` 已改为先构造壁面模型目标速度 `UBR`，
+  再使用当前 MDF 符号约定 `f = rhot * (uLag - UBR)` 扩散力。
+- `src/Kernels.H::compute_eta_c_apgpl()` 已按 APGPL 连续性方程动态求解
+  `eta_c`，使用初值 `11.81`、区间 `[11.78, 2.0 * 11.81]` 和最多 5 次
+  牛顿加区间保护迭代。
+- 旧的 `xq/xRef/tw/fTang` 直接剪切应力体力逻辑已删除。
+- 结构检查脚本为 `scripts/check_wall_model_nf1.sh`。
+- 编译验证命令为 `./scripts/compile.sh`，已生成 `main3d.gnu.MPI.CUDA.ex`。
+
+本文后续章节仍保留为实现与审查手册；如果继续扩展 `NF>1` 或完整三维切平面分解，
+应先更新本文范围和成功标准。
+
 ## 1. 当前代码入口
 
 已确认当前配置：
@@ -18,7 +36,7 @@ projects/3Dcases/ChannelFlowtest/9_LES
 #define NF 1
 ```
 
-当前普通 MDF 路径：
+普通 MDF 路径的历史形式：
 
 ```text
 AmrCoreLBM::ComputeParticle()
@@ -28,7 +46,7 @@ AmrCoreLBM::ComputeParticle()
         -> Kernels.H::force_interp_extrap(...)
 ```
 
-要改成壁面模型路径：
+当前 `NF=1` 壁面模型路径：
 
 ```text
 AmrCoreLBM::ComputeParticle()
@@ -179,6 +197,9 @@ int ibm_wrap_index(int i, int n) {
 ### 5.2 插值速度和密度
 
 输入坐标使用格点归一化坐标，即物理坐标除以 `delta` 后的 `xp, yp, zp`。
+注意不要把局部变量命名为 `rhop`：`src/D3Q19.H` 中已有宏
+`#define rhop (1.14 * rho0)`，该名字会在预处理阶段被替换。当前实现使用
+`rho_interp` 作为插值密度变量名。
 
 ```cpp
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
@@ -188,11 +209,11 @@ void ibm_interp_u_rho_at(amrex::Real xp, amrex::Real yp, amrex::Real zp,
                          amrex::Real& ux,
                          amrex::Real& uy,
                          amrex::Real& uz,
-                         amrex::Real& rhop) {
+                         amrex::Real& rho_interp) {
     ux = 0.0;
     uy = 0.0;
     uz = 0.0;
-    rhop = 0.0;
+    rho_interp = 0.0;
 
     const int ix0 = static_cast<int>(amrex::Math::floor(xp));
     const int iy0 = static_cast<int>(amrex::Math::floor(yp));
@@ -211,7 +232,7 @@ void ibm_interp_u_rho_at(amrex::Real xp, amrex::Real yp, amrex::Real zp,
                 ux += u(xx, yy, zz, 0) * w;
                 uy += u(xx, yy, zz, 1) * w;
                 uz += u(xx, yy, zz, 2) * w;
-                rhop += rho(xx, yy, zz, 0) * w;
+                rho_interp += rho(xx, yy, zz, 0) * w;
             }
         }
     }
@@ -224,7 +245,7 @@ void ibm_interp_u_rho_at(amrex::Real xp, amrex::Real yp, amrex::Real zp,
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real ibm_interp_rho_at(amrex::Real xp, amrex::Real yp, amrex::Real zp,
                               amrex::Array4<amrex::Real> const& rho) {
-    amrex::Real rhop = 0.0;
+    amrex::Real rho_interp = 0.0;
 
     const int ix0 = static_cast<int>(amrex::Math::floor(xp));
     const int iy0 = static_cast<int>(amrex::Math::floor(yp));
@@ -239,12 +260,12 @@ amrex::Real ibm_interp_rho_at(amrex::Real xp, amrex::Real yp, amrex::Real zp,
             for (int z = -1; z <= 1; ++z) {
                 const int zz = ibm_wrap_index(iz0 + z, NZ);
                 const amrex::Real wz = delta3p(zp - (zz + 0.5));
-                rhop += rho(xx, yy, zz, 0) * wx * wy * wz;
+                rho_interp += rho(xx, yy, zz, 0) * wx * wy * wz;
             }
         }
     }
 
-    return rhop;
+    return rho_interp;
 }
 ```
 
@@ -307,16 +328,92 @@ amrex::Real compute_uD_apgpl(amrex::Real ur_xi,
 
 ```cpp
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-amrex::Real compute_u_tau_apgpl(amrex::Real ur_xi,
-                                amrex::Real uD,
-                                amrex::Real nu,
-                                amrex::Real etaP) {
+amrex::Real residual_eta_c_apgpl(amrex::Real eta, amrex::Real rhs) {
     constexpr amrex::Real A = 8.3;
     constexpr amrex::Real B = 1.0 / 7.0;
-    constexpr amrex::Real eta_c = 11.81;
+
+    return eta * eta - A * std::pow(eta, B + 1.0) - rhs;
+}
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real derivative_eta_c_apgpl(amrex::Real eta) {
+    constexpr amrex::Real A = 8.3;
+    constexpr amrex::Real B = 1.0 / 7.0;
+
+    return 2.0 * eta - A * (B + 1.0) * std::pow(eta, B);
+}
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real compute_eta_c_apgpl(amrex::Real rhoP,
+                                amrex::Real nu,
+                                amrex::Real etaP,
+                                amrex::Real dpdxi) {
+    constexpr amrex::Real a = 7.5789;
+    constexpr amrex::Real b = -1.4489;
+    constexpr amrex::Real c_apgpl = 191.1799;
+    constexpr amrex::Real eta_c_ww = 11.81;
+
+    const amrex::Real K = etaP * etaP * etaP * dpdxi / (rhoP * nu * nu);
+    if (K <= 0.0) {
+        return eta_c_ww;
+    }
+
+    const amrex::Real rhs = a * std::sqrt(K)
+                          + b * std::pow(K, 1.0 / 3.0) * std::log(c_apgpl * K);
+
+    amrex::Real lo = 11.78;
+    amrex::Real hi = 2.0 * eta_c_ww;
+    amrex::Real f_lo = residual_eta_c_apgpl(lo, rhs);
+    amrex::Real f_hi = residual_eta_c_apgpl(hi, rhs);
+
+    if (f_lo > 0.0) {
+        return eta_c_ww;
+    }
+
+    if (f_hi < 0.0) {
+        return hi;
+    }
+
+    amrex::Real eta = eta_c_ww;
+    for (int iter = 0; iter < 5; ++iter) {
+        const amrex::Real f_eta = residual_eta_c_apgpl(eta, rhs);
+        const amrex::Real df_eta = derivative_eta_c_apgpl(eta);
+        amrex::Real eta_next = 0.5 * (lo + hi);
+
+        if (df_eta != 0.0) {
+            eta_next = eta - f_eta / df_eta;
+        }
+
+        if (eta_next <= lo || eta_next >= hi || eta_next != eta_next) {
+            eta_next = 0.5 * (lo + hi);
+        }
+
+        const amrex::Real f_next = residual_eta_c_apgpl(eta_next, rhs);
+        if (f_next <= 0.0) {
+            lo = eta_next;
+        } else {
+            hi = eta_next;
+        }
+
+        eta = eta_next;
+    }
+
+    return eta;
+}
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real compute_u_tau_apgpl(amrex::Real ur_xi,
+                                amrex::Real uD,
+                                amrex::Real rhoP,
+                                amrex::Real nu,
+                                amrex::Real etaP,
+                                amrex::Real dpdxi) {
+    constexpr amrex::Real A = 8.3;
+    constexpr amrex::Real B = 1.0 / 7.0;
 
     const amrex::Real u_tau_lam = std::sqrt(ur_xi * nu / etaP);
     const amrex::Real eta_plus_lam = etaP * u_tau_lam / nu;
+    const amrex::Real eta_c = compute_eta_c_apgpl(rhoP, nu, etaP, dpdxi);
 
     if (eta_plus_lam <= eta_c) {
         return u_tau_lam;
@@ -393,7 +490,7 @@ amrex::Real UBRx = UBx;
 amrex::Real UBRy = UBy;
 amrex::Real UBRz = UBz;
 
-if (UP_xi > 1.0e-14) {
+if (UP_xi > 1.0e-14 && rhoP > 1.0e-14 && rhoLag > 1.0e-14) {
     const amrex::Real tx = tx_raw / UP_xi;
     const amrex::Real ty = ty_raw / UP_xi;
     const amrex::Real tz = tz_raw / UP_xi;
@@ -444,7 +541,7 @@ if (dpdxi <= 0.0) {
     if (uD <= 0.0) {
         use_wall_model = false;
     } else {
-        u_tau = compute_u_tau_apgpl(ur_xi, uD, mv_0, etaP);
+        u_tau = compute_u_tau_apgpl(ur_xi, uD, rhoP, mv_0, etaP, dpdxi);
     }
 }
 
@@ -577,6 +674,12 @@ f = fNormal * normal + fTang * tangent
 先做结构检查：
 
 ```bash
+./scripts/check_wall_model_nf1.sh
+```
+
+也可以用 `rg` 人工检查核心符号：
+
+```bash
 rg -n "InterpForceWallModel|force_wall_model|compute_u_tau|compute_uD|ibm_interp_rho_at" src
 ```
 
@@ -609,5 +712,6 @@ rg -n "InterpForceWallModel|force_wall_model|compute_u_tau|compute_uD|ibm_interp
 5. dpdxi 由 rho 沿 e_xi 的一维中心差分得到。
 6. 扩散位置为真实边界点 B。
 7. 槽道下壁面使用法向 (0, 1, 0)，上壁面使用法向 (0, -1, 0)。
-8. ./scripts/compile.sh 编译通过。
+8. APGPL 分支动态求解 eta_c，不再固定使用 11.81。
+9. ./scripts/compile.sh 编译通过。
 ```
