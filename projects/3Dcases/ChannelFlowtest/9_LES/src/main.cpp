@@ -224,10 +224,10 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
-    lid.Collide(lev, 4);
+    lid.Collide(lev, 0);
     lid.CommunicateLevel(lev);
-    lid.Stream(lev, 4);
-    lid.SwapLevel(lev, 4);
+    lid.Stream(lev, 0);
+    lid.SwapLevel(lev, 0);
 
     if (lev < max_ref_level) {
         JaberCycle(lev + 1, cur_time, lid);
@@ -250,10 +250,10 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
-    lid.Collide(lev, 4);
+    lid.Collide(lev, 0);
     lid.CommunicateLevel(lev);
-    lid.Stream(lev, 4);
-    lid.SwapLevel(lev, 4);
+    lid.Stream(lev, 0);
+    lid.SwapLevel(lev, 0);
 
     if (lev < max_ref_level) {
         JaberCycle(lev + 1, cur_time, lid);

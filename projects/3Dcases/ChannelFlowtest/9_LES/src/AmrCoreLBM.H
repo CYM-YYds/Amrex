@@ -85,8 +85,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ComputeMacroForceCorrectedSlice(int lev, int ix);
     void ComputeVorticityLevel(int lev);
     void ComputeVorticity(amrex::Real time);
-    void ComputeShearLevel(int lev);
-    void ComputeShear();
+    void ComputeViscositysgsLevel(int lev);
+    void ComputeViscositysgs();
     void AverageDownValidLevel(int lev, bool is_scale);
     void AverageDownValid();
     void AverageDownGhostLevel(int lev, bool is_scale);
@@ -214,7 +214,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> velocity;
     amrex::Vector<amrex::MultiFab> density;
     amrex::Vector<amrex::MultiFab> vorticity;
-    amrex::Vector<amrex::MultiFab> shear;
+    amrex::Vector<amrex::MultiFab> viscosity_sgs;
     amrex::Vector<amrex::MultiFab> force;
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;

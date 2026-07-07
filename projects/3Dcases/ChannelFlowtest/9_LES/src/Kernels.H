@@ -288,19 +288,19 @@ void compute_vorticity(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void compute_shear(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
-                   amrex::Array4<amrex::Real> const& shear, amrex::Real dt) {
+void compute_viscosity_sgs(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
+                           amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx) {
     Real SS, Q_, E_, F_CS, C;
 
-    Real u_x = (u(i + 1, j, k, 0) - u(i - 1, j, k, 0)) / (2 * dt);
-    Real u_y = (u(i, j + 1, k, 0) - u(i, j - 1, k, 0)) / (2 * dt);
-    Real u_z = (u(i, j, k + 1, 0) - u(i, j, k - 1, 0)) / (2 * dt);
-    Real v_x = (u(i + 1, j, k, 1) - u(i - 1, j, k, 1)) / (2 * dt);
-    Real v_y = (u(i, j + 1, k, 1) - u(i, j - 1, k, 1)) / (2 * dt);
-    Real v_z = (u(i, j, k + 1, 1) - u(i, j, k - 1, 1)) / (2 * dt);
-    Real w_x = (u(i + 1, j, k, 2) - u(i - 1, j, k, 2)) / (2 * dt);
-    Real w_y = (u(i, j + 1, k, 2) - u(i, j - 1, k, 2)) / (2 * dt);
-    Real w_z = (u(i, j, k + 1, 2) - u(i, j, k - 1, 2)) / (2 * dt);
+    Real u_x = (u(i + 1, j, k, 0) - u(i - 1, j, k, 0)) / (2 * dx);
+    Real u_y = (u(i, j + 1, k, 0) - u(i, j - 1, k, 0)) / (2 * dx);
+    Real u_z = (u(i, j, k + 1, 0) - u(i, j, k - 1, 0)) / (2 * dx);
+    Real v_x = (u(i + 1, j, k, 1) - u(i - 1, j, k, 1)) / (2 * dx);
+    Real v_y = (u(i, j + 1, k, 1) - u(i, j - 1, k, 1)) / (2 * dx);
+    Real v_z = (u(i, j, k + 1, 1) - u(i, j, k - 1, 1)) / (2 * dx);
+    Real w_x = (u(i + 1, j, k, 2) - u(i - 1, j, k, 2)) / (2 * dx);
+    Real w_y = (u(i, j + 1, k, 2) - u(i, j - 1, k, 2)) / (2 * dx);
+    Real w_z = (u(i, j, k + 1, 2) - u(i, j, k - 1, 2)) / (2 * dx);
 
     Real XX = u_x;
     Real YY = v_y;
@@ -314,39 +314,36 @@ void compute_shear(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
                 XZ * XZ + YZ * YZ + ZZ * ZZ);
 
     Q_ = (-0.5) * (u_x * u_x + u_y * v_x + u_z * w_x +
-                      v_x * u_y + v_y * v_y + v_z * w_y +
-                      w_x * u_z + w_y * v_z + w_z * w_z);
+                   v_x * u_y + v_y * v_y + v_z * w_y +
+                   w_x * u_z + w_y * v_z + w_z * w_z);
 
     E_ = 0.5 * (u_x * u_x + v_x * v_x + w_x * w_x +
-                   u_y * u_y + v_y * v_y + w_y * w_y +
-                   u_z * u_z + v_z * v_z + w_z * w_z);
+                u_y * u_y + v_y * v_y + w_y * w_y +
+                u_z * u_z + v_z * v_z + w_z * w_z);
     if (E_ != 0.0)
         F_CS = Q_ / E_;
     else
         F_CS = 0.0;
-    if (F_CS < (-1.0))
-        F_CS = -1.0;
-    if (F_CS > (1.0))
-        F_CS = 1.0;
+    F_CS = amrex::min(amrex::max(F_CS, -1.0), 1.0);
     C = 1.0 / 22.0 * pow(fabs(F_CS), 1.5) * (1.0 - F_CS);
 
-    shear(i, j, k, 0) = C * dt * dt * sqrt(SS); // 不知道这样直接从三维改到二维对不对
+    nu_sgs(i, j, k, 0) = C * dx * dx * sqrt(SS);
 }
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void compute_shear2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
-                    amrex::Array4<amrex::Real> const& shear, amrex::Real dt) {
+void compute_viscosity_sgs2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
+                            amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx) {
 
-    Real u_x = (u(i + 1, j, k, 0) - u(i - 1, j, k, 0)) / (2 * dt);
-    Real u_y = (u(i, j + 1, k, 0) - u(i, j - 1, k, 0)) / (2 * dt);
-    Real u_z = (u(i, j, k + 1, 0) - u(i, j, k - 1, 0)) / (2 * dt);
-    Real v_x = (u(i + 1, j, k, 1) - u(i - 1, j, k, 1)) / (2 * dt);
-    Real v_y = (u(i, j + 1, k, 1) - u(i, j - 1, k, 1)) / (2 * dt);
-    Real v_z = (u(i, j, k + 1, 1) - u(i, j, k - 1, 1)) / (2 * dt);
-    Real w_x = (u(i + 1, j, k, 2) - u(i - 1, j, k, 2)) / (2 * dt);
-    Real w_y = (u(i, j + 1, k, 2) - u(i, j - 1, k, 2)) / (2 * dt);
-    Real w_z = (u(i, j, k + 1, 2) - u(i, j, k - 1, 2)) / (2 * dt);
+    Real u_x = (u(i + 1, j, k, 0) - u(i - 1, j, k, 0)) / (2 * dx);
+    Real u_y = (u(i, j + 1, k, 0) - u(i, j - 1, k, 0)) / (2 * dx);
+    Real u_z = (u(i, j, k + 1, 0) - u(i, j, k - 1, 0)) / (2 * dx);
+    Real v_x = (u(i + 1, j, k, 1) - u(i - 1, j, k, 1)) / (2 * dx);
+    Real v_y = (u(i, j + 1, k, 1) - u(i, j - 1, k, 1)) / (2 * dx);
+    Real v_z = (u(i, j, k + 1, 1) - u(i, j, k - 1, 1)) / (2 * dx);
+    Real w_x = (u(i + 1, j, k, 2) - u(i - 1, j, k, 2)) / (2 * dx);
+    Real w_y = (u(i, j + 1, k, 2) - u(i, j - 1, k, 2)) / (2 * dx);
+    Real w_z = (u(i, j, k + 1, 2) - u(i, j, k - 1, 2)) / (2 * dx);
 
     Real XX = u_x;
     Real YY = v_y;
@@ -359,7 +356,7 @@ void compute_shear2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
                      XY * XY + YY * YY + YZ * YZ +
                      XZ * XZ + YZ * YZ + ZZ * ZZ);
 
-    shear(i, j, k, 0) = 0.01 * dt * dt * Smag; // 不知道这样直接从三维改到二维对不对
+    nu_sgs(i, j, k, 0) = 0.01 * dx * dx * Smag;
 }
 
 AMREX_GPU_DEVICE
@@ -617,14 +614,14 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void collide(int i, int j, int k, amrex::Array4<amrex::Real> const& fold, amrex::Array4<amrex::Real> const& s,
+void collide(int i, int j, int k, amrex::Array4<amrex::Real> const& fold, amrex::Array4<amrex::Real> const& nu_sgs,
              amrex::Array4<amrex::Real> const& Ft, amrex::Real tau_lev, amrex::Real dt, amrex::IntVect const& hi) {
     Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0, ft = 0.0;
     Real Ftx = 0.0, Fty = 0.0, Ftz = 0.0;
 
-    s(i, j, k, 0) = 0.0;
+    nu_sgs(i, j, k, 0) = 0.0;
 
-    Real tauStar = tau_lev + 3.0 * s(i, j, k, 0) / cs2 / dt;
+    Real tauStar = tau_lev + 3.0 * nu_sgs(i, j, k, 0) / cs2 / dt;
     Real omega = 1.0 / tauStar;
 
     for (int q = 0; q < Q; q++) {
@@ -2510,8 +2507,7 @@ amrex::Real compute_eta_c_apgpl(amrex::Real rhoP,
 
     const amrex::Real K = etaP * etaP * etaP * dpdxi / (rhoP * nu * nu);
 
-    const amrex::Real rhs = a * std::sqrt(K)
-                          + b * std::pow(K, 1.0 / 3.0) * std::log(c_apgpl * K);
+    const amrex::Real rhs = a * std::sqrt(K) + b * std::pow(K, 1.0 / 3.0) * std::log(c_apgpl * K);
 
     amrex::Real lo = 11.78;
     amrex::Real hi = 2.0 * eta_c_ww;
