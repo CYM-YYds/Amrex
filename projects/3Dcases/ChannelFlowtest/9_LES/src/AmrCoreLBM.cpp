@@ -995,7 +995,7 @@ void AmrCoreLBM::ComputeViscositysgsLevel(int lev) {
         Array4<Real> const& nu_sgs = viscosity_sgs_lev.array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            compute_viscosity_sgs(i, j, k, u, nu_sgs, dx, dom_lo, dom_hi, is_periodic);
+            compute_viscosity_sgs_CSM(i, j, k, u, nu_sgs, dx, dom_lo, dom_hi, is_periodic);
         });
     }
 }

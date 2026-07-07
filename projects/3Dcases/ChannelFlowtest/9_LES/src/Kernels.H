@@ -337,7 +337,7 @@ amrex::Real velocity_derivative(int i, int j, int k, int comp, int dir,
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void compute_viscosity_sgs(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
+void compute_viscosity_sgs_CSM(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
                            amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx,
                            amrex::IntVect const& lo, amrex::IntVect const& hi,
                            amrex::IntVect const& is_periodic) {
@@ -383,32 +383,67 @@ void compute_viscosity_sgs(int i, int j, int k, amrex::Array4<amrex::Real> const
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void compute_viscosity_sgs2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
-                            amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx) {
+void compute_viscosity_sgs_SM(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
+                            amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx,
+                            amrex::Real tau_lev, amrex::Real dt) {
+    Real rhot = 0.0;
+    Real uxt = 0.0;
+    Real uyt = 0.0;
+    Real uzt = 0.0;
 
-    Real u_x = (u(i + 1, j, k, 0) - u(i - 1, j, k, 0)) / (2 * dx);
-    Real u_y = (u(i, j + 1, k, 0) - u(i, j - 1, k, 0)) / (2 * dx);
-    Real u_z = (u(i, j, k + 1, 0) - u(i, j, k - 1, 0)) / (2 * dx);
-    Real v_x = (u(i + 1, j, k, 1) - u(i - 1, j, k, 1)) / (2 * dx);
-    Real v_y = (u(i, j + 1, k, 1) - u(i, j - 1, k, 1)) / (2 * dx);
-    Real v_z = (u(i, j, k + 1, 1) - u(i, j, k - 1, 1)) / (2 * dx);
-    Real w_x = (u(i + 1, j, k, 2) - u(i - 1, j, k, 2)) / (2 * dx);
-    Real w_y = (u(i, j + 1, k, 2) - u(i, j - 1, k, 2)) / (2 * dx);
-    Real w_z = (u(i, j, k + 1, 2) - u(i, j, k - 1, 2)) / (2 * dx);
+    for (int q = 0; q < Q; q++) {
+        const Real ft = fold(i, j, k, q);
+        rhot += ft;
+        uxt += ft * e[q][0];
+        uyt += ft * e[q][1];
+        uzt += ft * e[q][2];
+    }
 
-    Real XX = u_x;
-    Real YY = v_y;
-    Real ZZ = w_z;
-    Real XY = 0.5 * (u_y + v_x);
-    Real XZ = 0.5 * (u_z + w_x);
-    Real YZ = 0.5 * (v_z + w_y);
+    if (rhot <= 0.0 || tau_lev <= 0.0 || dt <= 0.0) {
+        nu_sgs(i, j, k, 0) = 0.0;
+        return;
+    }
 
-    Real Smag = sqrt(XX * XX + XY * XY + XZ * XZ +
-                     XY * XY + YY * YY + YZ * YZ +
-                     XZ * XZ + YZ * YZ + ZZ * ZZ);
+    uxt /= rhot;
+    uyt /= rhot;
+    uzt /= rhot;
 
-    nu_sgs(i, j, k, 0) = 0.01 * dx * dx * Smag;
+    Real pi_xx = 0.0;
+    Real pi_xy = 0.0;
+    Real pi_xz = 0.0;
+    Real pi_yy = 0.0;
+    Real pi_yz = 0.0;
+    Real pi_zz = 0.0;
+
+    for (int q = 0; q < Q; q++) {
+        const Real fneq = fold(i, j, k, q) - feqQian(rhot, {uxt, uyt, uzt}, q);
+        pi_xx += e[q][0] * e[q][0] * fneq;
+        pi_xy += e[q][0] * e[q][1] * fneq;
+        pi_xz += e[q][0] * e[q][2] * fneq;
+        pi_yy += e[q][1] * e[q][1] * fneq;
+        pi_yz += e[q][1] * e[q][2] * fneq;
+        pi_zz += e[q][2] * e[q][2] * fneq;
+    }
+
+    const Real strain_factor = -1.0 / (2.0 * rhot * cs2 * tau_lev * dt);
+    const Real s_xx = strain_factor * pi_xx;
+    const Real s_xy = strain_factor * pi_xy;
+    const Real s_xz = strain_factor * pi_xz;
+    const Real s_yy = strain_factor * pi_yy;
+    const Real s_yz = strain_factor * pi_yz;
+    const Real s_zz = strain_factor * pi_zz;
+
+    const Real strain_norm2 = 2.0 * (s_xx * s_xx + s_yy * s_yy + s_zz * s_zz +
+                                     2.0 * (s_xy * s_xy + s_xz * s_xz + s_yz * s_yz));
+    const Real strain_mag = sqrt(amrex::max(strain_norm2, 0.0));
+
+    const Real Cs2 = 0.01;
+    nu_sgs(i, j, k, 0) = Cs2 * dx * dx * strain_mag;
 }
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void compute_viscosity_sgs_WALE(int i, int j, int k, amrex::Array4<amrex::Real> const& fold)
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
