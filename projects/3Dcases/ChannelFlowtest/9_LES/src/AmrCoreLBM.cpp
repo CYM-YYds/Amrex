@@ -982,6 +982,11 @@ void AmrCoreLBM::ComputeViscositysgsLevel(int lev) {
     amrex::MultiFab& u_lev = velocity[lev];
     amrex::MultiFab& viscosity_sgs_lev = viscosity_sgs[lev];
     amrex::Real dx = Geom(lev).CellSizeArray()[0];
+    const amrex::IntVect dom_lo = Geom(lev).Domain().smallEnd();
+    const amrex::IntVect dom_hi = Geom(lev).Domain().bigEnd();
+    const amrex::IntVect is_periodic{AMREX_D_DECL(Geom(lev).isPeriodic(0),
+                                                  Geom(lev).isPeriodic(1),
+                                                  Geom(lev).isPeriodic(2))};
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         const Box& bx = mfi.growntilebox(0);
@@ -990,13 +995,14 @@ void AmrCoreLBM::ComputeViscositysgsLevel(int lev) {
         Array4<Real> const& nu_sgs = viscosity_sgs_lev.array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            compute_viscosity_sgs(i, j, k, u, nu_sgs, dx);
+            compute_viscosity_sgs(i, j, k, u, nu_sgs, dx, dom_lo, dom_hi, is_periodic);
         });
     }
 }
 
-void AmrCoreLBM::ComputeViscositysgs() {
+void AmrCoreLBM::ComputeViscositysgs(amrex::Real cur_time) {
     for (int lev = 0; lev <= finest_level; lev++) {
+        FillMacroGhostLevel(lev, cur_time);
         ComputeViscositysgsLevel(lev);
     }
 }

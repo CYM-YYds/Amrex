@@ -86,7 +86,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ComputeVorticityLevel(int lev);
     void ComputeVorticity(amrex::Real time);
     void ComputeViscositysgsLevel(int lev);
-    void ComputeViscositysgs();
+    void ComputeViscositysgs(amrex::Real time);
     void AverageDownValidLevel(int lev, bool is_scale);
     void AverageDownValid();
     void AverageDownGhostLevel(int lev, bool is_scale);

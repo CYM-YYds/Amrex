@@ -288,19 +288,70 @@ void compute_vorticity(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
+amrex::Real velocity_derivative(int i, int j, int k, int comp, int dir,
+                                amrex::Array4<amrex::Real> const& u,
+                                amrex::Real dx,
+                                amrex::IntVect const& lo,
+                                amrex::IntVect const& hi,
+                                amrex::IntVect const& is_periodic) {
+    const int idx = (dir == 0) ? i : ((dir == 1) ? j : k);
+
+    if (is_periodic[dir] || (idx > lo[dir] && idx < hi[dir])) {
+        int ip = i, jp = j, kp = k;
+        int im = i, jm = j, km = k;
+        if (dir == 0) {
+            ++ip;
+            --im;
+        } else if (dir == 1) {
+            ++jp;
+            --jm;
+        } else {
+            ++kp;
+            --km;
+        }
+        return (u(ip, jp, kp, comp) - u(im, jm, km, comp)) / (2.0 * dx);
+    }
+
+    if (idx == lo[dir]) {
+        int ip = i, jp = j, kp = k;
+        if (dir == 0) {
+            ++ip;
+        } else if (dir == 1) {
+            ++jp;
+        } else {
+            ++kp;
+        }
+        return (u(ip, jp, kp, comp) - u(i, j, k, comp)) / dx;
+    }
+
+    int im = i, jm = j, km = k;
+    if (dir == 0) {
+        --im;
+    } else if (dir == 1) {
+        --jm;
+    } else {
+        --km;
+    }
+    return (u(i, j, k, comp) - u(im, jm, km, comp)) / dx;
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
 void compute_viscosity_sgs(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
-                           amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx) {
+                           amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx,
+                           amrex::IntVect const& lo, amrex::IntVect const& hi,
+                           amrex::IntVect const& is_periodic) {
     Real SS, Q_, E_, F_CS, C;
 
-    Real u_x = (u(i + 1, j, k, 0) - u(i - 1, j, k, 0)) / (2 * dx);
-    Real u_y = (u(i, j + 1, k, 0) - u(i, j - 1, k, 0)) / (2 * dx);
-    Real u_z = (u(i, j, k + 1, 0) - u(i, j, k - 1, 0)) / (2 * dx);
-    Real v_x = (u(i + 1, j, k, 1) - u(i - 1, j, k, 1)) / (2 * dx);
-    Real v_y = (u(i, j + 1, k, 1) - u(i, j - 1, k, 1)) / (2 * dx);
-    Real v_z = (u(i, j, k + 1, 1) - u(i, j, k - 1, 1)) / (2 * dx);
-    Real w_x = (u(i + 1, j, k, 2) - u(i - 1, j, k, 2)) / (2 * dx);
-    Real w_y = (u(i, j + 1, k, 2) - u(i, j - 1, k, 2)) / (2 * dx);
-    Real w_z = (u(i, j, k + 1, 2) - u(i, j, k - 1, 2)) / (2 * dx);
+    Real u_x = velocity_derivative(i, j, k, 0, 0, u, dx, lo, hi, is_periodic);
+    Real u_y = velocity_derivative(i, j, k, 0, 1, u, dx, lo, hi, is_periodic);
+    Real u_z = velocity_derivative(i, j, k, 0, 2, u, dx, lo, hi, is_periodic);
+    Real v_x = velocity_derivative(i, j, k, 1, 0, u, dx, lo, hi, is_periodic);
+    Real v_y = velocity_derivative(i, j, k, 1, 1, u, dx, lo, hi, is_periodic);
+    Real v_z = velocity_derivative(i, j, k, 1, 2, u, dx, lo, hi, is_periodic);
+    Real w_x = velocity_derivative(i, j, k, 2, 0, u, dx, lo, hi, is_periodic);
+    Real w_y = velocity_derivative(i, j, k, 2, 1, u, dx, lo, hi, is_periodic);
+    Real w_z = velocity_derivative(i, j, k, 2, 2, u, dx, lo, hi, is_periodic);
 
     Real XX = u_x;
     Real YY = v_y;
