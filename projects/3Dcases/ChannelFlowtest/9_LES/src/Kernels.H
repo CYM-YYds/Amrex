@@ -383,7 +383,7 @@ void compute_viscosity_sgs_CSM(int i, int j, int k, amrex::Array4<amrex::Real> c
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void compute_viscosity_sgs_SM(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
+void compute_viscosity_sgs_SM_BGK(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
                             amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx,
                             amrex::Real tau_lev, amrex::Real dt) {
     Real rhot = 0.0;
@@ -443,7 +443,57 @@ void compute_viscosity_sgs_SM(int i, int j, int k, amrex::Array4<amrex::Real> co
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void compute_viscosity_sgs_WALE(int i, int j, int k, amrex::Array4<amrex::Real> const& fold)
+void compute_viscosity_sgs_WALE(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
+                                amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx,
+                                amrex::IntVect const& lo, amrex::IntVect const& hi,
+                                amrex::IntVect const& is_periodic) {
+    const Real g00 = velocity_derivative(i, j, k, 0, 0, u, dx, lo, hi, is_periodic);
+    const Real g01 = velocity_derivative(i, j, k, 0, 1, u, dx, lo, hi, is_periodic);
+    const Real g02 = velocity_derivative(i, j, k, 0, 2, u, dx, lo, hi, is_periodic);
+    const Real g10 = velocity_derivative(i, j, k, 1, 0, u, dx, lo, hi, is_periodic);
+    const Real g11 = velocity_derivative(i, j, k, 1, 1, u, dx, lo, hi, is_periodic);
+    const Real g12 = velocity_derivative(i, j, k, 1, 2, u, dx, lo, hi, is_periodic);
+    const Real g20 = velocity_derivative(i, j, k, 2, 0, u, dx, lo, hi, is_periodic);
+    const Real g21 = velocity_derivative(i, j, k, 2, 1, u, dx, lo, hi, is_periodic);
+    const Real g22 = velocity_derivative(i, j, k, 2, 2, u, dx, lo, hi, is_periodic);
+
+    const Real s00 = g00;
+    const Real s11 = g11;
+    const Real s22 = g22;
+    const Real s01 = 0.5 * (g01 + g10);
+    const Real s02 = 0.5 * (g02 + g20);
+    const Real s12 = 0.5 * (g12 + g21);
+    const Real ss = s00 * s00 + s11 * s11 + s22 * s22 +
+                    2.0 * (s01 * s01 + s02 * s02 + s12 * s12);
+
+    const Real g2_00 = g00 * g00 + g01 * g10 + g02 * g20;
+    const Real g2_01 = g00 * g01 + g01 * g11 + g02 * g21;
+    const Real g2_02 = g00 * g02 + g01 * g12 + g02 * g22;
+    const Real g2_10 = g10 * g00 + g11 * g10 + g12 * g20;
+    const Real g2_11 = g10 * g01 + g11 * g11 + g12 * g21;
+    const Real g2_12 = g10 * g02 + g11 * g12 + g12 * g22;
+    const Real g2_20 = g20 * g00 + g21 * g10 + g22 * g20;
+    const Real g2_21 = g20 * g01 + g21 * g11 + g22 * g21;
+    const Real g2_22 = g20 * g02 + g21 * g12 + g22 * g22;
+    const Real tr_g2 = g2_00 + g2_11 + g2_22;
+
+    const Real sd00 = g2_00 - tr_g2 / 3.0;
+    const Real sd11 = g2_11 - tr_g2 / 3.0;
+    const Real sd22 = g2_22 - tr_g2 / 3.0;
+    const Real sd01 = 0.5 * (g2_01 + g2_10);
+    const Real sd02 = 0.5 * (g2_02 + g2_20);
+    const Real sd12 = 0.5 * (g2_12 + g2_21);
+    const Real sdsd = sd00 * sd00 + sd11 * sd11 + sd22 * sd22 +
+                      2.0 * (sd01 * sd01 + sd02 * sd02 + sd12 * sd12);
+
+    const Real ss_pos = amrex::max(ss, 0.0);
+    const Real sdsd_pos = amrex::max(sdsd, 0.0);
+    const Real numerator = pow(sdsd_pos, 1.5);
+    const Real denominator = pow(ss_pos, 2.5) + pow(sdsd_pos, 1.25);
+
+    const Real Cw = 0.325;
+    nu_sgs(i, j, k, 0) = (denominator > 0.0) ? (Cw * Cw * dx * dx * numerator / denominator) : 0.0;
+}
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
