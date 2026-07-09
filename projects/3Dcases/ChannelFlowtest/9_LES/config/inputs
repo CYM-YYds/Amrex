@@ -27,6 +27,8 @@ checkpoint.write_particles = true
 
 
 lbm.err = 0.6 0.8 1.0 1.2 1.4 1.5 1.6 1.7
+lbm.use_les = 0
+lbm.use_wall_model = 0
 # *****************************************************************
 # mesh setting
 #

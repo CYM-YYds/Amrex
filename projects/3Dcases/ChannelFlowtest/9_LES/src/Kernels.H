@@ -861,12 +861,13 @@ void collide(int i, int j, int k, amrex::Array4<amrex::Real> const& fold, amrex:
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void collide_cumulant(int i, int j, int k, amrex::Array4<amrex::Real> const& fold, amrex::Array4<amrex::Real> const& s,
+void collide_cumulant(int i, int j, int k, amrex::Array4<amrex::Real> const& fold, amrex::Real nu_sgs_local,
                       amrex::Array4<amrex::Real> const& Ft, amrex::Real tau_lev, amrex::Real dt, amrex::IntVect const& hi) {
     Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0, ft = 0.0;
     Real Ftx = 0.0, Fty = 0.0, Ftz = 0.0;
 
-    Real omega = 1.0 / tau_lev;
+    const Real tau_eff = tau_lev + nu_sgs_local / (cs2 * dt);
+    Real omega = 1.0 / tau_eff;
 
     for (int q = 0; q < Q; q++) {
         ft = fold(i, j, k, q);
@@ -3104,20 +3105,20 @@ AMREX_GPU_HOST_DEVICE
             const amrex::Real dpdxi = cs2 * (rho_plus - rho_minus) / (2.0 * dpdxi_half_step);
 
             amrex::Real u_tau = 0.0;
-            bool use_wall_model = true;
+            bool wall_model_valid = true;
 
             if (dpdxi <= 0.0) {
                 u_tau = compute_u_tau_werner_wengle(ur_xi, mv_0, etaP);
             } else {
                 const amrex::Real uD = compute_uD_apgpl(ur_xi, mv_0, rhoP, etaP, dpdxi);
                 if (uD <= 0.0) {
-                    use_wall_model = false;
+                    wall_model_valid = false;
                 } else {
                     u_tau = compute_u_tau_apgpl(ur_xi, uD, rhoP, mv_0, etaP, dpdxi);
                 }
             }
 
-            if (use_wall_model) {
+            if (wall_model_valid) {
                 const amrex::Real tau_w = rhoP * u_tau * u_tau;
                 const amrex::Real eta_plus = etaP * u_tau / mv_0;
                 const amrex::Real vd = 1.0 - std::exp(-eta_plus / 19.0);

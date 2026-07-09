@@ -164,7 +164,9 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
 
     velocity.resize(nlevs_max);
     vorticity.resize(nlevs_max);
-    viscosity_sgs.resize(nlevs_max);
+    if (params_.use_les) {
+        viscosity_sgs.resize(nlevs_max);
+    }
     density.resize(nlevs_max);
     force.resize(nlevs_max);
 
@@ -537,6 +539,8 @@ void AmrCoreLBM::ReadParameters() {
         if (n > 0) {
             pp.getarr("err", err, 0, n);
         }
+        pp.query("use_les", params_.use_les);
+        pp.query("use_wall_model", params_.use_wall_model);
     }
 
     // Centralize checkpoint namespace parsing
@@ -562,6 +566,11 @@ void AmrCoreLBM::ReadParameters() {
                            << "  plot_int         = " << params_.plot_int << "\n"
                            << "  begin_plot       = " << params_.begin_plot << "\n"
                            << "  regrid_int       = " << params_.regrid_int << "\n";
+            amrex::Print() << "[Params] lbm:\n"
+                           << "  use_les          = " << (params_.use_les ? "true" : "false") << "\n"
+                           << "  use_wall_model   = " << (params_.use_wall_model ? "true" : "false") << "\n"
+                           << "  wall_model_active= "
+                           << ((params_.use_les && params_.use_wall_model) ? "true" : "false") << "\n";
         }
     }
 }
@@ -978,6 +987,10 @@ void AmrCoreLBM::ComputeVorticity(amrex::Real cur_time) {
 }
 
 void AmrCoreLBM::ComputeViscositysgsLevel(int lev) {
+    if (!params_.use_les) {
+        return;
+    }
+
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& u_lev = velocity[lev];
     amrex::MultiFab& viscosity_sgs_lev = viscosity_sgs[lev];
@@ -995,12 +1008,16 @@ void AmrCoreLBM::ComputeViscositysgsLevel(int lev) {
         Array4<Real> const& nu_sgs = viscosity_sgs_lev.array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            compute_viscosity_sgs_CSM(i, j, k, u, nu_sgs, dx, dom_lo, dom_hi, is_periodic);
+            compute_viscosity_sgs_WALE(i, j, k, u, nu_sgs, dx, dom_lo, dom_hi, is_periodic);
         });
     }
 }
 
 void AmrCoreLBM::ComputeViscositysgs(amrex::Real cur_time) {
+    if (!params_.use_les) {
+        return;
+    }
+
     for (int lev = 0; lev <= finest_level; lev++) {
         FillMacroGhostLevel(lev, cur_time);
         ComputeViscositysgsLevel(lev);
@@ -1282,23 +1299,34 @@ void AmrCoreLBM::Collide(int lev, int n) {
     amrex::IntVect hi{right, back, up};
 
     amrex::MultiFab& f_old_lev = f_old[lev];
-    amrex::MultiFab& viscosity_sgs_lev = viscosity_sgs[lev];
     amrex::MultiFab& force_lev = force[lev];
     amrex::Real dt = Geom(lev).CellSizeArray()[0];
     amrex::Real tau_lev = tau[lev];
 
-    for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const auto bx = mfi.growntilebox(n);
-        const Array4<Real>& fold = f_old_lev.array(mfi);
-        const Array4<Real>& nu_sgs = viscosity_sgs_lev.array(mfi);
-        const Array4<Real>& Ft = force_lev.array(mfi);
+    if (params_.use_les) {
+        amrex::MultiFab& viscosity_sgs_lev = viscosity_sgs[lev];
 
-        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            // collide(i, j, k, fold, nu_sgs, Ft, tau_lev, dt, hi);
-            collide_cumulant(i, j, k, fold, nu_sgs, Ft, tau_lev, dt, hi);
-            // collide_cumulant_opt(i, j, k, fold, nu_sgs, Ft, tau_lev, dt, hi);
-            // collide_cumulant_opt2(i, j, k, fold, nu_sgs, Ft, tau_lev, dt, hi);
-        });
+        for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const auto bx = mfi.growntilebox(n);
+            const Array4<Real>& fold = f_old_lev.array(mfi);
+            const Array4<Real>& nu_sgs = viscosity_sgs_lev.array(mfi);
+            const Array4<Real>& Ft = force_lev.array(mfi);
+
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                const amrex::Real nu_sgs_local = nu_sgs(i, j, k, 0);
+                collide_cumulant(i, j, k, fold, nu_sgs_local, Ft, tau_lev, dt, hi);
+            });
+        }
+    } else {
+        for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const auto bx = mfi.growntilebox(n);
+            const Array4<Real>& fold = f_old_lev.array(mfi);
+            const Array4<Real>& Ft = force_lev.array(mfi);
+
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                collide_cumulant(i, j, k, fold, 0.0, Ft, tau_lev, dt, hi);
+            });
+        }
     }
 }
 
@@ -1808,8 +1836,11 @@ void AmrCoreLBM::InterpForce(int lev) {
 #else
     // 单次迭代（NF = 1）：直接使用 force，无需 force_delta
     for (int i = 0; i < particle_num; i++) {
-        // particles[i]->InterpForce(lev, rho_lev, u_lev, force_lev);
-        particles[i]->InterpForceWallModel(lev, rho_lev, u_lev, force_lev);
+        if (params_.use_les && params_.use_wall_model) {
+            particles[i]->InterpForceWallModel(lev, rho_lev, u_lev, force_lev);
+        } else {
+            particles[i]->InterpForce(lev, rho_lev, u_lev, force_lev);
+        }
     }
     SumForce(lev);
 
@@ -2260,7 +2291,6 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
     amrex::MultiFab& rho_lev = density.at(lev);
     amrex::MultiFab& vort_lev = vorticity.at(lev);
     amrex::MultiFab& force_lev = force.at(lev);
-    amrex::MultiFab& viscosity_sgs_lev = viscosity_sgs.at(lev);
     amrex::MultiFab& f_new_lev = f_new.at(lev);
     amrex::MultiFab& f_old_lev = f_old.at(lev);
 
@@ -2268,7 +2298,9 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
     rho_lev.define(ba, dm, 1, nghost);
     vort_lev.define(ba, dm, 2, nghost); // 改成两个，分别存vort和q
     force_lev.define(ba, dm, AMREX_SPACEDIM, nghost);
-    viscosity_sgs_lev.define(ba, dm, 1, nghost);
+    if (params_.use_les) {
+        viscosity_sgs.at(lev).define(ba, dm, 1, nghost);
+    }
     f_new_lev.define(ba, dm, Q, nghost);
     f_old_lev.define(ba, dm, Q, nghost);
 
@@ -2284,7 +2316,10 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
     amrex::MultiFab rho_new(ba, dm, 1, nghost);
     amrex::MultiFab vort_new(ba, dm, 2, nghost);
     amrex::MultiFab force_new(ba, dm, AMREX_SPACEDIM, nghost);
-    amrex::MultiFab viscosity_sgs_new(ba, dm, 1, nghost);
+    amrex::MultiFab viscosity_sgs_new;
+    if (params_.use_les) {
+        viscosity_sgs_new.define(ba, dm, 1, nghost);
+    }
 
     FillDdfPatch(lev, time, old_state);
     // FillPatch(lev, time, old_state);
@@ -2296,10 +2331,16 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
     std::swap(rho_new, density[lev]);
     std::swap(vort_new, vorticity[lev]);
     std::swap(force_new, force[lev]);
-    std::swap(viscosity_sgs_new, viscosity_sgs[lev]);
+    if (params_.use_les) {
+        std::swap(viscosity_sgs_new, viscosity_sgs[lev]);
+    } else if (lev < static_cast<int>(viscosity_sgs.size())) {
+        viscosity_sgs[lev].clear();
+    }
 
     force[lev].setVal(0.0, nghost);
-    viscosity_sgs[lev].setVal(0.0, nghost);
+    if (params_.use_les) {
+        viscosity_sgs[lev].setVal(0.0, nghost);
+    }
     vorticity[lev].setVal(0.0, nghost);
 }
 void AmrCoreLBM::ClearLevel(int lev) {
@@ -2310,7 +2351,9 @@ void AmrCoreLBM::ClearLevel(int lev) {
     velocity[lev].clear();
     vorticity[lev].clear();
     density[lev].clear();
-    viscosity_sgs[lev].clear();
+    if (lev < static_cast<int>(viscosity_sgs.size())) {
+        viscosity_sgs[lev].clear();
+    }
     force[lev].clear();
 }
 void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex::BoxArray& ba,
@@ -2319,7 +2362,6 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
     amrex::MultiFab& rho_lev = density.at(lev);
     amrex::MultiFab& vort_lev = vorticity.at(lev);
     amrex::MultiFab& force_lev = force.at(lev);
-    amrex::MultiFab& viscosity_sgs_lev = viscosity_sgs.at(lev);
     amrex::MultiFab& f_new_lev = f_new.at(lev);
     amrex::MultiFab& f_old_lev = f_old.at(lev);
 
@@ -2327,12 +2369,16 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
     rho_lev.define(ba, dm, 1, nghost);
     vort_lev.define(ba, dm, 2, nghost);
     force_lev.define(ba, dm, AMREX_SPACEDIM, nghost);
-    viscosity_sgs_lev.define(ba, dm, 1, nghost);
+    if (params_.use_les) {
+        viscosity_sgs.at(lev).define(ba, dm, 1, nghost);
+    }
     f_new_lev.define(ba, dm, Q, nghost);
     f_old_lev.define(ba, dm, Q, nghost);
 
     force_lev.setVal(0.0, nghost); // 在这里归零会不会好一点
-    viscosity_sgs_lev.setVal(0.0, nghost);
+    if (params_.use_les) {
+        viscosity_sgs[lev].setVal(0.0, nghost);
+    }
     vort_lev.setVal(0.0, nghost);
 
     amrex::Real dx = Geom(lev).CellSizeArray()[0];
@@ -2596,7 +2642,9 @@ void AmrCoreLBM::ReadCheckpoint() {
         velocity[lev].define(boxArray(lev), DistributionMap(lev), AMREX_SPACEDIM, nghost);
         density[lev].define(boxArray(lev), DistributionMap(lev), 1, nghost);
         vorticity[lev].define(boxArray(lev), DistributionMap(lev), 2, nghost);
-        viscosity_sgs[lev].define(boxArray(lev), DistributionMap(lev), 1, nghost);
+        if (params_.use_les) {
+            viscosity_sgs[lev].define(boxArray(lev), DistributionMap(lev), 1, nghost);
+        }
         force[lev].define(boxArray(lev), DistributionMap(lev), AMREX_SPACEDIM, nghost);
 
         VisMF::Read(f_old[lev], MultiFabFileFullPrefix(lev, chkname, level_prefix, "f_old"));
@@ -2607,7 +2655,9 @@ void AmrCoreLBM::ReadCheckpoint() {
         velocity[lev].setVal(0.0, nghost);
         density[lev].setVal(0.0, nghost);
         vorticity[lev].setVal(0.0, nghost);
-        viscosity_sgs[lev].setVal(0.0, nghost);
+        if (params_.use_les) {
+            viscosity_sgs[lev].setVal(0.0, nghost);
+        }
         force[lev].setVal(0.0, nghost);
     }
 

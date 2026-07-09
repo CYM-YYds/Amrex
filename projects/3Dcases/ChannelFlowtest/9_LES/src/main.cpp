@@ -166,6 +166,9 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
+    if (lid.params().use_les) {
+        lid.ComputeViscositysgs(cur_time);
+    }
     lid.Collide(lev, 0);
 
     if (lev < max_ref_level) {
@@ -195,6 +198,9 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
+    if (lid.params().use_les) {
+        lid.ComputeViscositysgs(cur_time);
+    }
     lid.Collide(lev, 0);
 
     if (lev < max_ref_level) {
@@ -224,6 +230,9 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
+    if (lid.params().use_les) {
+        lid.ComputeViscositysgs(cur_time);
+    }
     lid.Collide(lev, 0);
     lid.CommunicateLevel(lev);
     lid.Stream(lev, 0);
@@ -250,6 +259,9 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
+    if (lid.params().use_les) {
+        lid.ComputeViscositysgs(cur_time);
+    }
     lid.Collide(lev, 0);
     lid.CommunicateLevel(lev);
     lid.Stream(lev, 0);
@@ -273,6 +285,9 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
+    if (lid.params().use_les) {
+        lid.ComputeViscositysgs(cur_time);
+    }
     lid.Collide(lev, 0);
 
     if (lev < max_ref_level) {
@@ -305,6 +320,9 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
+    if (lid.params().use_les) {
+        lid.ComputeViscositysgs(cur_time);
+    }
     lid.Collide(lev, 0);
 
     if (lev < max_ref_level) {
@@ -336,6 +354,9 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
+    if (lid.params().use_les) {
+        lid.ComputeViscositysgs(cur_time);
+    }
     lid.Collide(lev, 4);
     lid.CommunicateLevel(lev);
     lid.Stream(lev, 4);
@@ -364,6 +385,9 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     lid.Boundary(lev);
+    if (lid.params().use_les) {
+        lid.ComputeViscositysgs(cur_time);
+    }
     lid.Collide(lev, 4);
     lid.CommunicateLevel(lev);
     lid.Stream(lev, 4);

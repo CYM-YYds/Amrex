@@ -31,6 +31,8 @@ class AmrCoreLBM : public amrex::AmrCore {
         std::string chk_prefix = "chk";
         bool keep_latest_only = true;
         bool write_particles = true;
+        bool use_les = false;
+        bool use_wall_model = false;
     };
     //********************************************************************//
     //                           constructor                              //
