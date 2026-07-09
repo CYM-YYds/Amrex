@@ -443,6 +443,76 @@ void compute_viscosity_sgs_SM_BGK(int i, int j, int k, amrex::Array4<amrex::Real
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
+void compute_viscosity_sgs_SM_cumulant(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
+                                       amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx,
+                                       amrex::Real tau_2, amrex::Real dt) {
+    Real rhot = 0.0;
+    Real uxt = 0.0;
+    Real uyt = 0.0;
+    Real uzt = 0.0;
+
+    for (int q = 0; q < Q; q++) {
+        const Real ft = fold(i, j, k, q);
+        rhot += ft;
+        uxt += ft * e[q][0];
+        uyt += ft * e[q][1];
+        uzt += ft * e[q][2];
+    }
+
+    if (rhot <= 0.0 || tau_2 <= 0.0 || dt <= 0.0) {
+        nu_sgs(i, j, k, 0) = 0.0;
+        return;
+    }
+
+    uxt /= rhot;
+    uyt /= rhot;
+    uzt /= rhot;
+
+    Real C_200 = 0.0;
+    Real C_020 = 0.0;
+    Real C_002 = 0.0;
+    Real C_110 = 0.0;
+    Real C_101 = 0.0;
+    Real C_011 = 0.0;
+
+    for (int q = 0; q < Q; q++) {
+        const Real cx = e[q][0] - uxt;
+        const Real cy = e[q][1] - uyt;
+        const Real cz = e[q][2] - uzt;
+        const Real ft = fold(i, j, k, q);
+        C_200 += cx * cx * ft;
+        C_020 += cy * cy * ft;
+        C_002 += cz * cz * ft;
+        C_110 += cx * cy * ft;
+        C_101 += cx * cz * ft;
+        C_011 += cy * cz * ft;
+    }
+
+    const Real cneq_xx = C_200 - rhot * cs2;
+    const Real cneq_yy = C_020 - rhot * cs2;
+    const Real cneq_zz = C_002 - rhot * cs2;
+    const Real cneq_xy = C_110;
+    const Real cneq_xz = C_101;
+    const Real cneq_yz = C_011;
+
+    const Real strain_factor = -1.0 / (2.0 * tau_2 * dt * rhot * cs2);
+    const Real s_xx = strain_factor * cneq_xx;
+    const Real s_xy = strain_factor * cneq_xy;
+    const Real s_xz = strain_factor * cneq_xz;
+    const Real s_yy = strain_factor * cneq_yy;
+    const Real s_yz = strain_factor * cneq_yz;
+    const Real s_zz = strain_factor * cneq_zz;
+
+    const Real strain_norm2 = 2.0 * (s_xx * s_xx + s_yy * s_yy + s_zz * s_zz +
+                                     2.0 * (s_xy * s_xy + s_xz * s_xz + s_yz * s_yz));
+    const Real strain_mag = sqrt(amrex::max(strain_norm2, 0.0));
+
+    const Real Cs2 = 0.01;
+    nu_sgs(i, j, k, 0) = Cs2 * dx * dx * strain_mag;
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
 void compute_viscosity_sgs_WALE(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
                                 amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx,
                                 amrex::IntVect const& lo, amrex::IntVect const& hi,

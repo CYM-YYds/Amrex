@@ -44,11 +44,46 @@ nu_sgs = C * Delta^2 * |S|
 
 The filter width is represented by the level cell size `dx`.
 
-### `compute_viscosity_sgs_SM`
+### `compute_viscosity_sgs_SM_cumulant`
 
-This is a standard Smagorinsky backup helper. It uses only the local distribution
-functions at one Euler cell and computes the strain-rate tensor from the non-equilibrium
-second moment:
+This is the standard Smagorinsky backup helper for the active cumulant collision
+formulation. It uses only the local distribution functions at one Euler cell and
+computes the strain-rate tensor from the non-equilibrium second cumulants:
+
+```text
+C_ab^neq = -tau_2 dt rho cs2 (du_a/db + du_b/da)
+S_ab = 0.5 * (du_a/db + du_b/da)
+S_ab = -C_ab^neq / (2 tau_2 dt rho cs2)
+nu_sgs = Cs^2 * Delta^2 * sqrt(2 S_ab S_ab)
+```
+
+For the diagonal components, the helper subtracts the second-order equilibrium
+central cumulant:
+
+```text
+C_xx^neq = C_200 - rho cs2
+C_yy^neq = C_020 - rho cs2
+C_zz^neq = C_002 - rho cs2
+```
+
+For the off-diagonal components, the equilibrium value is zero:
+
+```text
+C_xy^neq = C_110
+C_xz^neq = C_101
+C_yz^neq = C_011
+```
+
+The current constant is `Cs^2 = 0.01`. The current implementation passes `tau_lev`
+as `tau_2`, matching the shear relaxation time used by the active
+`collide_cumulant(...)` path. Because this helper does not use velocity finite
+differences, it does not need velocity ghost cells.
+
+### `compute_viscosity_sgs_SM_BGK`
+
+This is the older BGK-form Smagorinsky backup helper. It uses only the local
+distribution functions at one Euler cell and computes the strain-rate tensor from
+the non-equilibrium raw second moment:
 
 ```text
 Pi_neq_ab = sum_i e_i,a e_i,b (f_i - f_i^eq)
@@ -56,8 +91,8 @@ S_ab = -Pi_neq_ab / (2 rho c_s^2 tau dt)
 nu_sgs = Cs^2 * Delta^2 * sqrt(2 S_ab S_ab)
 ```
 
-The current constant is `Cs^2 = 0.01`. Because this helper does not use velocity
-finite differences, it does not need velocity ghost cells.
+The current constant is `Cs^2 = 0.01`. Keep this version only as a BGK reference;
+for the current cumulant collision path, prefer `compute_viscosity_sgs_SM_cumulant(...)`.
 
 ### `compute_viscosity_sgs_WALE`
 
@@ -80,7 +115,8 @@ The current helper names are intentionally model-explicit:
 
 ```text
 compute_viscosity_sgs_CSM
-compute_viscosity_sgs_SM
+compute_viscosity_sgs_SM_cumulant
+compute_viscosity_sgs_SM_BGK
 compute_viscosity_sgs_WALE
 ```
 
