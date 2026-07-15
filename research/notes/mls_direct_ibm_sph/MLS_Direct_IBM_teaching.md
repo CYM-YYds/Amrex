@@ -4,7 +4,7 @@
 
 对应代码文件：
 
-- `projects/pdf/Cylinder_IBM_testSPH.cpp`
+- `research/reference_code/Cylinder_IBM_testSPH.cpp`
 - `Circle_IBM_BTDF()`: 当前保留的 BTDF 基准方法
 - `Circle_IBM_MLSDirect()`: 按论文 3.2 节思想写出的教学版 MLS direct forcing 方法
 

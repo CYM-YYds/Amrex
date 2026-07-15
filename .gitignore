@@ -29,7 +29,10 @@ compile_commands.json
 **/amrex-26.01/
 **/.trae/
 **/AGAL/
+./research/
 projects/师兄代码开发
+# AI 过程产物
+docs/superpowers/
 # IDE/editor
 
 
