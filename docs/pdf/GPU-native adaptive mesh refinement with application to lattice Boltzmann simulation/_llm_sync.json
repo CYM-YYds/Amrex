@@ -1,0 +1,17 @@
+{
+  "kind": "llm-for-zotero/mineru-cache",
+  "version": 1,
+  "createdAt": "2026-07-08T11:49:46.543Z",
+  "generatedAt": "2026-07-08T11:49:46.543Z",
+  "updatedAt": "2026-07-08T11:49:46.543Z",
+  "addonName": "llm-for-zotero",
+  "addonVersion": "3.8.25",
+  "mineruCacheVersion": "mineru-cache-v1",
+  "cacheContentHash": "fnv1a32-5a43d8f9",
+  "attachmentId": 827,
+  "attachmentKey": "R4GX65N2",
+  "sourceAttachmentKey": "R4GX65N2",
+  "sourceAttachmentFilename": "Jaber 等 - 2025 - GPU-native adaptive mesh refinement with application to lattice Boltzmann simulations.pdf",
+  "parentItemKey": "3LEHBXFD",
+  "parsedAt": "2026-07-08T11:49:46.492Z"
+}

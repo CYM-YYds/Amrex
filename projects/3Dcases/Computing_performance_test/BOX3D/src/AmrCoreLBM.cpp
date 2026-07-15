@@ -13,6 +13,7 @@
 #include <cctype>
 #include <dirent.h>
 #include <fstream>
+#include <optional>
 #include <sstream>
 
 #ifdef AMREX_MEM_PROFILING
@@ -667,32 +668,39 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
     amrex::MultiFab& f_old_lev_c = f_old[lev - 1];
     amrex::Real scale = tau[lev] / tau[lev - 1] / 2.0;
 
-    for (MFIter mfi(f_old_lev_c, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const auto bx = mfi.growntilebox(0); // 只需要粗网格的valid值就可以了
+    {
+        ScopedPerfTimer timer(perf_stats.interp_scale);
+        for (MFIter mfi(f_old_lev_c, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const auto bx = mfi.growntilebox(0); // 只需要粗网格的valid值就可以了;这里对全部粗网格进行操作, 是一个可以优化的点
+            perf_stats.interp_scale_cells += bx.numPts();
 
-        const Array4<Real>& fold = f_old_lev_c.array(mfi);
-        const Array4<Real>& fnew = f_new_lev_c.array(mfi);
+            const Array4<Real>& fold = f_old_lev_c.array(mfi);
+            const Array4<Real>& fnew = f_new_lev_c.array(mfi);
 
-        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            interp_scale(i, j, k, fold, fnew, scale);
-        });
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                interp_scale(i, j, k, fold, fnew, scale);
+            });
+        }
     }
 
-    if (Gpu::inLaunchRegion()) {
-        GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(geom[lev - 1], bcs, gpu_bndry_func);
-        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(geom[lev], bcs, gpu_bndry_func);
-        amrex::FillPatchTwoLevels(mf, time, cmf, ctime, fmf, ftime, 0, 0, Q,
-                                  geom[lev - 1], geom[lev], cphysbc, 0, fphysbc, 0,
-                                  refRatio(lev - 1), mapper, bcs, 0);
-    } else {
-        CpuBndryFuncFab bndry_func(nullptr);
-        PhysBCFunct<CpuBndryFuncFab> cphysbc(geom[lev - 1], bcs, bndry_func);
-        PhysBCFunct<CpuBndryFuncFab> fphysbc(geom[lev], bcs, bndry_func);
+    {
+        ScopedPerfTimer timer(perf_stats.interp_fillpatch);
+        if (Gpu::inLaunchRegion()) {
+            GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
+            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(geom[lev - 1], bcs, gpu_bndry_func);
+            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(geom[lev], bcs, gpu_bndry_func);
+            amrex::FillPatchTwoLevels(mf, time, cmf, ctime, fmf, ftime, 0, 0, Q,
+                                      geom[lev - 1], geom[lev], cphysbc, 0, fphysbc, 0,
+                                      refRatio(lev - 1), mapper, bcs, 0);
+        } else {
+            CpuBndryFuncFab bndry_func(nullptr);
+            PhysBCFunct<CpuBndryFuncFab> cphysbc(geom[lev - 1], bcs, bndry_func);
+            PhysBCFunct<CpuBndryFuncFab> fphysbc(geom[lev], bcs, bndry_func);
 
-        amrex::FillPatchTwoLevels(mf, time, cmf, ctime, fmf, ftime, 0, 0, Q,
-                                  geom[lev - 1], geom[lev], cphysbc, 0, fphysbc, 0,
-                                  refRatio(lev - 1), mapper, bcs, 0); // 如果time与ftime匹配,则会把细网格覆盖过去。
+            amrex::FillPatchTwoLevels(mf, time, cmf, ctime, fmf, ftime, 0, 0, Q,
+                                      geom[lev - 1], geom[lev], cphysbc, 0, fphysbc, 0,
+                                      refRatio(lev - 1), mapper, bcs, 0); // 如果time与ftime匹配,则会把细网格覆盖过去。
+        }
     }
 }
 
@@ -898,21 +906,31 @@ void AmrCoreLBM::AverageDownValid() {
 
 void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     ScopedPerfTimer timer(perf_stats.average);
+    ++perf_stats.avgdown_calls;
     // amrex::AllPrint()<<"AverageDownGhostLevel from " << lev+1 << " to " << lev <<std::endl;
 
     amrex::MultiFab& fine_mf = f_old[lev + 1];
     amrex::MultiFab& crse_mf = f_old[lev];
 
-    MultiFab fine_boundary_data(fine_mf.boxArray(), fine_mf.DistributionMap(), Q, 2); // 能不能用f_new减少内存消耗
-    MultiFab::Copy(fine_boundary_data, fine_mf, 0, 0, Q, 2);
+    std::optional<MultiFab> fine_boundary_data;
+    {
+        ScopedPerfTimer alloc_timer(perf_stats.average_alloc);
+        fine_boundary_data.emplace(fine_mf.boxArray(), fine_mf.DistributionMap(), Q, 2);
+    }
+    {
+        ScopedPerfTimer copy_timer(perf_stats.average_copy);
+        MultiFab::Copy(*fine_boundary_data, fine_mf, 0, 0, Q, 2);
+    }
 
     if (is_scale) {
         amrex::Real scale = 2.0 * tau[lev] / tau[lev + 1];
 
-        for (MFIter mfi(fine_boundary_data, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        ScopedPerfTimer scale_timer(perf_stats.average_scale);
+        for (MFIter mfi(*fine_boundary_data, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
             const auto bx = mfi.growntilebox(2);
+            perf_stats.average_scale_cells += bx.numPts();
 
-            const Array4<Real>& fold = fine_boundary_data.array(mfi);
+            const Array4<Real>& fold = fine_boundary_data->array(mfi);
 
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                 average_scale(i, j, k, fold, scale);
@@ -920,7 +938,10 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
         }
     }
 
-    amrex::average_down(fine_boundary_data, crse_mf, 0, Q, refRatio(lev));
+    {
+        ScopedPerfTimer avgdown_timer(perf_stats.average_down);
+        amrex::average_down(*fine_boundary_data, crse_mf, 0, Q, refRatio(lev));
+    }
 }
 
 void AmrCoreLBM::AverageDownGhost() {
@@ -928,6 +949,7 @@ void AmrCoreLBM::AverageDownGhost() {
 
 void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
     ScopedPerfTimer timer(perf_stats.interp);
+    ++perf_stats.fillghost_calls;
     amrex::MultiFab& f_old_lev = f_old[lev];
 
     if (is_scale) {

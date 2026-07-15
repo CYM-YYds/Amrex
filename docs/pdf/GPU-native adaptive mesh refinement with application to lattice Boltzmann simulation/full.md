@@ -1,0 +1,1032 @@
+# GPU-native adaptive mesh refinement with application to lattice Boltzmann simulations
+
+Khodr Jaber $^{a,ID,*}$ , Ebenezer E. Essel $^{b,ID}$ , Pierre E. Sullivan $^{a,ID}$
+
+$^{a}$ Department of Mechanical and Industrial Engineering, University of Toronto, 5 King's College Rd, Toronto, M5S 3G8, ON, Canada
+
+$^{b}$ Department of Mechanical, Industrial and Aerospace Engineering, Concordia University, 1515 Ste-Catherine St. W., Montreal, H3G 1M8, QC, Canada
+
+## ARTICLE INFO
+
+The review of this paper was arranged by Prof. Andrew Hazel
+
+Keywords:
+Adaptive mesh refinement
+General-purpose GPU (GPGPU)
+Computational fluid dynamics
+Lattice Boltzmann method
+Open-source
+
+## ABSTRACT
+
+Adaptive Mesh Refinement (AMR) enables efficient computation of flows by providing high resolution in critical regions while allowing for coarsening in areas where fine detail is unnecessary. While early AMR software packages relied solely on CPU parallelization, the widespread adoption of heterogeneous computing systems has led to GPU-accelerated implementations. In these hybrid approaches, simulation data typically resides on the GPU, and mesh management and adaptation occur exclusively on the CPU, necessitating frequent data transfers between them. A more efficient strategy is to adapt and maintain the entire mesh structure exclusively on the GPU, eliminating these transfers. Because of its inherent parallelism, the Lattice Boltzmann Method (LBM) has been widely implemented in hybrid AMR frameworks. This work presents a GPU-native algorithm for AMR using a block-based forest of octrees approach, implemented in both two and three dimensions as open-source C++/CUDA code. The implementation includes a Lattice Boltzmann solver for weakly compressible flow, though the underlying grid refinement procedure is compatible with any solver operating on cell-centered block-based grids. The lid-driven cavity and flow past a square cylinder benchmarks validate the algorithm's effectiveness across multiple velocity sets in both single- and double-precision. Tests conducted on consumer and datacenter-grade GPUs demonstrate its versatility across different hardware platforms.
+Link to repository: https://github.com/KhodrJ/AGAL.
+
+## 1. Introduction
+
+In computational fluid dynamics (CFD), the Lattice Boltzmann Method (LBM) has evolved from a simple algorithm for weakly-compressible hydrodynamics at moderate Reynolds number to a more advanced family of schemes capable of simulating turbulence $[1-4]$ , free-surface flows $[5-7]$ , and phase-field simulations in material science $[8-10]$ . The LBM models the Navier-Stokes equations from a mesoscopic description of the flow physics, and possesses advantages in contrast with conventional Navier-Stokes solvers (e.g., the finite difference and volume method) such as a natural treatment of advection, fully explicit temporal integration without the need to invert a linear system of equations per time step $[11]$ , and natural parallelism in the form of an embarrassingly parallel collision step and a streaming step which can exploit techniques such as pointer shifting $[12]$ . The natural parallelism of the LBM has been exploited to implement a variety of central processing units (CPUs), graphics processing units (GPUs), and hybrid parallelization techniques to reduce the computational cost of simulations, resulting in the development of several publicly available codes $[13–19]$ . The uniform grid requirement imposed by the discretization strategy of the standard LBM is well-suited for GPU implementations. However, it is insufficient for applications where greater resolution is needed only in a few regions of the domain (e.g., turbulent flows where the turbulent boundary layer needs to be resolved). Increasing the resolution locally requires refining the whole domain, dramatically increasing computational overhead and potentially rendering the flow simulation infeasible due to memory constraints. This has motivated the development of local grid refinement schemes for the LBM to enable simulation on non-uniform grids $[20–29]$ .
+
+Adaptive mesh refinement (AMR) [30-32] enables targeted refinement in the domain at runtime according to user-defined criteria (e.g., vorticity magnitude and the Q-criterion in hydrodynamics [28]). Nu merous AMR software packages have been developed $[33–43]$ . The technique has been applied to disciplines in physics and engineering such as shallow-water equations modeling of tsunamis, dam breaks and tidal waves $[44,45]$ , gas dynamics $[46–48]$ , phase-field modeling for simulation of dendrites $[8,9]$ , and free-surface flows $[5,6]$ . It is common to categorize the approaches to AMR as either octree or block-structured adaptive mesh refinement (SAMR) $[49,50]$ . In octree AMR, cells are organized hierarchically in an octree whose nodes correspond to the blocks so that explicit parent-child relationships exist. In contrast, cells can be organized in any logically rectangular shape in a SAMR as long as they reside on the same level in the hierarchy, and explicit parent-child relationships do not exist. AMR approaches have also been categorized as cell-, block- and patch-based AMR approaches $[45,47,51,52]$ in which the patches are defined as arbitrary collections of clustered cells, and blocks are defined as a particular case of square/cubic patches. Cell-based AMR leads to a tree structure where nodes correspond to individual cells. The distinction between these terms can vary between communities. For example, Schornbaum and Rüde $[53]$ describe a block-structured AMR where the domain is partitioned as a forest of octrees similar to $[39,54]$ . This work adopts the cell- and block-based AMR terminology defined in the second categorization, which encompasses block-based octree AMR while consistently using patch-based and SAMR concepts.
+
+Recent advancements in General-Purpose GPU (GPGPU) programming and the increased availability of hybrid CPU-GPU computing systems have motivated GPU-accelerated AMR, where computations over the solution fields are offloaded to the GPU. Packages that offer GPU support include Daino $[41]$ , GAMER-2 $[42]$ , AMReX $[43]$ , and waL-Berla $[13]$ . Early GPU-based AMR packages would handle most of the AMR algorithm on the CPU while offloading suitable computations, requiring costly copies of data between the CPU and GPU, $[55,56]$ . It is now common for AMR packages to permanently retain the data on the GPU to be processed entirely therein due to the increased availability of virtual RAM on modern GPUs, reducing these copies significantly. However, management and dynamic adaptation of the mesh are considered challenging to parallelize on the GPU $[51,57,58]$ , and specific subroutines may require CPU execution depending on the chosen AMR approach. Compute kernels in a SAMR approach are highly suited for GPU execution due to the regular structure of the patches on which the data resides; however, the clustering algorithm involved during refinement is not straightforward to port to a GPU and involves the CPU at some point $[44,51,52,59]$ . Recursive data structures can define and dynamically modify quad/octree meshes (e.g., node insertion/removal, neighbor-search). However, these are ill-suited for deployment on GPUs, where contiguity in memory is crucial for performance. As a result, the mesh structure often continues to be hosted and managed, in whole or part, on the CPU; this strategy has been reported explicitly in some AMR packages such as Daino $[41]$ and GAMER-2 $[42]$ , and in recent applications $[5,8,9,51,60]$ .
+
+Some have gone further, moving the mesh structure and adaptation routines to the GPU in addition to the solution data to achieve a GPU-native implementation of AMR that eliminates data transfers $[47,48,57,61-63]$ . Two common concerns are generally addressed in doing so: 1) linear representation of the mesh that can enable efficient refinement/coarsening, and 2) a strategy to deal with 'gaps' that inevitably form in these linear data structures after coarsening (since the data no longer corresponds to a region in the grid). Cell-based AMR schemes for the 2D Euler equations were developed in which the mesh adaptation and solver routines were implemented entirely on the GPU by Luo et al. $[57]$ , for unstructured quadrilateral meshes, and Giuliani and Krivodonova $[47]$ , for unstructured triangular meshes. The mesh was described with a cell-edge decomposition and represented with integer lists that facilitated refinement, coarsening, and 'recycling' of the coarsened cell/edge indices for reuse in later refinements. Menshov and Pavlukhin $[48,62]$ developed a cell-based GPU-native AMR algorithm for the same system of equations using a linear octree represented with a Z-order Morton space-filling curve (SFC) [64]. They eliminated gaps with a defragmentation strategy based on a prefix-scan operation. Wang et al. [63] developed a cell-based GPU-native AMR scheme for the flux reconstruction method based on a linear octree [65] represented with a Z-order SFC. Algorithms for tree manipulation were redesigned, including routines for building mesh connectivity and 2:1 balancing [65] (which ensures that a coarse octant neighboring a fine one is no more than double its size) since previous CPU-based algorithms [40,65,66] utilized data structures which were not well-suited for GPU execution.
+
+Several open-source codes have successfully implemented the GPU-parallel LBM with static and dynamic grid refinement. Palabos $[15]$ recently introduced a multi-GPU backend to the original repository that implements the former. waLBerla $[13]$ employs a forest of octrees approach similar to that of Burstedde et al. $[40,67]$ which is organized so that nodes corresponding to blocks in the grid can be distributed via MPI to different processes $[53,68,69]$ . waLBerla provides GPU support by mirroring CPU data on the device to enable complete kernel execution, with copies back to the CPU only for post-processing and I/O. ESPResSo $[14]$ , a package for soft matter systems that had initially employed regular Cartesian grids, was extended $[70,71]$ to enable AMR with the p4est framework $[40]$ . ESPResSo has also integrated waLBerla for its hydrodynamics. The underlying forest-of-octrees AMR frameworks of ESPResSo and waLBerla were designed for extreme-scale AMR on CPU-based supercomputers, involving parallelization and distribution of the grid via MPI across many processes, with scalability demonstrated over $\mathcal{O}(10^{5})$ processes $[40,53,72]$ . MPI-based distribution is necessary when executing on compute clusters with distributed memory, even if these clusters offer GPU acceleration. Continued CPU-parallel mesh adaptation is naturally attractive, especially when such scalability has been demonstrated. However, sub-optimal performance is possible when porting without optimization specifically for GPU execution. This was observed, for example, by Mahmoud et al. $[73]$ , who implemented the LBM with a static grid refinement scheme optimized specifically for single-GPU execution (in contrast with the previous packages where a previous CPU code was ported to the GPU) in the Neon package $[19]$ . Their code was compared with Palabos and waLBerla in test cases employing a single GPU, and they observed a reduction in the total simulation time. Other recent AMR-LBM works, such as the phase-field simulations of Sakane et al. $[8–10]$ mention the use of the framework of Schive et al. implemented in the GAMER-2 package $[42]$ .
+
+We present a novel block-based forest of octrees approach to AMR hosted and managed entirely on a single GPU. Integer index arrays explicitly identify the nodes of the octrees to facilitate mesh adaptation. The refinement and coarsening algorithm consists of parallel subroutines (such as sorts and copies) implemented in Thrust $[74]$ (part of Nvidia's CUDA Core Compute Libraries $[75]$ ) and additional compute kernels designed straightforwardly to: 1) utilize explicit neighbor-link storage, shared memory and arithmetic to update connectivity, and 2) to revert violating blocks flagged for refinement/coarsening to enforce 2:1 balancing. This paper also describes a solver based on the Lattice Boltzmann Method for weakly compressible flow, compatible with the mesh arrangement in 2D and 3D. Linear and cubic interpolation communicate data from the coarse grid to the fine grid along the refinement interface, while basic averaging transfers data in the reverse direction. The streaming step uses shared memory for data transfers between blocks on the same grid level. Separate C++/CUDA scripts implement the refinement and coarsening algorithm (mesh\_amr.cu) and solver (solver\_lbm\*.cu) to enable utilization with other LBM codes or numerical solvers in future work. Two benchmark problems validate the solver: the 2D/3D lid-driven cavity and the 2D flow past a square cylinder. We report the performance of the code with respect to the distribution of subroutine execution times for the AMR scheme, node updates per second for the solver, and speedup provided relative to uniform grids with equivalent effective resolution.
+
+The paper is structured as follows. Section 2 introduces the Lattice Boltzmann Method. Section 3 provides an overview of the data structures and memory access patterns, and details the refinement and coarsening algorithm and the coarse-fine grid communication routines. Section 4 outlines the recursive time-stepping algorithm, the kernels for streaming and collision, and computation of the refinement criterion. Section 5 reports the results of the lid-driven cavity and flow past a square cylinder test cases. Section 6 presents our conclusion.
+
+Fig. 1. Visualization of discretization of particle velocity space into discrete velocity sets. Three sets are shown: D2Q9 on the left, D3Q19, and D3Q27 on the right (the latter shares the same velocity vectors as the former but requires, in addition to them, the velocities pointing through the cell corners). Velocity sets were adapted from [11].
+
+## 2. Lattice Boltzmann Method
+
+A time step for the LBM can be expressed as:
+
+$$
+f _ {p} (t + \Delta t, \mathbf {x} + \mathbf {c} _ {p} \Delta t) - f _ {p} (t, \mathbf {x}) = \Delta t \Omega (t, \mathbf {x}),\tag{1}
+$$
+
+where $\Omega$ is the collision operator, $f_{p}$ are the density distribution functions (DDFs) corresponding to the particle velocity vectors $c_{p} = (\Delta x / \Delta t)e_{p}$ , t and x are the current time and spatial location, and $\Delta t$ is the time step. The $f_{p}$ are arranged on a lattice of equal spacing $\Delta x$ in all directions with edges that align with the Cartesian axes. The spatial and temporal steps are set equal so that the increments $x + c_{p}\Delta t$ lie exactly on the neighboring lattice nodes. The analytical expression for the operator is complex and is usually replaced with a simpler model, such as the Bhatnagar-Gross-Crook (BGK) model [76] involving linear relaxation of the DDFs at a rate $\tau$ towards equilibrium distributions obtained from a discretization of the Maxwell-Boltzmann distribution. The multiple-relaxation-time (MRT) operator [77,78] allows the kinematic and bulk viscosity to be specified independently. The BGK model (also referred to as the single-relaxation-time model) is used in this study and is given by:
+
+$$
+f _ {p} (t + \Delta t, \mathbf {x} + \mathbf {c} _ {p} \Delta x) = f _ {p} (t, \mathbf {x}) - \frac {\Delta t}{\tau} \Bigg (f _ {p} (t, \mathbf {x}) - f _ {p} ^ {\mathrm{eq.}} (t, \mathbf {x}) \Bigg),\tag{2}
+$$
+
+$$
+f _ {p} ^ {\mathrm{eq.}} (t, \mathbf {x}) = w _ {p} \rho \Bigg (1 + \frac {\mathbf {u} \cdot \mathbf {c} _ {p}}{c _ {s} ^ {2}} - \frac {(\mathbf {u} \cdot \mathbf {c} _ {p}) ^ {2}}{2 c _ {s} ^ {4}} + \frac {\mathbf {u} \cdot \mathbf {u}}{2 c _ {s} ^ {2}} \Bigg),\tag{3}
+$$
+
+where $c_{s}$ , denoted the lattice speed of sound, is given by $c_{s}=(1/\sqrt{3})(\Delta x/\Delta t)$ , $f_{p}^{eq.}$ are the discrete equilibrium distributions, and $w_{p}$ are quadrature weights corresponding to the abscissae $c_{p}$ . The $w_{p}$ and $c_{p}$ form a so-called velocity set with the notation DnQm where n and m are the problem dimension and velocity set size (these are $N_{D}$ and $N_{Q}$ , respectively). This work considers three velocity sets: D2Q9, D3Q19 and D3Q27. These are illustrated in Fig. 1. The moments are computed via Gauss-Hermite quadrature in discrete $f_{p}$ by:
+
+$$
+\rho (t, \mathbf {x}) = \sum_ {p = 1} ^ {N _ {Q}} f _ {p} (t, \mathbf {x}), \qquad \rho \mathbf {u} (t, \mathbf {x}) = \sum_ {p = 1} ^ {N _ {Q}} f _ {p} (t, \mathbf {x}) \mathbf {c} _ {p}.\tag{4}
+$$
+
+Boundary conditions specified in terms of the macroscopic properties $\rho$ , u must be translated to equivalent conditions on the DDFs. The form and implementation of these conditions depend on the chosen grid type. These are classified as wet-node schemes when nodes coincide with cell vertices along the boundary and link-wise schemes otherwise [11]. The latter are used for the current cell-centered grids. Two boundary conditions are implemented for the test cases: bounce-back conditions where a known velocity $u_{w}$ is specified at the boundary to implement no-slip and inlet conditions, and anti-bounce-back conditions were a specified pressure field $p_{w}$ implements an outflow condition. These boundary conditions are, respectively, given by [11]:
+
+Known
+
+$$
+\mathbf {u} _ {w}: \quad f _ {\overline {{i}}} = f _ {i} ^ {*} - 2 w _ {i} \rho_ {w} \frac {\mathbf {c} _ {i} \cdot \mathbf {u} _ {w}}{c _ {s} ^ {2}},\tag{5}
+$$
+
+Known
+
+$$
+\mathbf {p} _ {w}: \quad f _ {\bar {i}} = - f _ {i} ^ {*} + 2 w _ {i} \rho_ {w} \left(1 + \frac {\mathbf {c} _ {i} \cdot \mathbf {u} _ {w}}{2 c _ {s} ^ {4}} - \frac {\mathbf {u} _ {w} \cdot \mathbf {u} _ {w}}{2 c _ {s} ^ {2}}\right).\tag{6}
+$$
+
+Density is related to pressure p by $(p-\overline{p})=c_{s}^{2}(\rho-\overline{\rho})$ in the weakly-compressible model, where $\overline{p}$ and $\overline{\rho}$ are baseline values for pressure and density, respectively. We set density $\rho_{w}$ equal to 1 in both boundary conditions and use reference values $\overline{p}=0$ and $\overline{\rho}=1$ .
+
+## 3. Adaptive mesh refinement
+
+This section begins with a discussion on related work and presents an overview of the current methodology. We illustrate the access patterns used in the mesh adaptation procedures and solver routines, and then detail the refinement and coarsening algorithm. Finally, we provide the routines for data communication along coarse-fine interfaces.
+
+## 3.1. Related work
+
+Tree-based AMR has received much attention in the literature, especially in the context of scalable algorithms $[37–40,53,54,72,79]$ , and algorithms that implement mesh data structures and adaptation routines on GPUs $[47,48,62,63]$ . The particular case of quad/octree is the method of choice used in GPU grid-refined LBM codes (both static and dynamic) such as Palabos $[15]$ , ESPResSo $[70,71]$ , and waLBerla $[13]$ . Quad/octrees are data structures where each node can be subdivided into up to four/eight child nodes $[65]$ . Nodes are denoted as leaf nodes if they do not possess children, and interior nodes otherwise. The root node is the unique node in the tree without a parent, while all other nodes have exactly one. A node's level is the number of parent-child links between it and the root node. The level of the root node is defined as zero.
+
+While octree algorithms and implementations have been extensively studied over several decades $[65,80]$ , their specific application to AMR on GPUs remains relatively unexplored in the current literature. Pointer-based tree implementations that enable recursive construction do not possess good data locality $[63]$ , so linear representations are typically used instead. The Morton Z-order SFC $[64]$ encoding is a well-known way to implicitly represent the leaf node data of an octree linearly in memory. The SFC representation retains good data locality $[81]$ , an important property for load balancing when distributing across multiple processes $[53,72]$ . It has been applied in AMR packages such as p4est $[40]$ , Peano $[79]$ , and waLBerla $[13]$ . Menshov and Pavlukhin $[48,62]$ employed this approach when implementing octree AMR natively on the GPU. Wang et al. $[63]$ developed algorithms for construction, 2:1 balancing, and nodal connectivity of Morton-encoded octrees for GPU-based discontinuous finite element methods with AMR. Tree data structures can alternatively be represented using integer lists that store the indices of mesh elements in the data arrays. This is more common in AMR codes on unstructured grids $[47,57]$ where a Morton encoding is unavailable. In the current work, we diverge from the usual Morton encoding and utilize an explicit representation via integer lists storing indices of block data in separate metadata arrays. In contrast to the classic linear tree $[65]$ , the data of both interior and leaf nodes are stored to facilitate specific steps in the refinement and coarsening algorithm presented in Section 3.3, and data transfer between coarse and fine grids. It will be shown that the connectivity update step, which establishes/reverts neighbor links between inserted/removed nodes, can be performed with careful use of shared memory and arithmetic due to this explicit identification.
+
+A common reason for selecting a cell-based approach in AMR over a block-based approach is a finer granularity in which fewer resources are required for a given proscribed error tolerance $[44,47]$ . However, an explicit index-based representation (a common approach in recent literature $[47,63]$ ) presents some disadvantages: 1) the memory footprint of a cell-based scheme can become an issue depending on the number of neighbor links that need to be stored (this would be up to 27 if employed in a 3D LBM code), 2) contiguity in memory is reduced as new cells are inserted, which can significantly reduce the efficiency of global memory transactions on the GPU in grid advancement routines involving neighbor data. For solvers with explicit time-stepping, padding of the fine grid with one or more layers of ghost cells is required, which increases the complexity of the mesh adaptation algorithm. In contrast, Fakhari and Lee $[28]$ observed that a block-based approach provides memory savings since metadata is shared among groups of cells. There is also no need for additional refinement near coarse-fine interfaces for smoothness, as this is taken care of automatically. Since quad-/octree data structures can be implicitly represented and linearized with space-filling curves, explicit storage of the neighbor links is not necessarily required and the memory footprint issue in the cell-based scheme can be remedied in principle. However, the lack of contiguity remains a matter of concern. The local structured-grid arrangement of cells in the block-based framework allows for the computation of neighbor cell IDs with a known formula, enabling a simplified, coalesced exchange of information within the block. It is common for GPU-parallel codes for the LBM to utilize block-based arrangements $[13,15]$ , and a similar approach will be taken in this paper.
+
+Subdivision of leaf nodes in a linear octree stored with explicit representation is equivalent to the construction of new children in metadata arrays. Coarsening is equivalent to the removal of child blocks from these arrays. For example, if a block is being subdivided and the current total number of blocks is $N_{curr}$ , the data (e.g., node level, coordinates) corresponding to eight new blocks can be inserted at locations $[N_{curr}, N_{curr} + 8)$ in the metadata arrays. Coarsening is straightforward in that the indices of blocks to be removed are deemed inactive. In an explicit representation, the indices of these blocks are removed from the list of active blocks. However, this results in gaps that no longer correspond to any point in the computational grid. Failure to eliminate these gaps could result in less efficient global load/store operations or premature memory exhaustion [62]; this has been achieved in previous GPU-native AMR approaches. Luo et al. [57] report an index recycling strategy where gaps are tracked (i.e., indices removed from the list are temporarily stored) and re-used during the next call to refinement. Giuliani and Krivodonova [47] describe a hybrid approach, employing index recycling and, if an insufficient number of cells were added during refinement to cover existing gaps, stream compaction to close those left over. Menshov and Pavlukhin [48] describe a traversal of the octrees managing the grid where they apply a prefix-scan operation to fill the gaps and preserve memory locality. Shifting of data can become costly depending on the strategy undertaken and would require a complicated connectivity update due to modification of the block data locations. A recycling strategy is preferable, so this work uses an explicit octree representation. This requires tracking the available indices (i.e., locations in the metadata arrays where blocks have not yet been defined) to enable parallel construction without overwriting when many blocks are marked for refinement. Two sets of integer arrays accomplish this: 1) ID sets, which store the IDs of active blocks, and 2) the so-called gap set, which enumerates all available IDs that can be assigned to blocks inserted in the grid. The refinement and coarsening strategy presented in Section 3.3 revolves around a parallel manipulation of these arrays.
+
+## 3.2. Overview
+
+The mesh is organized as a forest of quad/octrees in which nodes represent square/cubic blocks of cells of size $M_{b}$ . A node can be split into exactly $N_{c}$ child nodes in our implementation, where $N_{c}$ takes on a value of four in 2D and eight in 3D. The root nodes of these trees are arranged as a structured grid denoted as the root grid of the hierarchy. We will refer only to octrees for the remainder of the paper as the mesh management procedure outlined in this section is identical in 2D and 3D. A collection of nodes across all octrees on level L is denoted as grid level L, and the set of grid levels $0 \leq L < L_{max}$ . is referred to as the grid hierarchy. A 2:1 balance [65] is maintained across the whole forest at all times (so that the width of a cell on grid level $L + 1$ is always half of that on level L). The forest is described altogether by a set of one-dimensional arrays that store flattened multidimensional octree solution data and mesh metadata in a structure of arrays format. These are classified as cell data arrays with labels cells\_\* and cell-block data arrays with labels cblock\_\*.
+
+Individual nodes are explicitly identified with an integer (a block ID) corresponding to the location of block data in these arrays. Two sets of arrays denoted the ID sets (id\_set) and the gap set (gap\_set) store active block IDs and IDs that are available for assignment to newly-inserted blocks during refinement, respectively. Each grid level has its own ID set id\_set $_{L}$ that stores both leaf and interior nodes. The gap set is enumerated at the beginning of the simulation, defined as all indices $N_{blocks,init.} \leq \kappa < N_{blocks}$ , where $N_{blocks,init.}$ is the number of blocks in the root grid. When blocks are marked for refinement, an equal number of gaps spaced by an amount $N_{c}$ are assigned, representing the IDs of children to be created. The IDs are pulled from the gap set and inserted into the appropriate ID sets. To avoid re-arranging the gap\_set at runtime, it is enumerated in reverse (so that smaller IDs are used up first), and the required set of indices is split from the end. When blocks are coarsened, child IDs are identified and pulled from the ID sets before re-inserting into the gap set. Fig. 2 illustrates this representation for a sample 2D grid, and Fig. 3 shows how the ID and gap sets are modified to coarsen and refine the grid. This controls grid traversal during temporal integration. By separating the ID sets by grid level, synchronization can be carefully carried out along the interface at different stages of the integration.
+
+(a) Sample grid and octree, along with ID sets and gap set.
+
+(b) Locations in data arrays.
+
+Fig. 2. Illustration of the index list representation of the current octree implementation.
+(a) Blocks 3 and 5 are coarsened.
+
+(b) Block 9 is refined afterwards.
+
+Fig. 3. Illustration of the refinement and coarsening operations.
+(a) Cell-block arrangement.
+
+(b) Cell-block traversal.
+Fig. 4. Left: arrangement of a cell-block decomposed into sub-blocks of size $M_b$ . While $N_{b,x} = 4$ is fixed in the current implementation, $N_{q,x}$ (shown here equal to 4) can be specified at compile time. Blocks are processed by looping over the sub-blocks for which the solver kernels introduced in Section 4 are designated. Right: visualization of parent-child data transfer for a cell-block with $N_{q,x} = 6$ . Loops over the parent sub-blocks are split among the block's quadrants, each corresponding to a child cell-block and its associated sub-blocks.
+
+## 3.2.1. Data structures
+
+A single solution array stores the DDFs for all cells. Mesh metadata includes spatial coordinates of the blocks, cell and block masks that indicate participation in coarse-fine grid communication, and the block IDs of neighbors. These are summarized in Table 1. Solution data is organized so that array index i of a cell t (which is always the local CUDA thread index threadIdx.x) in sub-block $i_{Q}$ of block $i_{\kappa}$ is obtained with $i = t + i_{Q} M_{t} + i_{\kappa} M_{b}$ . The local coordinates of the cell are recovered with modulo and integer division operations. Figs. 4a and 4b visualize how cells and blocks are arranged and traversed, respectively, in the implementation. Metadata is accessed so that index $\varkappa + d N$ for $N \in \{N_{cells}, N_{blocks}\}$ , where $N_{cells}$ and $N_{blocks}$ are the respective maximum number of cells and blocks, retrieves the $d^{th}$ component of cell/block $\varkappa$ 's data.
+
+Neighbor links between nodes are stored explicitly since an encoding is not used. IDs of neighbor blocks, referred to in this paper simply as 'neighbors,' are indices such that cblock\_ID\_nbr[i $_{k}$ + pN $_{blocks}$ ] is the $p^{\text{th}}$ neighbor block. A convention similar to the velocity sets introduced in the previous section is used to order neighbors. 9 and 27 neighbors are linked in 2D and 3D, giving each block access to a full surrounding halo. The indices of the first child block of every neighbor are also stored explicitly in cblock\_ID\_nbr\_child; these are denoted as 'neighborchildren.' These two arrays (Fig. 5) form the mesh connectivity. The values of the neighbor-children of a given block are used to determine the neighbor indices for its children. When blocks are refined, the corresponding neighbor-child values of its neighbors are modified to record the refinement. This represents a connectivity transmission from one grid to the next, beginning with the root grid. Since the neighbor indices of blocks on the root grid are all known, the neighbor indices of new child blocks added in separate octrees can be identified without resorting to searches. This representation of connectivity therefore enables parallel execution of the refinement and coarsening algorithm simultaneously over the whole forest of octrees.
+
+The cell-block size is designated by specifying the number of cells along an axis $N_{b,x}=4k$ , $k\in N$ (so that $M_{b}=N_{b,x}^{N_{d}}$ , where $N_{d}\in\{2,3\}$ is the number of dimensions) and by choosing k based on a suitable thread-block size. Fixed thread-block sizes $M_{t},\overline{M}_{t}$ launch the CUDA kernels that update cell and cell-block data, respectively. Due to hardware limits, the maximum thread-block size needs to be smaller or equal to the cell-block size. For example, the maximum $M_{t}$ that can accommodate full occupancy on Nvidia GPUs with Compute Capability 3.0+ is 1024. However, large values of $M_{t}$ will increase register pressure and may lead to register spilling. $M_{t}$ and $\overline{M}_{t}$ should be multiples of 32 to ensure that all threads in the block are active. $M_{t}$ should also divide $(4k)^{N_{d}}$ to ensure that all threads participate in processing the cell-block. The values k=1, $M_{t}=4^{N_{d}}$ and $N_{b,x}=4$ are fixed in the current implementation, with an equal minimum cell-block size. Larger cell-blocks can be constructed by arranging sub-blocks of size $M_{t}$ in a regular grid of size $N_{q,x}^{N_{d}}$ , where $N_{q,x}$ is the number of sub-blocks $^{1}$ along one axis. This parameter is controlled at compile time with the variable Nqx. In 2D, $M_{t}=16$ is less than the GPU warp size, which results in a penalty for load and store instruction efficiency, though this is countered by the significantly smaller datasets being processed. The value of $\overline{M}_{t}$ can be chosen more freely; $\overline{M}_{t}=128$ is used in the current implementation.
+
+(a) Neighbor index list.
+
+(b) Neighbor-child index list.
+Fig. 5. Visualization of connectivity lists.
+
+Table 1
+List and descriptions of data structures utilized in implementing the mesh adaptation procedure and solver. $N_{p}$ is the number of bytes in a floating-point word, either four or eight in single- and double-precision, respectively.
+
+<table><tr><td>Name</td><td>No. Elem.</td><td>Bytes</td><td>Description</td></tr><tr><td>cells_f_F</td><td> $N_Q$ </td><td> $N_p$ </td><td>Stores the solution field of cells in the grid. For the LBM, these are the density distribution functions (DDFs).</td></tr><tr><td>cells_ID_mask</td><td>1</td><td>4</td><td>Stores cell mask IDs which differentiate between interior cells of a fine mesh, interface cells (whose values are communicated to the coarse grid along the refinement interface), and ghost cells (which receive data from the coarse grid to facilitate grid advancement on the fine grid).</td></tr><tr><td>cblock_f_X</td><td> $N_d$ </td><td> $N_p$ </td><td>Stores block global coordinates of the (bottom) southwest corner.</td></tr><tr><td>cblock_ID_nbr</td><td> $N_{Q,\text{max.}}$ </td><td>4</td><td>Stores the IDs of all neighbor blocks.</td></tr><tr><td>cblock_ID_nbr_child</td><td> $N_{Q,\text{max.}}$ </td><td>4</td><td>Stores the IDs of the first children of all neighbor blocks.</td></tr><tr><td>cblock_ID_ref</td><td>1</td><td>4</td><td>Stores refinement IDs representing block status at runtime. Several values are represented: unrefined, refined, refined w/ child (i.e., a refined block with at least one refined child, for restricting coarsening), refined-permanent (not considered for coarsening), marked for refinement, marked for coarsening, marked new, marked for removal, and inactive.</td></tr><tr><td>cblock_level</td><td>1</td><td>4</td><td>Stores the grid levels which the blocks occupy. This is required during the evaluation of the refinement criterion and when computing new spatial locations of children added during refinement.</td></tr><tr><td>cblock_ID_mask</td><td>1</td><td>4</td><td>Stores block mask IDs which identify whether or not blocks will be participating in coarse-fine grid communications. The indicator returns positive if at least one cell among its child blocks has been designated as an interface or ghost cell.</td></tr><tr><td>cblock_ID_onb</td><td>1</td><td>4</td><td>Stores indicators for blocks lying on the domain boundary. Used to determine whether to proceed with boundary condition imposition.</td></tr></table>
+
+Initialization of the mesh comprises of memory allocation on the CPU and GPU and the construction of the root grid based on input parameters read from a text file. $N_{cells}$ is determined at runtime by surveying the available memory on the GPU and allocating a specified fraction M\_frac of it for all of the above arrays (some memory can be left free for other processes, e.g., on a personal computer). It is then rounded to a number divisible by 32 to ensure proper alignment of the arrays for coalesced access.
+
+## 3.2.2. Memory access strategies
+
+Two access patterns update cell and cell-block data, respectively, denoted the primary and secondary modes of access (Fig. 6); these serve as representative templates for the CUDA kernels to dynamically adapt the mesh and temporally integrate the numerical solution.
+
+The primary mode of access, applied whenever cell data arrays cells\_\* need to be modified, is the template pattern used in all solver kernels for temporal integration and grid communication, and in modifying the mask IDs which determine participation in the kernels for communication between grid levels. CUDA kernels based on this template receive an ID set for a particular grid level as input, and a subset of IDs is extracted and traversed by each thread-block. Cell-blocks are processed by assigning one of these IDs at a time to all threads simultaneously, allowing them to access contiguous cell data.
+
+We introduce a parameter $M_{L}$ that determines the number of cell-blocks that are processed by each thread-block, controlled at compile time with the parameter M\_LBLOCK. A set of $M_{L} \leq M_{t}$ block IDs is first read from an appropriate ID set in global memory into shared memory. This is followed by a for-loop over the stored IDs, where the data of cells in the sub-block is processed simultaneously. If $M_{t} < M_{b}$ , a loop over the various sub-blocks is performed within the outer loop over the IDs.
+
+The secondary mode of access is applied whenever cell-block data arrays cblocks\_\* need to be modified. It is the central template pattern used in the refinement and coarsening algorithm when an update to cell-block metadata depends on the data of its neighbors or children. It exploits the contiguity of sibling blocks to achieve a degree of coalescence. Threads access the metadata arrays directly instead of traversing an ID set as with the primary mode.
+
+(a) Primary mode of access.
+
+(b) Secondary mode of access.
+
+Fig. 6. Memory access strategies used in the current implementation. An example of access to neighbor metadata is used to illustrate the secondary-mode pattern.
+(a) Sample grid.
+(b) Corresponding ID and gap sets.
+Fig. 7. A sample 2D AMR grid to aid in visualizing the refinement and coarsening algorithm. Blocks 3 and 9 are marked (in red) for coarsening, while blocks 4 and 5 are marked (in green) for refinement. Gap set IDs are shown in blue to aid in later visualizations. (For interpretation of the colors in the figure(s), the reader is referred to the web version of this article.)
+
+Cell-block IDs are traversed first, and the IDs of neighbors/children are copied into shared memory based on a specified criterion. A second traversal is performed over these stored IDs to load neighbor/child block data. The data can replace the IDs in memory since the latter are no longer needed at this point. Coalesced access of the neighbor/child data is guaranteed to a limited extent since children are always inserted contiguously. Finally, the original cell-block indices are traversed again, and tasks are performed based on the available neighbor/child data. An example of this strategy is shown for the case of neighbor-data access in Fig. 6b.
+
+## 3.3. Refinement and coarsening
+
+Refinement and coarsening are combined in a single routine and applied to all grid levels in the hierarchy simultaneously. This routine begins with a preparation step and is followed by an eight-step procedure, detailed below. A sample 2D grid (shown in Fig. 7) with two levels of refinement is used to visualize the various steps.
+
+1. Preparation. The total number of blocks marked for refinement and coarsening ( $N_{marked,R}$ and $N_{marked,C}$ ) are obtained with Thrust's count\_if over cblock\_ID\_ref. If both are zero, the remainder of the routine is skipped, otherwise all intermediate arrays are reset to negative values which will indicate invalidity or non-participation in future steps if unmodified.
+
+2. Minimal Map The minimal map involves the fewest number of IDs participating in updates to connectivity and is essentially a list of all marked blocks and their neighbors. Blocks are traversed and, if marked, have their neighbors' IDs copied into an intermediate array. These IDs are arranged contiguously with copy\_if, filtered of duplicates with count\_if and unique\_copy, then finally sorted and scattered with sort and scatter. Now, the map value for a given block is checked before the execution of subsequent subroutines (and it is skipped if the value is negative). Fig. 8a shows the construction of the minimal map for the sample grid.
+
+3. Map Gaps to Marked Blocks If $N_{marked,R} > 0$ , the IDs of the marked blocks are retrieved with copy\_if. A reverse\_copy call is made to acquire $N_{c}N_{marked}$ available gaps. A separate 'contracted' copy of these gaps takes only the first of each group of $N_{c}$ indices. These are assigned to the marked blocks with Thrust's scatter as the IDs of their first children and from which all other children are reconstructed. The assignment is completed in a custom routine that updates connectivity in cblock\_ID\_nbr\_child. This routine exploits the secondary mode of access to neighbors as follows: neighbor IDs are placed in shared memory in the first loop and traversed in a second loop where their block IDs are replaced with their corresponding refinement IDs; then, in a third loop, shared memory is accessed in the original order to determine whether or not a block possesses a refined neighbor. If so, the ID stored in cblock\_ID\_nbr\_child for that corresponding direction has its value updated to the new mapped value. Fig. 8b illustrates how new child IDs are assigned to blocks marked for refinement from the gap set for the sample grid. Fig. 9 shows how the secondary mode of access is used to update cblock\_ID\_nbr\_child.
+
+4. Enforcement of 2:1 Balancing A 2:1 balancing of the underlying octrees is ensured by (a) prevention of refinement when the resulting children would be adjacent to an unrefined block and (b) reversion of blocks marked for coarsening if they are near a refined block. The former is performed during computation of the refinement criterion prior to invocation of the refinement and coarsening routine (this is discussed further in Section 4.4). The latter is divided into two steps: 1) unrefined blocks are traversed and marked as violating if at least one neighbor-child is non-negative, and 2) blocks marked for coarsening are traversed in a secondary-access mode and reverted if at least one child was marked as violating. Modifying the unrefined blocks in this step does not affect subsequent refinement/coarsening algorithm subroutines. Now, $N_{marked,C}$ is updated to account for reversions. Suppose $N_{marked,C}$ remains positive. In that case, the second half of the connectivity update in the data arrays is performed in the same manner as that for mapped children where the values of cblock\_ID\_nbr\_child for neighbors marked for coarsening are changed to an arbitrary $N_{skip}$ (excluding the current block with neighbor index 0 since references to the children to be removed are still needed in the next step). A neighbor index $N_{skip}$ indicates that the block does not have a neighbor in that direction. Block 3 of the sample grid is marked for coarsening, but the mark is reverted since coarsening would result in its adjacency to two blocks with lengths four times smaller (shown in Fig. 10a).
+
+(b)
+
+Fig. 8. Left: development of the minimal map (called ‘efficient map’ in the code). Right: assignment of new children to blocks marked for refinement. Yellow cells indicate array element indices.
+
+Fig. 9. Visualization of the first update of cblock\_ID\_nbr\_child with the secondary mode of access. Neighbor-children are shaded in gray to illustrate the change in order between the first and second traversals. Cells with a thick lower edge indicate shared memory.
+(a) Coarsening block three results in a violation of the 2:1 balance requirement.
+(b) Detection of violating child blocks with the secondary access mode. Indices read from cblock\_ID\_nbr\_child are used to recover the remaining children.
+Fig. 10. Visualizations of the enforcement of the 2:1 balance requirement.
+
+Fig. 10b illustrates how this is detected with the secondary access mode.
+
+5. Build / Reset Children If $N_{marked,R} > 0$ or $N_{mark,C} > 0$ , a custom kernel (summarized in Algorithm 1) is called which builds the data of new children based on parent information and resets children to be removed in preparation for updates to the ID sets. The strategy to construct new children is to place mapped child IDs in shared memory (which perfectly coalesces the read) and to invoke a loop over it separately to rebuild the remaining children. Metadata is the same for all children for a single block - new children receive the increment to the grid level of the parent (from cblock\_level) and a refinement ID corresponding to 'new' while children to be removed have their refinement ID set to 'remove' (later written to cblock\_ID\_ref). The global coordinates of the new children can be calculated using reference parent coordinates
+
+Algorithm 1: Adding and Removing Blocks.
+
+<div class="mineru-algorithm" style="white-space: pre-wrap; font-family:monospace;">
+Algorithm 1: Adding and Removing Blocks.
+
+Input: $\kappa_{\text{max}}, N_{\text{blocks}}, \Delta x$, cblock_ID_ref, cblock_level, cblock_f_X, cblock_ID_nbr_child, scattered_map
+
+Allocate shared memory arrays s_child_ID, s_ref, s_level, s_x, s_y, s_z with size $\overline{M}_t$
+
+for $\kappa = 0 \to \kappa_{\text{max}}$ do // The for-loop is divided among 1D blocks of threads of size M_BLOCK.
+
+$t \leftarrow \text{threadIdx.x}$ $t_i \leftarrow \text{mod}(t, N_c)$ $t_b \leftarrow t / N_c$ $\Delta x_t \leftarrow \text{mod}(t, 2) \Delta x$ $\Delta y_t \leftarrow \text{mod}(t/2, 2) \Delta x$ $\Delta z_t \leftarrow \text{mod}(t/4, 2) \Delta x$; // Only applied if $N_d == 3$.
+
+if scattered_map[$\kappa$] &gt; -1 then // Only build children if a child is assigned.
+
+// Marked for refinement: prepare to build new children.
+
+if cblock_ID_ref[$\kappa$] = $C_{\text{refine}}$ then
+
+    s_child_ID[t] $\leftarrow$ scattered_map[$\kappa$]
+    cblock_ID_nbr_child[$\kappa$] $\leftarrow$ scattered_map[$\kappa$]
+    s_level[t] $\leftarrow$ cblock_level[$\kappa$]
+    s_ref[t] $\leftarrow$ $C_{\text{new}}$
+
+    s_x[t] $\leftarrow$ cblock_f_X[$\kappa + (0) N_{\text{blocks}}$]
+    s_y[t] $\leftarrow$ cblock_f_X[$\kappa + (1) N_{\text{blocks}}$]
+    s_z[t] $\leftarrow$ cblock_f_X[$\kappa + (2) N_{\text{blocks}}$]
+
+end
+
+// Marked for coarsening: prepare to remove children.
+
+if cblock_ID_ref[$\kappa$] = $C_{\text{coarsen}}$ then
+
+    s_child_ID[t] $\leftarrow$ scattered_map[$\kappa$]
+    s_ref $\leftarrow$ $C_{\text{remove}}$
+
+    cblock_ID_nbr_child[$\kappa$] $\leftarrow$ $N_{\text{skip}}$
+
+end
+
+end
+
+// Up to $\overline{M}_t / N_c$ children may need to be written. New and removed children processed simultaneously.
+
+for $q = 0 \rightarrow N_c$ do
+
+    $i_q \leftarrow$ s_child_ID[$t_b + q \overline{M}_t / N_c$]
+    $i_{ref,q} \leftarrow$ s_ref[$t_b + q \overline{M}_t / N_c$]
+
+if $Id_{ref,q} = C_{new}$ then
+
+    $L_q \leftarrow$ s_level[$t_b + q \overline{M}_t / N_c$] + 1
+
+    cblock_level[$i_q + t_i$] $\leftarrow$ $L_q$
+
+    cblock_ref[$i_q + t_i$] $\leftarrow$ $C_{new}$
+
+    cblock_f_X[$i_q + t_i + (0) N_{blocks}$] $\leftarrow$
+
+    s_x[$t_b + q \overline{M}_t / N_c$] + $\Delta x_t / 2^{L_q}$
+
+    cblock_f_X[$i_q + t_i + (1) N_{blocks}$] $\leftarrow$
+
+    s_y[$t_b + q \overline{M}_t / N_c$] + $\Delta y_t / 2^{L_q}$
+
+    cblock_f_X[$i_q + t_i + (2) N_{blocks}$] $\leftarrow$
+
+    s_z[$t_b + q \overline{M}_t / N_c$] + $\Delta z_t / 2^{L_q}$
+
+end
+
+if $i_{ref,q} = C_{remove}$ then
+
+    cblock_ref[$i_q + t_b$] $\leftarrow$ $C_{remove}$
+
+end
+
+end
+</div>
+
+(from cblock\_f\_X) incremented based on the thread index. Since $\overline{M}_{t}$ threads are processed in parallel, each child is mapped once at the kernel's beginning using integer division and modulo operators. Increments in space are found with:
+
+$$
+\Delta x _ {\kappa} = \mathrm{mod} (t, 2) \Delta x _ {\mathrm{root}} / 2 ^ {L _ {q}},\tag{7}
+$$
+
+$$
+\Delta y _ {\kappa} = \mathrm{mod} (t / 2, 2) \Delta x _ {\mathrm{root}} / 2 ^ {L _ {q}},\tag{8}
+$$
+
+$$
+\Delta z _ {\kappa} = \mathrm{mod} (t / 4, 2) \Delta x _ {\mathrm{root}} / 2 ^ {L _ {q}},\tag{9}
+$$
+
+where $\Delta x_{root}$ is the spatial step of the root grid and $L_{q}$ is the grid level that the child blocks occupy.
+
+6. Coarsen Blocks in ID Sets Indices of blocks marked for removal are retrieved via a call to Thrusts's copy\_if and appended to the same intermediate array used for collecting IDs of blocks marked for refinement. Retrieved as well are the IDs of the children themselves and their corresponding levels in the grid hierarchy (from cblock\_level). The child IDs to be removed are sorted by level using Thrust's sort\_by\_key. Now, looping over the levels, count\_if is applied to count the IDs that need to be pulled from the ID set of each level. If positive, a custom routine is used that traverses the ID set and resets the IDs to $N_{skip}$ by individual comparison to all IDs stored in intermediate memory. This is followed by Thrust's remove\_if, which strips the ID set of block IDs that have just been transformed. The number of removed blocks is decremented from the ID set count and added to the total gap set count. The removed IDs are concatenated to the gap set in reverse to preserve their order in groups of $N_{c}$ , then discarded.
+
+7. Refine Blocks in ID Sets Insertion of new children proceeds with the same process except that 1) concerned blocks are marked as 'new,' and 2) the gap setting is updated in size only.
+
+8. Interpolate to Children, Finalize Ref. IDs Neighbor-children are inspected to update block masks. Blocks are marked for coarse-fine communication if at least one neighbor-child is invalid (indicating proximity of at least one child block to an invalid neighbor). Next, data from refined blocks are interpolated to new children. Refinement IDs that were used to facilitate the present algorithm (i.e., marks for refinement/coarsening, 'new,' 'remove') are reverted to 'unrefined' if newly added, 'refined' if previously marked for coarsening, or 'inactive' if removed. Branch-leaf relations are also updated at this stage. If a refined block possesses at least one refined child, coarsening it before coarsening the child would lead to an orphan block. A unique refinement ID (i.e., 'refined w/ child') records this to restrict coarsening during the evaluation of the refinement criterion. To do this, a custom routine that uses the secondary mode of access targets the refinement IDs of children. Blocks are declared branches if at least one child has been refined and leaves otherwise.
+
+9. Update Connectivity and Designate Ghosts The last step is to update mesh connectivity and the cell masks. Connectivity is updated with a custom routine (Algorithm 2) employing the secondary mode of access and code generation to retrieve neighbor-children of parent blocks, re-construct the neighbors of their children in order, and arrange them in shared memory so that global writes to cblock\_ID\_nbr at the child level retain a degree of coalescence. Negative neighbor-child IDs (not equal to $N_{skip}$ ) indicating adjacency to the domain boundary are also transmitted to children. Fig. 11a illustrates the code-generated neighbor index formulas. Fig. 11b shows how the secondary mode of access is used to update child block neighbors. Once new neighbor IDs are established, a second routine converts the neighbor-children to the values of the parent blocks' negative neighbors in all directions. This transmits boundary information for future connectivity updates. Finally, cell masks indicating eligibility for grid communication are updated since new coarse-fine boundaries may have developed. This concludes the refinement and coarsening algorithm.
+
+## 3.4. Grid communication
+
+Data along refinement interfaces must be exchanged at each time step to couple the coarse and fine grids. A cell-block on the fine grid is adjacent to an interface if at least one of its neighbor links is set to $N_{skip}$ . Interpolation is used to transfer data from the coarse grid to the fine grid, while averaging is used to transfer data in the opposite direction. The two layers of cells adjacent to an interface are designated ghost cells and receive interpolated DDFs from the coarse grid that are later discarded after advancement. Two further layers are designated interface cells. The parents of these cells receive transferred DDFs during averaging, completing the grid coupling. Fine grid cells that do not participate in grid communication are denoted as interior cells. These cell layers are illustrated in Fig. 12a.
+
+(a) Code-generated formulas based on neighbor-children.
+
+(b) Updating neighbors with the secondary mode of access.
+
+Fig. 11. Left: index formulas of neighbors of child blocks based on neighbor-child values. Right: construction, arrangement, and global write of neighbors in shared memory for parent blocks 4 and 5 of the sample grid.
+
+<div class="mineru-algorithm" style="white-space: pre-wrap; font-family:monospace;">
+Algorithm 2: Updating Connectivity.
+
+Input: $\kappa_{\text{max}}, N_{\text{blocks}}$, cblock_ID_ref, cblock_level, cblock_f_X, cblock_ID_nbr_child, minimal_map
+
+for $\kappa = 0 \to \kappa_{\text{max}}$. do // The for-loop is divided among 1D blocks of threads of size M_BLOCK.
+
+    $t \leftarrow$ threadIdx.x;
+
+    // $\kappa =$ blockIdx.x*blockDim.x + threadIdx.x
+
+    if minimal_map[$\kappa$] &gt; -1 then // Proceed only if the current block requires an update.
+
+    s_child_ID[t] $\leftarrow$ cblock_ID_nbr_child[$\kappa$]; // Load the IDs of each block's first child into shared memory.
+
+    for $p = 0 \to N_Q$ do
+
+    // Load Ids of each neighbor's first child into register memory.
+
+    $i_{\text{nbr},\text{child},p} \leftarrow$ cblock_ID_nbr_child[$\kappa + pN_{\text{blocks}}$]
+
+    end
+
+end
+
+for $p = 0 \to N_{Q,\text{max}}$. do
+
+    if s_child_ID[t] &gt; -1 then
+
+    for $c = 0 \to N_c$ do
+
+    // The outer loop is unrolled, and code generation is used to generate arithmetic.
+
+    Compute nbr Id $i_{\text{nbr},p,c}$ of child $c$ in direction $p$ based on stored $i_{\text{nbr},\text{child}}$
+
+    s_ID_child_nbrs[$c + tN_c$] $\leftarrow i_{\text{nbr},p,c}$
+
+    end
+
+end
+
+for $q = 0 \to N_c$ do
+
+    $i_q \leftarrow$ s_child_ID[$t/N_c + qM_b/N_c$]
+
+    if $i_q &gt; -1$ then
+
+    cblock_ID_nbr[$i_q + \text{mod}(t,N_c) + N_{\text{blocks}}$] $\leftarrow$ s_ID_child_nbrs[$t + qM_b$]
+
+    end
+
+    end
+
+end
+</div>
+
+The arrangement of the grid and the order of interpolation accuracy can inform the time-integration strategy and impact the quality of the numerical solution. Grid refinement schemes based on a vertex-centered arrangement (e.g., implemented in Palabos [15]) require filtering or high-order polynomial interpolation to reduce artifacts at coarse-fine interfaces, while those based on a cell-centered arrangement (e.g., implemented in waLBerla [13]) benefit from a staggering of the coarse and fine grid nodes so that linear interpolation suffices with regards to accuracy [15]. Lagrava et al. [27] showed that linear interpolation with a vertex-centered grid refinement scheme produces a discontinuity in the pressure field at the coarse-fine interface, which they resolved with cubic interpolation. The discontinuity resulted from an incompatibility between the respective first- and second-order global spatial discretization errors of linear interpolation and the LBM. Fakhari and Lee [28] observed this effect and attributed the discontinuity to a degradation in accuracy resulting from explicit computation of a velocity gradient term in their finite-difference LBM scheme. They resolved this with bi-quadratic interpolation.
+
+Filippova and Hanel [20] developed expressions connecting the coarse and fine grids based on analytical estimates for the non-equilibrium components of the DDFs, requiring a rescaling step during grid communication based on the estimate $^{2}$ for the non-equilibrium distribution $f_{p}^{\mathrm{neq.}} = f_{p} - f_{p}^{\mathrm{eq.}} = \mathcal{O}(\tau)$ . These expressions contain singularities later removed with the improved formulation of Dupuis and Chopard [22]. Rohde et al. [23] introduced a mass-conservative approach based on a volumetric interpretation of the cell-centered arrangement. This method employs a homogeneous distribution of DDFs that eliminates the need for spatial/temporal interpolation or rescaling, thus providing generality to various collision models. While this approach offers a robust framework, subsequent work by Chen et al. [24] demonstrated that incorporating mass- and momentum-conservative interpolation techniques can further enhance accuracy.
+
+More advanced collision operators such as the multi-relaxation-time (MRT) $[77]$ and cascaded $[82]$ operators enable collision in moment space, providing benefits in stability $[78]$ . Tölke et al. $[25]$ used cubic spatial and linear temporal interpolations in moment space for a multiple-relaxation-time LBM. Cubic spline interpolation was needed to consistently transfer flux terms across interfaces, preventing the generation of spurious oscillations $[2,83]$ . Moment-space representations can also enable higher-order polynomial interpolation with greater locality. Geier et al. $[26]$ used a cascaded LBM to recover quadratic interpolation functions for momentum in a square spanned by four nodes (which would normally provide enough information for linear interpolation in velocity space).
+
+This work employs a nodal interpretation of the cell-centered arrangement, the rescaling method of Dupuis and Chopard $[22]$ , and considers the BGK-LBM to restrict interpolation to velocity space rather than moment space. We perform high-order polynomial interpolation instead by exploiting the contiguity of the $M_{t}$ cells in a sub-block (the exact number of sampling points required for cubic interpolation in 2D and 3D) to enable parallel computation of the interpolation weights. Linear and cubic interpolation routines are implemented and compared in the test cases to follow.
+
+$^{2}$ This expression depends on how $\tau$ is defined. In other works, the definition $\nu = c_{s}^{2}(\tau - 1/2)\Delta t$ implies an estimate $f_{p}^{\mathrm{neq.}} = \mathcal{O}(\Delta t\tau)$ .
+
+(a) Linear interpolation.
+
+(b) Linear interpolation.
+(c) Cubic interpolation.
+Fig. 12. Left: ghost, interior, and interface cells along the refinement interface. Right: unit square locations for linear and cubic interpolation.
+
+## 3.4.1. Linear interpolation
+
+Linear interpolation is performed with the polynomial representations:
+
+2D:
+
+3D:
+
+$$
+\begin{array}{l} F (x, y) \approx a _ {0} + a _ {1} x + a _ {2} y + a _ {3} y, \\ F (x, y, z) \approx a _ {0} + a _ {1} x + a _ {2} y + a _ {3} z + a _ {4} x y + a _ {5} y z + a _ {6} x z + a _ {7} x y z, \end{array} \tag {10}\tag{11}
+$$
+
+where weights for the sampling points $F_{ijk} = F(i, j, k)$ (or $F_{ij} = F(i, j)$ in 2D) defined on the corners of a representative unit square/cube are obtained from:
+
+2D:
+
+3D:
+
+$$
+\left\{ \begin{array}{l l} a _ {0} & = F _ {0 0} \\ a _ {1} & = F _ {1 0} - F _ {0 0} \\ a _ {2} & = F _ {0 1} - F _ {0 0} \\ a _ {3} & = F _ {1 1} - F _ {0 1} - F _ {1 0} + F _ {0 0}, \\ \left\{ \begin{array}{l l} a _ {0} & = F _ {0 0 0} \\ a _ {1} & = F _ {1 0 0} - F _ {0 0 0} \\ a _ {2} & = F _ {0 1 0} - F _ {0 0 0} \\ a _ {3} & = F _ {0 0 1} - F _ {0 0 0} \\ a _ {4} & = F _ {1 1 0} - F _ {1 0 0} - F _ {0 1 0} + F _ {0 0 0} \\ a _ {5} & = F _ {1 0 1} - F _ {1 0 0} - F _ {0 0 1} + F _ {0 0 0} \\ a _ {6} & = F _ {0 1 1} - F _ {0 0 1} - F _ {0 1 0} + F _ {0 0 0} \\ a _ {7} & = F _ {1 1 1} - F _ {1 0 0} - F _ {0 1 0} + F _ {0 0 1} - F _ {0 1 1} - F _ {1 0 1} - F _ {0 1 1} + F _ {0 0 0}. \end{array} \right. \end{array} \right.\tag{12}
+$$
+
+The parent block is partitioned into quad/octants to enable four/eight-batch execution of the interpolation kernel, and cells in the parent block interpolate to children by drawing the required sampling points and computing the polynomials described above. A local coordinate calculation is performed using block indices $I_{d} = (I, J, K)$ (computed at the beginning of the kernel) so that, for a cell-block of size $4^{N_{d}}$ the coordinates of a child cell l within the unit square/cube (as shown in Fig. 12b) are found by $x_{d,\text{local}} = (-1/4) + I_{d}(1/2)$ . Local indices are computed from thread indices $0 \leq l = \text{threadIdx.x} < M_{t}$ only once for each thread-block and re-used for all processed cell-blocks according to:
+
+$$
+I = \mathrm{mod} (l, 4), \quad J = \mathrm{mod} (l / 4, 4), \quad K = l / 4 ^ {2}.\tag{13}
+$$
+
+The DDFs are rescaled prior to being sampled for interpolation. In the following equations, variables with superscripts C and F denote values on coarse and fine grids, respectively. By dividing the coarse and fine non-equilibrium DDFs with their respective relaxation rates and observing that macroscopic properties are identical in both grids (i.e., constants in $\mathcal{O}(\tau)$ are identical for both expressions, and that $f_{p}^{C,\mathrm{eq.}}(\rho,\mathbf{u})=f_{p}^{F,\mathrm{eq.}}(\rho,\mathbf{u})$ ), a ratio can be taken to produce a formula for the rescaled interpolated DDFs on the fine grid in terms of coarse values:
+
+$$
+f _ {p} ^ {F} \approx f _ {p} ^ {C, \mathrm{eq.}} + (f _ {p} ^ {C} - f _ {p} ^ {C, \mathrm{eq.}}) \frac {\tau^ {F}}{\tau^ {C}},\tag{14}
+$$
+
+where values on the right-hand side are computed individually by each thread, stored in shared memory, and then sampled for interpolation.
+
+## 3.4.2. Cubic interpolation
+
+A benefit of selecting $M_{t}=4^{N_{d}}$ is that the exact number of sampling points required to fit a cubic polynomial
+
+$$
+F (x, y, z) \approx \sum_ {k = 0} ^ {3 ^ {N _ {d} - 2}} \sum_ {j = 0} ^ {3} \sum_ {i = 0} ^ {3} \alpha_ {i j k} x ^ {i} y ^ {j} z ^ {k},\tag{15}
+$$
+
+where $\alpha_{ijk}$ are interpolation weights and $l=i+4j+16k$ are cell indices, are always available. A unit square/cube whose corners are the corner cell-centers of the sub-block (Fig. 12c) is now used to define relative positions. A linear system is formed to determine the weights by requiring the interpolating function to take on the value of the sampling points $F(x_{m},y_{n},z_{l})$ at their respective coordinates:
+
+$$
+A _ {U V} \alpha_ {V} \equiv \sum_ {k = 0} ^ {3 ^ {N _ {d} - 2}} \sum_ {j = 0} ^ {3} \sum_ {i = 0} ^ {3} \alpha_ {i j k} x _ {m} ^ {i} y _ {n} ^ {j} z _ {l} ^ {k} = F (x _ {m}, y _ {n}, z _ {l}) \equiv F _ {U}, \quad 0 \leq m, n, l <   4,\tag{16}
+$$
+
+where $U = m + 4n + 16l$ and $V = i + 4j + 16k$ . With this representation, the inverted matrix is multiplied by a vector of the sampled values to determine the weights. This matrix-vector multiplication can be represented as:
+
+$$
+\alpha_ {U} = \sum_ {V = 0} ^ {3 ^ {N _ {d}}} A _ {U V} ^ {- 1} F _ {V}.\tag{17}
+$$
+
+Since all cell-blocks have a regular arrangement, the matrix A is constructed beforehand and inverted to compute the interpolation weights. These are then used to unroll the sum explicitly via code generation. Multiplication takes place with sampled values stored in shared memory as with linear interpolation. Horner's method is used to efficiently compute the polynomials. Intermediate values $\beta_{jk}$ and $\gamma_{k}$ are introduced, defined by factorizing the polynomial:
+
+$$
+\begin{array}{c} F (x, y, z) = \sum_ {k = 0} ^ {3 ^ {N _ {d} - 2}} \sum_ {j = 0} ^ {3} \sum_ {i = 0} ^ {3} \alpha_ {i j k} x ^ {i} y ^ {j} z ^ {k} = \sum_ {k = 0} ^ {3 ^ {N _ {d} - 2}} \sum_ {j = 0} ^ {3} \underbrace {\left(\sum_ {i = 0} \alpha_ {i j k} x ^ {i}\right)} _ {\beta_ {j k}} y ^ {j} z ^ {k} \\ = \sum_ {k = 0} ^ {3 ^ {N _ {d} - 2}} \underbrace {\left(\sum_ {j = 0} ^ {3} \beta_ {j k} y ^ {j}\right)} _ {\gamma_ {k}} z ^ {k} = \sum_ {k = 0} ^ {3 ^ {N _ {d} - 2}} \gamma_ {k} z ^ {k}, \end{array}\tag{18}
+$$
+
+to enable recursive calculations $F_{k} = \gamma_{k} + z_{local} F_{k+1}$ , $(\gamma_{k})_{j} = \beta_{jk} + y_{\text{local}}(\gamma_{k})_{j+1}$ , and $(\beta_{jk})_{i} = \alpha_{ijk} + x_{\text{local}}(\beta_{jk})_{i+1}$ , where $x_{local}$ are the child cell coordinates, $(\cdot)_{4} = 0$ , and $(\cdot)_{0} = (\cdot)$ such that $F_{0} = F(x, y, z)$ . In 2D, there is only one value each of $\gamma_{k}$ , $F_{k}$ such that $\gamma_{0} = F_{0} = F(x, y)$ . To avoid recalculating the polynomial weights multiple times for each child sub-block, $N_{c}$ registers are allocated, and the results for the cells of child sub-blocks $c = I_{c} + 2J_{c} + 4K_{c}$ are computed with the spatial locations $x_{d,local} = -(1/12) + I_{d}(1/6) + I_{c,d}(2/3)$ . Global memory writes are then performed sequentially to each child afterwards. The same principles for memory access, local coordinate calculation, and DDF rescaling are utilized as described for linear interpolation.
+
+## 3.4.3. Averaging
+
+Averages are computed with child data from:
+
+$$
+F (x _ {l}, y _ {l}, z _ {l}) \approx \frac {1}{N _ {c}} \sum_ {i = 0} ^ {N _ {c}} F (x _ {l, i}, y _ {l, i}, z _ {l, i}),\tag{19}
+$$
+
+where l is the index of the parent cell, and $x_{l,i}$ is the spatial location of the parent cell's $i^{th}$ child. For a cell with index l, the octant in which its children lie and their respective IDs are computed from:
+
+$$
+\mathrm{octant} _ {l} = I + 2 J + 4 K, \quad \mathrm{ID} _ {l, c} = 2 I ^ {\prime} + 4 (2 J ^ {\prime}) + 4 ^ {2} (2 K ^ {\prime}),\tag{20}
+$$
+
+$$
+I = \mathrm{mod} (l, 4) / 2, J = \mathrm{mod} (l / 4, 4) / 2, K = (l / 4 ^ {2}) / 2,\tag{21}
+$$
+
+$$
+I ^ {\prime} = \mathrm{mod} (\mathrm{mod} (l, 4), 2), \quad J ^ {\prime} = \mathrm{mod} (\mathrm{mod} (l / 4, 4), 2),
+$$
+
+$$
+K ^ {\prime} = \mathrm{mod} ((l / 4 ^ {2}) / 2, 2).\tag{22}
+$$
+
+Values in 2D are identical except that the properties involving K and $K'$ are set to zero. As with interpolation, quantities based on thread indices are only computed once for each thread block. Although it would be ideal for the parent DDFs to be written to global memory in one step, this is complicated by the memory requirements imposed during the rescaling of the child DDFs. It would require $N_{c}N_{Q}(N_{p}/4)$ registers to simultaneously store all the child data required to perform rescaling without repeated global memory reads ( $N_{c}$ children, $N_{Q}$ DDFs, one/two 32-bit registers for single-/double-precision floating point numbers). This number is acceptable for small velocity sets such as D2Q9 in single-precision, but increases rapidly to 432 registers for the D3Q27 set in double-precision, exceeding the maximum allowable number of 255 registers per thread for devices with Compute Capability 3.5+. Child sub-blocks are consequently processed in batches as with interpolation but with updates restricted to parent cells possessing children in each batch, requiring a total of $N_{c}$ global writes. This could be alleviated by storing equilibrium distributions in global memory. However, memory traffic would be doubled as a result, and the number of global memory writes required to store these distributions would vastly exceed the number of writes introduced here.
+
+Rescaling when averaging from fine to coarse grids is provided by:
+
+$$
+f _ {p} ^ {C} \approx f _ {p} ^ {F, \mathrm{eq.}} + (f _ {p} ^ {F} - f _ {p} ^ {F, \mathrm{eq.}}) \frac {\tau^ {C}}{\tau^ {F}}.\tag{23}
+$$
+
+Since averaging is a special case of second-order linear interpolation from fine-to-coarse grids, we tested a cubic interpolation procedure that is compatible with the transfer from coarse-to-fine grids in order of accuracy. The fine-to-coarse interpolation kernel utilizes the computational strategy of coarse-to-fine cubic interpolation and the memory access strategy of the averaging procedure. However, simulations were unstable even when the root grid was refined and the mesh adaptivity was disabled. The scripts implementing this algorithm solver\_1bm\_average\_cubic\*.cu remain available in the repository for the interested user but were not used in any of the test cases reported in Section 5.
+
+## 4. Lattice Boltzmann solver
+
+Our recursive time-stepping algorithm draws motivation from Schornbaum's work on extreme-scale parallel AMR-LBM [72] and includes in-place streaming and collision procedures based on a modification to the Esoteric Twist strategy of Geier and Schönherr [84] suitable for block-based parallelization with reduced locality in memory. The following sections describe and illustrate these schemes for a cell-block size $M_b = M_t$ . When $M_b > M_t$ , these processes apply to the sub-blocks individually.
+
+## 4.1. Grid advancement
+
+The grid is advanced in a recursive breadth-first traversal of the underlying forest of octrees. The nodes of each level in the tree are enumerated by separate ID sets that are supplied individually to a set of solver and grid communication kernels and processed according to the primary mode of access described in Section 3.2.2 such that every cell is updated before the subsequent level can be processed. The routine is described with representative coarse and fine grid levels L and $L + 1$ , where it is called recursively on the latter (except on level $L_{max} - 1$ ) until a final synchronization with the root grid is performed. This is shown in Fig. 13 for a sample forest of octrees with four levels of refinement. The representative routine is decomposed into four steps: 1) interpolation of data from the coarse grid to ghost cells on the fine grid, 2) collision and streaming on the coarse grid with time step $\Delta t/2^{L}$ , 3) two calls to the routine on the fine grid if $L < L_{max} - 1$ or two calls to collision and streaming with time steps $\Delta t/2^{L+1}$ otherwise, and 4) averaging of data on interface cells on the fine grid to their parents on the coarse grid. This ordering ensures that ghost and interface cell data are replenished on finer grids before synchronization with the data on their coarser parents. Fig. 14 shows the step-by-step procedure for one step in time on an arbitrary level.
+
+After one round of collision and streaming on the fine grid, the outer layer of ghost cells on the fine grid contains invalid data, as the cells do not participate in streaming in directions originating from the nearby coarse grid. However, the inner ghost cell layer receives correctly collided and streamed data. After the second round, both ghost layers become invalid, but the interface cells similarly receive correct data. The data at the interface cells is then averaged to the coarse grid, concluding the advancement.
+
+Ghost and interface cells in the fine grid both participate in collision and streaming, unlike the method of Rohde et al. $[23]$ , where collision is restricted to DDFs distributed to the fine grid or streamed into it. In Schornbaum $[53]$ , it is mentioned that only DDFs streaming into a coarse block need to be communicated from the fine grid to the coarse grid. $^{3}$ The exact specification of the DDFs streaming into the coarse grid in different situations requires additional conditionals regarding the DDF arrangement in the streaming kernel, which would require more complex code generation. By including ghost and interface cells during collision and streaming, transfers between the coarse and fine grids can be achieved using just the fine grid so that averaging can safely be done for all DDFs rather than just those entering the coarse grid.
+
+Fig. 13. Visualization of the recursive advancement procedure for a grid with four levels of refinement. Highlighted is a single instance with four steps enumerated: 1) interpolation from L to $L + 1$ , 2) stepping in time on L, 3A) first step in time on $L + 1$ , 3B) second step on fine on $L + 1$ and 4) averaging from $L + 1$ to L. Steps 1) and 4) are omitted for advancements on the finest level.
+(1)
+
+(3A)
+
+(3B)
+
+(4)
+
+Fig. 14. Visualization of coarse-fine communication via ghost and interface cells with only two sets of DDFs drawn for clarity. Numbering is consistent with the recursive instance defined by yellow shading in Fig. 13. Data is interpolated from a coarse cell to two layers of ghost cells first. Then, collision and streaming proceed twice on the fine grid, including ghost and interface cells. Finally, averaging is performed only over the interface layer. Green arrows indicate spoiled data that accumulates in the ghost layers and is discarded afterward.
+(a) Esoteric Twist scheme distinguishing between odd and even time steps.
+
+(b) Block-based adaptation of Esoteric Twist applies to odd and even time steps.
+Fig. 15. Visualizations of the Esoteric Twist streaming scheme based on the description of Geier and Schönherr [84] (left) and the block-based approach utilized in the current work (right). Red DDFs are ignored when streaming in the interior. Red and blue DDFs may participate in boundary condition imposition if applicable.
+
+## 4.2. Streaming
+
+Geier and Schönherr [84] describe a streaming scheme that exploits the observation that DDFs can be 'twisted' and made to exchange locations during streaming to avoid introducing an intermediate grid for temporary storage (as shown in Fig. 15a). That is, $f_{p}$ of a cell at location $\mathbf{x}$ can be made to take the place of $f_{\overline{p}}$ at $\mathbf{x} + \mathbf{c}_p\Delta t$ in memory and vice-versa. This enables the implementation of a combined collision and streaming step or possibly distinct ones for odd and even time steps depending on the chosen arrangement of data.
+
+This approach is modified in a few ways for the current AMR scheme. One kernel implementation is maintained to ensure that DDFs are always in the same location when interpolating/averaging between time steps. Pointer swapping is impossible as one array stores the solution field for all grid levels simultaneously, so exchanges must be performed in register memory. According to Geier and Schönherr $[84]$ , block-based implementations of their scheme require additional ghost cells for exchanges between blocks, decreasing its economic efficiency in memory. However, shared memory can facilitate these exchanges locally on the GPU to avoid additional allocations.
+
+Fig. 16. Illustration of streaming performed in shared memory (shown as a thin grid of cells). DDFs of opposing directions $p, \overline{p}$ (shown as solid and dashed arrows, respectively) are loaded in pairs into two separate arrays. The streaming exchange is performed between these arrays, resulting in DDFs of direction $p$ taking the place of those in $\overline{p}$ and vice-versa. Red arrows do not participate in streaming within the current block but will do so when called from an appropriate neighbor. A '-1' value in the halo is shown in dark gray and acts as a guard during the global write step.
+
+Two shared memory arrays are initialized with sizes of $(4+2)^{N_{d}}$ , which is necessary to store a block of cells encircled by an extra halo layer one cell thick. DDFs are traversed in pairs p, $\overline{p}$ where the post-collision DDFs $f_{p}^{*}$ and $f_{\overline{p}}^{*}$ are loaded from global memory and placed in the two arrays, respectively. Next, specific neighbors are processed depending on where the DDFs are expected to stream. For example, DDF 13 with particle velocity vector $\mathbf{c}_{13}=(1,1,0)^{T}$ will require data to be streamed from block neighbors 2, 3, and 13 across the north, east, and north-east faces of the block, respectively. This is illustrated in Fig. 15b. When a neighbor is valid (i.e., its ID is non-negative), data is loaded into the halo region of the shared memory array based on conditionals applied to the local indices. For example, at the interface between a block and its neighbor 1, cells with index $(0,J,K)$ are loaded into the array via $0+4(J+1)+4^{2}(K+1)$ , where $0\leq J,K<4$ . Although only specific threads will be active during these global loads, coalescence is guaranteed by the structured nature of the neighbor blocks, so only one transaction is required (assuming single precision storage). Consequently, collision and streaming can no longer be combined in one kernel. Streaming is performed with $f_{\overline{p}}(t+\Delta t,\mathbf{x})=f_{p}^{*}(t+\Delta t,\mathbf{x}-\Delta t\mathbf{c}_{p})$ and $f_{p}(t+\Delta t,\mathbf{x})=f_{\overline{p}}^{*}(t+\Delta t,\mathbf{x}-\Delta t\mathbf{c}_{\overline{p}})$ . Global writes of the streamed $f_{p}^{*},f_{\overline{p}}^{*}$ in $\overline{p},p$ establish the twist as visualized in Fig. 16. These are corrected later in the following collision step.
+
+It should be noted that the GPU implementation of the streaming routine employs local communication between blocks on the same grid level via shared memory, such that a separate routine is not required. Explicit ‘explosion’ and ‘coalescence’ steps (i.e., conversion of the coarse cells into a fine one and vice versa) are avoided by storing both ghost cells and their parents and ignoring the latter during advancement. The inclusion of parents with their children in the data arrays reduces overhead in conversion at such interfaces.
+
+## 4.3. Collision
+
+Collision comprises a local evaluation of the collision operator with values at the current time step. For the BGK model, all DDFs are relaxed towards equilibrium using the macroscopic properties at a relaxation rate $\tau$ determined by viscosity $\nu = c_{s}^{2}(\tau - \Delta t/2)$ . The relaxation rate must be modified on different grid levels in the context of grid refinement to recover the correct Reynolds number. If the lattice speed of sound $c_{s}$ is to be maintained constant across the hierarchy, then $\Delta x_{L} = \Delta t_{L}$ must also be maintained, implying that the time-step ratio will always be equal to the refinement ratio between grids, fixed equal to 2 in the current work. The relaxation rate on grid level L is therefore recomputed with $\Delta t_{L} = \Delta t / 2^{L}$ . This is done once during initialization and supplied as input to the CUDA kernels.
+
+Boundary conditions are applied as a pre-streaming operation at the end of the collision routine after the collided DDF values and the computed macroscopic properties become available. The Esoteric Twist streaming strategy enables local imposition of boundary conditions without overwriting for no-slip and pressure boundary conditions. A post-collision DDF $f_{p}^{*}$ that would stream into a boundary has its direction reversed in the bounce-back condition and lands in the location of DDF $\overline{p}$ . However, post-stream DDFs have their direction reversed, so the final location of a bounced-back DDF is its original location. If the velocity at the boundary is zero, the DDF value remains unchanged, and the boundary condition is automatically satisfied without doing anything. This phenomenon is called implicit bounce-back [84,85], and its main advantage is that specific neighbor IDs do not need to be checked.
+
+The implementation of collision is summarized with the following steps:
+
+1. Load DDFs into register memory with alternating directions swapped,
+
+2. Compute $\omega = \Delta t / \tau$ and $\omega' = 1 - \omega$ ,
+
+3. Compute post-collision DDF values for all directions according to:
+
+$$
+f _ {p} ^ {*} (t + \Delta t, \mathbf {x}) = \omega^ {\prime} f _ {p} (t, \mathbf {x}) + \omega f _ {p} ^ {\mathrm{eq.}} (t, \mathbf {x}),\tag{24}
+$$
+
+4. Check neighbor block IDs if the current block lies on the boundary and apply boundary conditions,
+
+5. Write DDFs into cells\_f\_F in the correct order.
+
+## 4.4. Adaptive mesh refinement
+
+As the simulation progresses, regions of interest may require locally increased resolution. Such regions are identified using an arbitrary refinement criterion computed from physical properties of the system. In the current work, vorticity magnitude is chosen for this purpose as it captures the coherent structures that develop in the case studies to be considered for solver validation.
+
+The mesh requires a pre-computation step prior to invocation of the refinement and coarsening algorithm to ensure that any data transferred to newly-generated children is valid for the current time step. First, a global averaging procedure is performed over the entire grid hierarchy starting with the second-finest level and ascending to L = 0. This ensures that any new fine-grid boundaries that have formed after coarsening can safely interpolate to freshly assigned ghost cells. Next, interpolation is performed to ghost cells on all levels in the opposite direction, starting from L = 0 and descending onward. This ensures that the ghosts also possess valid data for the current time step. Macroscopic properties can be safely computed at this stage and placed in shared memory in preparation for the computation of the refinement criterion. In the case of vorticity magnitude, first-order finite differences are used.
+
+Once the refinement criterion has been found for all cells, the blockwise maximum value must be identified. Criterion values are loaded into shared memory following the primary mode of access and a reduction is performed. With the maximum value determined, the desired grid level can be calculated and compared with current levels to determine the course of action. When desired level $L_{des.} > L$ , the block requires more accuracy and is marked for refinement. If $L_{des.} < L$ , the block needs to be coarsened and is marked accordingly. The desired level is based on the logarithm of the criterion in base 2 according to the procedure of Algorithm 3, where $\epsilon$ caps the $\log_{2}$ of the maximum criterion value by 1 (a value selected by tuning during validation), and $N_{start}, N_{inc.}$ are tunable ‘start’ and ‘incremental’ parameters. To ensure that the octree remains 2:1 balanced, neighbor-children are checked and refinement is canceled if at least one neighbor-child is set equal to $N_{skip}$ (otherwise, at least one of the resulting children will be adjacent to a block that has not been refined such that the size ratio between them is greater than two).
+
+<div class="mineru-algorithm" style="white-space: pre-wrap; font-family:monospace;">
+Algorithm 3: Refinement/Coarsening Criterion.
+
+ $\epsilon \leftarrow \min(1, \log_{2} |\omega|)$ $L_{des.} \leftarrow L_{max.} - 1$
+
+for  $p = 1 \rightarrow L_{max.} - 1$  do
+
+if  $\epsilon &lt; N_{start} - pN_{inc.}$  then
+
+ $|L_{des.} \leftarrow (L_{max.} - 1) - p$
+
+end
+
+end
+</div>
+
+An additional routine has been implemented for refinement according to distance from the nearest wall, providing additional resolution near walls of interest. Distance is computed based on block coordinates and domain boundaries. For successive near-wall refinements, the distance required is divided so that $\min\{d_{i}\} < d_{spec}/2^{L}$ specifies the refinement condition, where $d_{i}$ are the distances between the current block and the domain boundaries, $d_{spec}$ , is the specified distance, and L is the level occupied by the current block. An option to freeze blocks added in this manner is enabled to prevent premature coarsening.
+
+## 5. Validation and case studies
+
+The performance and accuracy of the current implementation are assessed using two benchmark problems: the lid-driven cavity (LDC) and the flow past a square cylinder (FPSC). Several tests are performed with variation in select parameters (Reynolds number Re, number of bytes for the chosen floating-point precision $N_{p}$ , number of dimensions $N_{d}$ , velocity set size $N_{Q}$ , root grid size $N_{coarse}^{N_{d}}$ , and maximum number of grid levels $L_{max.}$ ) to investigate how performance is affected and to identify possible bottlenecks in specific subroutines that can be targeted for later optimization. Execution times for all interpolation, collision, streaming, and averaging calls are recorded per grid level and used to compute the fraction of time taken in coarse-fine grid communication and lattice node updates per second. These serve as metrics for solver efficiency and solver performance, respectively. Total simulation times are also reported to demonstrate the utility of the implementation even on older hardware. Execution times for the steps taken in refinement and coarsening are recorded to identify the fraction of simulation time needed to adapt the mesh as a measure of AMR efficiency. A small fraction implies that using AMR does not detract from the time required to solve the governing equations. All execution times are estimated by computing the difference in wall time at instances before and after routine calls with device stream synchronization to ensure full completion between calls. A selection $N_{q,x}=1$ , $M_{L}=M_{t}$ is used for all test cases (except for the study of performance against cell-block size). Linear interpolation is used for the lid-driven cavity tests.
+
+The results of the LDC simulations are presented first. The implementation of the single-relaxation-time LBM scheme with AMR is validated by comparing velocity profiles extracted from the interior of the cavity with profiles reported in the literature. For a fixed Reynolds number Re = 1000, the execution time distributions required for time-stepping and grid refinement are tabulated and visualized across various combinations of velocity sets and GPU configurations. Performance over time concerning the latter is juxtaposed in separate figures by velocity set to highlight the relative speedup. The arguments supporting the use of a block-based approach to AMR are also verified by comparison of the average execution time for cell- and block-based grids with a single grid level. It is shown that by shuffling the cell/block indices representing the grid, a significant performance penalty is incurred by the cell-based approach, while performance remains consistent in the block-based approach even with reduced locality in memory. Performance is then assessed with respect to cell-block size and thread-block workload by varying $N_{q,x}$ and $M_{L}$ , respectively.
+
+Results of the FPSC simulation are reported next. Time-averaged drag coefficient and Strouhal number values are reported and compared with those in the literature. Total simulation times are reported with AMR and with corresponding uniform grids with effective resolutions $\Delta x/2^{L_{max.}-1}$ extended to the whole domain to demonstrate considerable speedup of the former. CPU times for similar effective resolutions in the literature are also reported to demonstrate the effectiveness of the GPU-native implementation. It is verified that the pressure field obtained with linear interpolation is continuous across coarse-fine interfaces. Dimensionless quantities are computed and compared with both linear and cubic interpolation.
+
+## 5.1. Solver performance
+
+A commonly used metric for assessing solver performance is MLUPS (Million/Mega Lattice node Updates Per Second). This is usually calculated for a grid with a fixed resolution and averaged for all time steps; however, with AMR, the metric must account for the repeated updates of nodes on higher grid levels for a single time step on the root grid. This is expressed as:
+
+$$
+\begin{array}{l} \mathrm{MLUPS} _ {\text {inst.,} k} \approx \frac {1}{\Delta t _ {\text {exec.} , k}} \\ \qquad \times \sum_ {L = 0} ^ {L _ {\text {max.}} - 1} 2 ^ {L} \bigg (N _ {\text {nodes}, L} - \frac {N _ {\text {nodes} , L + 1}}{N _ {c}} (1 - \delta_ {L, L _ {\text {max.}} - 1}) \bigg), \end{array}\tag{25}
+$$
+
+$$
+\overline {{\mathrm{MLUPS}}} \approx \sum_ {k = t _ {f} / N _ {x} - 1 0 2 4} ^ {t _ {f} / N _ {x} - 1} \mathrm{MLUPS} _ {\text {inst.,} k},\tag{26}
+$$
+
+where $2^{L}(N_{\mathrm{nodes},L}-N_{\mathrm{nodes},L+1}/N_{c})$ is the number of updates resulting from $2^{L}$ advancements in time for active nodes on grid level L (nodes with children that do not participate in advancement are subtracted from the total grid size), MLUPS $_{inst.,k}$ represents an instantaneous calculation of the metric in discrete time $t_{k}=k\Delta t$ and $\overline{MLUPS}$ represents a steady-state average that is estimated with the last 1024 samples. These definitions include the time taken to communicate data between blocks on the same level (with the shared memory strategy described in Section 4.2) and between grids along the coarse-fine interface (with interpolation and averaging as described in Section 3.4).
+
+Table 2
+List of simulations considered for assessment of performance and validation of the current implementation, along with their parameters (flags indicate usage in this section, v: validation, m: MLUPS comparison, a: advancement time, r: mesh refinement/coarsening time).
+
+<table><tr><td colspan="10">Lid-Driven Cavity Simulations</td></tr><tr><td>Sim.Label</td><td>flags</td><td>Re</td><td> $N_{coarse}^{N_d}$ </td><td> $N_d$ </td><td> $L_{max.}$ </td><td> $t_f(s)$ </td><td> $N_p(bytes)$ </td><td> $N_Q$ </td><td>GPU</td></tr><tr><td>G1</td><td>mar</td><td>1000</td><td>128</td><td>2</td><td>4</td><td>1000</td><td>4</td><td>9</td><td>GTX 970M</td></tr><tr><td>G2</td><td>mar</td><td>1000</td><td>128</td><td>2</td><td>4</td><td>1000</td><td>8</td><td>9</td><td>GTX 970M</td></tr><tr><td>G3</td><td>mar</td><td>1000</td><td>64</td><td>3</td><td>3</td><td>1000</td><td>4</td><td>19</td><td>GTX 970M</td></tr><tr><td>G4</td><td>mar</td><td>1000</td><td>64</td><td>3</td><td>3</td><td>1000</td><td>8</td><td>19</td><td>GTX 970M</td></tr><tr><td>G5</td><td>mar</td><td>1000</td><td>64</td><td>3</td><td>3</td><td>1000</td><td>4</td><td>27</td><td>GTX 970M</td></tr><tr><td>G6</td><td>mar</td><td>1000</td><td>64</td><td>3</td><td>3</td><td>1000</td><td>8</td><td>27</td><td>GTX 970M</td></tr><tr><td>V1</td><td>mvar</td><td>1000</td><td>128</td><td>2</td><td>4</td><td>1000</td><td>4</td><td>9</td><td>V100</td></tr><tr><td>V2</td><td>mar</td><td>1000</td><td>128</td><td>2</td><td>4</td><td>1000</td><td>8</td><td>9</td><td>V100</td></tr><tr><td>V3</td><td>mvar</td><td>1000</td><td>64</td><td>3</td><td>4</td><td>1000</td><td>4</td><td>19</td><td>V100</td></tr><tr><td>V4</td><td>mar</td><td>1000</td><td>64</td><td>3</td><td>4</td><td>1000</td><td>8</td><td>19</td><td>V100</td></tr><tr><td>V5</td><td>mar</td><td>1000</td><td>64</td><td>3</td><td>4</td><td>1000</td><td>4</td><td>27</td><td>V100</td></tr><tr><td>V6</td><td>mar</td><td>1000</td><td>64</td><td>3</td><td>4</td><td>1000</td><td>8</td><td>27</td><td>V100</td></tr><tr><td>A1</td><td>mar</td><td>1000</td><td>128</td><td>2</td><td>4</td><td>1000</td><td>4</td><td>9</td><td>A100</td></tr><tr><td>A2</td><td>mar</td><td>1000</td><td>128</td><td>2</td><td>4</td><td>1000</td><td>8</td><td>9</td><td>A100</td></tr><tr><td>A3</td><td>mar</td><td>1000</td><td>64</td><td>3</td><td>4</td><td>1000</td><td>4</td><td>19</td><td>A100</td></tr><tr><td>A4</td><td>mar</td><td>1000</td><td>64</td><td>3</td><td>4</td><td>1000</td><td>8</td><td>19</td><td>A100</td></tr><tr><td>A5</td><td>mar</td><td>1000</td><td>64</td><td>3</td><td>4</td><td>1000</td><td>4</td><td>27</td><td>A100</td></tr><tr><td>A6</td><td>mar</td><td>1000</td><td>64</td><td>3</td><td>4</td><td>1000</td><td>8</td><td>27</td><td>A100</td></tr><tr><td>V-S1</td><td>v</td><td>3200</td><td>64</td><td>2</td><td>4</td><td>1000</td><td>4</td><td>9</td><td>V100</td></tr><tr><td>V-S2</td><td>v</td><td>5000</td><td>64</td><td>2</td><td>4</td><td>2000</td><td>4</td><td>9</td><td>V100</td></tr><tr><td>V-S3</td><td>v</td><td>10000</td><td>512</td><td>2</td><td>3</td><td>5000</td><td>4</td><td>9</td><td>V100</td></tr><tr><td>V-S4</td><td>v</td><td>3200</td><td>128</td><td>3</td><td>4</td><td>2000</td><td>4</td><td>19</td><td>V100</td></tr></table>
+
+## 5.2. Lid-driven cavity
+
+Three sets of simulations are performed on the 970M, V100, and A100 GPU models to validate the numerical scheme described in Section 4 (labeled V- $S_{k}$ ), compare performance when more precision and detail (i.e. increases in $N_{Q}, N_{p}$ ) are sought (labeled G/V/ $A_{k}$ ), and establish the efficiency of the GPU-native AMR by showing that a minimal amount of time is spent in refinement throughout the simulations on all hardware. Table 2 summarizes the parameters employed in these simulations. For all simulations considered in this section, the mesh is adapted every 32 iterations at the coarsest level, and $N_{start}, N_{inc.}$ are set to -2 and 1, respectively.
+
+## 5.2.1. Velocity profiles, streamlines
+
+Solutions are validated by comparing velocity profiles obtained using the current implementation with those recorded by Ghia et al. [86] for 2D problems, and Cortes and Miller [87] for 3D problems across a range of Re. Reynolds numbers of 1000, 3200, 5000 and 10000 are considered in 2D, while only the former two are considered in 3D. The experimental results of Prasad and Koseff [88] used by Cortes and Miller [87] for their validation of the $\mathrm{Re} = 3200$ case are also included for the 1000 and 3200 cases. The Reynolds number is modified by varying the fluid viscosity while keeping characteristic length and lid velocity fixed at unity and $0.05\mathrm{m / s}$ , respectively. The Mach number $\mathrm{Ma} = u_{\mathrm{lid}} / c_s$ is thus fixed at $\approx 0.1$ . With the characteristic length and density set to unity, viscosity is determined via $\nu = 0.05 / \mathrm{Re}$ . The normalized steam- and spanwise velocity profiles $u(y) / u_{\mathrm{lid}}$ , $v(x) / u_{\mathrm{lid}}$ extracted at $x = 0.5$ and $y = 0.5$ , respectively, for the 2D cases $\mathrm{V}_1$ , $\mathrm{V - S_k|_{1\leq k\leq 3}}$ are displayed in Fig. 17. The profiles $u(z) / u_{\mathrm{lid}}$ of cases $\mathrm{V}_3$ and $\mathrm{V - S_4}$ are displayed in Fig. 18.
+
+There is a general agreement between reference data and simulation results with the present AMR solver. Deviation is mostly found at the curve inflection near the bottom of the profile in the region $0 \leq y \leq 0.2$ where low vorticity magnitude leads to less grid refinement. For Reynolds numbers 5000 and 10000, the simulation is run for $t_{f,Re=5000} = 2000$ s and $t_{f,Re=10000} = 5000$ s, respectively, to achieve profiles close to equilibrium within job walltime limits. These two profiles match the data of Ghia et al. [86] at inflection points near the domain boundary in both stream- and spanwise plots and begin to straighten out in the cavity interior. 3D simulation results are also in general agreement with the profiles of Cortes and Miller [87].
+
+Streamline plots for the 2D simulations colored by velocity magnitude are displayed in Fig. 19 and compared with surface plots of the cavity colored by grid level to indicate the regions of high vorticity magnitude. The shapes and locations of secondary corner vortices for different Re agree with the results of Ghia et al. [86]. As Re increases, the region of high vorticity magnitude reduces in accordance with the outline of the primary vortex. Low activity is detected in the cavity interior and over the corner vortices, which are of low magnitude and hence do not receive attention during refinement but nonetheless are captured adequately by the streamline plots even when the starting mesh is of low resolution.
+
+## 5.2.2. Performance versus $N_{p}, N_{O}$ and GPU
+
+The MLUPS $_{inst.,k}$ metric is evaluated per iteration at the coarsest level for simulations G/V/A $_{k}$ | $_{1\leq k\leq6}$ . Curves obtained with varied combinations of $N_{p}$ and GPU are displayed in Fig. 20 and compared for the three velocity sets. The total time spent executing interpolation, collision, streaming, and averaging subroutines is tabulated for these simulations in Table 3 to reveal the percentage of time spent in grid-communication and total simulation time.
+
+Results obtained with the A100 originally feature infrequent and random reductions in performance. These are filtered out before plotting and tabulation by detecting indices k where $MLUPS_{inst.,k}$ varies by more than 10% with respect to $MLUPS_{inst.,k-1}$ and replacing the corresponding value with an average computed from $\{MLUPS_{inst.,k-i}\}_{5\leq i\leq10}$ . This smoothing operation is performed twice, which removes the dips in the curve without impacting earlier trends.
+
+Curves for all simulations increase from an initial value as blocks are added due to an increase in the size of the primary vortex, and eventually oscillate around a steady-state value after the numerical solution has converged in time. At this steady state, the performance increases achieved by selecting single-precision accuracy are similar for $N_{Q}=19,27$ , with rates of approximately 2.4, 1.5, and 1.4 times on the 970M, V100, and A100, respectively. For $N_{Q}=9$ , the relatively smaller grids supply less work to the GPUs to balance out memory loads/stores, resulting in slightly lower respective rates of increase of 2.3, 1.2, and 1.1. The best performance is achieved by simulations on the A100, with MLUPS values 495, 1753 and 1089 corresponding to labels $A_{1}$ , $A_{3}$ and $A_{5}$ . For $N_{Q}=19,27$ , the A100 simulations in double precision perform better than those in single-precision on the V100, with respective comparative MLUPS values 1219 vs. 1138 and 786 vs. 452.
+
+2D Velocity Profiles, Re=1000
+(a) Profiles for Re = 1000, 2D.
+
+2D Velocity Profiles, Re=3200
+(b) Profiles for Re = 3200, 2D.
+
+2D Velocity Profiles, Re=5000
+(c) Profiles for Re = 5000, 2D.
+
+2D Velocity Profiles, Re=10000
+(d) Profiles for Re = 10000, 2D.
+Fig. 17. Plots of stream- and spanwise velocity profiles for simulations $V_{1}$ , $V-S_{1}$ , $V-S_{2}$ and $V-S_{3}$ corresponding to Re = 1000, 3200, 5000 and 10000. Profiles produced by the present solver are titled ‘AMR’.
+
+Single-precision simulations with $N_{Q}=9$ are similar between the V100 and A100 and, unlike the 3D cases, the former performs better than the double-precision counterpart on the A100. MLUPS values for the 970M simulations with $N_{Q}=9$ , 19 are similar in both single and double precision, with respective comparative values 161 vs. 160 and 71 vs. 68. This decreases by an approximate factor of 1.5 for $N_{Q}=27$ to 105 vs. 44. The global memory load/store cost for accessing the numerous DDFs likely hinders these simulations from achieving higher performance. However, this is less pronounced on newer hardware where the speedups provided by a switch from single- to double-precision are around 1.5 compared to a theoretical value of 2.
+
+The percentage of time spent in grid communication ranges from 17% ( $V_{4}$ ) to 45% ( $A_{1}$ ) and is smallest for simulations performed on the V100 in 3D with double-precision. Single-precision simulations spend more (or nearly equal) time in communication than their double-precision counterparts on the V100 and A100, regardless of the velocity set. Still, they take longer when the 970M is used for the 3D simulations due to a smaller $L_{max}$ . Since calculations on more recent hardware are faster, the cost of retrieving and replacing DDFs from global memory during communication catches up, and this is more pronounced on the A100 where the fraction of time in communication for simulations in 3D is about 10% higher than the V100 counterparts. 2D simulations are consistently around 40% regardless of the choice of floating-point precision and GPU due to a lower amount of supplied work as with MLUPS vs. iteration.
+
+The distributions of time spent executing the individual advancement routines are displayed in Fig. 21 for pairs of GPU and velocity set across grid level for simulations $\mathrm{G / V / A_k|_{1\leq k\leq 6}}$ . Single- and double-precision counterparts are shown side-by-side to visualize the cost of imposing higher floating-point accuracy. Most time is spent on the finest level in the 3D simulations owing to the larger fine-grid sizes and repeated advancements needed to advance an equivalent step on the root grid. Streaming is more expensive than collision except when double-precision is selected on the 970M. Similar execution times are observed for all simulations' communication and advancement subroutines on the second-finest level. Although interpolation and averaging are not as computation-heavy as collision, the numerous memory accesses to child cells render these operations nearly as expensive as collision and streaming. The 2D simulations feature execution times of the same order of magnitude across all grid levels due to the smaller grid sizes. They are nearly equal between single- and double-precision counterparts on the V100 and A100.
+
+(a) Profiles for Re = 1000.
+
+(b) Profiles for Re = 3200.
+Fig. 18. Plots of normalized streamwise velocity profiles for simulations $V_{3}$ , $V-S_{4}$ corresponding to Re = 1000, 3200.
+
+Total execution times for the sub-processes in the advancement routine for the simulations defined in Table 2.
+
+<table><tr><td rowspan="2">Label</td><td colspan="10">Total Execution Times (s)</td></tr><tr><td>Interp.</td><td>Collide</td><td>Stream</td><td>Average</td><td>Comm.</td><td>(%)</td><td>Solv.</td><td>(%)</td><td>Total</td><td>MLUPS</td></tr><tr><td> $G_1$ </td><td>124.3</td><td>161.98</td><td>217.19</td><td>150.39</td><td>274.68</td><td>(0.42)</td><td>379.17</td><td>(0.58)</td><td>653.86</td><td>161</td></tr><tr><td> $G_2$ </td><td>199.2</td><td>629.5</td><td>332.76</td><td>288.67</td><td>487.87</td><td>(0.34)</td><td>962.26</td><td>(0.66)</td><td>1450.13</td><td>71</td></tr><tr><td> $G_3$ </td><td>557.37</td><td>1456.47</td><td>2241.14</td><td>584.01</td><td>1141.38</td><td>(0.24)</td><td>3697.61</td><td>(0.76)</td><td>4838.99</td><td>160</td></tr><tr><td> $G_4$ </td><td>1604.61</td><td>4396</td><td>3659.53</td><td>1663.45</td><td>3268.06</td><td>(0.29)</td><td>8055.53</td><td>(0.71)</td><td>11323.59</td><td>68</td></tr><tr><td> $G_5$ </td><td>855.9</td><td>2178.95</td><td>3508.29</td><td>823.43</td><td>1679.32</td><td>(0.23)</td><td>5687.24</td><td>(0.77)</td><td>7366.57</td><td>105</td></tr><tr><td> $G_6$ </td><td>2329.01</td><td>6722.48</td><td>5814.9</td><td>2527.66</td><td>4856.67</td><td>(0.28)</td><td>12537.38</td><td>(0.72)</td><td>17394.05</td><td>44</td></tr><tr><td> $V_1$ </td><td>38.09</td><td>55.01</td><td>74.72</td><td>53.68</td><td>91.77</td><td>(0.41)</td><td>129.73</td><td>(0.59)</td><td>221.51</td><td>474</td></tr><tr><td> $V_2$ </td><td>43.61</td><td>72.05</td><td>87.94</td><td>68.32</td><td>111.93</td><td>(0.41)</td><td>159.98</td><td>(0.59)</td><td>271.91</td><td>386</td></tr><tr><td> $V_3$ </td><td>518.35</td><td>1239.76</td><td>2054.71</td><td>726.08</td><td>1244.43</td><td>(0.27)</td><td>3294.47</td><td>(0.73)</td><td>4538.9</td><td>1138</td></tr><tr><td> $V_4$ </td><td>509.51</td><td>2375.53</td><td>3806.9</td><td>733.79</td><td>1243.3</td><td>(0.17)</td><td>6182.42</td><td>(0.83)</td><td>7425.73</td><td>732</td></tr><tr><td> $V_5$ </td><td>1338.21</td><td>1803.9</td><td>3824.53</td><td>934.92</td><td>2273.13</td><td>(0.29)</td><td>5628.43</td><td>(0.71)</td><td>7901.55</td><td>663</td></tr><tr><td> $V_6$ </td><td>1230.89</td><td>3370.42</td><td>6461.17</td><td>961.06</td><td>2191.95</td><td>(0.18)</td><td>9831.59</td><td>(0.82)</td><td>12023.54</td><td>452</td></tr><tr><td> $A_1$ </td><td>36.84</td><td>43.79</td><td>72.11</td><td>58.36</td><td>95.2</td><td>(0.45)</td><td>115.91</td><td>(0.55)</td><td>211.11</td><td>495</td></tr><tr><td> $A_2$ </td><td>40.62</td><td>49.43</td><td>82.68</td><td>63.35</td><td>103.97</td><td>(0.44)</td><td>132.11</td><td>(0.56)</td><td>236.08</td><td>452</td></tr><tr><td> $A_3$ </td><td>435.39</td><td>643.45</td><td>930.94</td><td>691.27</td><td>1126.66</td><td>(0.42)</td><td>1574.39</td><td>(0.58)</td><td>2701.05</td><td>1753</td></tr><tr><td> $A_4$ </td><td>520.52</td><td>1365.13</td><td>1846.36</td><td>754.63</td><td>1275.15</td><td>(0.28)</td><td>3211.48</td><td>(0.72)</td><td>4486.63</td><td>1219</td></tr><tr><td> $A_5$ </td><td>929.11</td><td>1059.91</td><td>1929.37</td><td>1102.98</td><td>2032.09</td><td>(0.4)</td><td>2989.28</td><td>(0.6)</td><td>5021.37</td><td>1089</td></tr><tr><td> $A_6$ </td><td>811.07</td><td>1963.48</td><td>3234.55</td><td>1017.97</td><td>1829.04</td><td>(0.26)</td><td>5198.03</td><td>(0.74)</td><td>7027.06</td><td>786</td></tr></table>
+
+## 5.2.3. Refinement performance
+
+The refinement and coarsening procedure is studied with respect to execution time, which is tabulated by step, and AMR efficiency where time spent in refinement is compared to total simulation time. Execution times are displayed in Table 4 along with the fractions of time in refinement with respect to the totals computed from values shown in Table 3. Fig. 22 displays the orders of magnitude for steps in the refinement/coarsening process after normalizing by the total number of calls for simulations on the 970M and V100 (results for the A100 were similar to the latter).
+
+The fraction of time adapting the mesh is always under 2% of the total simulation time for the 3D simulations, attaining a maximum of 1.34% in simulation $A_{2}$ . The two largest fractions are 22.14% and 18.74% for simulations $V_{1}$ and $A_{1}$ , respectively, where total grid sizes are among the smallest and computations among the quickest. The constant cost imposed by resets of intermediate arrays in the Preparation step results in a total execution time an order of magnitude higher than all other steps. For all other simulations, the two most expensive operations are averaging and interpolation, which are performed prior to mesh adaptation. The interpolation procedure in Step 7 does not incur a significant cost for any of the simulations even though the routine is generally as expensive as collision and streaming on the same level. This is due to the relatively high frequency in calls to refinement, limiting the number of children added at any point in time. Fig. 22 reveals that most steps incur a constant cost across floating-point precision, velocity set, and choice of GPU. The exceptions are the averaging, interpolation, and reduction steps performed prior to the mesh-adaptation call, where computations involving DDFs depend strongly on these parameters and where total times are 10-100 times higher in comparison to other steps. Step 4 pertaining to insertion/removal of refined/coarsened child blocks incurs the lowest cost, followed by Steps 2 and 3 where assignment of data to children is prepared and neighbor-child connectivity is updated. Step 8 is more costly in 3D simulations as more neighbors are checked in order to identify ghost and interface cells.
+
+Scaling of the refinement operation is also studied by modifying the number of grid levels and the near-wall refinement distance to achieve a number of inserted child blocks ranging from $7.7(10^{2}) \rightarrow 3.3(10^{5})$ (equivalent to $61(10^{3}) \rightarrow \sim (26)10^{5}$ new cells in 3D). Execution times for the various steps (omitting the averaging, interpolation and reduction steps invoked prior to mesh adaptation) are stacked by area in Fig. 23 to reveal a linear scaling, from around 10 to 45 milliseconds at the largest insertion. Steps 7 and 8 play the most significant roles in scaling, exceeding the other steps by a full order of magnitude in the largest sample. The high cost of Step 7 is due to interpolation, while Step 8 requires subsequently more checks with neighbor block IDs as the number of blocks inserted in the vicinity of the physical boundary increases.
+
+(a) Re = 1000.
+(b) Re = 3200.
+(c) Re = 5000.
+(d) Re = 10000.
+Fig. 19. Plots of vorticity magnitude (top), streamlines (middle) and AMR grid levels (bottom) for simulations $V_{1}$ and $V-S_{k}|_{1\leq k\leq3}$ .
+
+(a) D2Q9
+
+(c) D3Q27
+Fig. 20. Plots of MLUPS over time for the three velocity sets on the 970M, V100, and A100 GPUs with both choices of floating-point precision.
+
+(b) D3Q19
+Table 4
+Total execution times of the various steps in the mesh refinement algorithm for the simulations defined in Table 2. The fractions of time with respect to total solving time are provided.
+
+<table><tr><td rowspan="2">Label</td><td colspan="13">Total Execution Times (s)</td><td rowspan="2">%</td></tr><tr><td>Ave.</td><td>Int.</td><td>Red.</td><td>Pre</td><td>S1</td><td>S2</td><td>S3</td><td>S4</td><td>S5</td><td>S6</td><td>S7</td><td>S8</td><td>Total</td></tr><tr><td> $G_1$ </td><td>3.792</td><td>1.699</td><td>0.895</td><td>8.73</td><td>10.823</td><td>0.833</td><td>0.795</td><td>0.124</td><td>2.244</td><td>3.381</td><td>1.315</td><td>0.383</td><td>35.014</td><td>5.08</td></tr><tr><td> $G_2$ </td><td>9.322</td><td>2.876</td><td>3.731</td><td>5.805</td><td>6.732</td><td>0.83</td><td>0.802</td><td>0.132</td><td>2.345</td><td>3.691</td><td>1.65</td><td>0.39</td><td>38.306</td><td>2.57</td></tr><tr><td> $G_3$ </td><td>23.012</td><td>12.856</td><td>8.607</td><td>1.992</td><td>2.558</td><td>0.494</td><td>0.578</td><td>0.093</td><td>1.314</td><td>1.462</td><td>1.221</td><td>3.614</td><td>57.801</td><td>1.18</td></tr><tr><td> $G_4$ </td><td>91.171</td><td>36.982</td><td>26.385</td><td>1.763</td><td>3.728</td><td>0.597</td><td>0.603</td><td>0.106</td><td>1.321</td><td>1.525</td><td>2.366</td><td>3.716</td><td>170.263</td><td>1.48</td></tr><tr><td> $G_5$ </td><td>32.355</td><td>19.62</td><td>11.539</td><td>1.729</td><td>2.21</td><td>0.516</td><td>0.633</td><td>0.104</td><td>1.408</td><td>1.534</td><td>1.445</td><td>3.678</td><td>76.771</td><td>1.03</td></tr><tr><td> $G_6$ </td><td>131.197</td><td>56.935</td><td>34.088</td><td>1.996</td><td>1.732</td><td>0.556</td><td>0.648</td><td>0.124</td><td>1.509</td><td>1.68</td><td>3.305</td><td>3.862</td><td>237.632</td><td>1.35</td></tr><tr><td> $V_1$ </td><td>1.503</td><td>0.467</td><td>0.191</td><td>29.528</td><td>22.936</td><td>0.953</td><td>0.605</td><td>0.102</td><td>3.127</td><td>1.783</td><td>1.617</td><td>0.166</td><td>62.979</td><td>22.14</td></tr><tr><td> $V_2$ </td><td>1.902</td><td>0.558</td><td>0.227</td><td>17.487</td><td>13.919</td><td>0.868</td><td>0.583</td><td>0.097</td><td>2.598</td><td>1.758</td><td>1.601</td><td>0.162</td><td>41.76</td><td>13.31</td></tr><tr><td> $V_3$ </td><td>13.3</td><td>5.891</td><td>2.693</td><td>5.909</td><td>5.658</td><td>0.484</td><td>0.385</td><td>0.055</td><td>1.163</td><td>2.167</td><td>1.15</td><td>1.137</td><td>39.99</td><td>0.87</td></tr><tr><td> $V_4$ </td><td>17.645</td><td>5.895</td><td>5.407</td><td>3.431</td><td>3.713</td><td>0.524</td><td>0.396</td><td>0.059</td><td>1.168</td><td>2.071</td><td>1.308</td><td>1.109</td><td>42.727</td><td>0.57</td></tr><tr><td> $V_5$ </td><td>18.206</td><td>14.882</td><td>4.05</td><td>4.582</td><td>4.39</td><td>0.525</td><td>0.393</td><td>0.058</td><td>1.176</td><td>2.187</td><td>1.372</td><td>1.084</td><td>52.906</td><td>0.67</td></tr><tr><td> $V_6$ </td><td>24.908</td><td>14.455</td><td>7.803</td><td>2.612</td><td>3.028</td><td>0.52</td><td>0.406</td><td>0.06</td><td>1.165</td><td>2.059</td><td>1.691</td><td>1.121</td><td>59.829</td><td>0.5</td></tr><tr><td> $A_1$ </td><td>1.568</td><td>0.489</td><td>0.133</td><td>19.81</td><td>21.373</td><td>0.577</td><td>0.421</td><td>0.092</td><td>1.941</td><td>1.171</td><td>0.941</td><td>0.16</td><td>48.677</td><td>18.74</td></tr><tr><td> $A_2$ </td><td>1.809</td><td>0.524</td><td>0.155</td><td>11.767</td><td>11.589</td><td>0.601</td><td>0.416</td><td>0.093</td><td>1.699</td><td>1.201</td><td>0.95</td><td>0.159</td><td>30.964</td><td>11.6</td></tr><tr><td> $A_3$ </td><td>15.678</td><td>5.519</td><td>1.628</td><td>4.048</td><td>4.727</td><td>0.315</td><td>0.302</td><td>0.027</td><td>0.828</td><td>2.19</td><td>0.769</td><td>0.64</td><td>36.669</td><td>1.34</td></tr><tr><td> $A_4$ </td><td>18.102</td><td>6.18</td><td>3.426</td><td>2.437</td><td>3.277</td><td>0.395</td><td>0.324</td><td>0.061</td><td>0.891</td><td>2.128</td><td>0.983</td><td>0.813</td><td>39.017</td><td>0.86</td></tr><tr><td> $A_5$ </td><td>22.863</td><td>10.612</td><td>2.755</td><td>3.112</td><td>3.966</td><td>0.35</td><td>0.306</td><td>0.056</td><td>0.778</td><td>1.856</td><td>0.921</td><td>0.782</td><td>48.357</td><td>0.95</td></tr><tr><td> $A_6$ </td><td>25.896</td><td>9.628</td><td>4.844</td><td>1.833</td><td>2.632</td><td>0.352</td><td>0.297</td><td>0.052</td><td>0.867</td><td>1.921</td><td>1.175</td><td>0.788</td><td>50.284</td><td>0.71</td></tr></table>
+
+## 5.2.4. Efficiency versus $M_b, M_L$
+
+More work is generated per thread-block when cell-block sizes $M_{b} > M_{t}$ are used as more sub-blocks are processed, affecting performance. Additional overhead is also incurred in order to navigate the various sub-blocks. $M_{L}$ , the number of cell-blocks processed per thread-block in the solver routine, is another factor that can add additional work. The efficiency of the solver, measured with MLUPS, is studied with respect to $M_{b}$ (via $N_{q,x}$ ) and $M_{L}$ . We set $L_{max.}=1$ to specifically gauge the effects of work done per thread-block on performance without additional overhead that would be introduced, for example, by checking cell/block masks for grid communication. Values $N_{q,x}\in\{1,2,4,6,8,10\}$ , $M_{L}\in\{1,2,4,8,16\}$ , $N_{Q}=9$ , and $N_{x}=480$ are considered in 2D, while $N_{q,x}\in\{1,2,4,6,8\}$ , $M_{L}\in\{1,4,16,32,64\}$ , $N_{Q}=19$ , and $N_{x}=192$ are considered in 3D. Single-precision is used in both cases, and MLUPS are averaged over a period of 100 s (in contrast with eq. (26)). MLUPS vs. $N_{q,x}$ for the various choices of $M_{L}$ are displayed for the 2D and 3D simulations in Figs. 24a and 24b, respectively.
+
+The solver is most efficient for smaller choices of $M_b$ and $M_L$ . In 2D, a maximum of approximately 2500 MLUPS is obtained for $N_{q,x} = 1$ , $M_L \in \{2,4,8\}$ and $N_{q,x} = 2$ , $M_L \in \{1,2\}$ . As $N_{q,x}$ and $M_L$ increase, MLUPS decreases sharply down to a minimum of approximately 45 at
+
+(a) 2D, $N_{Q} = 9$
+
+(b) 3D, $N_{Q} = 19$
+
+(c) 3D, $N_{Q} = 27$
+
+Fig. 21. Comparison of execution time distributions by level and sub-process for simulations on the 970M (top), V100 (middle) and A100 (bottom). Velocity sets considered are $N_{Q} = 9, 19$ and 27 from left to right.
+(a) Distribution of execution times by step on the 970M.
+
+(b) Distribution of execution times by step on the V100.
+Fig. 22. Performance of the refinement/coarsening procedure for various simulations.
+
+$N_{q,x}=10, M_{L}=16$ . The only case where increasing $N_{q,x}$ leads to an increase in $\overline{MLUPS}$ is $M_{L}=1$ . A similar trend is observed in 3D, where a maximum of approximately 2350 $\overline{MLUPS}$ is obtained with $N_{q,x}=1, M_{L}=1$ . Unlike the 2D cases, increasing $N_{q,x}$ or $M_{L}$ always leads to a decrease in $\overline{MLUPS}$ . The decrease is less substantial for $M_{L}=1$ , down to 1300 $\overline{MLUPS}$ for $N_{q,x}=8$ . When $M_{L}=4$ is chosen, the decrease is nearly linear. For all other choices of $M_{L}>1, \overline{MLUPS}$ decreases down to below 500. One outlier is observed at $N_{q,x}=2$ , where the recorded $\overline{MLUPS}$ for $M_{L}=32$ is greater than that for $M_{L}=16$ .
+
+## 5.2.5. Cell vs. Block arrangement
+
+Two standalone scripts (cell\_uniform.cu, block\_uniform.cu) are provided, implementing cell- and block-based versions of the in-place LBM on a single grid level for the lid-driven cavity in 2D and 3D. Connectivity between cells/blocks is adjusted by three parameters: N\_CONN\_TYPE for calculation of neighbor indices vs. retrieval from global memory, N\_SHUFFLE to shuffle the indices and N\_OCTREE to specify quad-/octree index arrangement rather than structured. With the current mesh adaptation algorithm, block indices tend towards a shuffled ordering as blocks are inserted and removed in different parts of the domain, with indices of larger value eventually replacing earlier ones. The objective is to show that the block-based advancement scheme described in Section 4.1 is nearly independent of the index arrangement (i.e., near-constant execution time for a fixed grid size regardless of how far away neighboring cell data is in memory), remaining as efficient as in the case of a grid with trivial index arrangement.
+
+Detailed Execution Time vs. Number of Added Child Blocks
+Fig. 23. Scaling of the refinement procedure as the number of inserted blocks is increased.
+
+Simulations with choices $(N_{Q}=9, N_{x}=2048^{2})$ , $(N_{Q}=19, N_{x}=192^{3})$ , and $(N_{Q}=27, N_{x}=192^{3})$ are performed for 10,000 iterations and averaged total execution times are recorded with 95% confidence intervals. Four cases are considered for the cell- and block-based arrangements: 1) structured grid with calculated indices, 2) structured grid with retrieved indices, 3) octree grid, and 4) octree grid with shuffled indices. These cases are presented in Fig. 25a-25c for sample 32x32 grids, and the corresponding results are displayed in Table 5. A visualization of block index scattering observed with one of the lid-driven cavity tests is shown in Fig. 25e. The data used to obtain the averages, and their decomposition among collision and streaming steps are included in the attached code repository.
+
+When the cell/block arrangement is well-ordered, the cell-based solver performs better than the block-based scheme. Collision and streaming were slightly slower in these cases, likely due to the additional processing of block IDs in the former and the various DDF arrangements that must be made in shared memory before the global write in the latter. The block-based scheme is consistently around 60-70% slower in 2D and 10-50% slower in 3D. When the indices are shuffled, the cell-based solver experiences a substantial increase in average execution time, ranging from 2.6-3.3x / 3.5-4.6x increases in 3D ( $N_{Q} = 19/27$ , respectively) to a 4.5-5x increase in 2D. In contrast, the performance of the block-based solver remains nearly identical, increasing by about 12% in 2D with respect to the ideal structured grid case with calculated indices and about 5% in 3D. The block-based solver performs better than its cell-based counterpart for all $N_{Q}$ , obtaining a 33-45% relative reduction in average execution time.
+
+## 5.3. Flow past a square cylinder
+
+A flow past a square cylinder (FPSC) is considered to compare total computation time against refinement level and the corresponding speedup relative to an equivalent uniform grid with resolution according to the finest level. A rectangular domain of length 32D and height 32D is used with a fixed square cylinder placed a length 10D downstream. Although it is customary to employ spatial and temporal steps of unity with the LBM, we have retained the physical scales such that for a choice of D = 1/32 m (with channel length normalized to 1.0 m), the spatial and temporal steps are given by $1.0/N_{x}$ . For boundary conditions, a specification similar to that of Fakhari and Lee [28] is employed. The domain features an inlet on the left-hand-side supplying a uniform flow defined by a constant streamwise velocity $U_{0}$ , and outlet condition downstream defined by a constant pressure and far-field conditions where the inlet velocity is also enforced (with zero normal velocity). The inlet/far-field and outflow conditions are enforced via bounce-back and anti-bounce-back, respectively. A Mach number of $\sim0.1$ is enforced by setting the characteristic inlet velocity $U_{0}$ at 0.05 m/s. The Reynolds number is enforced by setting viscosity according to $U_{0}$ , L, and D. A flow regime with Re = 100 has been considered in the current work, requiring $\nu = 1.5625(10^{-5})$ m $^{2}$ /s. Since a cell-centered grid is used in the current work, domain walls lie directly on cell edges. Hence, no adjustments need to be made to the expression for the dimensionless parameters as with Fakhari and Lee [28]. This also means that the bounce-back naturally attains second-order accuracy with single-relaxation-time collision. The anti-bounce-back can attain the same order of accuracy, though this requires some form of extrapolation to estimate the outflow wall velocity. This would incur additional costs during the collision step. Instead, the velocity at the cell center is used as the estimate, and a permanent layer of blocks is refined multiple times according to $L_{max}$ so that the first-order error is made negligible.
+
+Table 5
+Results for the standalone cell- and block-based solvers.
+
+<table><tr><td rowspan="2">Grid Arrangement</td><td rowspan="2">Element Arrangement</td><td colspan="3">Execution Times, μs</td></tr><tr><td> $N_Q=9$   $N_x=2048$ </td><td> $N_Q=19$   $N_x=192$ </td><td> $N_Q=27$   $N_x=192$ </td></tr><tr><td rowspan="3">Structured, Calculated</td><td>Cell</td><td>6,137 ± 12</td><td>23,236 ± 7</td><td>33,895 ± 5</td></tr><tr><td>Block</td><td>10,590 ± 7</td><td>32,319 ± 9</td><td>49,800 ± 5</td></tr><tr><td>Ratio (B/C)</td><td>1.73</td><td>1.39</td><td>1.47</td></tr><tr><td rowspan="3">Structured, Retrieved</td><td>Cell</td><td>6,868 ± 5</td><td>26,030 ± 9</td><td>37,803 ± 5</td></tr><tr><td>Block</td><td>10,852 ± 7</td><td>32,544 ± 9</td><td>50,526 ± 5</td></tr><tr><td>Ratio (B/C)</td><td>1.58</td><td>1.25</td><td>1.34</td></tr><tr><td rowspan="3">Octree, Unshuffled</td><td>Cell</td><td>6,881 ± 5</td><td>29,369 ± 9</td><td>44,306 ± 6</td></tr><tr><td>Block</td><td>10,884 ± 7</td><td>32,865 ± 6</td><td>50,960 ± 5</td></tr><tr><td>Ratio (B/C)</td><td>1.58</td><td>1.12</td><td>1.15</td></tr><tr><td rowspan="3">Octree, Shuffled</td><td>Cell</td><td>30,401 ± 5</td><td>76,350 ± 12</td><td>156,728 ± 17</td></tr><tr><td>Block</td><td>11,911 ± 9</td><td>33,914 ± 5</td><td>52,181 ± 5</td></tr><tr><td>Ratio (B/C)</td><td>0.39</td><td>0.44</td><td>0.33</td></tr></table>
+
+Table 6
+Summary of flow past a square cylinder simulations.
+
+<table><tr><td colspan="8">Flow-Past-Square-Cylinder Simulations, Re = 100</td></tr><tr><td rowspan="2">Label</td><td rowspan="2"> $N_{coarse}^{N_d}$ </td><td rowspan="2"> $L_{max.}$ </td><td colspan="4">Simulation Times (s)</td><td rowspan="2">GPU</td></tr><tr><td>Sol.</td><td>Ref.</td><td>Total</td><td>Eff. (%)</td></tr><tr><td>F-A1</td><td></td><td>2</td><td>77</td><td>7</td><td>84</td><td>8.3</td><td></td></tr><tr><td>F-A2</td><td rowspan="3">256</td><td>3</td><td>259</td><td>11</td><td>270</td><td>4.1</td><td></td></tr><tr><td>F-A3</td><td>4</td><td>960</td><td>16</td><td>976</td><td>1.6</td><td></td></tr><tr><td>F-A4</td><td>5</td><td>4087</td><td>31</td><td>4118</td><td>0.8</td><td></td></tr><tr><td>F-B1</td><td></td><td>1</td><td>157</td><td>-</td><td>157</td><td>-</td><td></td></tr><tr><td>F-B2</td><td rowspan="3">512</td><td>2</td><td>413</td><td>21</td><td>434</td><td>4.8</td><td rowspan="3">970M</td></tr><tr><td>F-B3</td><td>3</td><td>1370</td><td>35</td><td>1405</td><td>2.5</td></tr><tr><td>F-B4</td><td>4</td><td>5895</td><td>78</td><td>5973</td><td>1.3</td></tr><tr><td>F-C1</td><td></td><td>1</td><td>1157</td><td>-</td><td>1157</td><td>-</td><td></td></tr><tr><td>F-C2</td><td>1024</td><td>2</td><td>2133</td><td>74</td><td>2207</td><td>3.4</td><td></td></tr><tr><td>F-C3</td><td></td><td>3</td><td>6592</td><td>147</td><td>6739</td><td>2.2</td><td></td></tr><tr><td>F-D</td><td>2048</td><td></td><td>9327</td><td>-</td><td>9327</td><td>-</td><td></td></tr><tr><td>F-E</td><td>4096</td><td></td><td></td><td>-</td><td></td><td>-</td><td>A100</td></tr></table>
+
+Three sets of cases labeled $F-X_{L_{max.}}$ are considered in which the root grid size is set to 256, 512, and 1024 (for $X \in \{A, B, C\}$ , respectively) and $L_{max.}$ is varied between 1 and 5, reaching a final effective resolution of 4096. Additional simulations are performed with uniform grids of $2048^{2}$ and $4096^{2}$ . All simulations are run to a final time t = 150 s. Simulation parameters and corresponding advancement and refinement execution times with a choice of linear interpolation are displayed in Table 6. Cases $F-A_{k}|_{1 \leq k \leq 4}$ are repeated using both linear and cubic interpolation to determine the potential effects on the pressure field and the time-averaged dimensionless quantities. Figs. 27a and 27b display the contours of the pressure fields for case $F-A_{2}$ with linear and cubic interpolation, respectively. Fakhari and Lee [28] reported that discontinuities in the pressure field resulting from linear interpolation were suppressed when the grid was adaptively refined, so we've chosen to employ a static grid that is refined twice only at the beginning to verify that the continuity of the current pressure field is inherent to the numerical scheme. Cell-blocks on level $L$ are refined if they are a distance of $0.15 / 2^{L}$ or less away from the cylinder or the outlet boundary.
+
+MLUPS vs. $N_{q,x}, M_L$ , D2Q9
+(a) D2Q9.
+
+MLUPS vs. $N_{q,x}, M_{L}$ , D3Q19
+(b) D3Q19.
+
+Fig. 24. Plots of $\overline{MLUPS}$ against cell-block size (via $N_{q,x}$ ) for different choices of $M_{L}$ .
+
+(a) Structured grid.
+(b) Octree grid.
+shuffled.
+(d) Cell vs. block arrangements.
+
+(e) Arrangement after lid-driven cavity simulation.
+Fig. 25. Visualizations of the block ID distributions considered in the cell- and block-based solver comparison (left), and a sample of the block ID distribution in a lid-driven cavity test after completion (right).
+
+All simulations are performed on the 970M except for the $4096^{2}$ case, which is performed on the A100 instead due to memory limitations. Double-precision is used for all simulations to ensure high accuracy when comparing with results of the literature. Refinement parameters $N_{start}$ , $N_{inc}$ . are set to -3 and -1, respectively, and the mesh is adapted every 32 iterations on the coarsest level as with the LDC test cases.
+
+The momentum exchange algorithm (MEA) is used to estimate the total force applied to the cylinder over time, proscribed for bounce-back conditions by $[11,28,89]$ :
+
+$$
+\mathbf {F} = 2 \Delta x _ {L _ {s}} ^ {N _ {d}} \sum_ {\mathbf {x} _ {b}} \sum_ {p} f _ {p} ^ {*} \mathbf {c} _ {p}\tag{27}
+$$
+
+where $L_{s}$ is the specified grid level and the post-collision $f_{p}^{*}$ considered in the calculation are such that $c_{p}$ forms a link between a boundary node and a solid node. The time-averaged drag coefficient $\overline{C_{D}}$ , lift coefficient $C_{L}$ , and Strouhal number St,
+
+$$
+C _ {D} = \frac {2 F _ {x}}{\rho_ {0} U _ {0} ^ {2} D}, \quad C _ {L} = \frac {2 F _ {y}}{\rho_ {0} U _ {0} ^ {2} D}, \quad \mathrm{St} = \frac {f _ {s} D}{U _ {0}},\tag{28}
+$$
+
+where $\rho_{0}$ is the characteristic density (set to unity for all simulations), and $f_{s}$ is the vortex-shedding frequency, are computed and used to validate the implementation of open boundaries. These are compared across root grid size and fine grid effective resolution in Tables 7a and 7b, respectively. $\overline{C_{D}}$ and St are also compared in value with literature data for the FPSC at Re=100 in Table 8. Values are sampled at $140 \leq t \leq 150$ every 16 iterations on the root grid. Density and vorticity magnitude are plotted for simulations $F-A_{k}|_{2 \leq k \leq 4}$ in Fig. 26 with the computational grid outline overlaid on the latter to reveal the capture of coherent structures.
+
+(a) Simulation F-A2 with $L_{max.}=3$ .
+
+(b) Simulation F-A3 with $L_{max.}=4$ .
+
+(c) Simulation F-A4 with $L_{max.}=5$ .
+Fig. 26. Density (left) and vorticity fields with overlaid grid outline (right) for simulations F-A₂, F-A₃ and F-A₄.
+
+With linear interpolation, the value of $\overline{C_{D}}$ varies significantly across root grid resolutions but eventually converges to an approximate value of 1.511 upon refinement with AMR. In contrast, a value of about 1.500 is obtained when the grid is refined uniformly. A similar AMR result was obtained by Fakhari and Lee [28] as they refined to an effective resolution of 2048. When cubic interpolation is selected, there is an appreciable difference in the values obtained for $\overline{C_{D}}$ , bringing them more in line with the values obtained with uniform grids of equivalent effective resolution. Although a staggering of the fine and coarse cell centers ensures continuity of the pressure field, linear interpolation is seen to degrade accuracy relative to an equivalent uniform grid. However, cubic interpolation results in a value of $\overline{C}_{D}$ on the coarsest root grid and lowest effective resolution nearly equal to that obtained on the finest uniform grid. A sinusoidal fit is applied to $C_{L}$ to estimate $f_{s}$ . The resulting Strouhal number is found to be approximately 0.147 across all simulations, converging to 0.1472 when the effective resolution of the finest level is 4096 and varies by $\sim0.001$ otherwise. St is nearly identical when linear and cubic interpolation are used, regardless of the root grid size or the final effective resolution. The above values also agree with the tabulated literature values of Table 8.
+
+(a) Simulation F-A $_{2}$ with linear interpolation.
+
+(b) Simulation F-A $_{2}$ with cubic interpolation.
+
+Fig. 27. Pressure field obtained from simulation F-A₂ with linear (left) and cubic (right) interpolation.
+Summary of results for the FPSC simulations.
+
+<table><tr><td rowspan="2"> $N_{\text{eff.}}$ </td><td colspan="4">Strouhal Number, St</td></tr><tr><td>256</td><td>512</td><td>1024</td><td>Unif.</td></tr><tr><td>512</td><td>0.1469</td><td>-</td><td>-</td><td>0.1470</td></tr><tr><td>1024</td><td>0.1472</td><td>0.1473</td><td>-</td><td>0.1473</td></tr><tr><td>2048</td><td>0.1473</td><td>0.1472</td><td>0.1472</td><td>0.1473</td></tr><tr><td>4096</td><td>0.1472</td><td>0.1472</td><td>0.1472</td><td>0.1472</td></tr></table>
+
+(a) Strouhal numbers according to sinusoidal fitting.
+
+Values of $\overline{C_{D}}$ and St reported in the literature for the FPSC at Re=100.
+
+<table><tr><td>Reference</td><td>Year</td><td>Far-Field Type</td><td> $\overline{C_D}$ </td><td>St</td></tr><tr><td>Saha et al. [90]</td><td>2000</td><td>Slip Wall</td><td>1.51</td><td>0.159</td></tr><tr><td>Singh et al. [91]</td><td>2009</td><td>Slip Wall</td><td>1.52</td><td>0.15</td></tr><tr><td>Fakhari and Lee [28]</td><td>2014</td><td>Imposed Velocity</td><td>1.51</td><td>0.149</td></tr><tr><td>González et al. [92]</td><td>2019</td><td>Slip Wall</td><td>1.50</td><td>0.145</td></tr><tr><td>Present</td><td>2024</td><td>Imposed Velocity</td><td>1.51</td><td>0.147</td></tr></table>
+
+The speedups obtained against simulations with uniform grid resolutions equivalent to resolutions on the finest grid are displayed in Table 9. Linear interpolation is used for these simulations. Included are the CPU times reported by Fakhari and Lee [28] for their simulations with the same fine-grid resolutions. The speedup with respect to uniform grids with the current solver are much more pronounced when the root grid has a coarser resolution. At an effective resolution of 2048, speedups of 9.6, 6.6 and 4.2 are found for starting grids $256^{2}$ , $512^{2}$ , and $1024^{2}$ , respectively. When compared with the results of the CPU-based $^{4}$ AMR and uniform grid simulations, the speedups become 12.4, 8.6, 5.5, and 48.0, 33.2, 21.1 for the three choices of starting grid.
+
+## 6. Conclusion
+
+This paper presents an algorithm that enables efficient GPU-native adaptive mesh refinement on block-based, cell-centered grids managed as a forest of octrees. An open-source C++/CUDA code implements the algorithm together with a solver based on the Lattice Boltzmann Method. Integer index lists represent the forest of octrees, with indices referring to locations in the solution and mesh metadata arrays. Fixed memory allocation, data structure selection, and ID tracking tackle the challenges posed in managing and adapting a mesh with general-purpose GPU (GPGPU) programming, such as variability of the mesh size, lack of a recursive data structure, and fragmentation due to coarsening. The paper details the implementation of the individual steps in the AMR algorithm, along with routines for coarse-fine grid communication and grid advancement for the LBM with a block-based data arrangement and in-place streaming.
+
+<table><tr><td rowspan="2"> $N_{\text{eff.}}$ </td><td colspan="4">Drag Coefficient (Linear/Cubic Interpolation)  $\overline{C_D}$ </td></tr><tr><td>256</td><td>512</td><td>1024</td><td>Unif.</td></tr><tr><td>512</td><td>1.581/1.5010</td><td>-</td><td>-</td><td>1.513</td></tr><tr><td>1024</td><td>1.584/1.503</td><td>1.513/1.500</td><td>-</td><td>1.501</td></tr><tr><td>2048</td><td>1.553/1.500</td><td>1.518/1.500</td><td>1.518/1.499</td><td>1.501</td></tr><tr><td>4096</td><td>1.508/1.498</td><td>1.511/1.499</td><td>1.511/1.499</td><td>1.499</td></tr></table>
+
+(b) Time-averaged drag coefficients.
+
+The 2D/3D lid-driven cavity (LDC) problem benchmarks the implementation with a variation of the Reynolds number $1000 \leq \mathrm{Re} \leq 10000$ , number of dimensions $N_{d} \in \{2,3\}$ , coarse mesh resolution $N_{x} \in \{64,128,512\}$ , velocity set size $N_{Q} \in \{9,19,27\}$ , grid hierarchy size $1 \leq L_{\max.} \leq 4$ , and floating-point precision word length $N_{p} \in \{4,8\}$ (in bytes). This benchmark utilizes three GPUs (GTX 970M, V100, and A100) to demonstrate feasibility on older hardware and high performance on newer hardware. The flow past a square cylinder (FPSC) problem enables a comparison of the speedup provided by the current implementation against uniform grids with an equivalent effective resolution with CPU-based literature data. A comparison of the LDC velocity profiles with literature data validates the implementation. Streamline plots alongside the AMR grids colored by level illustrate the detection of the primary vortex and the successful capture of corner vortices. The current solver produces profiles that agree with the literature, with slight deviations at inflection points corresponding to regions of less refinement. A comparison of the time-averaged drag coefficient and Strouhal number from the current FPSC simulations with literature values demonstrates appropriate convergence of the refined grids, with respective values of 1.51 and 0.1472. Grid outlines overlaid on vorticity magnitude plots show that our simulations successfully capture the coherent structures in the vortex street formed past the cylinder. Cubic interpolation produces the most accurate values for the drag coefficient relative to the values from a uniform grid with the highest resolution. Linear interpolation produces pressure fields that are continuous across grid refinement interfaces.
+
+Table 9
+Total simulation times and associated speedup with respect to the uniform grid equivalent. CPU times reported by Fakhari and Lee [28] are included.
+
+<table><tr><td rowspan="2"> $N_{\text{eff.}}$ </td><td colspan="4">Present Total Times (s)</td><td colspan="2">Fakhari and Lee [28]</td></tr><tr><td>256</td><td>512</td><td>1024</td><td>Uniform</td><td>CPU (AMR)</td><td>CPU (unif.)</td></tr><tr><td>512</td><td>84 (x1.9)</td><td>-</td><td>-</td><td>157</td><td>331</td><td>701</td></tr><tr><td>1024</td><td>270 (x4.3)</td><td>434 (x2.7)</td><td>-</td><td>1157</td><td>1827</td><td>6074</td></tr><tr><td>2048</td><td>976 (x9.6)</td><td>1405 (x6.6)</td><td>2207 (x4.2)</td><td>9327</td><td>12081</td><td>46652</td></tr></table>
+
+Total execution times and estimated updates per second via the Million/Mega Lattice node Updated per Second (MLUPS) metric over time both assess solver performance. MLUPS increases as the total number of blocks in the grid hierarchy increases either by refinement over time or by the selection of a root grid with higher resolution, achieving maximums of 161, 1138, and 1753 on the 970M, V100, and A100, respectively. The speedup provided by choosing single-over double-precision in 3D ranges from 2.4 times on the 970M to 1.4/1.5 on the V100/A100. Simulations in 2D terminate too quickly with the given grid hierarchy size, resulting in similar performance for both choices.
+
+A comparison of execution times with a standalone script implementing various grid arrangements highlights the impact of the index order, which tends toward a shuffled arrangement as the mesh adapts over time. We simulated the lid-driven cavity using cell- and block-based solvers with four grid arrangements: 1) a structured grid with computed neighbor indices, 2) a structured grid with neighbor indices retrieved from global memory, 3) an octree grid with un-shuffled indices, and 4) an octree grid with shuffled indices. These tests include all three velocity sets. The block-based code produces a total simulation time independent of the grid arrangement. In contrast, the cell-based code produces a total time lower than the block-based counterpart when an unshuffled arrangement is used (both structured and octree), with a speedup ranging from 1.12-1.73. However, the block-based code performs better with shuffled indices, with a speedup ranging from 2.25 to 3.00.
+
+We assess the performance of the GPU-native AMR implementation by analyzing the distributions of execution times by step for several simulations and the computed total time taken to adapt the mesh via refinement and coarsening as a fraction of the total solver time. Most LDC simulations maintain this fraction under 2.00%. Efficiency improves for the FPSC simulations as the grid hierarchy size increases and remains below 10% in all cases. The 2D cases across all GPUs present an exception, where smaller grids advance too quickly relative to the fixed cost of resetting intermediate arrays in preparation for mesh adaptation. In 3D, the pre-computation step, which prepares the mesh for inserting valid data in new children and scales with interpolation and averaging, requires the most time to resolve. Other steps remain similar by order of magnitude otherwise. Scaling tests, performed by increasing the grid hierarchy size and expanding the near-wall refinement zone to reach approximately 2.5 million simultaneously inserted blocks, demonstrate linear scaling, requiring up to 45 ms on the V100.
+
+Future work will explore the feasibility of a multi-GPU and/or multi-node extension to the current refinement and coarsening algorithm, including a suitable load-balancing strategy (e.g., based on a space-filling curve) that efficiently partitions the grid dynamically for distribution to the various devices. The fixed array-reset and interpolation/averaging costs create bottlenecks in the mesh adaptation procedure, necessitating optimization. Although cubic interpolation greatly benefits accuracy in the FPSC test cases, its computational cost increases in 3D and for larger cell-block sizes due to the numerous accesses to global and shared memory during run-time computation of the interpolation weights. Averaging is less expensive than cubic interpolation but appreciably more expensive than linear interpolation owing to the separated global writes to parent cells and the memory access concerns similar to interpolation.
+
+Simultaneous loads of child cell DDFs are required when computing equilibrium distributions for re-scaling to avoid repeated global memory loads, which limits the number of parent DDFs that can be stored. A new class of Lattice Boltzmann Methods referred to as the simplified LBM $[93–96]$ has emerged in recent years, which recasts the Chapman-Enskog analysis to derive governing equations that update the macroscopic properties directly (as opposed to storing numerous DDFs from which these properties are recovered). Switching to the simplified LBM could benefit the grid communication routines since macroscopic properties no longer require re-scaling. The total number of macroscopic properties is fewer in count than DDFs, so there would be fewer global and shared memory accesses overall.
+
+## Nomenclature
+
+$\Delta t$ Time step $\Delta x$ Lattice spacing $\epsilon$ Logarithmic refinement criterion $\mathcal{O}$ Order of magnitude $\nu$ Kinematic viscosity $\Omega$ Collision operator $\omega$ Relaxation parameter $\frac{\omega'}{C_D}$ Complementary relaxation parameter $\overline{C}_L$ Time-averaged drag coefficient
+Lift coefficient $\rho$ Density $\tau$ Relaxation time $\mathbf{c}_p$ Particle velocity vector $\mathbf{e}_p$ Unit vector in the direction of particle velocity $\mathbf{u}$ Macroscopic velocity vector $\mathbf{x}$ Spatial location
+Re Reynolds number $c_s$ Lattice speed of sound $d$ Distance from the nearest wall $f_p$ Density distribution function $f_p^*$ Post-collision density distribution function $f_p^{\mathrm{eq}}$ Equilibrium distribution function $f_p^{\mathrm{neq}}$ Non-equilibrium distribution function $L$ Grid level $L_{\mathrm{des.}}$ Desired grid level $L_{\mathrm{max.}}$ Maximum grid level $N_d$ Number of dimensions $N_p$ Floating-point precision word length (in bytes) $N_Q$ Number of discrete velocities $N_x$ Root grid resolution $N_{\mathrm{inc.}}$ Incremental parameter for refinement criterion $N_{\mathrm{start}}$ Start parameter for refinement criterion $p$ Pressure $St$ Strouhal number $t$ Time in seconds $U$ Streamwise velocity $w_p$ Quadrature weight $x$ Cartesian coordinate axis $y$ Cartesian coordinate spanwise axis $z$ Cartesian coordinate vertical axis
+AMR Adaptive Mesh Refinement
+BGK Bhatnagar-Gross-Krook
+
+Table A.10
+Solver parameters for the case studies of Section 5.
+
+<table><tr><td>Parameter</td><td> $G/V/A_1$ </td><td> $G/V/A_1$ </td><td> $G/V/A_1$ </td><td> $G/V/A_1$ </td><td> $G/V/A_1$ </td><td> $G/V/A_1$ </td><td> $V-S_1$ </td><td> $V-S_2$ </td><td> $V-S_3$ </td></tr><tr><td>N_PRECISION</td><td>0</td><td>1</td><td>0</td><td>1</td><td>0</td><td>1</td><td>0</td><td>0</td><td>0</td></tr><tr><td>N_Q</td><td>9</td><td>9</td><td>19</td><td>19</td><td>27</td><td>27</td><td>9</td><td>9</td><td>9</td></tr><tr><td>MAX_LEVELS</td><td>4</td><td>4</td><td>38050</td><td>38050</td><td>38050</td><td>38050</td><td>4</td><td>4</td><td>3</td></tr><tr><td>L_c</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr><tr><td>L_fy</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td></tr><tr><td>v0</td><td>0.00005</td><td>0.00005</td><td>0.00005</td><td>0.00005</td><td>0.00005</td><td>0.00005</td><td>0.000015625</td><td>0.00001</td><td>0.000005</td></tr><tr><td>Nx</td><td>128</td><td>128</td><td>64</td><td>64</td><td>64</td><td>64</td><td>64</td><td>64</td><td>512</td></tr><tr><td>N_CASE</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr><tr><td>N_REFINE_START</td><td>-2</td><td>-2</td><td>-2</td><td>-2</td><td>-2</td><td>-2</td><td>-2</td><td>-2</td><td>-2</td></tr><tr><td>N_PROBE_FORCE</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr><tr><td>N_PROBE_AVE</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr><tr><td>P_PRINT</td><td> $1000*N_x$ </td><td> $1000*N_x$ </td><td> $1000*N_x$ </td><td> $1000*N_x$ </td><td> $1000*N_x$ </td><td> $1000*N_x$ </td><td> $1000*N_x$ </td><td> $1000*N_x$ </td><td> $1000*N_x$ </td></tr><tr><td>Parameter</td><td> $V-S_4$ </td><td> $F-A_{1,\ldots,4}$ </td><td> $F-B_{1,\ldots,4}$ </td><td> $F-C_{1,\ldots,3}$ </td><td>F-D</td><td>F-E</td><td>-</td><td>-</td><td>-</td></tr><tr><td>N_PRECISION</td><td>0</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>-</td><td>-</td><td>-</td></tr><tr><td>N_Q</td><td>19</td><td>9</td><td>9</td><td>9</td><td>9</td><td>9</td><td>-</td><td>-</td><td>-</td></tr><tr><td>MAX_LEVELS</td><td>4</td><td>2,...,5</td><td>1,...,4</td><td>1,...,3</td><td>1</td><td>1</td><td>-</td><td>-</td><td>-</td></tr><tr><td>L_c</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>-</td><td>-</td><td>-</td></tr><tr><td>L_fy</td><td>1</td><td>0.5</td><td>0.5</td><td>0.5</td><td>0.5</td><td>0.5</td><td>-</td><td>-</td><td>-</td></tr><tr><td>v0</td><td>0.000015625</td><td>0.000015625</td><td>0.000015625</td><td>0.000015625</td><td>0.000015625</td><td>0.000015625</td><td>-</td><td>-</td><td>-</td></tr><tr><td>Nx</td><td>128</td><td>256</td><td>512</td><td>1024</td><td>2048</td><td>4096</td><td>-</td><td>-</td><td>-</td></tr><tr><td>N_CASE</td><td>0</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>-</td><td>-</td><td>-</td></tr><tr><td>N_REFINE_START</td><td>-2</td><td>-3</td><td>-3</td><td>-3</td><td>-3</td><td>-3</td><td>-</td><td>-</td><td>-</td></tr><tr><td>N_PROBE_FORCE</td><td>0</td><td>1</td><td>1</td><td>1</td><td>1</td><td>1</td><td>-</td><td>-</td><td>-</td></tr><tr><td>N_PROBE_AVE</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td></tr></table>
+
+CFD Computational Fluid Dynamics
+CPU Central Processing Unit
+CUDA Compute Unified Device Architecture
+DDF Density Distribution Function
+FPSC Flow Past a Square Cylinder
+GPGPU General-Purpose Graphics Processing Unit
+GPU Graphics Processing Unit
+LBM Lattice Boltzmann Method
+LDC Lid-Driven Cavity
+MLUPS Million Lattice node Updates Per Second
+MPI Message Passing Interface
+SAMR Structured Adaptive Mesh Refinement
+SPC Space-Filling Curve
+
+## CRediT authorship contribution statement
+
+Khodr Jaber: Writing – review & editing, Writing – original draft, Visualization, Validation, Software, Methodology, Investigation, Funding acquisition, Formal analysis, Data curation, Conceptualization. Ebenezer E. Essel: Writing – review & editing, Supervision, Resources, Project administration. Pierre E. Sullivan: Writing – review & editing, Supervision, Resources, Project administration.
+
+## Declaration of competing interest
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+
+## Acknowledgements
+
+The authors gratefully acknowledge support from the Natural Sciences and Engineering Research Council of Canada (RGPIN-2022-03071, RGPIN-2023-04767), Canadian Microelectronics Corporation (20254146), and the Digital Research Alliance of Canada (4752). Open access fees were generously supported by the University of Toronto Libraries and the Canadian Knowledge Research Network.
+
+## Appendix A. Case studies - configuration files
+
+The configuration variables used to produce the test cases considered in Section 5 have been made available in Table A.10. A single configuration file confmake.sh defines the solver parameters and invokes the Makefile for compilation. Modification of any of these parameters requires recompilation in the current implementation. Other unused parameters, fixed in value for all simulations or require customized adjustment, are listed in Table A.11.
+
+Table A.11
+Solver parameters which were unused, fixed in value or customized depending on desired output.
+
+<table><tr><td>Parameter</td><td>Value</td><td>Desc.</td></tr><tr><td>PERIODIC_X</td><td></td><td></td></tr><tr><td>PERIODIC_Y</td><td></td><td></td></tr><tr><td>PERIODIC_Z</td><td></td><td></td></tr><tr><td>S_INTERP_TYPE</td><td>1</td><td></td></tr><tr><td>S_INIT_TYPE</td><td>0</td><td>Unused</td></tr><tr><td>N_PROBE</td><td>0</td><td></td></tr><tr><td>N_PROBE_DENSITY</td><td>4</td><td></td></tr><tr><td>N_PROBE_FREQUENCY</td><td>32</td><td></td></tr><tr><td>V_PROBE_TOL</td><td>0.0001</td><td></td></tr><tr><td>MAX_LEVELS_INTERIOR</td><td>MAX_LEVELS</td><td></td></tr><tr><td>L_fz</td><td>1</td><td></td></tr><tr><td>B_TYPE</td><td>1</td><td></td></tr><tr><td>S_LES</td><td>0</td><td></td></tr><tr><td>P_REFINE</td><td>32</td><td></td></tr><tr><td>N_REFINE_INC</td><td>1</td><td rowspan="2">Unused</td></tr><tr><td>N_CONN_TYPE</td><td>1</td></tr><tr><td>P_SHOW_REFINE</td><td>1</td><td></td></tr><tr><td>N_PROBE_F_FREQUENCY</td><td>16</td><td></td></tr><tr><td>N_PROBE_AVE_FREQUENCY</td><td>10</td><td></td></tr><tr><td>N_PROBE_AVE_START</td><td>100*Nx</td><td></td></tr><tr><td>N_PRINT</td><td>1</td><td></td></tr><tr><td>N_LEVEL_START</td><td>0</td><td></td></tr><tr><td>P_DIR_NAME</td><td>../out/</td><td></td></tr><tr><td>N_PRINT_LEVELS</td><td>1</td><td>Custom</td></tr><tr><td>P_SHOW_ADVANCE</td><td>0</td><td></td></tr><tr><td>P_PRINT_ADVANCE</td><td>0</td><td></td></tr><tr><td>N_REGEN</td><td>1</td><td></td></tr></table>
+
+## Data availability
+
+A link to my Github repository is available in the paper abstract.
+
+## References
+
+[1] S. Hou, S. James, C. Shiyi, D. Gary, A Lattice Boltzmann Subgrid Model for High Reynolds Number Flows, vol. 6, Fields Institute Communications, 1996.
+
+[2] D. Yu, R. Mei, W. Shyy, A multi-block lattice Boltzmann method for viscous fluid flows, Int. J. Numer. Methods Fluids 39 (2) (2002) 99–120.
+
+[3] D.B.Md. Shakhawath Hossain, X. Chen, Visualisation and analysis of large-scale vortex structures in three-dimensional turbulent lid-driven cavity flow, J. Turbul. 16 (10) (2015) 901–924, https://doi.org/10.1080/14685248.2015.1043132.
+
+[4] M. Gaedtke, S. Wachter, M. Rädle, H. Nirschl, M.J. Krause, Application of a lattice Boltzmann method combined with a Smagorinsky turbulence model to spatially resolved heat flux inside a refrigerated vehicle, Comput. Math. Appl. (1987) 76 (10) (2018) 2315–2329.
+
+[5] S. Watanabe, T. Aoki, Large-scale flow simulations using lattice Boltzmann method with amr following free-surface on multiple gpus, Comput. Phys. Commun. 264 (2021) 107871.
+
+[6] S. Watanabe, J. Kawahara, T. Aoki, K. Sugihara, S. Takase, S. Moriguchi, H. Hashimoto, Free-surface flow simulations with floating objects using lattice Boltzmann method, Eng. Appl. Comput. Fluid Mech. 17 (1) (2023).
+
+[7] J. Plewinski, C. Alt, H. Köstler, U. Rüde, Performance analysis of the free surface lattice Boltzmann implementation in waLBerla, Proc. Appl. Math. Mech. (2024).
+
+[8] S. Sakane, T. Aoki, T. Takaki, Parallel-GPU AMR implementation for phase-field lattice Boltzmann simulation of a settling dendrite, Comput. Mater. Sci. 211 (April) (2022) 111542, https://doi.org/10.1016/j.commatsci.2022.111542.
+
+[9] S. Sakane, T. Takaki, T. Aoki, Parallel-gpu-accelerated adaptive mesh refinement for three-dimensional phase-field simulation of dendritic growth during solidification of binary alloy, Mater. Theory 6 (1) (2022) 1–19.
+
+[10] S. Sakane, T. Aoki, T. Takaki, Phase-field lattice Boltzmann simulation of three-dimensional settling dendrite with natural convection during nonisothermal solidification of binary alloy, IOP conference series, Mater. Sci. Eng. 1281 (1) (2023) 12053.
+
+[11] T. Krüger, H. Kusumaatmaja, A. Kuzmin, O. Shardt, G. Silva, E.M. Viggen, The Lattice Boltzmann Method, Graduate Texts in Physics, Springer International Publishing, Cham, 2017, https://link.springer.com/book/10.1007/978-3-319-44649-3.
+
+[12] M. Mohrhard, G. Thäter, J. Bludau, B. Horvat, M.J. Krause, Auto-vectorization friendly parallel lattice Boltzmann streaming scheme for direct addressing, Comput. Fluids 181 (2019) 1–7.
+
+[13] C. Stewart, C. Feichtinger, C. Godenschwager, C. Rettinger, C. Schwarzmeier, D. Ritter, D. Anderl, D. Staubach, D. Bartuschat, E. Fattahi, F. Winterhalter, F. Schornbaum, F. Hennig, G. Drozdov, H. Schottenhamml, I. Ostanin, J. Götz, J. Hönig, J.V.T. Risso, J. Habich, K. Iglberger, K. Pickl, L. Hufnagel, L. Werner, M. Holzer, M. Bauer, M. Markl, M. Kuron, N. Kohl, P. Carvalho, R. Ammer, S. Dolas, S. Eibl, S. Bergler, S. Bogner, S. Donath, S. Seitz, S. Kontham, T. Leemann, T. Preclik, T. Scharpff, T. Schruff, waLBerla (widely applicable Lattice Boltzmann from Erlangen), https://doi.org/10.5281/zenodo.10054460, Oct. 2023.
+
+[14] F. Weik, R. Weeber, K. Szuttor, K. Breitsprecher, J. de Graaf, M. Kuron, J. Landsgesell, H. Menke, D. Sean, C. Holm, Espresso 4.0 – an extensible software package for simulating soft matter systems, Eur. Phys. J. Spec. Top. 227 (14) (2019) 1789–1816.
+
+[15] J. Latt, O. Malaspinas, D. Kontaxakis, A. Parmigiani, D. Lagrava, F. Brogi, M.B. Belgacem, Y. Thorimbert, S. Leclaire, S. Li, F. Marson, J. Lemus, C. Kotsalos, R. Conradin, C. Coreixas, R. Petkantchin, F. Raynaud, J. Beny, B. Chopard, Palabos: parallel lattice Boltzmann solver, Comput. Math. Appl. 81 (1) (2021) 334–350.
+
+[16] M. Lehmann, FluidX3D, https://github.com/ProjectPhysX/FluidX3D, Aug. 2022.
+
+[17] Łukasz Łaniewski Wołk, M. Dzikowski, T. Mitchell, D. Sashko, ggruszczynski, P. Obrepalski, mrutkowski aero, W. Regulski, bhill23, TGajek, JonMcCullough, C. de Waard, lanwatch, Cfd-go/tclb: version 6.7, https://doi.org/10.5281/zenodo.8433690, Oct. 2023.
+
+[18] M.D. Mazzeo, P.V. Coveney, Hemelb: a high performance parallel lattice-Boltzmann code for large scale fluid flow in complex geometries, Comput. Phys. Commun. 178 (12) (2008) 894–914.
+
+[19] M. Meneghin, A.H. Mahmoud, P.K. Jayaraman, N.J.W. Morris, Neon: a multi-gpu programming model for grid-based computations, in: Proceedings of the 36th IEEE International Parallel and Distributed Processing Symposium, 2022, pp. 817–827, https://escholarship.org/uc/item/9fz7k633.
+
+[20] O. Filippova, D. Hänel, Grid refinement for lattice-BGK models, J. Comput. Phys. 147 (1) (1998) 219–228, https://doi.org/10.1006/jcph.1998.6089, https://linkinghub.elsevier.com/retrieve/pii/S0021999198960892.
+
+[21] C.-L. Lin, Y.G. Lai, Lattice Boltzmann method on composite grids, Phys. Rev. E 62 (2) (2000) 2219–2225, https://doi.org/10.1103/PhysRevE.62.2219, https://link.aps.org/doi/10.1103/PhysRevE.62.2219.
+
+[22] A. Dupuis, B. Chopard, Theory and applications of an alternative lattice Boltzmann grid refinement algorithm, Phys. Rev. E 67 (6) (2003) 066707, https://doi.org/10.1103/PhysRevE.67.066707, https://link.aps.org/doi/10.1103/PhysRevE.67.066707.
+
+[23] M. Rohde, D. Kandhai, J.J. Derksen, H.E.A. van den Akker, A generic, mass conservative local grid refinement technique for lattice-Boltzmann schemes, Int. J. Numer. Methods Fluids 51 (4) (2006) 439–468, https://doi.org/10.1002/fld.1140, https://onlinelibrary.wiley.com/doi/10.1002/fld.1140.
+
+[24] H. Chen, O. Filippova, J. Hoch, K. Molvig, R. Shock, C. Teixeira, R. Zhang, Grid refinement in lattice Boltzmann methods based on volumetric formulation, Phys. A 362 (1) (2006) 158–167.
+
+[25] J. Tölke, S. Freudiger, M. Krafczyk, An adaptive scheme using hierarchical grids for lattice Boltzmann multi-phase flow simulations, Comput. Fluids 35 (8) (2006) 820–830.
+
+[26] M. Geier, A. Greiner, J.G. Korvink, Bubble functions for the lattice Boltzmann method and their application to grid refinement, Eur. Phys. J. Spec. Top. 171 (1) (2009) 173–179.
+
+[27] D. Lagrava, O. Malaspinas, J. Latt, B. Chopard, Advances in multi-domain lattice Boltzmann grid refinement, J. Comput. Phys. 231 (14) (2012) 4808–4822.
+
+[28] A. Fakhari, T. Lee, Finite-difference lattice Boltzmann method with a block-structured adaptive-mesh-refinement technique, Phys. Rev. E, Stat. Nonlinear Soft Matter Phys. 89 (3) (2014) 033310.
+
+[29] A. Schukmann, A. Schneider, V. Haas, M. Böhle, Analysis of hierarchical grid refinement techniques for the lattice Boltzmann method by numerical experiments, Fluids (Basel) 8 (3) (2023) 103.
+
+[30] M.J. Berger, J. Oliger, Adaptive mesh refinement for hyperbolic partial differential equations, J. Comput. Phys. 53 (3) (1984) 484–512, https://doi.org/10.1016/0021-9991(84)90073-1.
+
+[31] M.J. Berger, R.J. LeVeque, Adaptive mesh refinement using wave-propagation algorithms for hyperbolic systems, SIAM J. Numer. Anal. 35 (6) (1998) 2298–2316, https://doi.org/10.1137/S0036142997315974, http://epubs.siam.org/doi/10.1137/S0036142997315974.
+
+[32] M. Berger, P. Colella, Local adaptive mesh refinement for shock hydrodynamics, J. Comput. Phys. 82 (1) (1989) 64–84, https://doi.org/10.1016/0021-9991(89)90035-1, https://www.jstor.org/stable/10.2307/3323192?origin=crossref.
+
+[33] P. MacNeice, K.M. Olson, C. Mobarry, R. De Fainchtein, C. Packer, PARAMESH: a parallel adaptive mesh refinement community toolkit, Comput. Phys. Commun. 126 (3) (2000) 330–354, https://doi.org/10.1016/S0010-4655(99)00501-9.
+
+[34] M. Adams, P. Collela, D.T. Graves, J.N. Johnson, H.S. Johansen, N.D. Keen, T.J. Ligocki, D.F. Martin, P.W. McCorquodale, D. Modiano, P.O. Schwartz, T.D. Sternberg, B. Van Straalen, Chombo Software Package for AMR Applications - Design Document, Tech. Rep., Lawrence Berkeley National Laboratory, 2021, https://commons.lbl.gov/download/attachments/73468344/chomboDesign.pdf?version=2&modificationDate=1637051026720&api=v2.
+
+[35] R.D. Hornung, S.R. Kohn, Managing application complexity in the SAMRAI object-oriented framework, Concurr. Comput., Pract. Exp. 14 (5) (2002) 347–368, https://doi.org/10.1002/cpe.652, https://onlinelibrary.wiley.com/doi/10.1002/cpe.652.
+
+[36] B. Fryxell, K. Olson, P. Ricker, F.X. Timmes, M. Zingale, D.Q. Lamb, P. MacNeice, R. Rosner, J.W. Truran, H. Tufo, Flash: an adaptive mesh hydrodynamics code for modeling astrophysical thermonuclear flashes, Astrophys. J. Suppl. Ser. 131 (1) (2000) 273–334.
+
+[37] R.S. Sampath, S.S. Anavani, H. Sundar, I. Lashuk, G. Biros, Dendro: parallel algorithms for multigrid and amr methods on 2:1 balanced octrees, in: SC '08: Proceedings of the 2008 ACM/IEEE Conference on Supercomputing, IEEE, 2008, pp. 1–12.
+
+[38] T. Tu, D.R. O'Hallaron, O. Ghattas, Scalable parallel octree meshing for terascale applications, in: SC '05: Proceedings of the 2005 ACM/IEEE Conference on Supercomputing, IEEE Computer Society, Washington, DC, USA, 2005, 4.
+
+[39] J. Bordner, M.L. Norman, Enzo-p / cello: scalable adaptive mesh refinement for astrophysics and cosmology, in: Proceedings of the Extreme Scaling Workshop, BW-XSEDE '12, University of Illinois at Urbana-Champaign, USA, 2012, p. 28.
+
+[40] C. Burstedde, L.C. Wilcox, O. Ghattas, p4est: scalable algorithms for parallel adaptive mesh refinement on forests of octrees, SIAM J. Sci. Comput. 33 (3) (2011) 1103–1133, https://doi.org/10.1137/100791634.
+
+[41] M. Wahib, N. Maruyama, T. Aoki, Daino: a high-level framework for parallel and efficient AMR on GPUs, in: International Conference for High Performance Computing, Networking, Storage and Analysis, SC 0, November, 2016, pp. 621–632.
+
+[42] H.-Y. Schive, J.A. ZuHone, N.J. Goldbaum, M.J. Turk, M. Gaspari, C.-Y. Cheng, GAMER-2: a GPU-accelerated adaptive mesh refinement code – accuracy, performance, and scalability, Mon. Not. R. Astron. Soc. 481 (4) (2018) 4815–4840, https://doi.org/10.1093/mnras/sty2586, https://academic.oup.com/mnras/article/481/4/4815/5106358.
+
+[43] W. Zhang, A. Almgren, V. Beckner, J. Bell, J. Blaschke, C. Chan, M. Day, B. Friesen, K. Gott, D. Graves, M. Katz, A. Myers, T. Nguyen, A. Nonaka, M. Rosso, S. Williams, M. Zingale, AMReX: a framework for block-structured adaptive mesh refinement, J. Open Sour. Softw. 4 (37) (2019) 1370.
+
+[44] M.L. Sætra, A.R. Brodkorb, K.A. Lie, Efficient GPU-implementation of adaptive mesh refinement for the shallow-water equations, J. Sci. Comput. 63 (1) (2015) 23–48, https://doi.org/10.1007/s10915-014-9883-4.
+
+[45] M. de la Asunción, M.J. Castro, Simulation of tsunamis generated by landslides using adaptive mesh refinement on gpu, J. Comput. Phys. 345 (2017) 91–110.
+
+[46] D.A. Beckingsale, W.P. Gaudin, R.D. Hornung, B.T. Gunney, T. Gamblin, J.A. Herdman, S.A. Jarvis, Parallel Block Structured Adaptive Mesh Refinement on Graphics Processing Units, Tech. Rep., Lawrence Livermore National Laboratory, 2014, https://www.osti.gov/servlets/purl/1184094.
+
+[47] A. Giuliani, L. Krivodonova, Adaptive mesh refinement on graphics processing units for applications in gas dynamics, J. Comput. Phys. 381 (2019) 67–90, https://doi.org/10.1016/j.jcp.2018.12.019.
+
+[48] I. Menshov, P. Pavlukhin, GPU-native gas dynamic solver on octree-based AMR grids, J. Phys. Conf. Ser. 1640 (1) (2020), https://doi.org/10.1088/1742-6596/1640/1/012017.
+
+[49] A. Dubey, A. Almgren, J. Bell, M. Berzins, S. Brandt, G. Bryan, P. Colella, D. Graves, M. Lijewski, F. Löffler, B. O'Shea, E. Schnetter, B. Van Straalen, K. Weide, A survey of high level frameworks in block-structured adaptive mesh refinement packages, J. Parallel Distrib. Comput. 74 (12) (2014) 3217–3227.
+
+[50] A. Dubey, M. Berzins, C. Burstedde, M.L. Norman, D. Unat, M. Wahib, K. Hinsen, Structured adaptive mesh refinement adaptations to retain performance portability with increasing heterogeneity, I.U.S. Argonne National Lab (ANL), Argonne, Comput. Sci. Eng. 23 (5) (2021) 62–66.
+
+[51] X. Qin, R.J. LeVeque, M.R. Motley, Accelerating an adaptive mesh refinement code for depth-averaged flows using gpus, J. Adv. Model. Earth Syst. 11 (8) (2019) 2606–2628.
+
+[52] D. Dunning, W. Marts, R.W. Robey, P. Bridges, Adaptive mesh refinement in the fast lane, J. Comput. Phys. 406 (C) (2020) 109193.
+
+[53] F. Schornbaum, U. Rüde, Extreme-scale block-structured adaptive mesh refinement, SIAM J. Sci. Comput. 40 (3) (2018) C358–C387.
+
+[54] C. Burstedde, D. Calhoun, K. Mandli, A.R. Terrel, Forestclaw: Hybrid forest-of-octrees amr for hyperbolic conservation laws, Tech. Rep., Cornell University Library, 2013, arXiv.org.
+
+[55] P. Wang, T. Abel, R. Kaehler, Adaptive mesh fluid simulations on gpu, New Astron. 15 (7) (2010) 581–589.
+
+[56] H.Y. Schive, Y.C. Tsai, T. Chiueh, GAMER: a graphic processing unit accelerated adaptive-mesh-refinement code for astrophysics, Astrophys. J. Suppl. Ser. 186 (2) (2010) 457–484, https://doi.org/10.1088/0067-0049/186/2/457.
+
+[57] X. Luo, L. Wang, W. Ran, F. Qin, GPU accelerated cell-based adaptive mesh refinement on unstructured quadrilateral grid, Comput. Phys. Commun. 207 (2016) 114–122.
+
+[58] A.A. Chowdhury, G. Kesserwani, C. Rougé, P. Richmond, GPU-parallelisation of Haar wavelet-based grid resolution adaptation for fast finite volume modelling: application to shallow water flows, J. Hydroinform. 25 (4) (2023) 1210–1234.
+
+[59] D. Beckingsale, W. Gaudin, A. Herdman, S. Jarvis, Resident block-structured adaptive mesh refinement on thousands of graphics processing units, in: 2015 44th International Conference on Parallel Processing, IEEE, 2015, pp. 61–70.
+
+[60] S. Zaghi, F. Salvadore, A. Di Mascio, G. Rossi, Efficient gpu parallelization of adaptive mesh refinement technique for high-order compressible solver with immersed boundary, Comput. Fluids 266 (2023) 106040.
+
+[61] A. Alhadeff, S.E. Leon, W. Celes, G.H. Paulino, Massively parallel adaptive mesh refinement and coarsening for dynamic fracture simulations, Eng. Comput. 32 (3) (2016) 533–552.
+
+[62] P. Pavlukhin, I. Menshov, GPU-aware AMR on octree-based grids, in: V. Malyshkin (Ed.), Parallel Computing Technologies, Springer International Publishing, Cham, 2019, pp. 214–220.
+
+[63] L. Wang, F. Witherden, A. Jameson, An efficient gpu-based h-adaptation framework via linear trees for the flux reconstruction method, J. Comput. Phys. 502 (2024) 112823.
+
+[64] G.M. Morton, A computer oriented geodetic data base and a new technique in file sequencing, Tech. Rep., International Business Machines Company Ottawa Canada, 1966.
+
+[65] H. Sundar, R.S. Sampath, G. Biros, Bottom-up construction and 2:1 balance refinement of linear octrees in parallel, SIAM J. Sci. Comput. 30 (5) (2008) 2675–2708.
+
+[66] T. Weinzierl, M. Mehl, Peano—a traversal and storage scheme for octree-like adaptive Cartesian multiscale grids, SIAM J. Sci. Comput. 33 (5) (2011) 2732–2760.
+
+[67] C. Burstedde, O. Ghattas, G. Stadler, T. Tu, L.C. Wilcox, Towards adaptive mesh PDE simulations on petascale computers, in: Proceedings of Teragrid '08, 2008, p. 10, Winner, NSF TeraGrid Capability Computing Challenge.
+
+[68] C. Godenschwager, F. Schornbaum, M. Bauer, H. Köstler, U. Rüde, A framework for hybrid parallel flow simulations with a trillion cells in complex geometries, in: Proceedings of the International Conference on High Performance Computing, Networking, Storage and Analysis, SC '13, Association for Computing Machinery, New York, NY, USA, 2013, p. 12.
+
+[69] F. Schornbaum, U. Rüde, Massively parallel algorithms for the lattice Boltzmann method on nonuniform grids, SIAM J. Sci. Comput. 38 (2) (2016) C96–C126.
+
+[70] M. Lahnert, C. Burstedde, C. Holm, M. Mehl, G. Rempfer, F. Weik, Towards lattice-Boltzmann on dynamically adaptive grids - minimally-invasive grid exchange in espresso, in: VII European Congress on Computational Methods in Applied Sciences and Engineering, 2016, pp. 2566–2590.
+
+[71] M. Mehl, M. Lahnert, Adaptive grid implementation for parallel continuum mechanics methods in particle simulations, Eur. Phys. J. Spec. Top. 227 (14) (2019) 1757–1778.
+
+[72] F. Schornbaum, Block-Structured Adaptive Mesh Refinement for Simulations on Extreme-Scale Supercomputers, Ph.D. thesis, University of Erlangen-Nuremberg, 2018.
+
+[73] A.H. Mahmoud, H. Salehipour, M. Meneghin, Optimized gpu implementation of grid refinement in lattice Boltzmann method, in: 38th IEEE International Parallel and Distributed Processing Symposium, IPDPS 2024, IEEE, 2024, pp. 398–407.
+
+[74] W.-m.W. Hwu, D.B. Kirk, Thrust: A Productivity-Oriented Library for CUDA, Programming Massively Parallel Processors, Elsevier Science & Technology, United States, 2012, pp. 359–371, Ch. 26.
+
+[75] CCCL Development Team, CCCL: CUDA C++ core libraries, https://github.com/NVIDIA/cccl, 2023.
+
+[76] P.L. Bhatnagar, E.P. Gross, M. Krook, A model for collision processes in gases. I. Small amplitude processes in charged and neutral one-component systems, Phys. Rev. 94 (3) (1954) 511–525.
+
+[77] P. Lallemand, L. Luo, Theory of the lattice Boltzmann method: dispersion, dissipation, isotropy, Galilean invariance, and stability, Phys. Rev. E, Stat. Phys. Plasmas Fluids Relat. Interdiscip. Topics 61 (6 Pt A) (2000) 6546–6562.
+
+[78] D. d'Humières, I. Ginzburg, M. Krafczyk, P. Lallemand, L.-S. Luo, Multiple-relaxation-time lattice Boltzmann models in three dimensions, Philos. Trans., Math. Phys. Eng. Sci. 360 (1792) (2002) 437–451, http://www.jstor.org/stable/3066323.
+
+[79] T. Weinzierl, The Peano software—parallel, automaton-based, dynamically adaptive grid traversals, ACM Trans. Math. Softw. 45 (2) (2019) 1–41.
+
+[80] S. Keller, A. Cavelan, R. Cabezon, L. Mayer, F. Ciorba, Cornerstone: octree construction algorithms for scalable particle simulations, in: PASC '23: Proceedings of the Platform for Advanced Scientific Computing Conference, ACM, New York, NY, USA, 2023, pp. 1–10.
+
+[81] G. Zumbusch, S.O. service, Parallel Multilevel Methods: Adaptive Mesh Refinement and Loadbalancing, 1st edition, Vieweg+Teubner Verlag, Wiesbaden, 2003.
+
+[82] M. Geier, A. Greiner, J.G. Korvink, Cascaded digital lattice Boltzmann automata for high Reynolds number flow, Phys. Rev. E, Stat. Nonlinear Soft Matter Phys. 73 (6 Pt 2) (2006) 066705.
+
+[83] D. Yu, Viscous flow computations with the lattice-Boltzmann equation method, Ph.D. thesis, University of Florida, 2002.
+
+[84] M. Geier, M. Schänherr, Esoteric twist: an efficient in-place streaming algorithmus for the lattice Boltzmann method on massively parallel hardware, Computation 5 (4) (2017) 19.
+
+[85] M. Lehmann, Esoteric pull and esoteric push: two simple in-place streaming schemes for the lattice Boltzmann method on gpus, Computation 10 (6) (2022) 92.
+
+[86] U. Ghia, K. Ghia, C. Shin, High-Re solutions for incompressible flow using the Navier-Stokes equations and a multigrid method, J. Comput. Phys. 48 (3) (1982) 387–411, https://doi.org/10.1016/0021-9991(82)90058-4, https://linkinghub.elsevier.com/retrieve/pii/0021999182900584.
+
+[87] A. Cortes, J. Miller, Numerical experiments with the lid driven cavity flow problem, Comput. Fluids 23 (8) (1994) 1005–1027, https://doi.org/10.1016/0045-7930(94)90002-7, https://linkinghub.elsevier.com/retrieve/pii/0045793094900027.
+
+[88] A.K. Prasad, J.R. Koseff, Reynolds number and end-wall effects on a lid-driven cavity flow, Phys. Fluids A, Fluid Dyn. 1 (2) (1989) 208–218, https://doi.org/10.1063/1.857491, https://pubs.aip.org/pof/article/1/2/208/401331/Reynolds-number-and-end-wall-effects-on-a-lid.
+
+[89] A.J.C. Ladd, Numerical simulations of particulate suspensions via a discretized Boltzmann equation. Part 2. Numerical results, J. Fluid Mech. 271 (1994) 311–339.
+
+[90] A.K. Saha, K. Muralidhar, G. Biswas, Transition and chaos in two-dimensional flow past a square cylinder, J. Eng. Mech. 126 (5) (2000) 523–532.
+
+[91] A.P. Singh, A.K. De, V.K. Carpenter, V. Eswaran, K. Muralidhar, Flow past a transversely oscillating square cylinder in free stream at low Reynolds numbers, Int. J. Numer. Methods Fluids 61 (6) (2009) 658–682.
+
+[92] F.A. González, J.A. Bustamante, M.A. Cruchaga, D.J. Celentano, Numerical study of flow past oscillatory square cylinders at low Reynolds number, Eur. J. Mech. B, Fluids 75 (2019) 286–299.
+
+[93] C. Shu, Y. Wang, C.J. Teo, J. Wu, Development of lattice Boltzmann flux solver for simulation of incompressible flows, Adv. Appl. Math. Mech. 6 (4) (2014) 436–460.
+
+[94] Z. Chen, C. Shu, Y. Wang, L.M. Yang, D. Tan, A simplified lattice Boltzmann method without evolution of distribution function, Adv. Appl. Math. Mech. 9 (1) (2017) 1–22.
+
+[95] Z. Chen, C. Shu, D. Tan, C. Wu, On improvements of simplified and highly stable lattice Boltzmann method: formulations, boundary treatment, and stability analysis, Int. J. Numer. Methods Fluids 87 (4) (2018) 161–179.
+
+[96] S. Qin, L. Yang, G. Hou, Y. Gao, W. Guo, A one-step simplified lattice Boltzmann method without evolution of distribution functions, Int. J. Numer. Methods Fluids 94 (7) (2022) 1001–1025.

@@ -12,6 +12,7 @@ using namespace amrex;
 
 void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 好像更适配cumulant_opt
 void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 更适配cumulant
+void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 更适配cumulant
 void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 
@@ -150,6 +151,20 @@ int main(int argc, char* argv[]) {
                           << " steps=" << stats_steps
                           << " MLUPS_solv=" << solv_mlups
                           << " MLUPS_total=" << total_mlups
+                          << std::endl;
+                std::cout << "step" << step
+                          << " perf_detail(s): interp_scale=" << perf.interp_scale
+                          << " interp_fillpatch=" << perf.interp_fillpatch
+                          << " average_alloc=" << perf.average_alloc
+                          << " average_copy=" << perf.average_copy
+                          << " average_scale=" << perf.average_scale
+                          << " average_down=" << perf.average_down
+                          << std::endl;
+                std::cout << "step" << step
+                          << " perf_count: fillghost_calls=" << perf.fillghost_calls
+                          << " avgdown_calls=" << perf.avgdown_calls
+                          << " interp_scale_cells=" << perf.interp_scale_cells
+                          << " average_scale_cells=" << perf.average_scale_cells
                           << std::endl;
 
                 compute_time = 0.0f;    // 改为float
@@ -294,6 +309,38 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     if (lev < max_ref_level) {
         JaberCycle(lev + 1, cur_time, lid);
+        lid.AverageDownGhostLevel(lev, 1);
+    }
+}
+
+void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+    const int nghost = lid.ghostCells();
+
+    // if(lev == max_ref_level)
+    // {
+    //     lid.ComputeParticle(lev);
+    //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
+    // }
+
+    // 1. 当前层向下一层插值一次
+    if (lev < max_ref_level) {
+        lid.FillGhostLevel(lev + 1, cur_time, 1);
+    }
+
+    // 2. 当前层推进一个时间步
+    lid.Boundary(lev);
+    lid.Collide(lev, nghost);
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, nghost);
+    lid.SwapLevel(lev, nghost);
+
+    // 3. 下一层用一半时间步连续推进两次
+    if (lev < max_ref_level) {
+        JaberCycle2(lev + 1, cur_time, lid);
+        JaberCycle2(lev + 1, cur_time + dt / 2.0, lid);
+
+        // 4. 两个细步完成后，只平均一次
         lid.AverageDownGhostLevel(lev, 1);
     }
 }

@@ -34,12 +34,22 @@ public:
 
     struct PerfStats {
         double interp = 0.0;
+        double interp_scale = 0.0;
+        double interp_fillpatch = 0.0;
         double collide = 0.0;
         double stream = 0.0;
         double average = 0.0;
+        double average_alloc = 0.0;
+        double average_copy = 0.0;
+        double average_scale = 0.0;
+        double average_down = 0.0;
         double comm = 0.0;
         double boundary = 0.0;
         double swap = 0.0;
+        long long fillghost_calls = 0;
+        long long avgdown_calls = 0;
+        long long interp_scale_cells = 0;
+        long long average_scale_cells = 0;
     };
 
     //********************************************************************//
