@@ -98,7 +98,7 @@ int main(int argc, char* argv[]) {
             // RohdeCycle(0, cur_time, lid);
 
             auto start_time_JaberCycle = std::chrono::high_resolution_clock::now();
-            JaberCycle(0, cur_time, lid);
+            JaberCycle2(0, cur_time, lid);
             auto end_time_JaberCycle = std::chrono::high_resolution_clock::now();
             JaberCycle_time += std::chrono::duration<float, std::milli>(end_time_JaberCycle - start_time_JaberCycle).count();
 

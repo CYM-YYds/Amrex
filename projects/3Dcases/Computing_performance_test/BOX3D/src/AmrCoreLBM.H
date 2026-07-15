@@ -170,6 +170,7 @@ private:
     amrex::Vector<std::unique_ptr<LagrangeParticleContainer>> particles;
     amrex::Vector<std::unique_ptr<AuxiliaryPointContainer>> particlesCp;
     amrex::Vector<amrex::RealVect> points;
+    amrex::Vector<amrex::Long> regrid_tag_counts;
     PerfStats perf_stats;
     RuntimeParams params_;
 };

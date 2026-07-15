@@ -5,6 +5,7 @@
 #include <AMReX_ParmParse.H>
 #include <AMReX_PhysBCFunct.H>
 #include <AMReX_PlotFileUtil.H>
+#include <AMReX_Reduce.H>
 #include <AMReX_Utility.H>
 #include <AMReX_VisMF.H>
 #include <AMReX_Gpu.H>
@@ -755,11 +756,23 @@ void AmrCoreLBM::FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf) 
 }
 
 void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
-    // amrex::Print()<<"..............."<<std::endl;
-    // amrex::Print()<<"regrid begin..."<<std::endl;
+    regrid_tag_counts.assign(max_level + 1, -1);
     regrid(0, cur_time);
-    // amrex::Print()<<"regrid end....."<<std::endl;
-    // amrex::Print()<<"..............."<<std::endl;
+
+    if (ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "regrid_observe: finest_level=" << finest_level << '\n';
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            const auto& ba = boxArray(lev);
+            amrex::Print() << "regrid_observe: lev=" << lev
+                           << " boxes=" << ba.size()
+                           << " valid_cells=" << ba.numPts();
+            if (lev < max_level && regrid_tag_counts[lev] >= 0) {
+                amrex::Print() << " tagged_to_lev=" << (lev + 1)
+                               << " tag_cells=" << regrid_tag_counts[lev];
+            }
+            amrex::Print() << '\n';
+        }
+    }
 }
 
 void AmrCoreLBM::FindCentre() {
@@ -1383,6 +1396,21 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
             // state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
         });
     }
+
+    amrex::ReduceOps<amrex::ReduceOpSum> reduce_op;
+    amrex::ReduceData<amrex::Long> reduce_data(reduce_op);
+    using ReduceTuple = amrex::GpuTuple<amrex::Long>;
+    for (MFIter mfi(tags, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        const Box& bx = mfi.tilebox();
+        const auto tagfab = tags.const_array(mfi);
+        reduce_op.eval(bx, reduce_data,
+                       [=] AMREX_GPU_DEVICE(int i, int j, int k) -> ReduceTuple {
+                           return {amrex::Long(tagfab(i, j, k) == TagBox::SET)};
+                       });
+    }
+    amrex::Long tag_count = amrex::get<0>(reduce_data.value());
+    ParallelDescriptor::ReduceLongSum(tag_count);
+    regrid_tag_counts[lev] = tag_count;
 }
 
 void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
