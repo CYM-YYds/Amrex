@@ -32,6 +32,10 @@ FillGhostLevel() -> FillDdfPatch() -> FillPatchTwoLevels()
 AverageDownGhostLevel() -> average_down()
 ```
 
+For the data-source rules of fine ghost cells, the DDF scaling convention, and
+the distinction between AMReX patch coverage and the Jaber paper's `Nskip`
+neighbor marker, read [AMR grid communication](docs/amr_grid_communication.md).
+
 ## Performance Log Fields
 
 The solver prints a 1000-step window summary:
