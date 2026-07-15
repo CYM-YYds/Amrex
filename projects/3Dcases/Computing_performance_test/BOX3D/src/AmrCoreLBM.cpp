@@ -653,7 +653,11 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
 {
     // amrex::AllPrint()<<"FillDdfPatch from " << lev-1 << " to " << lev <<std::endl;
 
-    Interpolater* mapper = &cell_cons_interp;
+    // 原 AMReX 守恒线性插值，保留以便对照。
+    // Interpolater* mapper = &cell_cons_interp;
+
+    // Jaber 论文式三线性插值：8 个粗格点加权。
+    Interpolater* mapper = &cell_bilinear_interp;
 
     amrex::MultiFab& f_new_lev_c = f_new[lev - 1]; // 用f_new当缓存容器
     amrex::MultiFab& f_old_lev_f = f_old[lev];     // 保持和传入的mf一致
@@ -1373,10 +1377,10 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
             // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
-            // state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+            state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
             // state_error_4(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
             // state_error_5(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
-            state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+            // state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
         });
     }
 }

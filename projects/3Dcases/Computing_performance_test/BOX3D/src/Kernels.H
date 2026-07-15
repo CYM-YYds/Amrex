@@ -2507,11 +2507,11 @@ AMREX_GPU_HOST_DEVICE // 用于方腔流的近壁和高涡量区域加密
     const int nz = geomdata.Domain().length(2);
 
     // 近壁边界层是方腔流的主要高梯度区域，始终保持细化。
-    // if (i <= wall_refine_cells || i >= nx - wall_refine_cells ||
-    //     j <= wall_refine_cells || j >= ny - wall_refine_cells ||
-    //     k <= wall_refine_cells || k >= nz - wall_refine_cells) {
-    //     tag(i, j, k) = tagval;
-    // }
+    if (i <= wall_refine_cells || i >= nx - wall_refine_cells ||
+        j <= wall_refine_cells || j >= ny - wall_refine_cells ||
+        k <= wall_refine_cells || k >= nz - wall_refine_cells) {
+        tag(i, j, k) = tagval;
+    }
 
     // vort(..., 1) 是涡量模，phierr 直接复用 inputs 里的 lbm.err 作为阈值。
     if (vort(i, j, k, 1) >= phierr) {
@@ -2548,7 +2548,7 @@ AMREX_GPU_HOST_DEVICE // 论文风格: 目标层级映射到 refine tag
     // if (l_des > lev) {
     //     tag(i, j, k) = tagval;
     // }
-    
+
     // 等价且更简洁的写法：
     // l_des > lev  <=>  epsilon >= n_start - (max_ref_level - lev) * n_inc
     if (epsilon >= static_cast<amrex::Real>(
