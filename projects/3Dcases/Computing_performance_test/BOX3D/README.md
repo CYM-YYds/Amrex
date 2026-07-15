@@ -1,89 +1,55 @@
-# BOX3D AMR Performance Case
+# BOX3D：三维方腔流耗时分析算例
 
-This case is used for 3D AMR-LBM performance experiments around the BOX3D
-setup. It uses the AMReX `MultiFab` data layout, MPI, CUDA, particle support,
-and the recursive `JaberCycle()` advance path.
+本算例基于 AMReX 实现三维方腔流的 AMR-LBM 计算。它的主要用途是记录和分析时间推进、粗细网格数据传输及重网格等阶段的耗时，为性能归因和后续优化提供依据。
 
-## Build
+仓库级目录说明、构建环境和通用编译流程见[根目录 README](../../../../README.md)；本文件仅说明 BOX3D 特有的性能统计口径与分析资料。
 
-Run from this case directory:
+## 性能统计口径
 
-```bash
-./scripts/compile.sh
-```
+程序在 `src/main.cpp` 中每推进 1000 步输出一个性能窗口。窗口结束后，累计计时器和统计计数都会重置，因此单条 `stepXXXX` 记录只对应其前一个 1000 步窗口，不能直接视为整个算例的累计耗时。
 
-The case-local script wraps the repository build flow and writes compile logs
-under `logs/compile/`.
+除 `compute_time`、`regrid_time` 与 `JaberCycle_time` 外，程序还输出下列三组统计信息。
 
-## Runtime Path
+### 阶段耗时：`perf(s)`
 
-The current fixed-body path in `src/main.cpp` calls:
+| 字段 | 含义 |
+| --- | --- |
+| `interp` | 粗网格向细网格填充幽灵单元及其 LBM 非平衡量缩放的总耗时。 |
+| `collide` | LBM 碰撞阶段耗时。 |
+| `stream` | LBM 迁移阶段耗时。 |
+| `average` | 细网格向粗网格限制及其相关缩放的总耗时。 |
+| `comm` | 同层数据通信耗时。 |
+| `boundary` | 边界条件处理耗时。 |
+| `swap` | 新旧分布函数数据交换耗时。 |
+| `solv` | `JaberCycle()` 的窗口总耗时。 |
+| `total` | 包含重网格等外围工作的窗口总耗时。 |
+| `MLUPS_solv` / `MLUPS_total` | 分别以 `solv` 和 `total` 为分母计算的性能指标。 |
 
-```text
-JaberCycle(0, cur_time, lid)
-```
+### 粗细网格传输细分：`perf_detail(s)`
 
-`JaberCycle()` advances levels with `nghost = lid.ghostCells()`, so
-`Collide()`, `Stream()`, and `SwapLevel()` are executed on grown tile boxes.
-Coarse-fine data transfer still goes through:
+| 字段 | 含义 |
+| --- | --- |
+| `interp_scale` | 粗网格到细网格填充前的 LBM 非平衡量缩放。 |
+| `interp_fillpatch` | AMReX `FillPatchTwoLevels()` 执行的粗细网格填充。 |
+| `average_alloc` | 限制操作所需细网格临时 `MultiFab` 的创建。 |
+| `average_copy` | 将细网格数据复制到该临时 `MultiFab`。 |
+| `average_scale` | 细网格到粗网格限制前的 LBM 非平衡量缩放。 |
+| `average_down` | AMReX `average_down()` 执行的细到粗限制。 |
 
-```text
-FillGhostLevel() -> FillDdfPatch() -> FillPatchTwoLevels()
-AverageDownGhostLevel() -> average_down()
-```
+这些细分计时会在测量点同步 GPU，因此适合在同一插桩构建中定位耗时来源；不应与未插桩运行的绝对吞吐直接比较。
 
-For the data-source rules of fine ghost cells, the DDF scaling convention, and
-the distinction between AMReX patch coverage and the Jaber paper's `Nskip`
-neighbor marker, read [AMR grid communication](docs/amr_grid_communication.md).
+### 调用量与近似工作量：`perf_count`
 
-## Performance Log Fields
+| 字段 | 含义 |
+| --- | --- |
+| `fillghost_calls` | 粗细网格幽灵单元填充调用次数。 |
+| `avgdown_calls` | 细网格向粗网格限制调用次数。 |
+| `interp_scale_cells` | 粗到细缩放处理的近似格点数。 |
+| `average_scale_cells` | 细到粗缩放处理的近似格点数。 |
 
-The solver prints a 1000-step window summary:
+## 深入分析资料
 
-```text
-perf(s): interp=... collide=... stream=... average=... comm=... boundary=... swap=...
-```
+- [性能分析流程、测量结果与图表](docs/performance_profiling.md)
+- [AMR 网格通信、幽灵单元填充与粗细网格传输](docs/amr_grid_communication.md)
 
-The `interp` and `average` totals are intentionally broad. Use the detail line
-to identify the actual source of cost:
-
-```text
-perf_detail(s): interp_scale=... interp_fillpatch=... average_alloc=... average_copy=... average_scale=... average_down=...
-```
-
-Field meanings:
-
-- `interp_scale`: LBM non-equilibrium scaling on the coarse level before coarse-to-fine fill.
-- `interp_fillpatch`: AMReX `FillPatchTwoLevels()` coarse-fine fill.
-- `average_alloc`: construction of the temporary fine-side `MultiFab` used for restriction.
-- `average_copy`: `MultiFab::Copy()` from the fine level into that temporary `MultiFab`.
-- `average_scale`: LBM non-equilibrium scaling before fine-to-coarse restriction.
-- `average_down`: AMReX `average_down()` restriction.
-
-The count line records call volume and approximate kernel work:
-
-```text
-perf_count: fillghost_calls=... avgdown_calls=... interp_scale_cells=... average_scale_cells=...
-```
-
-Because these detail timers synchronize the GPU at each measured stage, use
-them for attribution within the same instrumented build. Do not compare their
-absolute timings directly against older logs from uninstrumented builds.
-
-## Deep Profiling And Charts
-
-The case has a single-GPU TinyProfiler launcher for resolving the internal
-AMReX `FillPatchTwoLevels()` cost:
-
-```bash
-./scripts/compile.sh
-dsub -s ./scripts/submit_tiny_profile.sh
-```
-
-It requires `TINY_PROFILE = TRUE` in `config/GNUmakefile` and runs a
-synchronized 1000-step window using `main3d.gnu.TPROF.MPI.CUDA.ex`. The
-synchronization makes the report suitable for attribution, not production
-throughput comparison.
-
-For the profiling workflow, measured results, and the reproducible pie chart,
-read `docs/performance_profiling.md`.
+使用 TinyProfiler 深入定位 `FillPatchTwoLevels()` 等内部开销时，应将结果用于路径归因，而非与未插桩版本比较生产吞吐。
