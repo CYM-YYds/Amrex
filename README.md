@@ -18,6 +18,7 @@ Amrex/
 │   ├── 2Dshared/              # 2D 共享组件/模板
 │   ├── 3Dshared/              # 3D 共享组件/模板
 │   └── Cylindertest/          # 圆柱流系列算例
+├── research/                  # 论文、学习笔记与参考实现（不参与构建）
 ├── scripts/                   # 仓库级编译、同步、提交脚本
 ├── 后处理脚本/               # 可视化与后处理脚本（Python/ParaView）
 └── README.md
@@ -39,6 +40,7 @@ Amrex/
 
 ### 2.3 支撑目录
 
+- `research/`: 论文原件、论文解析、学习笔记和参考代码；详细分类见 [`research/README.md`](research/README.md)。这些资料不属于任何算例的构建输入。
 - `scripts/`: 仓库级工具脚本，如批量编译、清理、同步工程。
 - `后处理脚本/`: 数据处理与可视化脚本（例如涡量、Q-criterion、流线展示）。
 
