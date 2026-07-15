@@ -2501,7 +2501,14 @@ AMREX_GPU_HOST_DEVICE // 用于方腔流的近壁和高涡量区域加密
                   amrex::RealVect* p_pos, const int particle_num) {
     amrex::ignore_unused(clearval, lev, lo2, hi2, p_pos, particle_num);
 
-    constexpr int wall_refine_cells = 10;
+    int wall_refine_cells = 4;
+
+    if (lev == 1) {
+        wall_refine_cells = 3;
+    } else if (lev >= 2) {
+        wall_refine_cells = 2;
+    }
+    
     const int nx = geomdata.Domain().length(0);
     const int ny = geomdata.Domain().length(1);
     const int nz = geomdata.Domain().length(2);
