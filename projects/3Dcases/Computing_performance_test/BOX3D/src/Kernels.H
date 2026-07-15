@@ -2503,22 +2503,22 @@ AMREX_GPU_HOST_DEVICE // 用于方腔流的近壁和高涡量区域加密
 
     int wall_refine_cells = 4;
 
-    if (lev == 1) {
-        wall_refine_cells = 3;
-    } else if (lev >= 2) {
-        wall_refine_cells = 2;
-    }
-    
-    const int nx = geomdata.Domain().length(0);
-    const int ny = geomdata.Domain().length(1);
-    const int nz = geomdata.Domain().length(2);
+    // if (lev == 1) {
+    //     wall_refine_cells = 3;
+    // } else if (lev >= 2) {
+    //     wall_refine_cells = 2;
+    // }
+
+    // const int nx = geomdata.Domain().length(0);
+    // const int ny = geomdata.Domain().length(1);
+    // const int nz = geomdata.Domain().length(2);
 
     // 近壁边界层是方腔流的主要高梯度区域，始终保持细化。
-    if (i <= wall_refine_cells || i >= nx - wall_refine_cells ||
-        j <= wall_refine_cells || j >= ny - wall_refine_cells ||
-        k <= wall_refine_cells || k >= nz - wall_refine_cells) {
-        tag(i, j, k) = tagval;
-    }
+    // if (i <= wall_refine_cells || i >= nx - wall_refine_cells ||
+    //     j <= wall_refine_cells || j >= ny - wall_refine_cells ||
+    //     k <= wall_refine_cells || k >= nz - wall_refine_cells) {
+    //     tag(i, j, k) = tagval;
+    // }
 
     // vort(..., 1) 是涡量模，phierr 直接复用 inputs 里的 lbm.err 作为阈值。
     if (vort(i, j, k, 1) >= phierr) {

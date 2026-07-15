@@ -1357,6 +1357,11 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
         return;
     }
 
+    // InitMesh() invokes ErrorEst() before the first runtime RefineMesh().
+    if (regrid_tag_counts.size() != static_cast<std::size_t>(max_level + 1)) {
+        regrid_tag_counts.assign(max_level + 1, -1);
+    }
+
     ComputeMacroLevel(lev);
     FillMacroGhostLevel(lev, time);
     ComputeVorticityLevel(lev); // 计算vort比较慢
