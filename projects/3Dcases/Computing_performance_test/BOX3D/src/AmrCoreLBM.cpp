@@ -932,11 +932,12 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     std::optional<MultiFab> fine_boundary_data;
     {
         ScopedPerfTimer alloc_timer(perf_stats.average_alloc);
-        fine_boundary_data.emplace(fine_mf.boxArray(), fine_mf.DistributionMap(), Q, 2);
+        // average_down only reads fine valid cells, so restriction needs no ghost storage.
+        fine_boundary_data.emplace(fine_mf.boxArray(), fine_mf.DistributionMap(), Q, 0);
     }
     {
         ScopedPerfTimer copy_timer(perf_stats.average_copy);
-        MultiFab::Copy(*fine_boundary_data, fine_mf, 0, 0, Q, 2);
+        MultiFab::Copy(*fine_boundary_data, fine_mf, 0, 0, Q, 0);
     }
 
     if (is_scale) {
@@ -944,7 +945,7 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
 
         ScopedPerfTimer scale_timer(perf_stats.average_scale);
         for (MFIter mfi(*fine_boundary_data, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            const auto bx = mfi.growntilebox(2);
+            const auto bx = mfi.tilebox();
             perf_stats.average_scale_cells += bx.numPts();
 
             const Array4<Real>& fold = fine_boundary_data->array(mfi);
@@ -1073,8 +1074,14 @@ void AmrCoreLBM::Stream(int lev, int n) {
     bool is_finest = {lev == finest_level};
     bool is_coarsest = {lev == 0};
 
+    // Pull streaming at grow(n) would read one cell beyond the allocated halo.
+    // With n ghost layers, valid cells plus n-1 ghost layers are the largest
+    // target region whose upstream stencil remains inside grow(n).
+    AMREX_ALWAYS_ASSERT(n >= 1);
+    const int stream_nghost = n - 1;
+
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const auto bx = mfi.growntilebox(n);
+        const auto bx = mfi.growntilebox(stream_nghost);
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& fnew = f_new_lev.array(mfi);
 
