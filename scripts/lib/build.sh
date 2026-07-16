@@ -104,7 +104,7 @@ run_build_entry() {
             SUBMIT_HOST=${ssh_submit_host} \
             SUBMIT_SSH=${ssh_submit_ssh} \
             _CF_SCRIPT_DIR=${ssh_script_dir} \
-            _CHANNELFLOW_PROJECT_ROOT=${ssh_project_root} \
+            _AMREX_CASE_ROOT=${ssh_project_root} \
             bash -s" <"${SCRIPT_PAYLOAD}"
 		rc=$?
 		if [ $rc -eq 0 ]; then

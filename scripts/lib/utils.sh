@@ -38,11 +38,11 @@ parse_args() {
 info() { echo "[$(date '+%F %T')] $*"; }
 
 find_project_root() {
-	# 判断标准：同时包含 GNUmakefile 且具备 src/Make.package/config 之一。
-	# 这样可兼容当前项目里“包装 GNUmakefile + config/GNUmakefile”布局。
+	# 判断标准：算例根目录有 GNUmakefile 或 config/GNUmakefile，且具备源码或构建配置。
+	# 同时兼容“包装 GNUmakefile + config/GNUmakefile”和只有 config/GNUmakefile 的布局。
 	local dir="$1"
 	while [[ -n "$dir" && "$dir" != "/" ]]; do
-		if [[ -f "$dir/GNUmakefile" ]]; then
+		if [[ -f "$dir/GNUmakefile" || -f "$dir/config/GNUmakefile" ]]; then
 			if [[ -d "$dir/src" || -f "$dir/Make.package" || -d "$dir/config" ]]; then
 				printf '%s\n' "$dir"
 				return 0

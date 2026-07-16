@@ -104,8 +104,10 @@ else
 	_CF_SCRIPT_PATH=""
 fi
 
-#              g'h'g'h'g'g
-if [[ -n "${_CHANNELFLOW_PROJECT_ROOT:-}" ]]; then
+# 支持远程重入时显式传入算例根目录；保留旧变量以兼容已有调用方。
+if [[ -n "${_AMREX_CASE_ROOT:-}" ]]; then
+	PROJECT_ROOT="${_AMREX_CASE_ROOT}"
+elif [[ -n "${_CHANNELFLOW_PROJECT_ROOT:-}" ]]; then
 	PROJECT_ROOT="${_CHANNELFLOW_PROJECT_ROOT}"
 else
 	start_dir=""
@@ -116,11 +118,11 @@ else
 	fi
 	if ! PROJECT_ROOT=$(find_project_root "$start_dir"); then
 		if ! PROJECT_ROOT=$(find_project_root "$(pwd)"); then
-			echo "错误: 未能定位 ChannelFlow 项目根目录 (起始路径: $start_dir)" >&2
+			echo "错误: 未能定位 AMReX 算例根目录 (起始路径: $start_dir)" >&2
 			exit 1
 		fi
 	fi
-	export _CHANNELFLOW_PROJECT_ROOT="$PROJECT_ROOT"
+	export _AMREX_CASE_ROOT="$PROJECT_ROOT"
 fi
 
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd -P)"

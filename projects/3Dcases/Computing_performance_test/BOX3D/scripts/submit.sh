@@ -12,5 +12,7 @@
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SHARED_DIR="/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/scripts"
+cd "${CASE_DIR}"
 exec "${SHARED_DIR}/submit.sh" "$@"
