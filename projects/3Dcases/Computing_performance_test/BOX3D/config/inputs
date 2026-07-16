@@ -14,8 +14,8 @@ amr.blocking_factor_x = 32 32 32 32
 amr.blocking_factor_y = 32 32 32 32
 amr.blocking_factor_z = 32 32 32 32
 
-amr.plot_file  = data32/case_Re1_4p_
-amr.plot_int   = 10000
+amr.plot_file  = data32to64/case_Re1_4p_
+amr.plot_int   = 1000
 amr.begin_plot = 0
 
 checkpoint.begin_step = 0

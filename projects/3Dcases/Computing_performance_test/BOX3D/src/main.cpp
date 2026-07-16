@@ -10,8 +10,8 @@
 
 using namespace amrex;
 
-void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 好像更适配cumulant_opt
-void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 更适配cumulant
+void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);  // 好像更适配cumulant_opt
+void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);  // 更适配cumulant
 void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 更适配cumulant
 void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
@@ -135,6 +135,8 @@ int main(int argc, char* argv[]) {
                 if (solv_s > 0.0) {
                     solv_mlups = weighted_updates_window / solv_s / 1.0e6;
                 }
+
+                lid.PrintMeshInfo();
 
                 std::cout << "step" << step << " compute_time: " << compute_time << " ms" << " regrid_time: " << regrid_time << " ms" << " JaberCycle_time: " << JaberCycle_time << " ms"
                           << std::endl;
