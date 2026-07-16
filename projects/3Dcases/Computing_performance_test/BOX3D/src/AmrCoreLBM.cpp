@@ -1074,19 +1074,16 @@ void AmrCoreLBM::Stream(int lev, int n) {
     bool is_finest = {lev == finest_level};
     bool is_coarsest = {lev == 0};
 
-    // Pull streaming at grow(n) would read one cell beyond the allocated halo.
-    // With n ghost layers, valid cells plus n-1 ghost layers are the largest
-    // target region whose upstream stencil remains inside grow(n).
-    AMREX_ALWAYS_ASSERT(n >= 1);
-    const int stream_nghost = n - 1;
-
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const auto bx = mfi.growntilebox(stream_nghost);
+        const auto bx = mfi.growntilebox(n);
+        const Box fabbox = mfi.fabbox();
+        const IntVect fab_lo = fabbox.smallEnd();
+        const IntVect fab_hi = fabbox.bigEnd();
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& fnew = f_new_lev.array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            stream(i, j, k, fold, fnew, hi, is_finest);
+            stream(i, j, k, fold, fnew, hi, is_finest, fab_lo, fab_hi);
         });
     }
 }

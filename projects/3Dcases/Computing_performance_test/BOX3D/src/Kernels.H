@@ -2320,7 +2320,8 @@ AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
             amrex::Array4<amrex::Real> const& fnew, amrex::IntVect const& hi,
-            const bool is_finest) {
+            const bool is_finest, amrex::IntVect const& fab_lo,
+            amrex::IntVect const& fab_hi) {
     for (int q = 0; q < Q; q++) {
         int xm = i - e[q][0];
         int ym = j - e[q][1];
@@ -2338,7 +2339,9 @@ void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         //     fnew(i, j, k, q) = fold(xm, ym, zm, q);
         // }
         if ((i >= 1) && (i < hi[0]) && (j >= 1) && (j < hi[1]) && (k >= 1) &&
-            (k < hi[2])) {
+            (k < hi[2]) && (xm >= fab_lo[0]) && (xm <= fab_hi[0]) &&
+            (ym >= fab_lo[1]) && (ym <= fab_hi[1]) && (zm >= fab_lo[2]) &&
+            (zm <= fab_hi[2])) {
             fnew(i, j, k, q) = fold(xm, ym, zm, q);
         }
     }
