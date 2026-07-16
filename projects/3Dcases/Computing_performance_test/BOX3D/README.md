@@ -21,7 +21,7 @@
 | `comm` | 同层数据通信耗时。 |
 | `boundary` | 边界条件处理耗时。 |
 | `swap` | 新旧分布函数数据交换耗时。 |
-| `solv` | `JaberCycle()` 的窗口总耗时。 |
+| `solv` | 当前 `JaberCycle2()` 的窗口总耗时。 |
 | `total` | 包含重网格等外围工作的窗口总耗时。 |
 | `MLUPS_solv` / `MLUPS_total` | 分别以 `solv` 和 `total` 为分母计算的性能指标。 |
 
@@ -53,3 +53,7 @@
 - [AMR 网格通信、幽灵单元填充与粗细网格传输](docs/amr_grid_communication.md)
 
 使用 TinyProfiler 深入定位 `FillPatchTwoLevels()` 等内部开销时，应将结果用于路径归因，而非与未插桩版本比较生产吞吐。
+
+当前主循环调用 `JaberCycle2()`；其粗细网格传输、两层 ghost 策略和迁移边界保护见
+[AMR 网格通信文档](docs/amr_grid_communication.md)。构建和数值验证必须在算例目标的 HPC
+编译环境中进行，AMReX 当前要求 GCC 8 或更新版本。

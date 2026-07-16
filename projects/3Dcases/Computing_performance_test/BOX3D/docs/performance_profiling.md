@@ -3,7 +3,7 @@
 ## Purpose
 
 This case measures coarse-fine AMR transfer costs in the recursive
-`JaberCycle()` path. The relevant data path is:
+`JaberCycle2()` path. The relevant data path is:
 
 ```text
 FillGhostLevel -> FillDdfPatch -> FillPatchTwoLevels
@@ -22,7 +22,8 @@ TINY_PROFILE = TRUE
 ```
 
 Build the profiling executable and submit the one-GPU, 1000-step job from the
-case root:
+case root. Use the intended HPC compiler environment; AMReX requires GCC 8 or
+newer:
 
 ```bash
 ./scripts/compile.sh
@@ -48,17 +49,21 @@ Validate the launch contract before submitting:
 bash tests/test_tiny_profile_submit.sh
 ```
 
-## Confirmed Result
+## Historical Profile Result
 
 The completed `569665-tiny-profile.log` 1000-step run recorded:
 
 | Operation | Time | Interpretation |
 |---|---:|---|
 | `FillPatchTwoLevels` inclusive | 54.01 s | dominant Interp subpath |
-| `CellConservativeLinear::interp()` | 28.54 s | conservative coarse-to-fine interpolation |
+| `CellConservativeLinear::interp()` | 28.54 s | conservative coarse-to-fine interpolation in that historical build |
 | `FillPatchSingleLevel` inclusive | 21.19 s | source fill, ghost fill, and physical-boundary work |
 | `amrex::Copy()` | 13.15 s | fine-side temporary data copy before restriction |
 | `amrex::average_down()` inclusive | 8.98 s | fine-to-coarse restriction |
+
+This profile predates the current DDF-path selection of `cell_bilinear_interp` and the current
+two-ghost stream changes. It remains evidence for the older conservative-mapper path, not a
+direct benchmark for the present source tree.
 
 The `FillPatchTwoLevels` wrapper itself has only 0.413 s exclusive time.
 Optimization should therefore target interpolation work, boundary/ghost fills,

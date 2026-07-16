@@ -274,10 +274,10 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
     // }
 
+    lid.Boundary(lev);
     lid.Collide(lev, nghost);
     lid.CommunicateLevel(lev);
     lid.Stream(lev, nghost);
-    lid.Boundary(lev);
     lid.SwapLevel(lev, nghost);
 
     if (lev < max_ref_level) {
@@ -329,10 +329,10 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     // 2. 当前层推进一个时间步
-    lid.Boundary(lev);
     lid.Collide(lev, nghost);
     lid.CommunicateLevel(lev);
     lid.Stream(lev, nghost);
+    lid.Boundary(lev);
     lid.SwapLevel(lev, nghost);
 
     // 3. 下一层用一半时间步连续推进两次

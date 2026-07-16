@@ -6,7 +6,7 @@ AMReX 的 patch-based AMR 实现；不要把它与 Jaber 论文中 GPU-native �
 
 ## 运行时路径
 
-当前固定物体算例由 `JaberCycle()` 驱动。对每一对相邻层，它的传输顺序是：
+当前方腔流算例由 `JaberCycle2()` 驱动。对每一对相邻层，它的传输顺序是：
 
 ```text
 粗层 -> 细层：FillGhostLevel(lev + 1, time, true)
@@ -40,7 +40,9 @@ grow(目标 fine Box, nghost) - fine source 的 BoxArray 覆盖区域
 
 这个差集由 `FabArrayBase::FPinfo` 缓存。它包含细层自身没有同层有效数据、但为
 计算所需的区域；在非物理边界处，这正是 coarse-fine ghost 区。AMReX 只为这些
-patch 建立粗层源并调用 `CellConservativeLinear` 插值。
+patch 建立粗层源并调用配置的插值器。当前 DDF 路径在 `FillDdfPatch()` 中选用
+`cell_bilinear_interp`；代码中保留了被注释的 `cell_cons_interp` 对照实现。其他
+AMReX 填充路径是否使用保守线性插值，不能据此推断。
 
 同一个 fine ghost 位置最终的来源取决于其位置：
 
@@ -57,10 +59,35 @@ patch 建立粗层源并调用 `CellConservativeLinear` 插值。
 
 ## 细到粗平均
 
-`AverageDownGhostLevel()` 创建一个带两层 ghost 的 fine 临时 `MultiFab`，复制
-`f_old[lev+1]`，按反向比例缩放其非平衡部分，再调用 `amrex::average_down()` 写回
-`f_old[lev]`。它没有维护“只沿界面”的显式 cell 列表；AMReX 根据 fine BoxArray
-覆盖到的粗层区域完成 restriction。
+`AverageDownGhostLevel()` 创建 `nGrow=0` 的 fine 临时 `MultiFab`，只复制
+`f_old[lev+1]` 的 valid cells，按反向比例缩放其非平衡部分，再调用
+`amrex::average_down()` 写回 `f_old[lev]`。虽然函数名保留了 `Ghost`，但当前调用并不把
+fine ghost cell 作为 restriction 源；`average_down()` 根据 `S_fine.boxArray()` 的 valid
+范围构造粗化区域，并从每个父 coarse cell 对应的 8 个 fine valid 子 cell 求平均。
+
+它没有维护“只沿界面”的显式 cell 列表；AMReX 根据 fine BoxArray 覆盖到的粗层区域完成
+restriction。因此被 fine valid patch 覆盖的 coarse 区域会被平均结果回写。
+
+## 两层 ghost 与推进范围
+
+当前主状态 `f_old` / `f_new` 使用 `nghost=2`。`JaberCycle2()` 的单层顺序为：
+
+```text
+Collide -> CommunicateLevel -> Stream -> Boundary -> Swap
+```
+
+`Collide()` 的 launch box 是 `growntilebox(nghost) & Geom(lev).Domain()`：物理域外的
+ghost 不参与碰撞，但仍保留物理域内的 coarse-fine ghost。`Stream()` 遍历两层 grown box，
+并逐方向检查 pull source 是否位于当前 `fabbox`；这样第二层 ghost 可使用已有源参与迁移，
+而不会读取不存在的第三层 ghost。
+
+`Boundary()` 在 Stream 后覆盖非周期物理边界的目标值。它依据
+`Geom(lev).isPeriodicArray()` 跳过周期方向，周期 ghost 则由 `CommunicateLevel()` 的
+`FillBoundary(periodicity)` 提供。当前 `main.cpp` 创建 `Geometry` 时硬编码了三个非周期
+方向，因此 `inputs` 中被注释的 `geometry.is_periodic` 不能单独启用周期算例。
+
+这套两层 ghost 推进尚未完成新的集群数值回归；需要在正确的 CUDA/MPI 编译环境中检查
+CUDA 非法访存、守恒量和方腔流基准结果后，才能确认其数值等价性与性能收益。
 
 ## 与 Jaber 论文的对应关系
 
@@ -83,11 +110,11 @@ mask，将 cell 分为 ghost、interface 和 interior。
 `FillPatchTwoLevels()` 仅为所需 coarse-fine patch 插值，但当前 `FillDdfPatch()` 的
 `interp_scale` 循环会先缩放整层粗网格 valid cells。若将来优化，应在 regrid 后构建
 并复用包含插值 stencil halo 的粗层工作列表；不能只按 fine ghost 的几何范围裁剪，
-否则会遗漏 `CellConservativeLinear` 的相邻粗单元斜率数据。
+否则会遗漏当前插值器所需的相邻粗单元 stencil 数据。
 
 相关源码入口：
 
-- `src/main.cpp`: `JaberCycle()`
+- `src/main.cpp`: `JaberCycle2()`
 - `src/AmrCoreLBM.cpp`: `FillDdfPatch()`、`FillGhostLevel()`、`AverageDownGhostLevel()`
 - `amrex-26.01/Src/AmrCore/AMReX_FillPatchUtil_I.H`: `FillPatchTwoLevels_doit()`
 - `amrex-26.01/Src/Base/AMReX_FabArrayBase.cpp`: `FabArrayBase::FPinfo`
