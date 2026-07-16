@@ -1064,20 +1064,19 @@ void AmrCoreLBM::Collide(int lev, int n) {
 void AmrCoreLBM::Stream(int lev, int n) {
     ScopedPerfTimer timer(perf_stats.stream);
     // amrex::AllPrint()<<"Stream on " << lev <<std::endl;
+    AMREX_ALWAYS_ASSERT(n >= 1);
 
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const auto bx = mfi.growntilebox(n);
-        const Box fabbox = mfi.fabbox();
-        const IntVect fab_lo = fabbox.smallEnd();
-        const IntVect fab_hi = fabbox.bigEnd();
+        // The outer ghost layer supplies pull-streaming data for the inner layer.
+        const auto bx = mfi.growntilebox(n - 1);
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& fnew = f_new_lev.array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            stream(i, j, k, fold, fnew, fab_lo, fab_hi);
+            stream(i, j, k, fold, fnew);
         });
     }
 }
