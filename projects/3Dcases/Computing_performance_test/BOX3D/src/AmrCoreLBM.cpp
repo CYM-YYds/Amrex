@@ -1015,6 +1015,7 @@ void AmrCoreLBM::Boundary(int lev) {
     int back = Geom(lev).Domain().length(1) - 1;
     int up = Geom(lev).Domain().length(2) - 1;
     amrex::IntVect hi{right, back, up};
+    const auto is_periodic = Geom(lev).isPeriodicArray();
 
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
@@ -1025,7 +1026,7 @@ void AmrCoreLBM::Boundary(int lev) {
         const Array4<Real>& fnew = f_new_lev.array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            fill_boundary(i, j, k, fold, fnew, hi);
+            fill_boundary(i, j, k, fold, fnew, hi, is_periodic);
         });
     }
 }
@@ -1044,9 +1045,10 @@ void AmrCoreLBM::Collide(int lev, int n) {
     amrex::MultiFab& force_lev = force[lev];
     amrex::Real dt = Geom(lev).CellSizeArray()[0];
     amrex::Real tau_lev = tau[lev];
+    const Box domain = Geom(lev).Domain();
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const auto bx = mfi.growntilebox(n);
+        const auto bx = mfi.growntilebox(n) & domain;
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& s = shear_lev.array(mfi);
         const Array4<Real>& Ft = force_lev.array(mfi);
@@ -1063,16 +1065,8 @@ void AmrCoreLBM::Stream(int lev, int n) {
     ScopedPerfTimer timer(perf_stats.stream);
     // amrex::AllPrint()<<"Stream on " << lev <<std::endl;
 
-    int right = Geom(lev).Domain().length(0) - 1;
-    int back = Geom(lev).Domain().length(1) - 1;
-    int up = Geom(lev).Domain().length(2) - 1;
-    amrex::IntVect hi{right, back, up};
-
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
-
-    bool is_finest = {lev == finest_level};
-    bool is_coarsest = {lev == 0};
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         const auto bx = mfi.growntilebox(n);
@@ -1083,7 +1077,7 @@ void AmrCoreLBM::Stream(int lev, int n) {
         const Array4<Real>& fnew = f_new_lev.array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            stream(i, j, k, fold, fnew, hi, is_finest, fab_lo, fab_hi);
+            stream(i, j, k, fold, fnew, fab_lo, fab_hi);
         });
     }
 }

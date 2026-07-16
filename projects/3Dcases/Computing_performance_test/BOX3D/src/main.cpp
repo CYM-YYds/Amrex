@@ -274,10 +274,10 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
     // }
 
-    lid.Boundary(lev);
     lid.Collide(lev, nghost);
     lid.CommunicateLevel(lev);
     lid.Stream(lev, nghost);
+    lid.Boundary(lev);
     lid.SwapLevel(lev, nghost);
 
     if (lev < max_ref_level) {

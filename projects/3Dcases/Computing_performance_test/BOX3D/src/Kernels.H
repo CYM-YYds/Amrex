@@ -252,9 +252,10 @@ AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
                    amrex::Array4<amrex::Real> const& fnew,
-                   amrex::IntVect const& hi) {
+                   amrex::IntVect const& hi,
+                   amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic) {
 
-    if (i == 0) {
+    if (!is_periodic[0] && i == 0) {
         int x = i;
         int y = j;
         int z = k;
@@ -295,7 +296,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         }
     }
 
-    if (i == hi[0]) // 右边界
+    if (!is_periodic[0] && i == hi[0]) // 右边界
     {
         int x = i;
         int y = j;
@@ -337,7 +338,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         }
     }
 
-    if (j == 0) {
+    if (!is_periodic[1] && j == 0) {
         int x = i;
         int y = j;
         int z = k;
@@ -378,7 +379,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         }
     }
 
-    if (j == hi[1]) {
+    if (!is_periodic[1] && j == hi[1]) {
         int x = i;
         int y = j;
         int z = k;
@@ -419,7 +420,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         }
     }
 
-    if (k == 0) {
+    if (!is_periodic[2] && k == 0) {
         int x = i;
         int y = j;
         int z = k;
@@ -460,7 +461,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         }
     }
 
-    if (k == hi[2]) {
+    if (!is_periodic[2] && k == hi[2]) {
         int x = i;
         int y = j;
         int z = k;
@@ -501,7 +502,9 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         }
     }
 
-    if (i < 0 || i > hi[0] || j < 0 || j > hi[1] || k < 0 || k > hi[2]) {
+    if ((!is_periodic[0] && (i < 0 || i > hi[0])) ||
+        (!is_periodic[1] && (j < 0 || j > hi[1])) ||
+        (!is_periodic[2] && (k < 0 || k > hi[2]))) {
         for (int q = 0; q < Q; q++) {
             fnew(i, j, k, q) = 0.0;
             fold(i, j, k, q) = 0.0;
@@ -2319,8 +2322,7 @@ void collide_cumulant_opt2(int i, int j, int k,
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
-            amrex::Array4<amrex::Real> const& fnew, amrex::IntVect const& hi,
-            const bool is_finest, amrex::IntVect const& fab_lo,
+            amrex::Array4<amrex::Real> const& fnew, amrex::IntVect const& fab_lo,
             amrex::IntVect const& fab_hi) {
     for (int q = 0; q < Q; q++) {
         int xm = i - e[q][0];
@@ -2338,10 +2340,8 @@ void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         // {
         //     fnew(i, j, k, q) = fold(xm, ym, zm, q);
         // }
-        if ((i >= 1) && (i < hi[0]) && (j >= 1) && (j < hi[1]) && (k >= 1) &&
-            (k < hi[2]) && (xm >= fab_lo[0]) && (xm <= fab_hi[0]) &&
-            (ym >= fab_lo[1]) && (ym <= fab_hi[1]) && (zm >= fab_lo[2]) &&
-            (zm <= fab_hi[2])) {
+        if ((xm >= fab_lo[0]) && (xm <= fab_hi[0]) && (ym >= fab_lo[1]) &&
+            (ym <= fab_hi[1]) && (zm >= fab_lo[2]) && (zm <= fab_hi[2])) {
             fnew(i, j, k, q) = fold(xm, ym, zm, q);
         }
     }
