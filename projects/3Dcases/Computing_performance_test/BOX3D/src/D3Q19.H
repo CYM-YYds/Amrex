@@ -47,11 +47,12 @@ const Real nz = NZ;
 #define cs2 (cs * cs)
 #define rho0 (1.0) //(p0 / cs2)
 #define p0 (rho0 * cs2)
-#define Ma (0.03)
+
 
 /*---------圆球绕流--------------------------*/
 #define Re (1000)
-#define U0 (Ma * cs)
+#define U0 (0.05)
+#define Ma (U0 / cs)
 #define mv_0 (U0 * NX * dx_0 / Re)
 #define tau_0 (mv_0 / (cs2 * dt_0) + 0.5)
 #define G (981)

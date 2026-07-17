@@ -78,16 +78,21 @@ Collide -> CommunicateLevel -> Stream -> Boundary -> Swap
 
 `Collide()` 的 launch box 是 `growntilebox(nghost) & Geom(lev).Domain()`：物理域外的
 ghost 不参与碰撞，但仍保留物理域内的 coarse-fine ghost。`Stream()` 遍历两层 grown box，
-并逐方向检查 pull source 是否位于当前 `fabbox`；这样第二层 ghost 可使用已有源参与迁移，
-而不会读取不存在的第三层 ghost。
+但只写入 `growntilebox(nghost - 1)`。因此在 `nghost=2` 时，最外层 ghost 是为内层
+pull-stream 提供源数据的只读层，而 valid cell 与第一层 ghost 是 Stream 的写入目标。
+当前 `stream()` kernel 直接读取 pull source，不再逐方向检查 source 是否位于 `fabbox`；
+其数组安全性依赖这个一层收缩的 launch box 和 Stream 之前的
+`CommunicateLevel()` 填充。
 
 `Boundary()` 在 Stream 后覆盖非周期物理边界的目标值。它依据
 `Geom(lev).isPeriodicArray()` 跳过周期方向，周期 ghost 则由 `CommunicateLevel()` 的
 `FillBoundary(periodicity)` 提供。当前 `main.cpp` 创建 `Geometry` 时硬编码了三个非周期
 方向，因此 `inputs` 中被注释的 `geometry.is_periodic` 不能单独启用周期算例。
 
-这套两层 ghost 推进尚未完成新的集群数值回归；需要在正确的 CUDA/MPI 编译环境中检查
-CUDA 非法访存、守恒量和方腔流基准结果后，才能确认其数值等价性与性能收益。
+两层 ghost 的修改已通过 64-step 单 GPU smoke 作业，并完成了 job `571393` 的
+64,000-step 单 GPU 方腔流运行；用户检查 plotfile 后未发现可视化异常。该结果排除了
+当前配置下的运行时越界和显著可视化回归，但尚未构成守恒量、误差范数或基准剖面的严格
+数值等价性验证。
 
 ## 与 Jaber 论文的对应关系
 

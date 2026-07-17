@@ -77,6 +77,80 @@ calls. The additional 136 calls come from regridding paths such as
 `RemakeLevel()`. Similarly, 7087 `average_down` calls include 87 regridding
 restrictions in addition to the 7000 JaberCycle calls.
 
+## Current Full-Run Baseline: Job 571393
+
+`logs/submit/571393-out.log` completed the 64,000-step cavity case on one
+GPU. It contains 64 independent 1000-step windows. The values below are sums
+over those windows, not the final `step64000` line alone.
+
+| Quantity | Accumulated time | Share of `JaberCycle2` |
+|---|---:|---:|
+| `JaberCycle2` | 10376.60 s | 100.00% |
+| `Compute total` | 10451.08 s | - |
+| `regrid_time` | 74.41 s | 0.72% |
+| Collide | 3080.94 s | 29.69% |
+| Interp | 2098.61 s | 20.22% |
+| Average | 2049.56 s | 19.75% |
+| Stream | 1763.04 s | 16.99% |
+| Boundary | 882.91 s | 8.51% |
+| Comm | 496.85 s | 4.79% |
+| Swap | 4.34 s | 0.04% |
+
+`Compute total` is measured from immediately before regridding to immediately
+after `JaberCycle2()`. It therefore equals `regrid_time + JaberCycle_time`
+plus the small host-side cost of computing the weighted-update metric and
+loop/timer bookkeeping. Plot output is outside this interval. In this run the
+residual was about 1--2 ms per 1000-step window.
+
+`Interp + Average = 4148.17 s`, or 39.97% of `JaberCycle2`, is a useful
+derived transfer subtotal. It must not be added to the phase rows above,
+because it is composed of two of them.
+
+The detailed transfer timers are synchronized nested timers. Their totals are
+useful for attribution but are not a strict partition of `Interp` or
+`Average`:
+
+| Nested operation | Accumulated time |
+|---|---:|
+| `interp_fillpatch` | 1693.40 s |
+| `interp_scale` | 435.95 s |
+| `average_copy` | 700.81 s |
+| `average_scale` | 741.09 s |
+| `average_down` | 586.17 s |
+| `average_alloc` | 14.68 s |
+
+The run used `TINY_PROFILE = TRUE`, so its throughput is a profiling baseline,
+not an unsynchronized production-speed benchmark. The case reports a
+weighted `MLUPS_total` of 370.13 over all 64 windows.
+
+### Performance Overview Plot
+
+Generate a six-panel overview from any complete submit log:
+
+```bash
+python3 scripts/plot_run_performance.py logs/submit/571393-out.log \
+  --output docs/571393_performance_overview.png
+```
+
+The checked-in output is
+[`571393_performance_overview.png`](571393_performance_overview.png). The
+fourth panel uses `average_scale_cells` as a proxy for repeated AMR transfer
+work, not as the instantaneous number of valid mesh cells. In job 571393 it
+has Pearson correlation 0.9994 with Stream time; this shows that both follow
+the AMR coverage, not that restriction directly causes Stream to slow down.
+
+### Scope Of The Jaber A6 Comparison
+
+Jaber et al.'s A6 cavity test and this case share the broad target of a
+`Re=1000`, `64^3`, D3Q27, double-precision, four-level cavity calculation
+with regridding every 32 coarse steps. Both use linear coarse-to-fine spatial
+interpolation. They are not direct performance peers: A6 is a single-GPU,
+fixed-`4^3` block, GPU-native octree solver with interface-only restriction
+and in-place shared-memory streaming. BOX3D uses AMReX patches, generic
+`FillPatchTwoLevels()`/`average_down()`, advances covered coarse valid cells,
+and uses dual-MultiFab pull streaming. Match mesh coverage, Mach number,
+refinement criterion, and active-node counting before comparing MLUPS.
+
 ## Pie Chart
 
 Generate the three pie charts from the 64-window aggregated timing data:
@@ -95,10 +169,11 @@ The Interp chart removes 24.98 s of regridding transfer time from the raw
 total. The Average chart retains a 3.30 s residual for temporary destruction,
 loop overhead, and timer-boundary work, so each pie closes to its stated total.
 
-## Next Measurement
+## Further Measurement
 
 The next useful measurement is level-indexed timing for levels 1, 2, and 3:
 record transfer time, box count, valid cells, and grown-box cells for both
 Interp and Average. Function-level profiling has already isolated the main
-mechanisms; level-level data is needed before selecting a mesh-layout change
-or a specialized LBM coarse-fine transfer implementation.
+mechanisms; level-level data is needed before selecting an interface work list,
+a covered-coarse mask, or a specialized LBM coarse-fine transfer
+implementation.

@@ -36,6 +36,9 @@ projects/师兄代码开发
 docs/superpowers/
 # IDE/editor
 
+# Python bytecode cache
+__pycache__/
+
 
 # Misc
 *.nfs*
