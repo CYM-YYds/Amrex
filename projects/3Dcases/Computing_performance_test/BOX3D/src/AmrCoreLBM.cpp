@@ -68,6 +68,10 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
 
     f_new.resize(nlevs_max);
     f_old.resize(nlevs_max);
+    covered_mask.resize(nlevs_max);
+    interface_mask.resize(nlevs_max);
+    covered_cell_counts.resize(nlevs_max, 0);
+    interface_cell_counts.resize(nlevs_max, 0);
 
     velocity.resize(nlevs_max);
     vorticity.resize(nlevs_max);
@@ -577,6 +581,7 @@ void AmrCoreLBM::WriteMultiParticleFile(const int step, const amrex::Real time) 
 //********************************************************************//
 void AmrCoreLBM::InitMesh(amrex::Real cur_time) {
     InitFromScratch(cur_time);
+    RebuildCoarseFineMasks();
 }
 void AmrCoreLBM::FillCoarsePatch(int lev, amrex::Real time, amrex::MultiFab& mf) // 根本没有用到
 {
@@ -758,6 +763,7 @@ void AmrCoreLBM::FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf) 
 void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
     regrid_tag_counts.assign(max_level + 1, -1);
     regrid(0, cur_time);
+    RebuildCoarseFineMasks();
 
     if (ParallelDescriptor::IOProcessor()) {
         amrex::Print() << "regrid_observe: finest_level=" << finest_level << '\n';
@@ -772,6 +778,76 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
             }
             amrex::Print() << '\n';
         }
+        for (int lev = 0; lev < finest_level; ++lev) {
+            long fine_cells_per_coarse = 1;
+            const auto ratio = refRatio(lev);
+            for (int dim = 0; dim < AMREX_SPACEDIM; ++dim) {
+                fine_cells_per_coarse *= ratio[dim];
+            }
+
+            const auto expected_covered = boxArray(lev + 1).numPts() / fine_cells_per_coarse;
+            const auto uncovered = boxArray(lev).numPts() - covered_cell_counts[lev];
+            amrex::Print() << "cf_mask_observe: lev=" << lev
+                           << " covered=" << covered_cell_counts[lev]
+                           << " covered_expected=" << expected_covered
+                           << " interface=" << interface_cell_counts[lev]
+                           << " uncovered=" << uncovered << '\n';
+        }
+    }
+}
+
+void AmrCoreLBM::RebuildCoarseFineMasks() {
+    covered_cell_counts.assign(max_level + 1, 0);
+    interface_cell_counts.assign(max_level + 1, 0);
+
+    for (int lev = 0; lev <= max_level; ++lev) {
+        covered_mask[lev].clear();
+        interface_mask[lev].clear();
+    }
+
+    for (int lev = 0; lev < finest_level; ++lev) {
+        covered_mask[lev] = amrex::makeFineMask(
+            f_old[lev], f_old[lev + 1], amrex::IntVect(nghost), refRatio(lev),
+            Geom(lev).periodicity(), 0, 1);
+
+        interface_mask[lev].define(f_old[lev].boxArray(), f_old[lev].DistributionMap(), 1,
+                                   nghost);
+        interface_mask[lev].setVal(0, nghost);
+        const Box domain = Geom(lev).Domain();
+        const auto domain_lo = amrex::lbound(domain);
+        const auto domain_hi = amrex::ubound(domain);
+
+        for (MFIter mfi(interface_mask[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const Box bx = mfi.tilebox();
+            const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
+            const Array4<int>& interface = interface_mask[lev].array(mfi);
+
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                if (covered(i, j, k) == 0) {
+                    return;
+                }
+
+                for (int dk = -1; dk <= 1; ++dk) {
+                    for (int dj = -1; dj <= 1; ++dj) {
+                        for (int di = -1; di <= 1; ++di) {
+                            const int ni = i + di;
+                            const int nj = j + dj;
+                            const int nk = k + dk;
+                            const bool in_domain = (ni >= domain_lo.x && ni <= domain_hi.x) &&
+                                                   (nj >= domain_lo.y && nj <= domain_hi.y) &&
+                                                   (nk >= domain_lo.z && nk <= domain_hi.z);
+                            if (in_domain && covered(ni, nj, nk) == 0) {
+                                interface(i, j, k) = 1;
+                                return;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        covered_cell_counts[lev] = covered_mask[lev].sum(0, 0);
+        interface_cell_counts[lev] = interface_mask[lev].sum(0, 0);
     }
 }
 

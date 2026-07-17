@@ -6,6 +6,7 @@
 #include <AMReX_BCRec.H>
 #include <AMReX_ParmParse.H>
 #include <AMReX_FillPatcher.H>
+#include <AMReX_iMultiFab.H>
 
 #include <AMReX_AmrParticles.H>
 #include <AMReX_Particles.H>
@@ -90,8 +91,11 @@ public:
     void FillCoarsePatch(int lev, amrex::Real time, amrex::MultiFab& mf);
     void FillPatch(int lev, amrex::Real time, amrex::MultiFab& mf);
     void FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf);
-    void FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf);    
+    void FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf);
     void RefineMesh(amrex::Real time);
+    // CUDA extended device lambdas require their enclosing member function to
+    // have public access.
+    void RebuildCoarseFineMasks();
     void FindCentre();
     //********************************************************************//
     //                           lbm  function                            //
@@ -161,6 +165,13 @@ private:
     amrex::Vector<amrex::MultiFab> force;
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
+
+    // For coarse level lev, 1 marks cells covered by level lev+1.  The
+    // interface mask is the covered one-cell band adjacent to uncovered cells.
+    amrex::Vector<amrex::iMultiFab> covered_mask;
+    amrex::Vector<amrex::iMultiFab> interface_mask;
+    amrex::Vector<amrex::Long> covered_cell_counts;
+    amrex::Vector<amrex::Long> interface_cell_counts;
 
     amrex::Vector<amrex::Real> tau;
 
