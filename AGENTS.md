@@ -20,6 +20,7 @@
 
 - `amrex-26.01/`：当前主要使用的 AMReX 源码树
 - `amrex-23.09/`：为对比或兼容性而保留的旧版 AMReX
+- `amrex-26.06/`：用于上游版本对照，不是现有算例的默认构建版本
 - `projects/2Dcases/`、`projects/3Dcases/`、`projects/Cylindertest/`：数值模拟算例
 - `projects/2Dshared/`、`projects/3Dshared/`：共享封装或模板
 - `scripts/`：仓库级编译、同步和清理工具

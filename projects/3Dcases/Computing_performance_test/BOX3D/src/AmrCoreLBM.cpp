@@ -827,6 +827,7 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
         boundary_work_boxes[lev].clear();
     }
 
+    //用于边界处理优化
     for (int lev = 0; lev <= finest_level; ++lev) {
         const BoxArray& ba = f_old[lev].boxArray();
         const Box domain = Geom(lev).Domain();
@@ -864,6 +865,7 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
         }
     }
 
+    //用于插值优化
     for (int lev = 0; lev < finest_level; ++lev) {
         const int fine_lev = lev + 1;
         const BoxArray& crse_ba = f_old[lev].boxArray();

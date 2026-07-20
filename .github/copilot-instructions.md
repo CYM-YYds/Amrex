@@ -7,7 +7,7 @@ Use `AGENTS.md` at the repository root as the primary project guide. It is inten
 - This repo is case-centric, not a single-library codebase.
 - Most work should happen inside a specific case directory under `projects/`.
 - Current primary AMReX version is `amrex-26.01`.
-- A representative case for orientation is `projects/Cylindertest/Cylinder2D_IDF/`.
+- A representative case for orientation is `projects/Cylindertest/Cylinder2D_IDFtest/`.
 
 ## Files To Read First
 

@@ -201,16 +201,6 @@ The Interp chart removes 24.98 s of regridding transfer time from the raw
 total. The Average chart retains a 3.30 s residual for temporary destruction,
 loop overhead, and timer-boundary work, so each pie closes to its stated total.
 
-## Further Measurement
-
-The next useful measurement is level-indexed timing for levels 1, 2, and 3:
-record transfer time, box count, valid cells, grown-box cells, covered cells,
-and interface cells for both Interp and Average. The coarse covered/interface
-masks now exist, but Collide and Stream still launch broad boxes and branch per
-cell. Use the level data to decide whether regrid-cached active work regions
-reduce enough work to offset extra kernel launches. After that, compare a
-valid-only specialized restriction kernel.
-
 ## Interpolation-Scaling Work Boxes: Job 572516
 
 `FillDdfPatch()` previously evaluated the non-equilibrium DDF rescaling kernel
@@ -236,4 +226,24 @@ evolution, `average_scale_cells`, and boundary counters are identical.
 The optimized run launched 290,497 interpolation-scaling work boxes. Despite
 the increased launch count, the reduced DDF reconstruction work produced a net
 gain. Two-GPU, 64-step smoke job `572517` also completed through two regrids
-without an AMReX, MPI, or CUDA failure.
+without an AMReX, MPI, or CUDA failure. The smoke run verifies execution and
+communication safety only; strict numerical equivalence still requires field
+norms or a reference-profile comparison.
+
+Rebuild and submit the same short performance configuration from the case
+directory with:
+
+```bash
+./scripts/compile.sh
+dsub -s ./scripts/submit_interp_scale_perf.sh
+```
+
+## Further Measurement
+
+The next useful measurement is level-indexed timing for levels 1, 2, and 3:
+record transfer time, box count, valid cells, grown-box cells, covered cells,
+and interface cells for both Interp and Average. The coarse covered/interface
+masks now exist, but Collide and Stream still launch broad boxes and branch per
+cell. Use the level data to decide whether regrid-cached active work regions
+reduce enough work to offset extra kernel launches. After that, compare a
+valid-only specialized restriction kernel.
