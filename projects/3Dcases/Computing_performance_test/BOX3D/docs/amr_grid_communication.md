@@ -118,10 +118,16 @@ coarse cell 的条带，用于裁剪粗层 Collide/Stream。粗细 ghost 填充�
 
 ## 当前实现的性能边界
 
-`FillPatchTwoLevels()` 仅为所需 coarse-fine patch 插值，但当前 `FillDdfPatch()` 的
-`interp_scale` 循环会先缩放整层粗网格 valid cells。若将来优化，应在 regrid 后构建
-并复用包含插值 stencil halo 的粗层工作列表；不能只按 fine ghost 的几何范围裁剪，
-否则会遗漏当前插值器所需的相邻粗单元 stencil 数据。
+`FillPatchTwoLevels()` 仅为所需 coarse-fine patch 插值。当前 `FillDdfPatch()` 的
+`interp_scale` 同样不再缩放整层粗网格：`RebuildCoarseFineMasks()` 直接复用 AMReX
+`FPinfo.ba_crse_patch` 描述的粗层 patch，并将其与粗层 valid Box 相交，生成按 coarse Box
+索引的缓存工作箱。`ba_crse_patch` 已由 `CellBilinear::CoarseBox()` 扩展到插值 stencil
+所需范围，因此不会遗漏三线性插值读取的相邻粗单元。周期方向还会枚举 periodic shift，
+将域外 patch 映射回实际粗层源单元。
+
+正常时间推进中，目标 `MultiFab` 与当前 fine level 的 BDKey 一致，使用缓存工作箱；
+`RemakeLevel()` 在 regrid 期间传入尚未安装的新 BoxArray，此时缓存尚不匹配，代码保留
+整层缩放回退，待 regrid 完成并重建缓存后再进入裁剪路径。
 
 当前粗层 `covered_mask` 已能跳过大部分完全被细网格覆盖的 Collide/Stream 单元，但仍以
 完整 launch box 加逐 cell 分支实现。Boundary 工作箱说明了另一条可行路径：在 regrid

@@ -209,5 +209,31 @@ and interface cells for both Interp and Average. The coarse covered/interface
 masks now exist, but Collide and Stream still launch broad boxes and branch per
 cell. Use the level data to decide whether regrid-cached active work regions
 reduce enough work to offset extra kernel launches. After that, compare a
-valid-only specialized restriction kernel and a narrowed interpolation-scaling
-work list that includes the conservative-linear stencil halo.
+valid-only specialized restriction kernel.
+
+## Interpolation-Scaling Work Boxes: Job 572516
+
+`FillDdfPatch()` previously evaluated the non-equilibrium DDF rescaling kernel
+over every valid coarse cell before each `FillPatchTwoLevels()` call. The revised
+implementation caches the exact coarse source regions represented by AMReX's
+`FPinfo.ba_crse_patch`, intersects them with the coarse BoxArray, and reuses the
+result until the next regrid. This includes the `CellBilinear::CoarseBox()`
+stencil halo and periodic source shifts. A mismatched target BoxArray during
+`RemakeLevel()` deliberately falls back to full-level scaling.
+
+Jobs `572280` and `572516` are controlled one-GPU, 1000-step runs. Their mesh
+evolution, `average_scale_cells`, and boundary counters are identical.
+
+| Quantity | Job 572280 | Job 572516 | Change |
+|---|---:|---:|---:|
+| Interp scaling cells | 17,586,585,600 | 1,274,175,728 | -92.755% |
+| `interp_scale` | 7.2384 s | 2.5620 s | -64.605% (2.825x speedup) |
+| Interp total | 34.2778 s | 29.2789 s | -14.583% |
+| `JaberCycle2` | 161.3041 s | 156.4781 s | -2.992% |
+| Compute total | 162.3385 s | 157.5063 s | -2.977% |
+| `MLUPS_total` | 398.70 | 410.93 | +3.068% |
+
+The optimized run launched 290,497 interpolation-scaling work boxes. Despite
+the increased launch count, the reduced DDF reconstruction work produced a net
+gain. Two-GPU, 64-step smoke job `572517` also completed through two regrids
+without an AMReX, MPI, or CUDA failure.

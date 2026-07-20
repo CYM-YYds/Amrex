@@ -165,7 +165,9 @@ int main(int argc, char* argv[]) {
                 std::cout << "step" << step
                           << " perf_count: fillghost_calls=" << perf.fillghost_calls
                           << " avgdown_calls=" << perf.avgdown_calls
+                          << " interp_scale_full_cells=" << perf.interp_scale_full_cells
                           << " interp_scale_cells=" << perf.interp_scale_cells
+                          << " interp_scale_launch_boxes=" << perf.interp_scale_launch_boxes
                           << " average_scale_cells=" << perf.average_scale_cells
                           << " boundary_full_cells=" << perf.boundary_full_cells
                           << " boundary_launch_cells=" << perf.boundary_launch_cells

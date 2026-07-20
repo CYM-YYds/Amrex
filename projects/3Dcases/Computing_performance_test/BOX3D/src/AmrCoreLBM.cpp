@@ -76,6 +76,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     interface_mask.resize(nlevs_max);
     covered_cell_counts.resize(nlevs_max, 0);
     interface_cell_counts.resize(nlevs_max, 0);
+    interp_scale_work_boxes.resize(nlevs_max);
     boundary_work_boxes.resize(nlevs_max);
 
     velocity.resize(nlevs_max);
@@ -685,16 +686,30 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
 
     {
         ScopedPerfTimer timer(perf_stats.interp_scale);
-        for (MFIter mfi(f_old_lev_c, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            const auto bx = mfi.growntilebox(0); // 只需要粗网格的valid值就可以了;这里对全部粗网格进行操作, 是一个可以优化的点
-            perf_stats.interp_scale_cells += bx.numPts();
-
+        // RemakeLevel uses a not-yet-installed BoxArray, so its source region is not cached yet.
+        const bool cache_matches_target =
+            lev <= finest_level && mf.getBDKey() == f_old_lev_f.getBDKey();
+        for (MFIter mfi(f_old_lev_c, false); mfi.isValid(); ++mfi) {
             const Array4<Real>& fold = f_old_lev_c.array(mfi);
             const Array4<Real>& fnew = f_new_lev_c.array(mfi);
+            perf_stats.interp_scale_full_cells += mfi.validbox().numPts();
 
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                interp_scale(i, j, k, fold, fnew, scale);
-            });
+            if (cache_matches_target) {
+                for (const Box& bx : interp_scale_work_boxes[lev - 1][mfi.index()]) {
+                    perf_stats.interp_scale_cells += bx.numPts();
+                    ++perf_stats.interp_scale_launch_boxes;
+                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        interp_scale(i, j, k, fold, fnew, scale);
+                    });
+                }
+            } else {
+                const Box bx = mfi.validbox();
+                perf_stats.interp_scale_cells += bx.numPts();
+                ++perf_stats.interp_scale_launch_boxes;
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    interp_scale(i, j, k, fold, fnew, scale);
+                });
+            }
         }
     }
 
@@ -808,6 +823,7 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
     for (int lev = 0; lev <= max_level; ++lev) {
         covered_mask[lev].clear();
         interface_mask[lev].clear();
+        interp_scale_work_boxes[lev].clear();
         boundary_work_boxes[lev].clear();
     }
 
@@ -845,6 +861,39 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
 
             BoxList disjoint_faces = amrex::removeOverlap(boundary_faces);
             level_boundary_boxes[ibox].assign(disjoint_faces.begin(), disjoint_faces.end());
+        }
+    }
+
+    for (int lev = 0; lev < finest_level; ++lev) {
+        const int fine_lev = lev + 1;
+        const BoxArray& crse_ba = f_old[lev].boxArray();
+        auto& level_work_boxes = interp_scale_work_boxes[lev];
+        level_work_boxes.resize(crse_ba.size());
+
+        const auto& coarsener = cell_bilinear_interp.BoxCoarsener(refRatio(lev));
+        const auto& fpc = FabArrayBase::TheFPinfo(
+            f_old[fine_lev], f_old[fine_lev], amrex::IntVect(nghost), coarsener,
+            Geom(fine_lev), Geom(lev), nullptr);
+        const auto periodic_shifts = Geom(lev).periodicity().shiftIntVect();
+        amrex::Vector<std::pair<int, Box>> intersections;
+
+        for (int ibox = 0; ibox < fpc.ba_crse_patch.size(); ++ibox) {
+            const Box& needed_crse_box = fpc.ba_crse_patch[ibox];
+            for (const IntVect& shift : periodic_shifts) {
+                crse_ba.intersections(needed_crse_box + shift, intersections);
+                for (const auto& intersection : intersections) {
+                    level_work_boxes[intersection.first].push_back(intersection.second);
+                }
+            }
+        }
+
+        for (auto& boxes : level_work_boxes) {
+            BoxList box_list;
+            for (const Box& box : boxes) {
+                box_list.push_back(box);
+            }
+            BoxList disjoint_boxes = amrex::removeOverlap(box_list);
+            boxes.assign(disjoint_boxes.begin(), disjoint_boxes.end());
         }
     }
 

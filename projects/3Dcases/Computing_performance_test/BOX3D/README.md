@@ -44,7 +44,9 @@
 | --- | --- |
 | `fillghost_calls` | 粗细网格幽灵单元填充调用次数。 |
 | `avgdown_calls` | 细网格向粗网格限制调用次数。 |
-| `interp_scale_cells` | 粗到细缩放处理的近似格点数。 |
+| `interp_scale_full_cells` | 若每次都缩放整层粗网格时的候选格点数。 |
+| `interp_scale_cells` | 粗到细缩放实际处理的格点数。 |
+| `interp_scale_launch_boxes` | 粗到细缩放实际启动的缓存工作箱数量。 |
 | `average_scale_cells` | 细到粗缩放处理的近似格点数。 |
 | `boundary_full_cells` | 若对每层全部 valid cell 启动边界 kernel 时的基准格点数。 |
 | `boundary_launch_cells` | 实际物理边界工作箱覆盖的格点数；两者之比用于衡量边界 launch 裁剪效果。 |
