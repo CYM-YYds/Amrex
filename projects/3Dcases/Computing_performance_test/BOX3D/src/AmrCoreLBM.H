@@ -18,10 +18,9 @@
 #include "LagrangeParticleContainer.H"
 #include "AuxiliaryPointContainer.H"
 
-class AmrCoreLBM : public amrex::AmrCore
-{
+class AmrCoreLBM : public amrex::AmrCore {
 
-public:
+  public:
     struct RuntimeParams {
         int regrid_int = -1;
         int plot_int = -1;
@@ -58,11 +57,11 @@ public:
     //********************************************************************//
     AmrCoreLBM();
     ~AmrCoreLBM() override;
-    AmrCoreLBM (amrex::Geometry const& level_0_geom, amrex::AmrInfo const& amr_info);
+    AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const& amr_info);
     AmrCoreLBM(AmrCoreLBM&& rhs) noexcept = default;
-    AmrCoreLBM& operator= (AmrCoreLBM&& rhs) noexcept = default;
+    AmrCoreLBM& operator=(AmrCoreLBM&& rhs) noexcept = default;
     AmrCoreLBM(const AmrCoreLBM& rhs) = delete;
-    AmrCoreLBM& operator= (const AmrCoreLBM& rhs) = delete;
+    AmrCoreLBM& operator=(const AmrCoreLBM& rhs) = delete;
 
     //********************************************************************//
     //                           help function                            //
@@ -72,7 +71,7 @@ public:
     void ResetPerfStats();
     PerfStats const& GetPerfStats() const;
     double ComputeWeightedLatticeUpdatesPerCoarseStep() const;
-    void ReadParameters();    
+    void ReadParameters();
     void WriteVelocityFile(const int step, const amrex::Real time);
     void WriteDensityFile(const int step, const amrex::Real time);
     void WriteParticleFile(const int step, const amrex::Real time);
@@ -82,8 +81,12 @@ public:
     void WriteVelocityFileWithParticle(const int step, const amrex::Real time);
     void WriteCheckpoint(int step, amrex::Real time) const;
     void ReadCheckpoint();
-    const RuntimeParams& params() const { return params_; }
-    int ghostCells() const { return nghost; }
+    const RuntimeParams& params() const {
+        return params_;
+    }
+    int ghostCells() const {
+        return nghost;
+    }
     //********************************************************************//
     //                           mesh function                            //
     //********************************************************************//
@@ -93,8 +96,7 @@ public:
     void FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf);
     void FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf);
     void RefineMesh(amrex::Real time);
-    // CUDA extended device lambdas require their enclosing member function to
-    // have public access.
+    // CUDA 扩展版设备 Lambda 要求包裹它的成员函数必须是 public 公有访问权限
     void RebuildCoarseFineMasks();
     void FindCentre();
     //********************************************************************//
@@ -105,18 +107,18 @@ public:
     void ComputeVorticityLevel(int lev);
     void ComputeVorticity(amrex::Real time);
     void ComputeShearLevel(int lev);
-    void ComputeShear();   
+    void ComputeShear();
     void AverageDownValidLevel(int lev, bool is_scale);
     void AverageDownValid();
     void AverageDownGhostLevel(int lev, bool is_scale);
     void AverageDownGhost();
     void FillGhostLevel(int lev, amrex::Real time, bool is_scale);
     void FillMacroGhostLevel(int lev, amrex::Real time);
-    void FillForceGhostLevel(int lev, amrex::Real time);    
+    void FillForceGhostLevel(int lev, amrex::Real time);
     void CommunicateLevel(int lev);
-    void Boundary(int lev); 
+    void Boundary(int lev);
     void Collide(int lev, int n);
-    void Stream(int lev,  int n);
+    void Stream(int lev, int n);
     void SwapLevel(int lev, int n);
 
     void InterpScale(int lev, int n);
@@ -136,8 +138,8 @@ public:
     void PrintParticleParm();
     void RedistributeParticle();
     void ComputeCp(int lev, int step);
-    void MoveParticle(int lev, amrex::Real cur_time);    
-    void LubForceParticle(int lev, amrex::Real cur_time);    
+    void MoveParticle(int lev, amrex::Real cur_time);
+    void LubForceParticle(int lev, amrex::Real cur_time);
     //********************************************************************//
     //                     Pure virtual function                          //
     //********************************************************************//
@@ -147,16 +149,14 @@ public:
     void MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex::BoxArray& ba, const amrex::DistributionMapping& dm) override;
     void ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow) override;
 
-
-private:
-
-    std::string plot_file {"plt"};    
+  private:
+    std::string plot_file{"plt"};
 
     int nghost = 2;
     int particle_num = 1;
-  
+
     amrex::Vector<amrex::BCRec> bcs;
-    amrex::Vector<amrex::Real>  err;
+    amrex::Vector<amrex::Real> err;
 
     amrex::Vector<amrex::MultiFab> velocity;
     amrex::Vector<amrex::MultiFab> density;
@@ -166,8 +166,8 @@ private:
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
 
-    // For coarse level lev, 1 marks cells covered by level lev+1.  The
-    // interface mask is the covered one-cell band adjacent to uncovered cells.
+    // covered_mask 值为 1 的网格单元，代表该单元被更精细一层网格 `lev+1` 覆盖；
+    // 交界面掩码（interface_mask）指被细网格覆盖、且紧贴未被覆盖粗网格单元的单层网格条带。
     amrex::Vector<amrex::iMultiFab> covered_mask;
     amrex::Vector<amrex::iMultiFab> interface_mask;
     amrex::Vector<amrex::Long> covered_cell_counts;
@@ -185,6 +185,5 @@ private:
     PerfStats perf_stats;
     RuntimeParams params_;
 };
-
 
 #endif

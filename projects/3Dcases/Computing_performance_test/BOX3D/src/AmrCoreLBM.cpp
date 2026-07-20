@@ -28,6 +28,9 @@
 using namespace amrex;
 
 namespace {
+constexpr int cf_interface_mask_nghost = 2;
+constexpr int cf_covered_mask_nghost = cf_interface_mask_nghost + 1;
+
 class ScopedPerfTimer {
   public:
     explicit ScopedPerfTimer(double& accum)
@@ -807,18 +810,18 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
 
     for (int lev = 0; lev < finest_level; ++lev) {
         covered_mask[lev] = amrex::makeFineMask(
-            f_old[lev], f_old[lev + 1], amrex::IntVect(nghost), refRatio(lev),
+            f_old[lev], f_old[lev + 1], amrex::IntVect(cf_covered_mask_nghost), refRatio(lev),
             Geom(lev).periodicity(), 0, 1);
 
         interface_mask[lev].define(f_old[lev].boxArray(), f_old[lev].DistributionMap(), 1,
-                                   nghost);
-        interface_mask[lev].setVal(0, nghost);
+                                   cf_interface_mask_nghost);
+        interface_mask[lev].setVal(0);
         const Box domain = Geom(lev).Domain();
         const auto domain_lo = amrex::lbound(domain);
         const auto domain_hi = amrex::ubound(domain);
 
         for (MFIter mfi(interface_mask[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            const Box bx = mfi.tilebox();
+            const Box bx = mfi.growntilebox(cf_interface_mask_nghost) & domain;
             const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
             const Array4<int>& interface = interface_mask[lev].array(mfi);
 
@@ -1097,7 +1100,7 @@ void AmrCoreLBM::Boundary(int lev) {
     amrex::MultiFab& f_new_lev = f_new[lev];
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const auto bx = mfi.growntilebox(nghost);
+        const auto bx = mfi.growntilebox(0);
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& fnew = f_new_lev.array(mfi);
 
@@ -1122,6 +1125,8 @@ void AmrCoreLBM::Collide(int lev, int n) {
     amrex::Real dt = Geom(lev).CellSizeArray()[0];
     amrex::Real tau_lev = tau[lev];
     const Box domain = Geom(lev).Domain();
+    const bool has_fine_level = (lev < finest_level);
+    AMREX_ALWAYS_ASSERT(n <= cf_interface_mask_nghost);
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         const auto bx = mfi.growntilebox(n) & domain;
@@ -1129,11 +1134,26 @@ void AmrCoreLBM::Collide(int lev, int n) {
         const Array4<Real>& s = shear_lev.array(mfi);
         const Array4<Real>& Ft = force_lev.array(mfi);
 
-        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-            // collide_cumulant(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-            // collide_cumulant_opt2(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-        });
+        if (has_fine_level) {
+            const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
+            const Array4<const int>& interface = interface_mask[lev].const_array(mfi);
+
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                if (covered(i, j, k) != 0 && interface(i, j, k) == 0) {
+                    return;
+                }
+
+                collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+                // collide_cumulant(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+                // collide_cumulant_opt2(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+            });
+        } else {
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+                // collide_cumulant(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+                // collide_cumulant_opt2(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+            });
+        }
     }
 }
 
@@ -1141,9 +1161,11 @@ void AmrCoreLBM::Stream(int lev, int n) {
     ScopedPerfTimer timer(perf_stats.stream);
     // amrex::AllPrint()<<"Stream on " << lev <<std::endl;
     AMREX_ALWAYS_ASSERT(n >= 1);
+    AMREX_ALWAYS_ASSERT(n - 1 <= cf_covered_mask_nghost);
 
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
+    const bool has_fine_level = (lev < finest_level);
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         // The outer ghost layer supplies pull-streaming data for the inner layer.
@@ -1151,9 +1173,21 @@ void AmrCoreLBM::Stream(int lev, int n) {
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& fnew = f_new_lev.array(mfi);
 
-        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            stream(i, j, k, fold, fnew);
-        });
+        if (has_fine_level) {
+            const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
+
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                if (covered(i, j, k) != 0) {
+                    return;
+                }
+
+                stream(i, j, k, fold, fnew);
+            });
+        } else {
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                stream(i, j, k, fold, fnew);
+            });
+        }
     }
 }
 
@@ -1686,4 +1720,6 @@ void AmrCoreLBM::ReadCheckpoint() {
         particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
         particles[i]->Restart(chkname, pname);
     }
+
+    RebuildCoarseFineMasks();
 }
