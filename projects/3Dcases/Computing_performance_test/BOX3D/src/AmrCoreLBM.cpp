@@ -32,6 +32,21 @@ namespace {
 constexpr int cf_interface_mask_nghost = 2;
 constexpr int cf_covered_mask_nghost = cf_interface_mask_nghost + 1;
 
+enum BoxWorkClass : unsigned char {
+    partial_box = 0,
+    active_box = 1,
+    inactive_box = 2
+};
+
+amrex::Long uncoveredPoints(const amrex::BoxArray& covered_ba, const amrex::Box& target,
+                            const amrex::Periodicity& periodicity) {
+    amrex::Long result = 0;
+    for (const amrex::Box& bx : covered_ba.complementIn(target, periodicity)) {
+        result += bx.numPts();
+    }
+    return result;
+}
+
 class ScopedPerfTimer {
   public:
     explicit ScopedPerfTimer(double& accum)
@@ -76,6 +91,8 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     interface_mask.resize(nlevs_max);
     covered_cell_counts.resize(nlevs_max, 0);
     interface_cell_counts.resize(nlevs_max, 0);
+    collide_box_classes.resize(nlevs_max);
+    stream_box_classes.resize(nlevs_max);
     interp_scale_work_boxes.resize(nlevs_max);
     boundary_work_boxes.resize(nlevs_max);
 
@@ -823,6 +840,8 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
     for (int lev = 0; lev <= max_level; ++lev) {
         covered_mask[lev].clear();
         interface_mask[lev].clear();
+        collide_box_classes[lev].clear();
+        stream_box_classes[lev].clear();
         interp_scale_work_boxes[lev].clear();
         boundary_work_boxes[lev].clear();
     }
@@ -900,6 +919,66 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
     }
 
     for (int lev = 0; lev < finest_level; ++lev) {
+        const BoxArray& crse_ba = f_old[lev].boxArray();
+        BoxArray covered_ba = amrex::coarsen(f_old[lev + 1].boxArray(), refRatio(lev));
+        const Box domain = Geom(lev).Domain();
+        const auto& periodicity = Geom(lev).periodicity();
+        auto& collide_classes = collide_box_classes[lev];
+        auto& stream_classes = stream_box_classes[lev];
+        collide_classes.resize(crse_ba.size(), partial_box);
+        stream_classes.resize(crse_ba.size(), partial_box);
+
+        int collide_active = 0;
+        int collide_partial = 0;
+        int collide_inactive = 0;
+        int stream_active = 0;
+        int stream_partial = 0;
+        int stream_inactive = 0;
+
+        for (int ibox = 0; ibox < crse_ba.size(); ++ibox) {
+            // Classify the largest ranges used by the active Jaber cycle. A class is
+            // therefore also safe for calls using fewer ghost cells.
+            const Box collide_target = amrex::grow(crse_ba[ibox], nghost) & domain;
+            const Long collide_uncovered =
+                uncoveredPoints(covered_ba, collide_target, periodicity);
+            if (collide_uncovered == collide_target.numPts()) {
+                collide_classes[ibox] = active_box;
+                ++collide_active;
+            } else if (collide_uncovered == 0) {
+                // A covered Box is inactive only if its one-cell stencil contains no
+                // uncovered coarse cell; otherwise it contains the collision interface.
+                const Box stencil_target = amrex::grow(collide_target, 1) & domain;
+                if (uncoveredPoints(covered_ba, stencil_target, periodicity) == 0) {
+                    collide_classes[ibox] = inactive_box;
+                    ++collide_inactive;
+                } else {
+                    ++collide_partial;
+                }
+            } else {
+                ++collide_partial;
+            }
+
+            const Box stream_target = amrex::grow(crse_ba[ibox], nghost - 1);
+            const Long stream_uncovered = uncoveredPoints(covered_ba, stream_target, periodicity);
+            if (stream_uncovered == stream_target.numPts()) {
+                stream_classes[ibox] = active_box;
+                ++stream_active;
+            } else if (stream_uncovered == 0) {
+                stream_classes[ibox] = inactive_box;
+                ++stream_inactive;
+            } else {
+                ++stream_partial;
+            }
+        }
+
+        amrex::Print() << "cf_box_class_observe: lev=" << lev
+                       << " collide_active=" << collide_active
+                       << " collide_partial=" << collide_partial
+                       << " collide_inactive=" << collide_inactive
+                       << " stream_active=" << stream_active
+                       << " stream_partial=" << stream_partial
+                       << " stream_inactive=" << stream_inactive << '\n';
+
         covered_mask[lev] = amrex::makeFineMask(
             f_old[lev], f_old[lev + 1], amrex::IntVect(cf_covered_mask_nghost), refRatio(lev),
             Geom(lev).periodicity(), 0, 1);
@@ -907,7 +986,6 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
         interface_mask[lev].define(f_old[lev].boxArray(), f_old[lev].DistributionMap(), 1,
                                    cf_interface_mask_nghost);
         interface_mask[lev].setVal(0);
-        const Box domain = Geom(lev).Domain();
         const auto domain_lo = amrex::lbound(domain);
         const auto domain_hi = amrex::ubound(domain);
 
@@ -1229,18 +1307,27 @@ void AmrCoreLBM::Collide(int lev, int n) {
         const Array4<Real>& Ft = force_lev.array(mfi);
 
         if (has_fine_level) {
-            const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
-            const Array4<const int>& interface = interface_mask[lev].const_array(mfi);
+            const auto box_class = collide_box_classes[lev][mfi.index()];
+            if (box_class == inactive_box) {
+                continue;
+            }
 
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                if (covered(i, j, k) != 0 && interface(i, j, k) == 0) {
-                    return;
-                }
+            if (box_class == active_box) {
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+                });
+            } else {
+                const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
+                const Array4<const int>& interface = interface_mask[lev].const_array(mfi);
 
-                collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-                // collide_cumulant(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-                // collide_cumulant_opt2(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-            });
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    if (covered(i, j, k) != 0 && interface(i, j, k) == 0) {
+                        return;
+                    }
+
+                    collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+                });
+            }
         } else {
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                 collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
@@ -1268,15 +1355,26 @@ void AmrCoreLBM::Stream(int lev, int n) {
         const Array4<Real>& fnew = f_new_lev.array(mfi);
 
         if (has_fine_level) {
-            const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
+            const auto box_class = stream_box_classes[lev][mfi.index()];
+            if (box_class == inactive_box) {
+                continue;
+            }
 
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                if (covered(i, j, k) != 0) {
-                    return;
-                }
+            if (box_class == active_box) {
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    stream(i, j, k, fold, fnew);
+                });
+            } else {
+                const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
 
-                stream(i, j, k, fold, fnew);
-            });
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    if (covered(i, j, k) != 0) {
+                        return;
+                    }
+
+                    stream(i, j, k, fold, fnew);
+                });
+            }
         } else {
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                 stream(i, j, k, fold, fnew);

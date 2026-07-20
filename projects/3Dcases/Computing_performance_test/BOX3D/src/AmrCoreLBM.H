@@ -176,6 +176,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::iMultiFab> interface_mask;
     amrex::Vector<amrex::Long> covered_cell_counts;
     amrex::Vector<amrex::Long> interface_cell_counts;
+    // Per-level, per-coarse-Box dispatch class: partial, fully active, or inactive.
+    amrex::Vector<amrex::Vector<unsigned char>> collide_box_classes;
+    amrex::Vector<amrex::Vector<unsigned char>> stream_box_classes;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> interp_scale_work_boxes;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; //boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box
 
