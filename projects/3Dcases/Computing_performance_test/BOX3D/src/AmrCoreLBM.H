@@ -158,6 +158,8 @@ class AmrCoreLBM : public amrex::AmrCore {
 
     int nghost = 2;
     int particle_num = 1;
+    // 0: no coarse-fine mask, 1: cell mask, 2: cell mask plus Box classification.
+    int cf_mask_mode = 1;
 
     amrex::Vector<amrex::BCRec> bcs;
     amrex::Vector<amrex::Real> err;

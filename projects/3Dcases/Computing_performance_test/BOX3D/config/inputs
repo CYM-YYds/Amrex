@@ -25,6 +25,7 @@ checkpoint.keep_latest_only = true
 checkpoint.write_particles = true
 
 lbm.err = 0.005 0.010 0.020 0.040
+lbm.cf_mask_mode = 1
 # *****************************************************************
 # mesh setting
 #
