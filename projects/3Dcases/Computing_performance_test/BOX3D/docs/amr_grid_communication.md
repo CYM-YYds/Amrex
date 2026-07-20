@@ -84,10 +84,13 @@ pull-stream 提供源数据的只读层，而 valid cell 与第一层 ghost 是 
 其数组安全性依赖这个一层收缩的 launch box 和 Stream 之前的
 `CommunicateLevel()` 填充。
 
-`Boundary()` 在 Stream 后覆盖非周期物理边界的目标值。它依据
-`Geom(lev).isPeriodicArray()` 跳过周期方向，周期 ghost 则由 `CommunicateLevel()` 的
-`FillBoundary(periodicity)` 提供。当前 `main.cpp` 创建 `Geometry` 时硬编码了三个非周期
-方向，因此 `inputs` 中被注释的 `geometry.is_periodic` 不能单独启用周期算例。
+`Boundary()` 在 Stream 后覆盖非周期物理边界的目标值。每次初始化或 regrid 后，
+`RebuildCoarseFineMasks()` 会按 level 和全局 Fab 索引缓存与物理域表面相交的 disjoint
+valid-cell Box；时间推进时只对这些工作箱启动边界 kernel，不再遍历整个 valid patch。
+构造工作箱和 kernel 都依据 `Geom(lev).isPeriodicArray()` 跳过周期方向，周期 ghost 则由
+`CommunicateLevel()` 的 `FillBoundary(periodicity)` 提供。当前 `main.cpp` 创建 `Geometry`
+时硬编码了三个非周期方向，因此 `inputs` 中被注释的 `geometry.is_periodic` 不能单独启用
+周期算例。
 
 两层 ghost 的修改已通过 64-step 单 GPU smoke 作业，并完成了 job `571393` 的
 64,000-step 单 GPU 方腔流运行；用户检查 plotfile 后未发现可视化异常。该结果排除了
@@ -100,9 +103,12 @@ Jaber 论文的 `Nskip` 是八叉树 block 邻接表中的显式哨兵值：细 
 同层邻居为 `Nskip` 时，该 block 被标记为需要 coarse-fine 通信。论文还维护 cell
 mask，将 cell 分为 ghost、interface 和 interior。
 
-当前 BOX3D 没有 `Nskip`、block 邻接表或 cell mask。它通过 `BoxArray` 的覆盖关系
-隐式找出待补 patch，并由 AMReX 缓存 `FPinfo` 等通信元数据。两者的物理目的相同，
-但网格拓扑表示和工作列表不同。
+当前 BOX3D 没有 `Nskip` 或 block 邻接表，也没有与论文语义相同、直接标识 fine ghost、
+fine interface 和 interior 的细层 `cells_ID_mask`。当前新增的 `covered_mask` 和
+`interface_mask` 位于粗层：它们标识被 `lev+1` 覆盖的 coarse cell 以及其中紧邻 uncovered
+coarse cell 的条带，用于裁剪粗层 Collide/Stream。粗细 ghost 填充仍通过 `BoxArray` 的
+覆盖关系隐式找出待补 patch，并由 AMReX 缓存 `FPinfo` 等通信元数据。两者的物理目的有
+交集，但 mask 所属层级、网格拓扑表示和工作列表并不相同。
 
 论文线性插值中的 `F00`、`F10`、`F01`、`F11` 是局部单位方形四角的粗层场值采样点，
 不是四个粗 block 的 ID，也不是某个 fine ghost 的唯一“父网格”。二维公式的局部
@@ -116,6 +122,11 @@ mask，将 cell 分为 ghost、interface 和 interior。
 `interp_scale` 循环会先缩放整层粗网格 valid cells。若将来优化，应在 regrid 后构建
 并复用包含插值 stencil halo 的粗层工作列表；不能只按 fine ghost 的几何范围裁剪，
 否则会遗漏当前插值器所需的相邻粗单元 stencil 数据。
+
+当前粗层 `covered_mask` 已能跳过大部分完全被细网格覆盖的 Collide/Stream 单元，但仍以
+完整 launch box 加逐 cell 分支实现。Boundary 工作箱说明了另一条可行路径：在 regrid
+后生成稀疏工作区域，并在多个时间步复用。是否将同一模式用于 coarse-fine interface，
+需要先验证工作箱数量、kernel launch 开销以及 Stream 所需 ghost 源区域。
 
 相关源码入口：
 

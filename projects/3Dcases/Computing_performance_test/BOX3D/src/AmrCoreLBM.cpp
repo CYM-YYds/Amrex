@@ -1,3 +1,4 @@
+#include <AMReX_BoxList.H>
 #include <AMReX_MFIter.H>
 #include <AMReX_MultiFabUtil.H>
 #include <AMReX_ParIter.H>
@@ -75,6 +76,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     interface_mask.resize(nlevs_max);
     covered_cell_counts.resize(nlevs_max, 0);
     interface_cell_counts.resize(nlevs_max, 0);
+    boundary_work_boxes.resize(nlevs_max);
 
     velocity.resize(nlevs_max);
     vorticity.resize(nlevs_max);
@@ -773,7 +775,7 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
         for (int lev = 0; lev <= finest_level; ++lev) {
             const auto& ba = boxArray(lev);
             amrex::Print() << "regrid_observe: lev=" << lev
-                           << " boxes=" << ba.size()
+                           << " boxes=" << ba.size() //返回该 BoxArray 中的 Box 总数
                            << " valid_cells=" << ba.numPts();
             if (lev < max_level && regrid_tag_counts[lev] >= 0) {
                 amrex::Print() << " tagged_to_lev=" << (lev + 1)
@@ -806,6 +808,44 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
     for (int lev = 0; lev <= max_level; ++lev) {
         covered_mask[lev].clear();
         interface_mask[lev].clear();
+        boundary_work_boxes[lev].clear();
+    }
+
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        const BoxArray& ba = f_old[lev].boxArray();
+        const Box domain = Geom(lev).Domain();
+        const auto is_periodic = Geom(lev).isPeriodicArray();
+        auto& level_boundary_boxes = boundary_work_boxes[lev];
+        level_boundary_boxes.resize(ba.size());
+
+        for (int ibox = 0; ibox < ba.size(); ++ibox) {
+            const Box& valid_box = ba[ibox];
+            BoxList boundary_faces;
+
+            for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                if (is_periodic[dir]) {
+                    continue;
+                }
+
+                const int lo = domain.smallEnd(dir);
+                const int hi = domain.bigEnd(dir);
+                if (valid_box.smallEnd(dir) == lo) {
+                    Box face = valid_box;
+                    face.setSmall(dir, lo);
+                    face.setBig(dir, lo);
+                    boundary_faces.push_back(face);
+                }
+                if (hi != lo && valid_box.bigEnd(dir) == hi) {
+                    Box face = valid_box;
+                    face.setSmall(dir, hi);
+                    face.setBig(dir, hi);
+                    boundary_faces.push_back(face);
+                }
+            }
+
+            BoxList disjoint_faces = amrex::removeOverlap(boundary_faces);
+            level_boundary_boxes[ibox].assign(disjoint_faces.begin(), disjoint_faces.end());
+        }
     }
 
     for (int lev = 0; lev < finest_level; ++lev) {
@@ -1099,14 +1139,17 @@ void AmrCoreLBM::Boundary(int lev) {
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
 
-    for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const auto bx = mfi.growntilebox(0);
+    for (MFIter mfi(f_old_lev, false); mfi.isValid(); ++mfi) {
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& fnew = f_new_lev.array(mfi);
+        perf_stats.boundary_full_cells += mfi.tilebox().numPts();
 
-        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            fill_boundary(i, j, k, fold, fnew, hi, is_periodic);
-        });
+        for (const Box& bx : boundary_work_boxes[lev][mfi.index()]) { //用 mfi.index() 得到该 Box 的全局编号
+            perf_stats.boundary_launch_cells += bx.numPts();
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                fill_boundary(i, j, k, fold, fnew, hi, is_periodic);
+            });
+        }
     }
 }
 

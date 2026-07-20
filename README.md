@@ -46,7 +46,7 @@ Amrex/
 
 ## 3. 具体算例文件架构说明
 
-一个典型算例目录（如 `projects/Cylindertest/Cylinder3D/` 或 `projects/Cylindertest/Cylinder2D_IDF/`）通常包含以下结构：
+一个典型算例目录（如 `projects/Cylindertest/Cylinder3D/` 或 `projects/Cylindertest/Cylinder2D_IDFtest/`）通常包含以下结构：
 
 ```text
 <case>/
@@ -92,11 +92,11 @@ Amrex/
 
 ## 4. 算例编译与运行（在算例根目录执行）
 
-以下命令均在具体算例根目录执行，例如 `projects/Cylindertest/Cylinder2D_IDF/`。
+以下命令均在具体算例根目录执行，例如 `projects/Cylindertest/Cylinder2D_IDFtest/`。
 
 ```bash
 # 1) 进入算例根目录
-cd projects/Cylindertest/Cylinder2D_IDF
+cd projects/Cylindertest/Cylinder2D_IDFtest
 
 # 2) 编译（使用算例脚本）
 ./scripts/compile.sh

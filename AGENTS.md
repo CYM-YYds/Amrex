@@ -14,7 +14,7 @@
 6. `<case>/config/GNUmakefile`
 7. 如果任务涉及构建行为，再阅读 `scripts/compile.sh`
 
-对于圆柱流相关工作，推荐将 `projects/Cylindertest/Cylinder2D_IDF/` 作为默认算例。
+对于圆柱流相关工作，推荐将 `projects/Cylindertest/Cylinder2D_IDFtest/` 作为默认算例。
 
 ## 仓库结构
 

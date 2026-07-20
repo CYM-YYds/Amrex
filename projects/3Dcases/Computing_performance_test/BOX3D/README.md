@@ -46,6 +46,8 @@
 | `avgdown_calls` | 细网格向粗网格限制调用次数。 |
 | `interp_scale_cells` | 粗到细缩放处理的近似格点数。 |
 | `average_scale_cells` | 细到粗缩放处理的近似格点数。 |
+| `boundary_full_cells` | 若对每层全部 valid cell 启动边界 kernel 时的基准格点数。 |
+| `boundary_launch_cells` | 实际物理边界工作箱覆盖的格点数；两者之比用于衡量边界 launch 裁剪效果。 |
 
 ## 深入分析资料
 

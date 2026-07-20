@@ -167,6 +167,8 @@ int main(int argc, char* argv[]) {
                           << " avgdown_calls=" << perf.avgdown_calls
                           << " interp_scale_cells=" << perf.interp_scale_cells
                           << " average_scale_cells=" << perf.average_scale_cells
+                          << " boundary_full_cells=" << perf.boundary_full_cells
+                          << " boundary_launch_cells=" << perf.boundary_launch_cells
                           << std::endl;
 
                 compute_time = 0.0f;    // 改为float

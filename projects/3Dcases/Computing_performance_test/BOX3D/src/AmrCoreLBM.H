@@ -50,6 +50,8 @@ class AmrCoreLBM : public amrex::AmrCore {
         long long avgdown_calls = 0;
         long long interp_scale_cells = 0;
         long long average_scale_cells = 0;
+        long long boundary_full_cells = 0;
+        long long boundary_launch_cells = 0;
     };
 
     //********************************************************************//
@@ -172,6 +174,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::iMultiFab> interface_mask;
     amrex::Vector<amrex::Long> covered_cell_counts;
     amrex::Vector<amrex::Long> interface_cell_counts;
+    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; //boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box
 
     amrex::Vector<amrex::Real> tau;
 

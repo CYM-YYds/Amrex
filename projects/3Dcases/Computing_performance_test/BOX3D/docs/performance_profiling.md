@@ -147,9 +147,41 @@ with regridding every 32 coarse steps. Both use linear coarse-to-fine spatial
 interpolation. They are not direct performance peers: A6 is a single-GPU,
 fixed-`4^3` block, GPU-native octree solver with interface-only restriction
 and in-place shared-memory streaming. BOX3D uses AMReX patches, generic
-`FillPatchTwoLevels()`/`average_down()`, advances covered coarse valid cells,
-and uses dual-MultiFab pull streaming. Match mesh coverage, Mach number,
-refinement criterion, and active-node counting before comparing MLUPS.
+`FillPatchTwoLevels()`/`average_down()`, coarse-level covered/interface masks,
+and dual-MultiFab pull streaming. Its masks skip most covered coarse Collide and
+Stream work through per-cell branches, but they are not Jaber's fine-level
+`cells_ID_mask` and restriction still covers the fine valid patch. Match mesh
+coverage, Mach number, refinement criterion, and active-node counting before
+comparing MLUPS.
+
+## Boundary Work-Box Experiment: Job 572280
+
+`Boundary()` originally launched over every valid cell and let
+`fill_boundary()` reject interior cells. The revised implementation caches
+disjoint physical-boundary Box lists after mesh construction/regrid and launches
+only those boxes. Job `572280` is a one-GPU, 1000-step run of this revision;
+job `571805` is the immediately preceding one-GPU comparison run.
+
+| Quantity | Job 571805 | Job 572280 | Change |
+|---|---:|---:|---:|
+| Boundary | 17.3817 s | 7.8342 s | -54.93% (2.219x speedup) |
+| `JaberCycle2` | 187.1537 s | 161.3041 s | -13.81% |
+| Compute total | 188.2410 s | 162.3385 s | -13.76% |
+| `MLUPS_total` | 343.64 | 398.70 | +16.02% |
+
+The new counters report `boundary_full_cells=69,021,204,480` and
+`boundary_launch_cells=2,552,369,464`; the kernel launch region is therefore
+3.698% of the former full-valid-cell region, a 96.302% geometric reduction.
+The transfer work counters are close between the two runs
+(`interp_scale_cells` differs by about 1.0%, while `average_scale_cells` differs
+by about 0.06%), but this is not a controlled isolated-kernel benchmark: mesh
+evolution and other phase times also differ. Attribute the 2.219x Boundary
+improvement directly to this experiment; treat the total-time change as an
+observed run-level result rather than a pure Boundary contribution.
+
+The revision was also exercised by two-GPU, 64-step smoke job `572281`. The
+test completed without an AMReX abort or MPI/CUDA failure; strict numerical
+equivalence still requires field norms or a reference profile comparison.
 
 ## Pie Chart
 
@@ -172,8 +204,10 @@ loop overhead, and timer-boundary work, so each pie closes to its stated total.
 ## Further Measurement
 
 The next useful measurement is level-indexed timing for levels 1, 2, and 3:
-record transfer time, box count, valid cells, and grown-box cells for both
-Interp and Average. Function-level profiling has already isolated the main
-mechanisms; level-level data is needed before selecting an interface work list,
-a covered-coarse mask, or a specialized LBM coarse-fine transfer
-implementation.
+record transfer time, box count, valid cells, grown-box cells, covered cells,
+and interface cells for both Interp and Average. The coarse covered/interface
+masks now exist, but Collide and Stream still launch broad boxes and branch per
+cell. Use the level data to decide whether regrid-cached active work regions
+reduce enough work to offset extra kernel launches. After that, compare a
+valid-only specialized restriction kernel and a narrowed interpolation-scaling
+work list that includes the conservative-linear stencil halo.
