@@ -7,7 +7,7 @@ This case measures coarse-fine AMR transfer costs in the recursive
 
 ```text
 FillGhostLevel -> FillDdfPatch -> FillPatchTwoLevels
-AverageDownGhostLevel -> MultiFab::Copy -> average_scale -> average_down
+AverageDownGhostLevel -> fused LBM restriction -> ParallelCopy
 ```
 
 The detailed case timers identify the high-level subphases. AMReX
@@ -145,14 +145,14 @@ Jaber et al.'s A6 cavity test and this case share the broad target of a
 `Re=1000`, `64^3`, D3Q27, double-precision, four-level cavity calculation
 with regridding every 32 coarse steps. Both use linear coarse-to-fine spatial
 interpolation. They are not direct performance peers: A6 is a single-GPU,
-fixed-`4^3` block, GPU-native octree solver with interface-only restriction
-and in-place shared-memory streaming. BOX3D uses AMReX patches, generic
-`FillPatchTwoLevels()`/`average_down()`, coarse-level covered/interface masks,
-and dual-MultiFab pull streaming. Its masks skip most covered coarse Collide and
-Stream work through per-cell branches, but they are not Jaber's fine-level
-`cells_ID_mask` and restriction still covers the fine valid patch. Match mesh
-coverage, Mach number, refinement criterion, and active-node counting before
-comparing MLUPS.
+fixed-`4^3` block, GPU-native octree solver with interface-only restriction and
+in-place shared-memory streaming. BOX3D uses AMReX patches, generic
+`FillPatchTwoLevels()`, an LBM-specific fused valid-region restriction,
+coarse-level covered/interface masks, and dual-MultiFab pull streaming. Its masks
+skip most covered coarse Collide and Stream work through per-cell branches, but
+they are not Jaber's fine-level `cells_ID_mask` and restriction still covers the
+fine valid patch. Match mesh coverage, Mach number, refinement criterion, and
+active-node counting before comparing MLUPS.
 
 ## Boundary Work-Box Experiment: Job 572280
 
@@ -258,8 +258,10 @@ registers and raised Average to 65.1121 s, so it was rejected.
 
 The implementation still restricts every fine valid covered region, which
 preserves the previous AMReX semantics. It does not yet implement Jaber-style
-interface-only restriction. The smoke tests establish execution and MPI safety;
-strict numerical equivalence still requires field-norm comparison.
+interface-only restriction. Final two-GPU, 64-step smoke job `572595` completed
+through two regrids and reached `finest_level=2` without an AMReX, MPI, CUDA, or
+assertion failure. This establishes execution and MPI safety only; strict
+numerical equivalence still requires field-norm comparison.
 
 Rebuild and submit the same short performance configuration from the case
 directory with:

@@ -709,7 +709,7 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
 
     {
         ScopedPerfTimer timer(perf_stats.interp_scale);
-        // RemakeLevel uses a not-yet-installed BoxArray, so its source region is not cached yet.
+        // 用于判断当前传入 FillDdfPatch() 的目标细层 mf，是否与此前构造 interp_scale_work_boxes 缓存时使用的细层网格布局一致。
         const bool cache_matches_target =
             lev <= finest_level && mf.getBDKey() == f_old_lev_f.getBDKey();
         for (MFIter mfi(f_old_lev_c, false); mfi.isValid(); ++mfi) {
@@ -905,36 +905,52 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
     }
 
     // 用于插值优化
+    /*     整体数据关系
+    fine ghost 待填充区域
+            ↓ TheFPinfo
+    fpc.ba_crse_patch
+            ↓ 周期平移
+    needed_crse_box + shift
+            ↓ 与粗层 BoxArray 求交
+    (index_of_coarse_box, intersection_box)
+            ↓ 去重并缓存
+    interp_scale_work_boxes[lev][coarse_box_id] */
     for (int lev = 0; lev < finest_level; ++lev) {
         const int fine_lev = lev + 1;
         const BoxArray& crse_ba = f_old[lev].boxArray();
         auto& level_work_boxes = interp_scale_work_boxes[lev];
         level_work_boxes.resize(crse_ba.size());
 
-        const auto& coarsener = cell_bilinear_interp.BoxCoarsener(refRatio(lev));
+        const auto& coarsener = cell_bilinear_interp.BoxCoarsener(refRatio(lev)); // 区域转换器,根据需要填充的fine区域，计算对应的coarse区域
         const auto& fpc = FabArrayBase::TheFPinfo(
             f_old[fine_lev], f_old[fine_lev], amrex::IntVect(nghost), coarsener,
-            Geom(fine_lev), Geom(lev), nullptr);
-        const auto periodic_shifts = Geom(lev).periodicity().shiftIntVect();
-        amrex::Vector<std::pair<int, Box>> intersections;
+            Geom(fine_lev), Geom(lev), nullptr); // 获取FillPatch几何信息, 会减去能够由同层 fine Box 填充的区域
 
-        for (int ibox = 0; ibox < fpc.ba_crse_patch.size(); ++ibox) {
+        const auto periodic_shifts = Geom(lev).periodicity().shiftIntVect();
+        amrex::Vector<std::pair<int, Box>> intersections; // 这是一个临时交集结果容器, 后面会调用
+
+        for (int ibox = 0; ibox < fpc.ba_crse_patch.size(); ++ibox) { // ba_crse_patch表示为了填充细层 nghost 层 ghost cell，经过同层 fine 数据覆盖后，仍然需要从粗层插值的那些区域，在粗网格索引空间中对应哪些 Box。
             const Box& needed_crse_box = fpc.ba_crse_patch[ibox];
             for (const IntVect& shift : periodic_shifts) {
-                crse_ba.intersections(needed_crse_box + shift, intersections);
+                crse_ba.intersections(needed_crse_box + shift, intersections); // 它检查平移后的所需区域与粗层所有 valid Box 的交集，并将这些交集存储在 intersections 容器中。
                 for (const auto& intersection : intersections) {
                     level_work_boxes[intersection.first].push_back(intersection.second);
                 }
             }
         }
 
-        for (auto& boxes : level_work_boxes) {
+        for (auto& work_boxes_for_one_coarse_box : level_work_boxes) {
             BoxList box_list;
-            for (const Box& box : boxes) {
-                box_list.push_back(box);
+
+            for (const Box& work_box : work_boxes_for_one_coarse_box) {
+                box_list.push_back(work_box);
             }
+
             BoxList disjoint_boxes = amrex::removeOverlap(box_list);
-            boxes.assign(disjoint_boxes.begin(), disjoint_boxes.end());
+
+            work_boxes_for_one_coarse_box.assign(
+                disjoint_boxes.begin(),
+                disjoint_boxes.end());
         }
     }
 

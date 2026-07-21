@@ -71,8 +71,8 @@ DDF 并求平均。随后 `ParallelCopy()` 将结果回写 `f_old[lev]`；这一
 `average_scale` kernel 和通用 `amrex::average_down()`。函数名虽然保留了 `Ghost`，
 restriction 源仍然只有 `f_old[lev+1]` 的 valid cells，fine ghost cells 不参与平均。
 
-它没有维护“只沿界面”的显式 cell 列表；AMReX 根据 fine BoxArray 覆盖到的粗层区域完成
-restriction。因此被 fine valid patch 覆盖的 coarse 区域会被平均结果回写。
+它没有维护“只沿界面”的显式 cell 列表；当前融合实现根据 fine BoxArray 粗化后的区域
+启动 restriction。因此被 fine valid patch 覆盖的 coarse 区域都会被平均结果回写。
 
 ## 两层 ghost 与推进范围
 
