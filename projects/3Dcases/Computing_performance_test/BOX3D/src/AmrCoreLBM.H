@@ -43,6 +43,8 @@ class AmrCoreLBM : public amrex::AmrCore {
         double average_copy = 0.0;
         double average_scale = 0.0;
         double average_down = 0.0;
+        double average_fused = 0.0;
+        double average_copyback = 0.0;
         double comm = 0.0;
         double boundary = 0.0;
         double swap = 0.0;
@@ -171,6 +173,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> force;
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
+    amrex::Vector<amrex::MultiFab> average_down_buffer;
 
     // covered_mask 值为 1 的网格单元，代表该单元被更精细一层网格 `lev+1` 覆盖；
     // 交界面掩码（interface_mask）指被细网格覆盖、且紧贴未被覆盖粗网格单元的单层网格条带。

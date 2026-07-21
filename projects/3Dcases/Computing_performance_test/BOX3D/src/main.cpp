@@ -161,6 +161,8 @@ int main(int argc, char* argv[]) {
                           << " average_copy=" << perf.average_copy
                           << " average_scale=" << perf.average_scale
                           << " average_down=" << perf.average_down
+                          << " average_fused=" << perf.average_fused
+                          << " average_copyback=" << perf.average_copyback
                           << std::endl;
                 std::cout << "step" << step
                           << " perf_count: fillghost_calls=" << perf.fillghost_calls

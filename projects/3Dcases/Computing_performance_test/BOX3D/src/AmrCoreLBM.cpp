@@ -87,6 +87,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
 
     f_new.resize(nlevs_max);
     f_old.resize(nlevs_max);
+    average_down_buffer.resize(nlevs_max);
     covered_mask.resize(nlevs_max);
     interface_mask.resize(nlevs_max);
     covered_cell_counts.resize(nlevs_max, 0);
@@ -804,6 +805,9 @@ void AmrCoreLBM::FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf) 
 
 void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
     regrid_tag_counts.assign(max_level + 1, -1);
+    for (auto& buffer : average_down_buffer) {
+        buffer.clear();
+    }
     regrid(0, cur_time);
     RebuildCoarseFineMasks();
 
@@ -854,6 +858,12 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
         stream_box_classes[lev].clear();
         interp_scale_work_boxes[lev].clear();
         boundary_work_boxes[lev].clear();
+        average_down_buffer[lev].clear();
+    }
+
+    for (int lev = 0; lev < finest_level; ++lev) {
+        BoxArray coarse_from_fine = amrex::coarsen(f_old[lev + 1].boxArray(), refRatio(lev));
+        average_down_buffer[lev].define(coarse_from_fine, f_old[lev + 1].DistributionMap(), Q, 0);
     }
 
     // 用于边界处理优化
@@ -1190,39 +1200,72 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     ++perf_stats.avgdown_calls;
     // amrex::AllPrint()<<"AverageDownGhostLevel from " << lev+1 << " to " << lev <<std::endl;
 
+    if (lev >= finest_level) {
+        return;
+    }
+
     amrex::MultiFab& fine_mf = f_old[lev + 1];
     amrex::MultiFab& crse_mf = f_old[lev];
 
-    std::optional<MultiFab> fine_boundary_data;
+    MultiFab& coarse_from_fine = average_down_buffer[lev];
+    const IntVect ratio = refRatio(lev);
+    const Real scale = 2.0 * tau[lev] / tau[lev + 1];
+
+    AMREX_ALWAYS_ASSERT(coarse_from_fine.boxArray() == amrex::coarsen(fine_mf.boxArray(), ratio));
+    AMREX_ALWAYS_ASSERT(coarse_from_fine.DistributionMap() == fine_mf.DistributionMap());
+
+    ScopedPerfTimer avgdown_timer(perf_stats.average_down);
     {
-        ScopedPerfTimer alloc_timer(perf_stats.average_alloc);
-        // average_down only reads fine valid cells, so restriction needs no ghost storage.
-        fine_boundary_data.emplace(fine_mf.boxArray(), fine_mf.DistributionMap(), Q, 0);
-    }
-    {
-        ScopedPerfTimer copy_timer(perf_stats.average_copy);
-        MultiFab::Copy(*fine_boundary_data, fine_mf, 0, 0, Q, 0);
-    }
+        ScopedPerfTimer fused_timer(perf_stats.average_fused);
+        for (MFIter mfi(coarse_from_fine, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const Box bx = mfi.tilebox();
+            const Array4<const Real>& fine = fine_mf.const_array(mfi);
+            const Array4<Real>& coarse = coarse_from_fine.array(mfi);
 
-    if (is_scale) {
-        amrex::Real scale = 2.0 * tau[lev] / tau[lev + 1];
+            if (is_scale) {
+                perf_stats.average_scale_cells += bx.numPts() * ratio[0] * ratio[1] * ratio[2];
+#ifdef AMREX_USE_CUDA
+                constexpr int threads_per_block = 256;
+                constexpr int warp_size = 32;
+                constexpr int warps_per_block = threads_per_block / warp_size;
+                const Long ncells = bx.numPts();
+                const int nblocks = static_cast<int>((ncells + warps_per_block - 1) /
+                                                     warps_per_block);
+                const auto lo = amrex::lbound(bx);
+                const int nx = bx.length(0);
+                const int ny = bx.length(1);
 
-        ScopedPerfTimer scale_timer(perf_stats.average_scale);
-        for (MFIter mfi(*fine_boundary_data, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            const auto bx = mfi.tilebox();
-            perf_stats.average_scale_cells += bx.numPts();
-
-            const Array4<Real>& fold = fine_boundary_data->array(mfi);
-
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                average_scale(i, j, k, fold, scale);
-            });
+                amrex::launch<threads_per_block>(
+                    nblocks, amrex::Gpu::Device::gpuStream(),
+                    [=] AMREX_GPU_DEVICE() noexcept {
+                        const int lane = threadIdx.x % warp_size;
+                        const int warp_in_block = threadIdx.x / warp_size;
+                        const Long icell = static_cast<Long>(blockIdx.x) * warps_per_block +
+                                           warp_in_block;
+                        if (icell < ncells) {
+                            const int i = lo.x + static_cast<int>(icell % nx);
+                            const Long yz = icell / nx;
+                            const int j = lo.y + static_cast<int>(yz % ny);
+                            const int k = lo.z + static_cast<int>(yz / ny);
+                            average_down_lbm_scaled_warp(i, j, k, lane, coarse, fine, ratio,
+                                                         scale);
+                        }
+                    });
+#else
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                    average_down_lbm_scaled(i, j, k, coarse, fine, ratio, scale);
+                });
+#endif
+            } else {
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                    average_down_lbm(i, j, k, coarse, fine, ratio);
+                });
+            }
         }
     }
-
     {
-        ScopedPerfTimer avgdown_timer(perf_stats.average_down);
-        amrex::average_down(*fine_boundary_data, crse_mf, 0, Q, refRatio(lev));
+        ScopedPerfTimer copyback_timer(perf_stats.average_copyback);
+        crse_mf.ParallelCopy(coarse_from_fine, 0, 0, Q);
     }
 }
 

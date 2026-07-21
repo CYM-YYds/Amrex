@@ -14,7 +14,8 @@ AMReX 的 patch-based AMR 实现；不要把它与 Jaber 论文中 GPU-native �
               -> FillPatchTwoLevels()
 
 细层 -> 粗层：AverageDownGhostLevel(lev, true)
-              -> average_down()
+              -> fused LBM restriction
+              -> ParallelCopy()
 ```
 
 `FillGhostLevel()` 将目标细层的 `f_old[lev]` 传给 `FillDdfPatch()`。后者以
@@ -59,11 +60,16 @@ AMReX 填充路径是否使用保守线性插值，不能据此推断。
 
 ## 细到粗平均
 
-`AverageDownGhostLevel()` 创建 `nGrow=0` 的 fine 临时 `MultiFab`，只复制
-`f_old[lev+1]` 的 valid cells，按反向比例缩放其非平衡部分，再调用
-`amrex::average_down()` 写回 `f_old[lev]`。虽然函数名保留了 `Ghost`，但当前调用并不把
-fine ghost cell 作为 restriction 源；`average_down()` 根据 `S_fine.boxArray()` 的 valid
-范围构造粗化区域，并从每个父 coarse cell 对应的 8 个 fine valid 子 cell 求平均。
+`AverageDownGhostLevel()` 为每一对现存层级缓存一个按 fine BoxArray 粗化得到的
+`nGrow=0` coarse `MultiFab`。融合 kernel 以一个 coarse parent 为工作单元，直接读取
+对应的 8 个 fine valid children，在 kernel 内恢复每个 child 的宏观量、缩放非平衡
+DDF 并求平均。随后 `ParallelCopy()` 将结果回写 `f_old[lev]`；这一步用于处理缓存与
+真实 coarse level 之间可能不同的 BoxArray 和 DistributionMap，因此在多 GPU 下也可能
+包含 MPI 数据移动。
+
+该路径不再创建 fine 临时 `MultiFab`，也不再执行整场 `MultiFab::Copy()`、独立
+`average_scale` kernel 和通用 `amrex::average_down()`。函数名虽然保留了 `Ghost`，
+restriction 源仍然只有 `f_old[lev+1]` 的 valid cells，fine ghost cells 不参与平均。
 
 它没有维护“只沿界面”的显式 cell 列表；AMReX 根据 fine BoxArray 覆盖到的粗层区域完成
 restriction。因此被 fine valid patch 覆盖的 coarse 区域会被平均结果回写。

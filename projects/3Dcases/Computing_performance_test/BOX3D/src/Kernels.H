@@ -2401,6 +2401,131 @@ void average_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
     }
 }
 
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void average_down_lbm(int i, int j, int k, amrex::Array4<amrex::Real> const& crse,
+                      amrex::Array4<amrex::Real const> const& fine,
+                      amrex::IntVect const& ratio) noexcept {
+    const int fi = i * ratio[0];
+    const int fj = j * ratio[1];
+    const int fk = k * ratio[2];
+    const Real inv_children = Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
+
+    for (int q = 0; q < Q; ++q) {
+        Real sum = 0.0;
+        for (int kr = 0; kr < ratio[2]; ++kr) {
+            for (int jr = 0; jr < ratio[1]; ++jr) {
+                for (int ir = 0; ir < ratio[0]; ++ir) {
+                    sum += fine(fi + ir, fj + jr, fk + kr, q);
+                }
+            }
+        }
+        crse(i, j, k, q) = sum * inv_children;
+    }
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void average_down_lbm_scaled(int i, int j, int k,
+                             amrex::Array4<amrex::Real> const& crse,
+                             amrex::Array4<amrex::Real const> const& fine,
+                             amrex::IntVect const& ratio, amrex::Real scale) noexcept {
+    Real restricted[Q];
+    for (int q = 0; q < Q; ++q) {
+        restricted[q] = 0.0;
+    }
+
+    const int fi = i * ratio[0];
+    const int fj = j * ratio[1];
+    const int fk = k * ratio[2];
+
+    for (int kr = 0; kr < ratio[2]; ++kr) {
+        for (int jr = 0; jr < ratio[1]; ++jr) {
+            for (int ir = 0; ir < ratio[0]; ++ir) {
+                const int ii = fi + ir;
+                const int jj = fj + jr;
+                const int kk = fk + kr;
+                Real rho = 0.0;
+                Real ux = 0.0;
+                Real uy = 0.0;
+                Real uz = 0.0;
+
+                for (int q = 0; q < Q; ++q) {
+                    const Real fq = fine(ii, jj, kk, q);
+                    rho += fq;
+                    ux += fq * e[q][0];
+                    uy += fq * e[q][1];
+                    uz += fq * e[q][2];
+                }
+
+                ux /= rho;
+                uy /= rho;
+                uz /= rho;
+                for (int q = 0; q < Q; ++q) {
+                    const Real feq = feqQian(rho, {ux, uy, uz}, q);
+                    const Real fq = fine(ii, jj, kk, q);
+                    restricted[q] += feq + (fq - feq) * scale;
+                }
+            }
+        }
+    }
+
+    const Real inv_children = Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
+    for (int q = 0; q < Q; ++q) {
+        crse(i, j, k, q) = restricted[q] * inv_children;
+    }
+}
+
+#ifdef AMREX_USE_CUDA
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+Real warp_sum_32(Real value) noexcept {
+    constexpr unsigned int full_mask = 0xffffffffu;
+    for (int offset = 16; offset > 0; offset /= 2) {
+        value += __shfl_down_sync(full_mask, value, offset);
+    }
+    return __shfl_sync(full_mask, value, 0);
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void average_down_lbm_scaled_warp(int i, int j, int k, int q,
+                                  amrex::Array4<amrex::Real> const& crse,
+                                  amrex::Array4<amrex::Real const> const& fine,
+                                  amrex::IntVect const& ratio, amrex::Real scale) noexcept {
+    const int fi = i * ratio[0];
+    const int fj = j * ratio[1];
+    const int fk = k * ratio[2];
+    const int nchildren = ratio[0] * ratio[1] * ratio[2];
+    Real restricted = 0.0;
+    const Real inv_children = Real(1.0) / Real(nchildren);
+
+    for (int kr = 0; kr < ratio[2]; ++kr) {
+        for (int jr = 0; jr < ratio[1]; ++jr) {
+            for (int ir = 0; ir < ratio[0]; ++ir) {
+                const int ii = fi + ir;
+                const int jj = fj + jr;
+                const int kk = fk + kr;
+                const Real fq = q < Q ? fine(ii, jj, kk, q) : Real(0.0);
+                const Real rho = warp_sum_32(fq);
+                const Real ux = warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0)) / rho;
+                const Real uy = warp_sum_32(q < Q ? fq * e[q][1] : Real(0.0)) / rho;
+                const Real uz = warp_sum_32(q < Q ? fq * e[q][2] : Real(0.0)) / rho;
+
+                if (q < Q) {
+                    const Real feq = feqQian(rho, {ux, uy, uz}, q);
+                    restricted += feq + (fq - feq) * scale;
+                }
+            }
+        }
+    }
+
+    if (q < Q) {
+        crse(i, j, k, q) = restricted * inv_children;
+    }
+}
+#endif
+
 struct AmrCoreFill {
     AMREX_GPU_DEVICE
     void operator()(const amrex::IntVect& /*iv*/,

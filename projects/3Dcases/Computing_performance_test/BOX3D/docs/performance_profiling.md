@@ -230,6 +230,37 @@ without an AMReX, MPI, or CUDA failure. The smoke run verifies execution and
 communication safety only; strict numerical equivalence still requires field
 norms or a reference-profile comparison.
 
+## Fused Fine-to-Coarse Restriction: Job 572591
+
+The previous `AverageDownGhostLevel()` allocated a temporary fine `MultiFab`,
+copied all fine valid DDFs, rescaled them in a separate kernel, and then called
+generic `amrex::average_down()`. The revised path caches a coarse-shaped buffer,
+uses one CUDA warp per coarse parent to rescale and average its fine children,
+and performs one `ParallelCopy()` into the real coarse level. The copy-back is
+retained because the fine-derived and coarse layouts or MPI ownership may differ.
+
+Job `572587`, mode 1, is the pre-change baseline. Job `572591` uses the fused
+restriction. Both are one-GPU, 1000-step runs with identical transfer and boundary
+cell counters.
+
+| Quantity | 572587 mode 1 | 572591 | Change |
+|---|---:|---:|---:|
+| Average total | 33.9745 s | 29.2931 s | -13.779% |
+| `JaberCycle2` | 161.9143 s | 153.6465 s | -5.106% |
+| Compute total | 163.0239 s | 154.7040 s | -5.103% |
+| `MLUPS_total` | 397.02 | 418.37 | +5.378% |
+
+For job `572591`, `average_fused=27.2083 s` and
+`average_copyback=2.0667 s`; the legacy allocation, copy, and scale fields are
+zero. The selected q-lane warp kernel compiles for `sm_80` with 56 registers and
+no stack or register spills. A child-lane alternative (job `572593`) used 194
+registers and raised Average to 65.1121 s, so it was rejected.
+
+The implementation still restricts every fine valid covered region, which
+preserves the previous AMReX semantics. It does not yet implement Jaber-style
+interface-only restriction. The smoke tests establish execution and MPI safety;
+strict numerical equivalence still requires field-norm comparison.
+
 Rebuild and submit the same short performance configuration from the case
 directory with:
 
@@ -245,5 +276,6 @@ record transfer time, box count, valid cells, grown-box cells, covered cells,
 and interface cells for both Interp and Average. The coarse covered/interface
 masks now exist, but Collide and Stream still launch broad boxes and branch per
 cell. Use the level data to decide whether regrid-cached active work regions
-reduce enough work to offset extra kernel launches. After that, compare a
-valid-only specialized restriction kernel.
+reduce enough work to offset extra kernel launches. For restriction, the next
+step is a controlled interface-only experiment with a full restriction before
+regrid or coarsening.

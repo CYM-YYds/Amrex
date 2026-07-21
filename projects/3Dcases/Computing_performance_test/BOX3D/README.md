@@ -31,10 +31,10 @@
 | --- | --- |
 | `interp_scale` | 粗网格到细网格填充前的 LBM 非平衡量缩放。 |
 | `interp_fillpatch` | AMReX `FillPatchTwoLevels()` 执行的粗细网格填充。 |
-| `average_alloc` | 限制操作所需细网格临时 `MultiFab` 的创建。 |
-| `average_copy` | 将细网格数据复制到该临时 `MultiFab`。 |
-| `average_scale` | 细网格到粗网格限制前的 LBM 非平衡量缩放。 |
-| `average_down` | AMReX `average_down()` 执行的细到粗限制。 |
+| `average_alloc` / `average_copy` / `average_scale` | 旧版三阶段 restriction 的兼容字段；融合实现下应为 0。 |
+| `average_down` | 融合 restriction 与结果回写的总耗时。 |
+| `average_fused` | 恢复宏观量、非平衡量缩放及 8 个 fine child 平均的融合 kernel 耗时。 |
+| `average_copyback` | 从按 fine 布局缓存的粗化结果回写真实 coarse `MultiFab` 的耗时，可能包含 MPI 通信。 |
 
 这些细分计时会在测量点同步 GPU，因此适合在同一插桩构建中定位耗时来源；不应与未插桩运行的绝对吞吐直接比较。
 
