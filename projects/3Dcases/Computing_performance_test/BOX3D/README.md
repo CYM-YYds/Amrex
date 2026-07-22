@@ -31,10 +31,11 @@
 | --- | --- |
 | `interp_scale` | 粗网格到细网格填充前的 LBM 非平衡量缩放。 |
 | `interp_fillpatch` | AMReX `FillPatchTwoLevels()` 执行的粗细网格填充。 |
-| `average_alloc` / `average_copy` / `average_scale` | 旧版三阶段 restriction 的兼容字段；融合实现下应为 0。 |
-| `average_down` | 融合 restriction 与结果回写的总耗时。 |
+| `average_alloc` / `average_copy` / `average_scale` | 分步 restriction 的缓冲、复制与非平衡量缩放耗时；融合模式下应为 0。 |
+| `average_down` | 当前所选 restriction 路径的总耗时，包含 kernel 与结果回写。 |
 | `average_fused` | 恢复宏观量、非平衡量缩放及 8 个 fine child 平均的融合 kernel 耗时。 |
-| `average_copyback` | 从按 fine 布局缓存的粗化结果回写真实 coarse `MultiFab` 的耗时，可能包含 MPI 通信。 |
+| `average_restrict` | 拆分模式中，将已经缩放的 8 个 fine child 平均到 coarse parent 的耗时。 |
+| `average_copyback` | 从按 fine 布局的粗化结果缓冲区回写真实 coarse `MultiFab` 的耗时，可能包含 MPI 通信。 |
 
 这些细分计时会在测量点同步 GPU，因此适合在同一插桩构建中定位耗时来源；不应与未插桩运行的绝对吞吐直接比较。
 
@@ -48,6 +49,7 @@
 | `interp_scale_cells` | 粗到细缩放实际处理的格点数。 |
 | `interp_scale_launch_boxes` | 粗到细缩放实际启动的缓存工作箱数量。 |
 | `average_scale_cells` | 细到粗缩放处理的近似格点数。 |
+| `average_parent_cells` | restriction 实际处理的 coarse parent 数；用于核对 full 与 interface-only 工作量。 |
 | `boundary_full_cells` | 若对每层全部 valid cell 启动边界 kernel 时的基准格点数。 |
 | `boundary_launch_cells` | 实际物理边界工作箱覆盖的格点数；两者之比用于衡量边界 launch 裁剪效果。 |
 

@@ -1,4 +1,4 @@
-AMREX_HOME ?=/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01
+AMREX_HOME ?=/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.06
 
 
 CF_CFG_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))

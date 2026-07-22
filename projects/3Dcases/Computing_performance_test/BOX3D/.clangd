@@ -38,9 +38,9 @@ CompileFlags:
   Add:
     - -DAMREX_CXX_NVHPC
     - -include
-    - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base/AMReX_REAL.H
+    - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.06/Src/Base/AMReX_REAL.H
     - -include
-    - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01/Src/Base/AMReX_RealVect.H
+    - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.06/Src/Base/AMReX_RealVect.H
 
 ---
 If:

@@ -162,6 +162,7 @@ int main(int argc, char* argv[]) {
                           << " average_scale=" << perf.average_scale
                           << " average_down=" << perf.average_down
                           << " average_fused=" << perf.average_fused
+                          << " average_restrict=" << perf.average_restrict
                           << " average_copyback=" << perf.average_copyback
                           << std::endl;
                 std::cout << "step" << step
@@ -171,6 +172,7 @@ int main(int argc, char* argv[]) {
                           << " interp_scale_cells=" << perf.interp_scale_cells
                           << " interp_scale_launch_boxes=" << perf.interp_scale_launch_boxes
                           << " average_scale_cells=" << perf.average_scale_cells
+                          << " average_parent_cells=" << perf.average_parent_cells
                           << " boundary_full_cells=" << perf.boundary_full_cells
                           << " boundary_launch_cells=" << perf.boundary_launch_cells
                           << std::endl;
@@ -183,7 +185,7 @@ int main(int argc, char* argv[]) {
                 lid.ResetPerfStats();
             }
 
-            if (step >= begin_plot && step % plot_int == 0) {
+            if (plot_int > 0 && step >= begin_plot && step % plot_int == 0) {
                 lid.PrintMeshInfo();
                 lid.ComputeMacro();
                 lid.ComputeVorticity(cur_time);

@@ -44,6 +44,7 @@ class AmrCoreLBM : public amrex::AmrCore {
         double average_scale = 0.0;
         double average_down = 0.0;
         double average_fused = 0.0;
+        double average_restrict = 0.0;
         double average_copyback = 0.0;
         double comm = 0.0;
         double boundary = 0.0;
@@ -54,6 +55,7 @@ class AmrCoreLBM : public amrex::AmrCore {
         long long interp_scale_cells = 0;
         long long interp_scale_launch_boxes = 0;
         long long average_scale_cells = 0;
+        long long average_parent_cells = 0;
         long long boundary_full_cells = 0;
         long long boundary_launch_cells = 0;
     };
@@ -162,6 +164,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     int particle_num = 1;
     // 0: no coarse-fine mask, 1: cell mask, 2: cell mask plus Box classification.
     int cf_mask_mode = 1;
+    // 0: full split, 1: full fused, 2: interface split, 3: interface fused.
+    int average_mode = 1;
 
     amrex::Vector<amrex::BCRec> bcs;
     amrex::Vector<amrex::Real> err;
@@ -174,6 +178,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
     amrex::Vector<amrex::MultiFab> average_down_buffer;
+    amrex::Vector<amrex::MultiFab> average_interface_buffer;
+    amrex::Vector<amrex::Vector<int>> average_interface_fine_box;
 
     // covered_mask 值为 1 的网格单元，代表该单元被更精细一层网格 `lev+1` 覆盖；
     // 交界面掩码（interface_mask）指被细网格覆盖、且紧贴未被覆盖粗网格单元的单层网格条带。

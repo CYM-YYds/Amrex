@@ -25,7 +25,20 @@ checkpoint.keep_latest_only = true
 checkpoint.write_particles = true
 
 lbm.err = 0.005 0.010 0.020 0.040
+
+# 粗细网格覆盖掩码模式：
+# 0 = 不使用 mask，粗层所有 cell 都参与 Collide/Stream
+# 1 = 使用逐 cell mask，跳过被细层覆盖的粗层内部 cell（当前实测默认）
+# 2 = 逐 cell mask + Box 分类；完全 active/inactive Box 可整体执行或跳过
 lbm.cf_mask_mode = 1
+
+# 细网格到粗网格的 DDF 平均下传模式：
+# 0 = 全部 fine valid，复用 f_new，分步执行 Copy + Scale + Restrict
+# 1 = 全部 fine valid，融合执行非平衡缩放与 Restrict
+# 2 = 仅 coarse-fine interface，复用 f_new，分步执行 Copy + Scale + Restrict
+# 3 = 仅 coarse-fine interface，融合执行非平衡缩放与 Restrict（当前实测默认）
+# 注：regrid 前仍通过 AverageDownValid() 执行完整 fine-to-coarse 同步
+lbm.average_mode = 3
 # *****************************************************************
 # mesh setting
 #

@@ -88,6 +88,8 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     f_new.resize(nlevs_max);
     f_old.resize(nlevs_max);
     average_down_buffer.resize(nlevs_max);
+    average_interface_buffer.resize(nlevs_max);
+    average_interface_fine_box.resize(nlevs_max);
     covered_mask.resize(nlevs_max);
     interface_mask.resize(nlevs_max);
     covered_cell_counts.resize(nlevs_max, 0);
@@ -287,6 +289,7 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  Ma     =" << std::setw(10) << std::right << Ma << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  U0     =" << std::setw(10) << std::right << U0 << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  cf_mask=" << std::setw(10) << std::right << cf_mask_mode << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  avg_mode=" << std::setw(10) << std::right << average_mode << std::endl;
 
     for (int lev = 0; lev <= finest_level; lev++) {
         amrex::Print() << std::setw(15) << std::left << "  tau    =" << std::setw(10) << std::right << tau[lev] << std::endl;
@@ -482,6 +485,10 @@ void AmrCoreLBM::ReadParameters() {
         pp.query("cf_mask_mode", cf_mask_mode);
         if (cf_mask_mode < 0 || cf_mask_mode > 2) {
             amrex::Abort("lbm.cf_mask_mode must be 0, 1, or 2");
+        }
+        pp.query("average_mode", average_mode);
+        if (average_mode < 0 || average_mode > 3) {
+            amrex::Abort("lbm.average_mode must be 0, 1, 2, or 3");
         }
         int n = pp.countval("err");
         if (n > 0) {
@@ -808,6 +815,9 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
     for (auto& buffer : average_down_buffer) {
         buffer.clear();
     }
+    for (auto& buffer : average_interface_buffer) {
+        buffer.clear();
+    }
     regrid(0, cur_time);
     RebuildCoarseFineMasks();
 
@@ -859,11 +869,53 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
         interp_scale_work_boxes[lev].clear();
         boundary_work_boxes[lev].clear();
         average_down_buffer[lev].clear();
+        average_interface_buffer[lev].clear();
+        average_interface_fine_box[lev].clear();
     }
 
     for (int lev = 0; lev < finest_level; ++lev) {
         BoxArray coarse_from_fine = amrex::coarsen(f_old[lev + 1].boxArray(), refRatio(lev));
-        average_down_buffer[lev].define(coarse_from_fine, f_old[lev + 1].DistributionMap(), Q, 0);
+        if (average_mode == 1) {
+            average_down_buffer[lev].define(coarse_from_fine, f_old[lev + 1].DistributionMap(),
+                                            Q, 0);
+        }
+        if (average_mode < 2) {
+            continue;
+        }
+
+        BoxList interface_boxes;
+        Vector<int> interface_owners;
+        Vector<int> fine_box_indices;
+        const Box domain = Geom(lev).Domain();
+        const auto& periodicity = Geom(lev).periodicity();
+        const auto& fine_dm = f_old[lev + 1].DistributionMap();
+
+        for (int ibox = 0; ibox < coarse_from_fine.size(); ++ibox) {
+            const Box& covered_box = coarse_from_fine[ibox];
+            const Box search_box = amrex::grow(covered_box, 1) & domain;
+            const BoxList uncovered = coarse_from_fine.complementIn(search_box, periodicity);
+            BoxList candidates;
+            for (const Box& uncovered_box : uncovered) {
+                const Box interface_box = amrex::grow(uncovered_box, 1) & covered_box;
+                if (interface_box.ok()) {
+                    candidates.push_back(interface_box);
+                }
+            }
+
+            const BoxList disjoint = amrex::removeOverlap(candidates);
+            for (const Box& interface_box : disjoint) {
+                interface_boxes.push_back(interface_box);
+                interface_owners.push_back(fine_dm[ibox]);
+                fine_box_indices.push_back(ibox);
+            }
+        }
+
+        BoxArray interface_ba(interface_boxes);
+        if (!interface_ba.empty()) {
+            DistributionMapping interface_dm(interface_owners);
+            average_interface_buffer[lev].define(interface_ba, interface_dm, Q, 0);
+            average_interface_fine_box[lev] = std::move(fine_box_indices);
+        }
     }
 
     // 用于边界处理优化
@@ -1062,6 +1114,16 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
 
         covered_cell_counts[lev] = covered_mask[lev].sum(0, 0);
         interface_cell_counts[lev] = interface_mask[lev].sum(0, 0);
+        if (average_mode >= 2) {
+            const Long restriction_interface_cells =
+                average_interface_fine_box[lev].empty()
+                    ? 0
+                    : average_interface_buffer[lev].boxArray().numPts();
+            AMREX_ALWAYS_ASSERT(restriction_interface_cells == interface_cell_counts[lev]);
+            amrex::Print() << "average_interface_observe: lev=" << lev
+                           << " cells=" << restriction_interface_cells
+                           << " boxes=" << average_interface_fine_box[lev].size() << '\n';
+        }
     }
 }
 
@@ -1221,22 +1283,161 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     }
 
     amrex::MultiFab& fine_mf = f_old[lev + 1];
+    amrex::MultiFab& fine_scratch = f_new[lev + 1];
     amrex::MultiFab& crse_mf = f_old[lev];
 
-    MultiFab& coarse_from_fine = average_down_buffer[lev];
     const IntVect ratio = refRatio(lev);
     const Real scale = 2.0 * tau[lev] / tau[lev + 1];
+    const Long children_per_parent = ratio[0] * ratio[1] * ratio[2];
+
+    ScopedPerfTimer avgdown_timer(perf_stats.average_down);
+
+    if (average_mode == 0) {
+        {
+            ScopedPerfTimer copy_timer(perf_stats.average_copy);
+            MultiFab::Copy(fine_scratch, fine_mf, 0, 0, Q, 0);
+        }
+        if (is_scale) {
+            ScopedPerfTimer scale_timer(perf_stats.average_scale);
+            for (MFIter mfi(fine_scratch, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                const Box bx = mfi.tilebox();
+                const Array4<Real>& scratch = fine_scratch.array(mfi);
+                perf_stats.average_scale_cells += bx.numPts();
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                    average_scale(i, j, k, scratch, scale);
+                });
+            }
+        }
+        {
+            ScopedPerfTimer restrict_timer(perf_stats.average_restrict);
+            amrex::average_down(fine_scratch, crse_mf, 0, Q, ratio);
+        }
+        return;
+    }
+
+    if (average_mode >= 2) {
+        MultiFab& interface_result = average_interface_buffer[lev];
+        const Vector<int>& fine_box_indices = average_interface_fine_box[lev];
+        if (fine_box_indices.empty()) {
+            return;
+        }
+
+        AMREX_ALWAYS_ASSERT(interface_result.size() == fine_box_indices.size());
+
+        if (average_mode == 2) {
+            {
+                ScopedPerfTimer copy_timer(perf_stats.average_copy);
+                for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                    const int fine_index = fine_box_indices[mfi.index()];
+                    const Box fine_box = amrex::refine(mfi.tilebox(), ratio);
+                    const Array4<const Real>& fine = fine_mf.const_array(fine_index);
+                    const Array4<Real>& scratch = fine_scratch.array(fine_index);
+                    amrex::ParallelFor(
+                        fine_box, Q,
+                        [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) noexcept {
+                            scratch(i, j, k, q) = fine(i, j, k, q);
+                        });
+                }
+            }
+
+            if (is_scale) {
+                ScopedPerfTimer scale_timer(perf_stats.average_scale);
+                for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                    const int fine_index = fine_box_indices[mfi.index()];
+                    const Box fine_box = amrex::refine(mfi.tilebox(), ratio);
+                    const Array4<Real>& scratch = fine_scratch.array(fine_index);
+                    perf_stats.average_scale_cells += fine_box.numPts();
+                    amrex::ParallelFor(
+                        fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                            average_scale(i, j, k, scratch, scale);
+                        });
+                }
+            }
+
+            {
+                ScopedPerfTimer restrict_timer(perf_stats.average_restrict);
+                for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                    const int fine_index = fine_box_indices[mfi.index()];
+                    const Box bx = mfi.tilebox();
+                    const Array4<const Real>& scratch = fine_scratch.const_array(fine_index);
+                    const Array4<Real>& coarse = interface_result.array(mfi);
+                    perf_stats.average_parent_cells += bx.numPts();
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                            average_down_lbm(i, j, k, coarse, scratch, ratio);
+                        });
+                }
+            }
+        } else {
+            ScopedPerfTimer fused_timer(perf_stats.average_fused);
+            for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                const int fine_index = fine_box_indices[mfi.index()];
+                const Box bx = mfi.tilebox();
+                const Array4<const Real>& fine = fine_mf.const_array(fine_index);
+                const Array4<Real>& coarse = interface_result.array(mfi);
+                perf_stats.average_parent_cells += bx.numPts();
+                if (is_scale) {
+                    perf_stats.average_scale_cells += bx.numPts() * children_per_parent;
+#ifdef AMREX_USE_CUDA
+                    constexpr int threads_per_block = 256;
+                    constexpr int warp_size = 32;
+                    constexpr int warps_per_block = threads_per_block / warp_size;
+                    const Long ncells = bx.numPts();
+                    const int nblocks = static_cast<int>((ncells + warps_per_block - 1) /
+                                                         warps_per_block);
+                    const auto lo = amrex::lbound(bx);
+                    const int nx = bx.length(0);
+                    const int ny = bx.length(1);
+                    amrex::launch<threads_per_block>(
+                        nblocks, amrex::Gpu::Device::gpuStream(),
+                        [=] AMREX_GPU_DEVICE() noexcept {
+                            const int lane = threadIdx.x % warp_size;
+                            const int warp_in_block = threadIdx.x / warp_size;
+                            const Long icell = static_cast<Long>(blockIdx.x) * warps_per_block +
+                                               warp_in_block;
+                            if (icell < ncells) {
+                                const int i = lo.x + static_cast<int>(icell % nx);
+                                const Long yz = icell / nx;
+                                const int j = lo.y + static_cast<int>(yz % ny);
+                                const int k = lo.z + static_cast<int>(yz / ny);
+                                average_down_lbm_scaled_warp(i, j, k, lane, coarse, fine,
+                                                             ratio, scale);
+                            }
+                        });
+#else
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                            average_down_lbm_scaled(i, j, k, coarse, fine, ratio, scale);
+                        });
+#endif
+                } else {
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                            average_down_lbm(i, j, k, coarse, fine, ratio);
+                        });
+                }
+            }
+        }
+
+        {
+            ScopedPerfTimer copyback_timer(perf_stats.average_copyback);
+            crse_mf.ParallelCopy(interface_result, 0, 0, Q);
+        }
+        return;
+    }
+
+    MultiFab& coarse_from_fine = average_down_buffer[lev];
 
     AMREX_ALWAYS_ASSERT(coarse_from_fine.boxArray() == amrex::coarsen(fine_mf.boxArray(), ratio));
     AMREX_ALWAYS_ASSERT(coarse_from_fine.DistributionMap() == fine_mf.DistributionMap());
 
-    ScopedPerfTimer avgdown_timer(perf_stats.average_down);
     {
         ScopedPerfTimer fused_timer(perf_stats.average_fused);
         for (MFIter mfi(coarse_from_fine, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
             const Box bx = mfi.tilebox();
             const Array4<const Real>& fine = fine_mf.const_array(mfi);
             const Array4<Real>& coarse = coarse_from_fine.array(mfi);
+            perf_stats.average_parent_cells += bx.numPts();
 
             if (is_scale) {
                 perf_stats.average_scale_cells += bx.numPts() * ratio[0] * ratio[1] * ratio[2];

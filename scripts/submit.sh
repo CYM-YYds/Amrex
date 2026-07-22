@@ -70,15 +70,19 @@ fi
 
 echo "Detected GPUs per node: $NGPUS_PER_NODE"
 
+AMREX_INPUT_FILE="${AMREX_INPUT_FILE:-config/inputs}"
+AMREX_RUN_ARGS="${AMREX_RUN_ARGS:-}"
+export AMREX_INPUT_FILE AMREX_RUN_ARGS
+
 # 每节点启动与 GPU 数相同的 MPI 进程，并让每个本地 rank 仅使用对应编号的 GPU
 mpirun \
 	-hostfile $HOSTFILE \
 	-npernode $NGPUS_PER_NODE \
-	-x PATH -x LD_LIBRARY_PATH \
+	-x PATH -x LD_LIBRARY_PATH -x AMREX_INPUT_FILE -x AMREX_RUN_ARGS \
 	--mca plm_rsh_agent /opt/batch/agent/tools/dstart \
-	bash -lc 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-${MPI_LOCALRANKID:-0}}; exec ./main3d.gnu.TPROF.MPI.CUDA.ex config/inputs'
+	bash -lc 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-${MPI_LOCALRANKID:-0}}; read -r -a amrex_args <<< "${AMREX_RUN_ARGS}"; exec ./main3d.gnu.TPROF.MPI.CUDA.ex "${AMREX_INPUT_FILE}" "${amrex_args[@]}"'
 
 ret=$?
 
 #rm -rf $HOSTFILE
-#exit $ret
+exit $ret

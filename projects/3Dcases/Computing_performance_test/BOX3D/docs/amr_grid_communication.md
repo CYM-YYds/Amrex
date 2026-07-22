@@ -60,19 +60,27 @@ AMReX 填充路径是否使用保守线性插值，不能据此推断。
 
 ## 细到粗平均
 
-`AverageDownGhostLevel()` 为每一对现存层级缓存一个按 fine BoxArray 粗化得到的
-`nGrow=0` coarse `MultiFab`。融合 kernel 以一个 coarse parent 为工作单元，直接读取
-对应的 8 个 fine valid children，在 kernel 内恢复每个 child 的宏观量、缩放非平衡
-DDF 并求平均。随后 `ParallelCopy()` 将结果回写 `f_old[lev]`；这一步用于处理缓存与
-真实 coarse level 之间可能不同的 BoxArray 和 DistributionMap，因此在多 GPU 下也可能
-包含 MPI 数据移动。
+`AverageDownGhostLevel()` 由 `lbm.average_mode` 选择 full/interface-only 与
+split/fused 两个维度的实现。当前默认 `average_mode=3`：每次 regrid 后把 fine BoxArray
+粗化，并与 coarse `interface_mask` 相交，缓存稀疏且互不重叠的 coarse-parent 工作箱。
+工作箱的格点总数必须与 `interface_mask` 的计数完全一致，否则程序立即中止。
+
+融合 kernel 以一个 coarse parent 为工作单元，直接读取对应的 8 个 fine valid children，
+在 kernel 内恢复每个 child 的宏观量、缩放非平衡 DDF 并求平均。结果先写入采用 fine
+DistributionMap 的稀疏 coarse 缓冲区，再由 `ParallelCopy()` 回写 `f_old[lev]`；真实
+coarse level 与 fine 派生缓冲区的布局和 MPI ownership 可能不同，因此该回写在多 GPU
+下也可能包含 MPI 数据移动。
 
 该路径不再创建 fine 临时 `MultiFab`，也不再执行整场 `MultiFab::Copy()`、独立
 `average_scale` kernel 和通用 `amrex::average_down()`。函数名虽然保留了 `Ghost`，
 restriction 源仍然只有 `f_old[lev+1]` 的 valid cells，fine ghost cells 不参与平均。
 
-它没有维护“只沿界面”的显式 cell 列表；当前融合实现根据 fine BoxArray 粗化后的区域
-启动 restriction。因此被 fine valid patch 覆盖的 coarse 区域都会被平均结果回写。
+普通时间步只回写 coarse-fine interface collar。为了避免 regrid/coarsen 后重新暴露的
+深层 covered coarse cell 陈旧，`main.cpp` 在每次 regrid 前调用 `AverageDownValid()`，
+执行一次完整 fine-valid 到 coarse 的同步。`average_mode=0/1` 仍保留全 fine-valid 路径，
+用于语义基线和对照测试；`average_mode=2/3` 使用相同的 interface 工作区域，区别仅在于
+缩放与平均是否融合。所有模式的 restriction 源都只取 fine valid cells，不读取 fine
+ghost cells。
 
 ## 两层 ghost 与推进范围
 
@@ -144,5 +152,5 @@ coarse cell 的条带，用于裁剪粗层 Collide/Stream。粗细 ghost 填充�
 
 - `src/main.cpp`: `JaberCycle2()`
 - `src/AmrCoreLBM.cpp`: `FillDdfPatch()`、`FillGhostLevel()`、`AverageDownGhostLevel()`
-- `amrex-26.01/Src/AmrCore/AMReX_FillPatchUtil_I.H`: `FillPatchTwoLevels_doit()`
-- `amrex-26.01/Src/Base/AMReX_FabArrayBase.cpp`: `FabArrayBase::FPinfo`
+- `amrex-26.06/Src/AmrCore/AMReX_FillPatchUtil_I.H`: `FillPatchTwoLevels_doit()`
+- `amrex-26.06/Src/Base/AMReX_FabArrayBase.cpp`: `FabArrayBase::FPinfo`

@@ -7,7 +7,7 @@ This case measures coarse-fine AMR transfer costs in the recursive
 
 ```text
 FillGhostLevel -> FillDdfPatch -> FillPatchTwoLevels
-AverageDownGhostLevel -> fused LBM restriction -> ParallelCopy
+AverageDownGhostLevel -> selected LBM restriction -> ParallelCopy
 ```
 
 The detailed case timers identify the high-level subphases. AMReX
@@ -147,11 +147,12 @@ with regridding every 32 coarse steps. Both use linear coarse-to-fine spatial
 interpolation. They are not direct performance peers: A6 is a single-GPU,
 fixed-`4^3` block, GPU-native octree solver with interface-only restriction and
 in-place shared-memory streaming. BOX3D uses AMReX patches, generic
-`FillPatchTwoLevels()`, an LBM-specific fused valid-region restriction,
-coarse-level covered/interface masks, and dual-MultiFab pull streaming. Its masks
-skip most covered coarse Collide and Stream work through per-cell branches, but
-they are not Jaber's fine-level `cells_ID_mask` and restriction still covers the
-fine valid patch. Match mesh coverage, Mach number, refinement criterion, and
+`FillPatchTwoLevels()`, coarse-level covered/interface masks, and dual-MultiFab
+pull streaming. The current default `average_mode=3` uses an LBM-specific fused
+restriction over a cached coarse-interface parent list; a full fine-valid
+restriction is still performed before regridding. These masks are not Jaber's
+fine-level `cells_ID_mask`, and the historical job `571393` predates the current
+interface-only path. Match mesh coverage, Mach number, refinement criterion, and
 active-node counting before comparing MLUPS.
 
 ## Boundary Work-Box Experiment: Job 572280
@@ -256,12 +257,48 @@ zero. The selected q-lane warp kernel compiles for `sm_80` with 56 registers and
 no stack or register spills. A child-lane alternative (job `572593`) used 194
 registers and raised Average to 65.1121 s, so it was rejected.
 
-The implementation still restricts every fine valid covered region, which
-preserves the previous AMReX semantics. It does not yet implement Jaber-style
-interface-only restriction. Final two-GPU, 64-step smoke job `572595` completed
-through two regrids and reached `finest_level=2` without an AMReX, MPI, CUDA, or
-assertion failure. This establishes execution and MPI safety only; strict
-numerical equivalence still requires field-norm comparison.
+That version restricted every fine valid covered region and preserved the
+previous AMReX semantics. Its final two-GPU, 64-step smoke job `572595`
+completed through two regrids and reached `finest_level=2` without an AMReX,
+MPI, CUDA, or assertion failure.
+
+## Interface-only Restriction: Jobs 573417 and 573418
+
+`lbm.average_mode` selects the restriction implementation:
+
+| Mode | Region | Implementation |
+|---:|---|---|
+| 0 | all fine valid cells | split copy/scale/restrict using `f_new` as scratch |
+| 1 | all fine valid cells | fused scale/restrict using a coarsened-fine buffer |
+| 2 | coarse-fine interface | split sparse copy/scale/restrict using `f_new` as scratch |
+| 3 | coarse-fine interface | fused sparse scale/restrict |
+
+Modes 2 and 3 use the same cached sparse coarse-parent Box list. The list is
+rebuilt after regridding and must contain exactly the same number of cells as
+the coarse `interface_mask`. The normal time-step restriction updates only this
+collar; the existing `AverageDownValid()` call before every regrid performs the
+required full synchronization before covered coarse cells can be exposed.
+
+Jobs `573417` (mode 2) and `573418` (mode 3) are one-GPU, 1000-step runs. Both
+processed 274,898,288 coarse parents and 2,199,186,304 fine children. Their 31
+regrid mesh-statistics sequences are identical.
+
+| Quantity | Mode 2 | Mode 3 | Change |
+|---|---:|---:|---:|
+| Average total | 22.4954 s | 5.7458 s | -74.46% |
+| `JaberCycle2` | 237.9553 s | 226.1978 s | -4.94% |
+| Compute total | 239.9378 s | 228.3266 s | -4.84% |
+| `MLUPS_total` | 269.75 | 283.47 | +5.09% |
+
+Mode 2 spent 4.5648 s copying interface children into `f_new`, 3.5150 s
+scaling them, 13.6801 s restricting them, and 0.7121 s copying results back.
+Mode 3 spent 4.7930 s in the fused kernel and 0.9360 s copying results back.
+The large Average reduction makes mode 3 the default in `config/inputs`.
+
+Two-GPU, 64-step smoke job `573419` also completed with two MPI ranks and the
+expected interface work-list/mask counts. This verifies that sparse-buffer
+copy-back executes across the tested MPI decomposition; it does not establish
+strict field-norm equivalence with modes 0 or 1.
 
 Rebuild and submit the same short performance configuration from the case
 directory with:
@@ -273,11 +310,9 @@ dsub -s ./scripts/submit_interp_scale_perf.sh
 
 ## Further Measurement
 
-The next useful measurement is level-indexed timing for levels 1, 2, and 3:
-record transfer time, box count, valid cells, grown-box cells, covered cells,
-and interface cells for both Interp and Average. The coarse covered/interface
-masks now exist, but Collide and Stream still launch broad boxes and branch per
-cell. Use the level data to decide whether regrid-cached active work regions
-reduce enough work to offset extra kernel launches. For restriction, the next
-step is a controlled interface-only experiment with a full restriction before
-regrid or coarsening.
+The next useful restriction check is a strict field-norm comparison between
+mode 3 and a full-restriction mode at matched regrid points. For broader kernel
+optimization, record level-indexed transfer time, box count, valid cells,
+grown-box cells, covered cells, and interface cells. Collide and Stream still
+launch broad boxes and branch per cell; use level data to decide whether cached
+active work regions remove enough work to offset additional kernel launches.
