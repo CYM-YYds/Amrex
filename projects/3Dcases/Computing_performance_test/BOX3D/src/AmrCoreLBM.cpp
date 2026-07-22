@@ -875,6 +875,8 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
 
     for (int lev = 0; lev < finest_level; ++lev) {
         BoxArray coarse_from_fine = amrex::coarsen(f_old[lev + 1].boxArray(), refRatio(lev));
+        // Mode 1 restricts every fine valid cell. Fine ownership keeps kernel reads local;
+        // the later ParallelCopy redistributes results to the coarse DistributionMap.
         if (average_mode == 1) {
             average_down_buffer[lev].define(coarse_from_fine, f_old[lev + 1].DistributionMap(),
                                             Q, 0);
@@ -883,6 +885,8 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
             continue;
         }
 
+        // Modes 2/3 build sparse work once per regrid instead of rejecting interior
+        // covered parents inside every time-step kernel.
         BoxList interface_boxes;
         Vector<int> interface_owners;
         Vector<int> fine_box_indices;
@@ -892,6 +896,8 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
 
         for (int ibox = 0; ibox < coarse_from_fine.size(); ++ibox) {
             const Box& covered_box = coarse_from_fine[ibox];
+            // Covered parents touching an uncovered neighbor form the interface collar.
+            // One coarse cell corresponds to two fine cells when ref_ratio=2.
             const Box search_box = amrex::grow(covered_box, 1) & domain;
             const BoxList uncovered = coarse_from_fine.complementIn(search_box, periodicity);
             BoxList candidates;
@@ -905,6 +911,8 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
             const BoxList disjoint = amrex::removeOverlap(candidates);
             for (const Box& interface_box : disjoint) {
                 interface_boxes.push_back(interface_box);
+                // Keep the originating fine owner and Fab index so refined children
+                // remain local and can be addressed without a temporary gather.
                 interface_owners.push_back(fine_dm[ibox]);
                 fine_box_indices.push_back(ibox);
             }
@@ -1115,6 +1123,8 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
         covered_cell_counts[lev] = covered_mask[lev].sum(0, 0);
         interface_cell_counts[lev] = interface_mask[lev].sum(0, 0);
         if (average_mode >= 2) {
+            // The independently built work boxes and cell mask must describe exactly
+            // the same parents; otherwise restriction could omit or duplicate cells.
             const Long restriction_interface_cells =
                 average_interface_fine_box[lev].empty()
                     ? 0
@@ -1241,6 +1251,8 @@ void AmrCoreLBM::AverageDownValidLevel(int lev, bool is_scale) {
 }
 
 void AmrCoreLBM::AverageDownValid() {
+    // Interface-only time stepping leaves deeply covered coarse cells untouched.
+    // Synchronize all parents before regrid can expose any of those coarse cells.
     for (int lev = finest_level - 1; lev >= 0; --lev) {
         AverageDownValidLevel(lev, 1);
     }
@@ -1287,12 +1299,15 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     amrex::MultiFab& crse_mf = f_old[lev];
 
     const IntVect ratio = refRatio(lev);
+    // Convert fine non-equilibrium DDFs to the coarse relaxation scale before averaging.
     const Real scale = 2.0 * tau[lev] / tau[lev + 1];
     const Long children_per_parent = ratio[0] * ratio[1] * ratio[2];
 
     ScopedPerfTimer avgdown_timer(perf_stats.average_down);
 
     if (average_mode == 0) {
+        // Full split reference: copy -> optional in-place scale -> AMReX restriction.
+        // f_new is scratch here because the level has completed its swap.
         {
             ScopedPerfTimer copy_timer(perf_stats.average_copy);
             MultiFab::Copy(fine_scratch, fine_mf, 0, 0, Q, 0);
@@ -1316,6 +1331,8 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     }
 
     if (average_mode >= 2) {
+        // Modes 2/3 consume the same cached parent region, so their timing comparison
+        // changes the algorithm only, not the number of interface cells processed.
         MultiFab& interface_result = average_interface_buffer[lev];
         const Vector<int>& fine_box_indices = average_interface_fine_box[lev];
         if (fine_box_indices.empty()) {
@@ -1325,6 +1342,8 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
         AMREX_ALWAYS_ASSERT(interface_result.size() == fine_box_indices.size());
 
         if (average_mode == 2) {
+            // Split interface reference. Refining a sparse parent Box selects exactly
+            // the 2x2x2 fine children that contribute to those coarse parents.
             {
                 ScopedPerfTimer copy_timer(perf_stats.average_copy);
                 for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
@@ -1369,6 +1388,7 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
                 }
             }
         } else {
+            // Fused interface path avoids materializing scaled DDFs between kernels.
             ScopedPerfTimer fused_timer(perf_stats.average_fused);
             for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
                 const int fine_index = fine_box_indices[mfi.index()];
@@ -1379,6 +1399,8 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
                 if (is_scale) {
                     perf_stats.average_scale_cells += bx.numPts() * children_per_parent;
 #ifdef AMREX_USE_CUDA
+                    // One warp owns one parent; D3Q27 components are distributed across
+                    // lanes to avoid the high register use of one-thread-per-parent.
                     constexpr int threads_per_block = 256;
                     constexpr int warp_size = 32;
                     constexpr int warps_per_block = threads_per_block / warp_size;
@@ -1421,11 +1443,14 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
 
         {
             ScopedPerfTimer copyback_timer(perf_stats.average_copyback);
+            // The sparse buffer follows fine ownership. ParallelCopy performs any
+            // required local copy or MPI transfer into the real coarse layout.
             crse_mf.ParallelCopy(interface_result, 0, 0, Q);
         }
         return;
     }
 
+    // Mode 1 is the full-region fused baseline used to check interface-only results.
     MultiFab& coarse_from_fine = average_down_buffer[lev];
 
     AMREX_ALWAYS_ASSERT(coarse_from_fine.boxArray() == amrex::coarsen(fine_mf.boxArray(), ratio));
@@ -1442,6 +1467,7 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
             if (is_scale) {
                 perf_stats.average_scale_cells += bx.numPts() * ratio[0] * ratio[1] * ratio[2];
 #ifdef AMREX_USE_CUDA
+                // Keep the full and sparse fused modes on the same q-lane warp mapping.
                 constexpr int threads_per_block = 256;
                 constexpr int warp_size = 32;
                 constexpr int warps_per_block = threads_per_block / warp_size;

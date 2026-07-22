@@ -177,8 +177,11 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> force;
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
+    // Full fused restriction result. Its layout follows the fine level until copy-back.
     amrex::Vector<amrex::MultiFab> average_down_buffer;
+    // Sparse equivalent used by modes 2/3: only coarse parents in the interface collar.
     amrex::Vector<amrex::MultiFab> average_interface_buffer;
+    // Maps each sparse interface Box to the fine Fab containing all of its children.
     amrex::Vector<amrex::Vector<int>> average_interface_fine_box;
 
     // covered_mask 值为 1 的网格单元，代表该单元被更精细一层网格 `lev+1` 覆盖；

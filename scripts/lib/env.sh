@@ -22,10 +22,10 @@ load_environment() {
 	module purge || true
 	module use /home/HPCBase/modulefiles/ || true
 	module load mpi/hmpi/1.2.0_bs2.4.0_sp1 || true
-	module load compilers/cuda/12.1.0 || true
-	module load compilers/gcc/10.3.1 || true
+	module load compilers/cuda/12.8.0 || true
+	module load compilers/gcc/11.3.0 || true
 	export USE_CUDA=1 || true
-	export CUDA_HOME=/home/HPCBase/compilers/cuda/12.1.0 || true
+	export CUDA_HOME=/home/HPCBase/compilers/cuda/12.8.0 || true
 
 	command -v nvcc >/dev/null 2>&1 || echo "警告: nvcc 未找到，可能无法进行 CUDA 构建。" >&2
 	command -v mpirun >/dev/null 2>&1 || echo "警告: mpirun 未找到，MPI 可能不可用。" >&2

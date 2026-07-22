@@ -14,7 +14,7 @@ CompileFlags:
     - -D__shared__=
     - -D__launch_bounds__(...)=
     - -isystem
-    - /home/HPCBase/compilers/cuda/12.1.0/targets/sbsa-linux/include
+    - /home/HPCBase/compilers/cuda/12.8.0/targets/sbsa-linux/include
     - -include
     - cuda_runtime.h
 
@@ -32,7 +32,7 @@ Completion:
 
 ---
 If:
-  PathMatch: .*D2Q9\.H
+  PathMatch: .*D3Q19\.H
 
 CompileFlags:
   Add:
@@ -53,7 +53,7 @@ Index:
 ---
 If:
   # Re-enable AMReX source tree indexing using absolute path.
-  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26\.01/.*
+  PathMatch: ^/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26\.06/.*
 
 Index:
   Background: Build
