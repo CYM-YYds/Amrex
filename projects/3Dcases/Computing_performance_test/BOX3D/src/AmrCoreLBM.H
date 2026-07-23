@@ -162,9 +162,9 @@ class AmrCoreLBM : public amrex::AmrCore {
 
     int nghost = 2;
     int particle_num = 1;
-    // 0: no coarse-fine mask, 1: cell mask, 2: cell mask plus Box classification.
+    // 0：禁用粗细网格 mask；1：逐单元 mask；2：逐单元 mask 加 Box 分类。
     int cf_mask_mode = 1;
-    // 0: full split, 1: full fused, 2: interface split, 3: interface fused.
+    // 0：全区域分步；1：全区域融合；2：交界区域分步；3：交界区域融合。
     int average_mode = 1;
 
     amrex::Vector<amrex::BCRec> bcs;
@@ -177,11 +177,11 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> force;
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
-    // Full fused restriction result. Its layout follows the fine level until copy-back.
+    // 全区域融合平均的结果缓冲区；回写前沿用细层的网格布局与数据归属。
     amrex::Vector<amrex::MultiFab> average_down_buffer;
-    // Sparse equivalent used by modes 2/3: only coarse parents in the interface collar.
+    // 模式 2/3 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
     amrex::Vector<amrex::MultiFab> average_interface_buffer;
-    // Maps each sparse interface Box to the fine Fab containing all of its children.
+    // 将每个稀疏交界 Box 映射到包含其全部子单元的细层 Fab。
     amrex::Vector<amrex::Vector<int>> average_interface_fine_box;
 
     // covered_mask 值为 1 的网格单元，代表该单元被更精细一层网格 `lev+1` 覆盖；
@@ -190,7 +190,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::iMultiFab> interface_mask;
     amrex::Vector<amrex::Long> covered_cell_counts;
     amrex::Vector<amrex::Long> interface_cell_counts;
-    // Per-level, per-coarse-Box dispatch class: partial, fully active, or inactive.
+    // 按层、按粗层 Box 保存调度分类：部分 active、完全 active 或 inactive。
     amrex::Vector<amrex::Vector<unsigned char>> collide_box_classes;
     amrex::Vector<amrex::Vector<unsigned char>> stream_box_classes;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> interp_scale_work_boxes;

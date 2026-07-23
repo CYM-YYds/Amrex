@@ -4,15 +4,20 @@ If:
 CompileFlags:
   CompilationDatabase: config
   Remove:
-    - "^-D__CUDA_ARCH__=.*"
-    - "^-D__CUDA_ARCH_LIST__=.*"
+    - -std=*
+    - --std=*
+    - -D__CUDA_ARCH__=*
+    - -D__CUDA_ARCH_LIST__=*
   Add:
+    - -std=c++20
     - -D__host__=
     - -D__device__=
     - -D__global__=
     - -D__constant__=
     - -D__shared__=
     - -D__launch_bounds__(...)=
+    # cuda_runtime.h omits blockIdx in host-only parsing; threadIdx has the same dim3 shape.
+    - -DblockIdx=threadIdx
     - -isystem
     - /home/HPCBase/compilers/cuda/12.8.0/targets/sbsa-linux/include
     - -include
@@ -36,7 +41,6 @@ If:
 
 CompileFlags:
   Add:
-    - -DAMREX_CXX_NVHPC
     - -include
     - /home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.06/Src/Base/AMReX_REAL.H
     - -include

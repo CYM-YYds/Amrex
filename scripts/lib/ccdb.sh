@@ -142,12 +142,19 @@ for a in "${args[@]}"; do
     case "$a" in *.c|*.cc|*.cpp|*.cxx|*.C|*.cu) src="$a" ;; esac
 done
 HOST_CXX="${REAL_GXX:-$(command -v g++ || echo g++)}"
+resolve_host_cxx() {
+    case "$1" in
+        g++|gcc) printf '%s' "${REAL_GXX:-$1}" ;;
+        /*) printf '%s' "$1" ;;
+        *) command -v "$1" 2>/dev/null || printf '%s' "$1" ;;
+    esac
+}
 for ((i=0;i<${#args[@]};i++)); do
     a="${args[$i]}"
     case "$a" in
-        -ccbin=*) HOST_CXX="${a#-ccbin=}" ;;
+        -ccbin=*) HOST_CXX="$(resolve_host_cxx "${a#-ccbin=}")" ;;
         -ccbin)
-            if (( i+1 < ${#args[@]} )); then HOST_CXX="${args[$((i+1))]}"; fi ;;
+            if (( i+1 < ${#args[@]} )); then HOST_CXX="$(resolve_host_cxx "${args[$((i+1))]}")"; fi ;;
     esac
 done
 host_flags=()
@@ -168,7 +175,7 @@ for ((i=0;i<${#args[@]};i++)); do
             ;;
         -m32|-m64|-march=*|-mtune=*|-mcpu=*|-mfpu=*|-mno-*|-mavx*|-msse*|-mfma*) host_flags+=("$a") ;;
         -maxrregcount|-maxrregcount=*) ;;
-        -std=*) have_std=1; host_flags+=("$a") ;;
+        -std=*|--std=*) have_std=1; host_flags+=("-std=${a#*=}") ;;
         -Xcompiler)
             if (( i+1 < ${#args[@]} )); then
                 IFS=',' read -r -a xc <<< "${args[$((i+1))]}"
@@ -179,7 +186,7 @@ for ((i=0;i<${#args[@]};i++)); do
             for x in "${xc[@]}"; do [[ -n "$x" ]] && host_flags+=("$x"); done ;;
     esac
 done
-[[ $have_std -eq 0 ]] && host_flags+=("-std=c++17")
+[[ $have_std -eq 0 ]] && host_flags+=("-std=c++20")
 filtered=()
 skip_next=0
 for ((i=0;i<${#args[@]};i++)); do
@@ -211,12 +218,19 @@ for a in "${args[@]}"; do
     case "$a" in *.c|*.cc|*.cpp|*.cxx|*.C|*.cu) src="$a" ;; esac
 done
 HOST_CXX="${REAL_GXX:-$(command -v g++ || echo g++)}"
+resolve_host_cxx() {
+    case "$1" in
+        g++|gcc) printf '%s' "${REAL_GXX:-$1}" ;;
+        /*) printf '%s' "$1" ;;
+        *) command -v "$1" 2>/dev/null || printf '%s' "$1" ;;
+    esac
+}
 for ((i=0;i<${#args[@]};i++)); do
     a="${args[$i]}"
     case "$a" in
-        -ccbin=*) HOST_CXX="${a#-ccbin=}" ;;
+        -ccbin=*) HOST_CXX="$(resolve_host_cxx "${a#-ccbin=}")" ;;
         -ccbin)
-            if (( i+1 < ${#args[@]} )); then HOST_CXX="${args[$((i+1))]}"; fi ;;
+            if (( i+1 < ${#args[@]} )); then HOST_CXX="$(resolve_host_cxx "${args[$((i+1))]}")"; fi ;;
     esac
 done
 host_flags=()
@@ -237,7 +251,7 @@ for ((i=0;i<${#args[@]};i++)); do
             ;;
         -m32|-m64|-march=*|-mtune=*|-mcpu=*|-mfpu=*|-mno-*|-mavx*|-msse*|-mfma*) host_flags+=("$a") ;;
         -maxrregcount|-maxrregcount=*) ;;
-        -std=*) have_std=1; host_flags+=("$a") ;;
+        -std=*|--std=*) have_std=1; host_flags+=("-std=${a#*=}") ;;
         -Xcompiler)
             if (( i+1 < ${#args[@]} )); then
                 IFS=',' read -r -a xc <<< "${args[$((i+1))]}"
@@ -248,7 +262,7 @@ for ((i=0;i<${#args[@]};i++)); do
             for x in "${xc[@]}"; do [[ -n "$x" ]] && host_flags+=("$x"); done ;;
     esac
 done
-[[ $have_std -eq 0 ]] && host_flags+=("-std=c++17")
+[[ $have_std -eq 0 ]] && host_flags+=("-std=c++20")
 filtered=()
 skip_next=0
 for ((i=0;i<${#args[@]};i++)); do

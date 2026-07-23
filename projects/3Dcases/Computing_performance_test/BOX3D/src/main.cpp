@@ -83,8 +83,8 @@ int main(int argc, char* argv[]) {
             // regrid_time_outer(me, f_array, indices, story);
 
             if (step >= 0 && step % regrid_int == 0) {
-                // Modes 2/3 update only the interface during normal time steps.
-                // Fully restrict first because regrid may expose covered coarse cells.
+                // 模式 2/3 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
+                // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
                 lid.AverageDownValid();
                 lid.FindCentre();
                 lid.RefineMesh(cur_time);

@@ -749,6 +749,7 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
             PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(geom[lev - 1], bcs, gpu_bndry_func);
             PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(geom[lev], bcs, gpu_bndry_func);
+
             amrex::FillPatchTwoLevels(mf, time, cmf, ctime, fmf, ftime, 0, 0, Q,
                                       geom[lev - 1], geom[lev], cphysbc, 0, fphysbc, 0,
                                       refRatio(lev - 1), mapper, bcs, 0);
@@ -873,10 +874,12 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
         average_interface_fine_box[lev].clear();
     }
 
+    // 用于平均下采样优化
     for (int lev = 0; lev < finest_level; ++lev) {
-        BoxArray coarse_from_fine = amrex::coarsen(f_old[lev + 1].boxArray(), refRatio(lev));
-        // Mode 1 restricts every fine valid cell. Fine ownership keeps kernel reads local;
-        // the later ParallelCopy redistributes results to the coarse DistributionMap.
+        BoxArray coarse_from_fine = amrex::coarsen(f_old[lev + 1].boxArray(), refRatio(lev)); // 把细层所有 valid Box 的索引范围映射到对应的粗层索引空间。
+
+        // 模式 1 对全部细层 valid cell 做平均。缓冲区沿用细层的数据归属，使 kernel
+        // 能够读取本地 fine Fab；后续由 ParallelCopy 重分配到粗层 DistributionMap。
         if (average_mode == 1) {
             average_down_buffer[lev].define(coarse_from_fine, f_old[lev + 1].DistributionMap(),
                                             Q, 0);
@@ -885,8 +888,8 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
             continue;
         }
 
-        // Modes 2/3 build sparse work once per regrid instead of rejecting interior
-        // covered parents inside every time-step kernel.
+        // 模式 2/3 在每次 regrid 后一次性构造稀疏工作区，避免每个时间步都对
+        // 全部 covered 父单元启动线程，再在 kernel 内跳过非交界单元。
         BoxList interface_boxes;
         Vector<int> interface_owners;
         Vector<int> fine_box_indices;
@@ -894,10 +897,24 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
         const auto& periodicity = Geom(lev).periodicity();
         const auto& fine_dm = f_old[lev + 1].DistributionMap();
 
+        /*当前 covered_box
+               |
+               | 向外扩展一层并裁剪到 domain
+               v
+        search_box
+               |
+               | 减去所有 coarse_from_fine 覆盖区域
+               v
+        uncovered BoxList
+               |
+               | 每块向外扩展一层
+               | 再与当前 covered_box 求交
+               v
+        interface candidates */
         for (int ibox = 0; ibox < coarse_from_fine.size(); ++ibox) {
             const Box& covered_box = coarse_from_fine[ibox];
-            // Covered parents touching an uncovered neighbor form the interface collar.
-            // One coarse cell corresponds to two fine cells when ref_ratio=2.
+            // 与 uncovered 邻居相接的 covered 父单元组成粗细交界条带。
+            // ref_ratio=2 时，一层粗单元宽度在物理上对应两层细单元。
             const Box search_box = amrex::grow(covered_box, 1) & domain;
             const BoxList uncovered = coarse_from_fine.complementIn(search_box, periodicity);
             BoxList candidates;
@@ -911,10 +928,10 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
             const BoxList disjoint = amrex::removeOverlap(candidates);
             for (const Box& interface_box : disjoint) {
                 interface_boxes.push_back(interface_box);
-                // Keep the originating fine owner and Fab index so refined children
-                // remain local and can be addressed without a temporary gather.
-                interface_owners.push_back(fine_dm[ibox]);
-                fine_box_indices.push_back(ibox);
+                // 保存来源 fine Box 的进程归属和 Fab 编号，使其子单元保持本地可读，
+                // 无需先将数据汇集到额外的临时缓冲区。
+                interface_owners.push_back(fine_dm[ibox]); // 当前box的进程归属
+                fine_box_indices.push_back(ibox);          // 当前box的编号
             }
         }
 
@@ -1123,8 +1140,8 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
         covered_cell_counts[lev] = covered_mask[lev].sum(0, 0);
         interface_cell_counts[lev] = interface_mask[lev].sum(0, 0);
         if (average_mode >= 2) {
-            // The independently built work boxes and cell mask must describe exactly
-            // the same parents; otherwise restriction could omit or duplicate cells.
+            // 几何方法构造的工作 Box 必须与逐单元 interface mask 覆盖完全相同的父单元，
+            // 否则平均下传过程可能遗漏或重复处理单元。
             const Long restriction_interface_cells =
                 average_interface_fine_box[lev].empty()
                     ? 0
@@ -1251,8 +1268,8 @@ void AmrCoreLBM::AverageDownValidLevel(int lev, bool is_scale) {
 }
 
 void AmrCoreLBM::AverageDownValid() {
-    // Interface-only time stepping leaves deeply covered coarse cells untouched.
-    // Synchronize all parents before regrid can expose any of those coarse cells.
+    // interface-only 时间推进不会更新深层 covered 粗单元；regrid 可能重新暴露这些单元，
+    // 因此重网格前必须先将全部细层 valid 数据完整同步到粗层父单元。
     for (int lev = finest_level - 1; lev >= 0; --lev) {
         AverageDownValidLevel(lev, 1);
     }
@@ -1299,15 +1316,15 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     amrex::MultiFab& crse_mf = f_old[lev];
 
     const IntVect ratio = refRatio(lev);
-    // Convert fine non-equilibrium DDFs to the coarse relaxation scale before averaging.
+    // 平均前先将细层非平衡分布函数转换到粗层松弛时间对应的尺度。
     const Real scale = 2.0 * tau[lev] / tau[lev + 1];
     const Long children_per_parent = ratio[0] * ratio[1] * ratio[2];
 
     ScopedPerfTimer avgdown_timer(perf_stats.average_down);
 
     if (average_mode == 0) {
-        // Full split reference: copy -> optional in-place scale -> AMReX restriction.
-        // f_new is scratch here because the level has completed its swap.
+        // 全区域分步基准路径：复制 -> 可选的原位缩放 -> AMReX 通用平均。
+        // 当前层已完成 SwapLevel，因此此处可以安全地复用 f_new 作为临时缓冲区。
         {
             ScopedPerfTimer copy_timer(perf_stats.average_copy);
             MultiFab::Copy(fine_scratch, fine_mf, 0, 0, Q, 0);
@@ -1331,8 +1348,8 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     }
 
     if (average_mode >= 2) {
-        // Modes 2/3 consume the same cached parent region, so their timing comparison
-        // changes the algorithm only, not the number of interface cells processed.
+        // 模式 2/3 使用完全相同的缓存父单元区域，因此二者的耗时对比只改变算法组织，
+        // 不会改变实际处理的交界单元数量。
         MultiFab& interface_result = average_interface_buffer[lev];
         const Vector<int>& fine_box_indices = average_interface_fine_box[lev];
         if (fine_box_indices.empty()) {
@@ -1342,8 +1359,8 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
         AMREX_ALWAYS_ASSERT(interface_result.size() == fine_box_indices.size());
 
         if (average_mode == 2) {
-            // Split interface reference. Refining a sparse parent Box selects exactly
-            // the 2x2x2 fine children that contribute to those coarse parents.
+            // 交界区域分步基准路径。细化稀疏父 Box 后，恰好得到参与这些粗父单元
+            // 平均计算的 2x2x2 个细层子单元。
             {
                 ScopedPerfTimer copy_timer(perf_stats.average_copy);
                 for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
@@ -1388,7 +1405,7 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
                 }
             }
         } else {
-            // Fused interface path avoids materializing scaled DDFs between kernels.
+            // 交界区域融合路径：不再于多个 kernel 之间写回完整的缩放后 DDF 中间数据。
             ScopedPerfTimer fused_timer(perf_stats.average_fused);
             for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
                 const int fine_index = fine_box_indices[mfi.index()];
@@ -1399,8 +1416,8 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
                 if (is_scale) {
                     perf_stats.average_scale_cells += bx.numPts() * children_per_parent;
 #ifdef AMREX_USE_CUDA
-                    // One warp owns one parent; D3Q27 components are distributed across
-                    // lanes to avoid the high register use of one-thread-per-parent.
+                    // 一个 warp 负责一个粗层父单元，D3Q27 分量分配给不同 lane；相比
+                    // 单线程负责整个父单元，可显著降低单线程寄存器占用。
                     constexpr int threads_per_block = 256;
                     constexpr int warp_size = 32;
                     constexpr int warps_per_block = threads_per_block / warp_size;
@@ -1443,14 +1460,14 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
 
         {
             ScopedPerfTimer copyback_timer(perf_stats.average_copyback);
-            // The sparse buffer follows fine ownership. ParallelCopy performs any
-            // required local copy or MPI transfer into the real coarse layout.
+            // 稀疏缓冲区沿用细层数据归属；ParallelCopy 负责将结果通过本地复制或
+            // 必要的 MPI 通信写入真实粗层布局。
             crse_mf.ParallelCopy(interface_result, 0, 0, Q);
         }
         return;
     }
 
-    // Mode 1 is the full-region fused baseline used to check interface-only results.
+    // 模式 1 是全区域融合基准，用于核对 interface-only 模式的数值结果。
     MultiFab& coarse_from_fine = average_down_buffer[lev];
 
     AMREX_ALWAYS_ASSERT(coarse_from_fine.boxArray() == amrex::coarsen(fine_mf.boxArray(), ratio));
@@ -1467,7 +1484,7 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
             if (is_scale) {
                 perf_stats.average_scale_cells += bx.numPts() * ratio[0] * ratio[1] * ratio[2];
 #ifdef AMREX_USE_CUDA
-                // Keep the full and sparse fused modes on the same q-lane warp mapping.
+                // 全区域与稀疏区域的融合模式采用相同的 q-lane warp 映射。
                 constexpr int threads_per_block = 256;
                 constexpr int warp_size = 32;
                 constexpr int warps_per_block = threads_per_block / warp_size;
