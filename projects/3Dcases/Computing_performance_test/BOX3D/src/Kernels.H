@@ -2479,7 +2479,7 @@ void average_down_lbm_scaled(int i, int j, int k,
 #ifdef AMREX_USE_CUDA
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-Real warp_sum_32(Real value) noexcept {
+Real warp_sum_32(Real value) noexcept { // 对一个 warp 内 32 个线程各自持有的 value 求和，并把最终总和广播给 warp 内所有线程。
     constexpr unsigned int full_mask = 0xffffffffu;
     for (int offset = 16; offset > 0; offset /= 2) {
         value += __shfl_down_sync(full_mask, value, offset);

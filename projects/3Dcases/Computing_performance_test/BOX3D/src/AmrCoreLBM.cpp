@@ -1365,7 +1365,7 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
                 ScopedPerfTimer copy_timer(perf_stats.average_copy);
                 for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
                     const int fine_index = fine_box_indices[mfi.index()];
-                    const Box fine_box = amrex::refine(mfi.tilebox(), ratio);
+                    const Box fine_box = amrex::refine(mfi.tilebox(), ratio); // 将当前粗层 interface Box 映射到对应的细层索引区域
                     const Array4<const Real>& fine = fine_mf.const_array(fine_index);
                     const Array4<Real>& scratch = fine_scratch.array(fine_index);
                     amrex::ParallelFor(
@@ -1424,17 +1424,18 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
                     const Long ncells = bx.numPts();
                     const int nblocks = static_cast<int>((ncells + warps_per_block - 1) /
                                                          warps_per_block);
-                    const auto lo = amrex::lbound(bx);
-                    const int nx = bx.length(0);
-                    const int ny = bx.length(1);
+                    const auto lo = amrex::lbound(bx); // 返回各方向最小索引
+                    const int nx = bx.length(0);       // x方向格点数量
+                    const int ny = bx.length(1);       // y方向格点数量
                     amrex::launch<threads_per_block>(
                         nblocks, amrex::Gpu::Device::gpuStream(),
                         [=] AMREX_GPU_DEVICE() noexcept {
-                            const int lane = threadIdx.x % warp_size;
-                            const int warp_in_block = threadIdx.x / warp_size;
+                            const int lane = threadIdx.x % warp_size;          // threadIdx.x 是线程在当前 block 内的编号, lane 是线程在 warp 内的编号
+                            const int warp_in_block = threadIdx.x / warp_size; // 取得 block 内 warp 编号
                             const Long icell = static_cast<Long>(blockIdx.x) * warps_per_block +
                                                warp_in_block;
-                            if (icell < ncells) {
+                            if (icell < ncells) { // 排除了最后一个 block 中的多余 warp
+                                // GPU内部的线程编号映射到AmreX中的网格坐标
                                 const int i = lo.x + static_cast<int>(icell % nx);
                                 const Long yz = icell / nx;
                                 const int j = lo.y + static_cast<int>(yz % ny);
