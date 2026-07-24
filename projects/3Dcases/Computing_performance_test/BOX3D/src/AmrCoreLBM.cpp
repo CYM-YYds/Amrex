@@ -97,6 +97,10 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     collide_box_classes.resize(nlevs_max);
     stream_box_classes.resize(nlevs_max);
     interp_scale_work_boxes.resize(nlevs_max);
+    interp_direct_coarse_stage.resize(nlevs_max);
+    interp_direct_fine_boxes.resize(nlevs_max);
+    interp_direct_fine_index.resize(nlevs_max);
+    interp_direct_cache_ready.resize(nlevs_max, 0);
     boundary_work_boxes.resize(nlevs_max);
 
     velocity.resize(nlevs_max);
@@ -492,8 +496,8 @@ void AmrCoreLBM::ReadParameters() {
             amrex::Abort("lbm.average_mode must be 0, 1, 2, or 3");
         }
         pp.query("cf_interp_mode", cf_interp_mode);
-        if (cf_interp_mode < 0 || cf_interp_mode > 1) {
-            amrex::Abort("lbm.cf_interp_mode must be 0 or 1");
+        if (cf_interp_mode < 0 || cf_interp_mode > 2) {
+            amrex::Abort("lbm.cf_interp_mode must be 0, 1, or 2");
         }
         int n = pp.countval("err");
         if (n > 0) {
@@ -737,19 +741,127 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             fpc.ba_crse_patch[i].numPts();
     }
 
-    if (cf_interp_mode == 1) {
-        ScopedPerfTimer timer(perf_stats.interp_fillpatch);
+    const bool direct_target =
+        &mf == &f_old_lev_f &&
+        mf.getBDKey() == f_old_lev_f.getBDKey();
 
-        // 先完成同层 fine 数据填充。RemakeLevel 时目标 mf 与当前 fine
-        // 状态布局不同，必须使用 ParallelCopy；正常时间推进时则直接
-        // FillBoundary，保持 FillPatchTwoLevels 的原有语义。
-        if (&mf == &f_old_lev_f) {
-            mf.FillBoundary(0, Q, fill_ng,
-                            Geom(lev).periodicity());
-        } else {
-            mf.ParallelCopy(f_old_lev_f, 0, 0, Q, amrex::IntVect(0),
-                            fill_ng, Geom(lev).periodicity());
+    if (cf_interp_mode == 2 && direct_target) {
+        ScopedPerfTimer timer(perf_stats.interp_fillpatch);
+        auto& coarse_stage = interp_direct_coarse_stage[lev];
+        auto& fine_work_boxes = interp_direct_fine_boxes[lev];
+        auto& fine_indices = interp_direct_fine_index[lev];
+
+        if (!interp_direct_cache_ready[lev]) {
+            const BoxArray& fine_ba = f_old_lev_f.boxArray();
+            const BoxArray fine_ba_simplified = fine_ba.simplified();
+            Box fine_domain = Geom(lev).Domain();
+            for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                if (Geom(lev).isPeriodic(dir)) {
+                    fine_domain.grow(dir, fill_ng[dir]);
+                }
+            }
+
+            Vector<Box> coarse_boxes;
+            Vector<int> coarse_owners;
+            fine_work_boxes.clear();
+            fine_indices.clear();
+
+            for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
+                Box target = amrex::grow(fine_ba[fine_index], fill_ng) & fine_domain;
+                const BoxList leftover = fine_ba_simplified.complementIn(target);
+                if (leftover.isEmpty()) {
+                    continue;
+                }
+
+                Vector<Box> work_boxes(leftover.begin(), leftover.end());
+                Box fine_envelope = work_boxes.front();
+                for (int i = 1; i < work_boxes.size(); ++i) {
+                    fine_envelope.minBox(work_boxes[i]);
+                }
+
+                coarse_boxes.push_back(coarsener.doit(fine_envelope));
+                coarse_owners.push_back(
+                    f_old_lev_f.DistributionMap()[fine_index]);
+                fine_work_boxes.push_back(std::move(work_boxes));
+                fine_indices.push_back(fine_index);
+            }
+
+            coarse_stage.clear();
+            if (!coarse_boxes.empty()) {
+                BoxArray coarse_stage_ba(
+                    coarse_boxes.data(),
+                    static_cast<int>(coarse_boxes.size()));
+                DistributionMapping coarse_stage_dm(std::move(coarse_owners));
+                coarse_stage.define(
+                    coarse_stage_ba, coarse_stage_dm, Q, 0);
+            }
+            interp_direct_cache_ready[lev] = 1;
         }
+
+        if (!fine_indices.empty()) {
+            coarse_stage.setDomainBndry(
+                std::numeric_limits<Real>::quiet_NaN(), Geom(lev - 1));
+            coarse_stage.ParallelCopy(
+                f_old_lev_c, 0, 0, Q, amrex::IntVect(0),
+                amrex::IntVect(0), Geom(lev - 1).periodicity());
+            if (Gpu::inLaunchRegion()) {
+                GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
+                PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(
+                    geom[lev - 1], bcs, gpu_bndry_func);
+                cphysbc(coarse_stage, 0, Q, coarse_stage.nGrowVect(),
+                        time, 0);
+            } else {
+                CpuBndryFuncFab bndry_func(nullptr);
+                PhysBCFunct<CpuBndryFuncFab> cphysbc(
+                    geom[lev - 1], bcs, bndry_func);
+                cphysbc(coarse_stage, 0, Q, coarse_stage.nGrowVect(),
+                        time, 0);
+            }
+
+            for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+                const auto coarse = coarse_stage.array(mfi);
+                const Box bx = mfi.validbox();
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        average_scale(i, j, k, coarse, scale);
+                    });
+            }
+
+            const auto ratio = refRatio(lev - 1);
+            for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+                const int stage_index = mfi.index();
+                const int fine_index = fine_indices[stage_index];
+                const auto fine = mf.array(fine_index);
+                const auto coarse = coarse_stage.const_array(mfi);
+                for (const Box& bx : fine_work_boxes[stage_index]) {
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            interp_bilinear_d3q(
+                                i, j, k, fine, coarse, ratio);
+                        });
+                }
+            }
+        }
+
+        // FillPatchTwoLevels 的最终步骤：同层 fine valid 数据覆盖 coarse
+        // 插值结果，随后再应用细层物理边界条件。
+        mf.FillBoundary(0, Q, fill_ng, Geom(lev).periodicity());
+        if (Gpu::inLaunchRegion()) {
+            GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
+            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
+                geom[lev], bcs, gpu_bndry_func);
+            fphysbc(mf, 0, Q, fill_ng, time, 0);
+        } else {
+            CpuBndryFuncFab bndry_func(nullptr);
+            PhysBCFunct<CpuBndryFuncFab> fphysbc(
+                geom[lev], bcs, bndry_func);
+            fphysbc(mf, 0, Q, fill_ng, time, 0);
+        }
+        return;
+    }
+
+    if (cf_interp_mode >= 1) {
+        ScopedPerfTimer timer(perf_stats.interp_fillpatch);
 
         if (!fpc.ba_crse_patch.empty()) {
             amrex::MultiFab coarse_patch(
@@ -798,6 +910,17 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             }
 
             mf.ParallelCopy(fine_patch, 0, 0, Q, amrex::IntVect(0),
+                            fill_ng, Geom(lev).periodicity());
+        }
+
+        // 与 AMReX 保持相同优先级：coarse 插值先写，最后由同层 fine
+        // valid 数据覆盖重叠 ghost。RemakeLevel 的目标布局不同时使用
+        // ParallelCopy，正常时间推进则直接 FillBoundary。
+        if (&mf == &f_old_lev_f) {
+            mf.FillBoundary(0, Q, fill_ng,
+                            Geom(lev).periodicity());
+        } else {
+            mf.ParallelCopy(f_old_lev_f, 0, 0, Q, amrex::IntVect(0),
                             fill_ng, Geom(lev).periodicity());
         }
 
@@ -920,6 +1043,18 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
     for (auto& buffer : average_interface_buffer) {
         buffer.clear();
     }
+    for (auto& buffer : interp_direct_coarse_stage) {
+        buffer.clear();
+    }
+    for (auto& boxes : interp_direct_fine_boxes) {
+        boxes.clear();
+    }
+    for (auto& indices : interp_direct_fine_index) {
+        indices.clear();
+    }
+    std::fill(
+        interp_direct_cache_ready.begin(),
+        interp_direct_cache_ready.end(), 0);
     regrid(0, cur_time);
     RebuildCoarseFineMasks();
 
@@ -969,6 +1104,10 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
         collide_box_classes[lev].clear();
         stream_box_classes[lev].clear();
         interp_scale_work_boxes[lev].clear();
+        interp_direct_coarse_stage[lev].clear();
+        interp_direct_fine_boxes[lev].clear();
+        interp_direct_fine_index[lev].clear();
+        interp_direct_cache_ready[lev] = 0;
         boundary_work_boxes[lev].clear();
         average_down_buffer[lev].clear();
         average_interface_buffer[lev].clear();
