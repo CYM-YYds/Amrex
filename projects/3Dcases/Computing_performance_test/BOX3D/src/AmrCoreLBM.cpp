@@ -714,6 +714,23 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
     amrex::MultiFab& f_old_lev_c = f_old[lev - 1];
     amrex::Real scale = tau[lev] / tau[lev - 1] / 2.0;
 
+    // Use the same target layout as FillPatchTwoLevels to expose the exact
+    // fine-side and coarse-side interpolation regions selected by AMReX.
+    const auto& coarsener = mapper->BoxCoarsener(refRatio(lev - 1));
+    const auto& fpc = FabArrayBase::TheFPinfo(
+        f_old_lev_f, mf, amrex::IntVect(nghost), coarsener,
+        Geom(lev), Geom(lev - 1), nullptr);
+    perf_stats.interp_fillpatch_boxes +=
+        static_cast<long long>(fpc.ba_fine_patch.size());
+    for (int i = 0; i < fpc.ba_fine_patch.size(); ++i) {
+        perf_stats.interp_fillpatch_fine_cells +=
+            fpc.ba_fine_patch[i].numPts();
+    }
+    for (int i = 0; i < fpc.ba_crse_patch.size(); ++i) {
+        perf_stats.interp_fillpatch_coarse_cells +=
+            fpc.ba_crse_patch[i].numPts();
+    }
+
     {
         ScopedPerfTimer timer(perf_stats.interp_scale);
         // 用于判断当前传入 FillDdfPatch() 的目标细层 mf，是否与此前构造 interp_scale_work_boxes 缓存时使用的细层网格布局一致。

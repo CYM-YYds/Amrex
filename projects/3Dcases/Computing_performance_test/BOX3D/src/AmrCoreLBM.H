@@ -54,6 +54,9 @@ class AmrCoreLBM : public amrex::AmrCore {
         long long interp_scale_full_cells = 0;
         long long interp_scale_cells = 0;
         long long interp_scale_launch_boxes = 0;
+        long long interp_fillpatch_fine_cells = 0;
+        long long interp_fillpatch_coarse_cells = 0;
+        long long interp_fillpatch_boxes = 0;
         long long average_scale_cells = 0;
         long long average_parent_cells = 0;
         long long boundary_full_cells = 0;
