@@ -308,6 +308,41 @@ directory with:
 dsub -s ./scripts/submit_interp_scale_perf.sh
 ```
 
+## Direct Coarse-to-Fine Path: `cf_interp_mode=2`
+
+`cf_interp_mode=2` is not a replacement for the interpolation formula. During
+normal time stepping it bypasses the generic `FillPatchTwoLevels()` call and
+uses regrid-cached fine ghost work boxes:
+
+```text
+coarse_stage.ParallelCopy
+  -> coarse physical-boundary fill when required
+  -> average_scale on the required coarse stencil boxes
+  -> interp_bilinear_d3q directly into fine ghost boxes
+  -> fine FillBoundary and physical-boundary fill
+```
+
+The cached geometry includes one physical-boundary flag per coarse staging Box.
+This removes repeated host-side Box/domain checks from subsequent time steps,
+but does not remove the dominant DDF data movement or kernels
+(`ParallelCopy`, `average_scale`, interpolation, and fine `FillBoundary`).
+
+Jobs `574431` and `574438` compared `cf_interp_mode=1` and `2` with the same
+executable, input, one GPU, 64 steps, and regrids at steps 32 and 64. The
+valid-cell DDF field comparison covered all 27 components on levels 0--2:
+
+```text
+global linf=0, l2=0, relative_l2=0
+```
+
+Thus the direct path was bitwise identical for this test. The short-run mode-2
+wall time changed from 4.4045 s to 4.4741 s, which is measurement noise rather
+than a demonstrated speedup. The cached boundary flag is therefore a
+correctness-preserving micro-optimization, not a reason to change the
+production default. Further optimization should measure the individual
+`ParallelCopy`, coarse scaling, interpolation, and fine ghost-fill costs before
+changing their data flow.
+
 ## Further Measurement
 
 The next useful restriction check is a strict field-norm comparison between

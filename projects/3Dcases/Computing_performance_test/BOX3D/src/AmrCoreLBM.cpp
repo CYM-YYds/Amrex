@@ -102,6 +102,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     interp_direct_coarse_stage.resize(nlevs_max);
     interp_direct_fine_boxes.resize(nlevs_max);
     interp_direct_fine_index.resize(nlevs_max);
+    interp_direct_needs_physical_fill.resize(nlevs_max);
     interp_direct_cache_ready.resize(nlevs_max, 0);
     boundary_work_boxes.resize(nlevs_max);
 
@@ -752,6 +753,8 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             Vector<int> coarse_owners;
             fine_work_boxes.clear();
             fine_indices.clear();
+            auto& needs_physical_fill = interp_direct_needs_physical_fill[lev];
+            needs_physical_fill.clear();
 
             for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
                 Box target = amrex::grow(fine_ba[fine_index], fill_ng) & fine_domain;
@@ -769,6 +772,20 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                         f_old_lev_f.DistributionMap()[fine_index]);
                     fine_work_boxes.push_back(Vector<Box>{work_box});
                     fine_indices.push_back(fine_index);
+
+                    bool needs_fill = false;
+                    const Box coarse_box = coarsener.doit(work_box);
+                    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                        needs_fill =
+                            needs_fill ||
+                            (!Geom(lev - 1).isPeriodic(dir) &&
+                             (coarse_box.smallEnd(dir) <
+                                  Geom(lev - 1).Domain().smallEnd(dir) ||
+                              coarse_box.bigEnd(dir) >
+                                  Geom(lev - 1).Domain().bigEnd(dir)));
+                    }
+                    needs_physical_fill.push_back(
+                        static_cast<unsigned char>(needs_fill));
                 }
             }
 
@@ -799,19 +816,12 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             const auto coarse_periodic =
                 Geom(lev - 1).isPeriodicArray();
             for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-                const Box bx = mfi.validbox();
-                bool needs_physical_fill = false;
-                for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-                    needs_physical_fill =
-                        needs_physical_fill ||
-                        (!coarse_periodic[dir] &&
-                         (bx.smallEnd(dir) < coarse_domain.smallEnd(dir) ||
-                          bx.bigEnd(dir) > coarse_domain.bigEnd(dir)));
-                }
-                if (!needs_physical_fill) {
+                const int stage_index = mfi.index();
+                if (!interp_direct_needs_physical_fill[lev][stage_index]) {
                     continue;
                 }
 
+                const Box bx = mfi.validbox();
                 const auto coarse = coarse_stage.array(mfi);
                 amrex::ParallelFor(
                     bx, Q,
@@ -1090,6 +1100,9 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
     }
     for (auto& indices : interp_direct_fine_index) {
         indices.clear();
+    }
+    for (auto& flags : interp_direct_needs_physical_fill) {
+        flags.clear();
     }
     std::fill(
         interp_direct_cache_ready.begin(),

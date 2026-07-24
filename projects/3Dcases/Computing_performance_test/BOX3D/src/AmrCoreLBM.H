@@ -204,6 +204,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> interp_direct_coarse_stage;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> interp_direct_fine_boxes;
     amrex::Vector<amrex::Vector<int>> interp_direct_fine_index;
+    amrex::Vector<amrex::Vector<unsigned char>> interp_direct_needs_physical_fill;
     amrex::Vector<unsigned char> interp_direct_cache_ready;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; //boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box
 
