@@ -92,6 +92,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void WriteVelocityFileWithParticle(const int step, const amrex::Real time);
     void WriteCheckpoint(int step, amrex::Real time) const;
     void ReadCheckpoint();
+    void CompareDdfCheckpoint(const std::string& checkpoint_path) const;
     const RuntimeParams& params() const {
         return params_;
     }

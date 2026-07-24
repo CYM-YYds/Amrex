@@ -32,6 +32,12 @@ int main(int argc, char* argv[]) {
         }
         int chk_int = -1;
         int begin_step = 0;
+        std::string ddf_reference_checkpoint;
+        {
+            amrex::ParmParse pp_verify("verification");
+            pp_verify.query(
+                "ddf_reference_checkpoint", ddf_reference_checkpoint);
+        }
 
         amrex::Geometry geom(
             amrex::Box({AMREX_D_DECL(0, 0, 0)}, {AMREX_D_DECL(NX - 1, NY - 1, NZ - 1)}),
@@ -207,6 +213,10 @@ int main(int argc, char* argv[]) {
             if (chk_int > 0 && step % chk_int == 0) {
                 lid.WriteCheckpoint(step, cur_time);
             }
+        }
+
+        if (!ddf_reference_checkpoint.empty()) {
+            lid.CompareDdfCheckpoint(ddf_reference_checkpoint);
         }
 
         amrex::Real end_total = amrex::second() - start_time;

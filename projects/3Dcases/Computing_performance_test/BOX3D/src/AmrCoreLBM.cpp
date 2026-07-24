@@ -12,9 +12,11 @@
 #include <AMReX_Gpu.H>
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <dirent.h>
 #include <fstream>
+#include <iomanip>
 #include <optional>
 #include <sstream>
 
@@ -2440,6 +2442,111 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             amrex::Print() << "[Checkpoint][WARN] Could not open current directory for deleting old checkpoints\n";
         }
     }
+}
+
+void AmrCoreLBM::CompareDdfCheckpoint(
+    const std::string& checkpoint_path) const {
+    const std::string header_file = checkpoint_path + "/Header";
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        amrex::FileExists(header_file),
+        "DDF reference checkpoint is missing Header: " + header_file);
+
+    amrex::Vector<char> header_chars;
+    ParallelDescriptor::ReadAndBcastFile(header_file, header_chars);
+    std::istringstream header{std::string(header_chars.dataPtr())};
+
+    std::string label;
+    std::getline(header, label);
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        label == "LBMCheckpoint",
+        "Invalid DDF reference checkpoint: " + checkpoint_path);
+
+    std::string line;
+    std::getline(header, line); // step
+    std::getline(header, line); // time
+    int reference_finest = -1;
+    header >> reference_finest;
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        reference_finest == finest_level,
+        "DDF comparison requires identical finest levels");
+
+    constexpr const char* level_prefix = "Level_";
+    Real global_linf = 0.0;
+    Real global_diff_l2_sq = 0.0;
+    Real global_ref_l2_sq = 0.0;
+
+    amrex::Print() << std::setprecision(17)
+                   << "ddf_norm_begin: reference=" << checkpoint_path
+                   << " finest_level=" << finest_level
+                   << " ncomp=" << Q << '\n';
+
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        const std::string reference_name = MultiFabFileFullPrefix(
+            lev, checkpoint_path, level_prefix, "f_old");
+        MultiFab reference;
+        VisMF::Read(reference, reference_name);
+
+        const MultiFab& current = f_old[lev];
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            reference.nComp() == Q,
+            "DDF comparison found a reference component-count mismatch");
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            reference.boxArray() == current.boxArray(),
+            "DDF comparison requires identical BoxArrays at every level");
+
+        MultiFab reference_on_current(
+            current.boxArray(), current.DistributionMap(), Q, 0);
+        reference_on_current.ParallelCopy(
+            reference, 0, 0, Q, IntVect(0), IntVect(0));
+
+        MultiFab difference(
+            current.boxArray(), current.DistributionMap(), Q, 0);
+        MultiFab::Copy(difference, current, 0, 0, Q, 0);
+        MultiFab::Subtract(
+            difference, reference_on_current, 0, 0, Q, 0);
+
+        const Real level_linf =
+            difference.norm0(0, Q, IntVect(0));
+        const Real level_diff_l2 = difference.norm2(0, Q);
+        const Real level_ref_l2 = reference_on_current.norm2(0, Q);
+        const Real level_rel_l2 =
+            level_ref_l2 > 0.0 ? level_diff_l2 / level_ref_l2 : 0.0;
+
+        global_linf = std::max(global_linf, level_linf);
+        global_diff_l2_sq += level_diff_l2 * level_diff_l2;
+        global_ref_l2_sq += level_ref_l2 * level_ref_l2;
+
+        amrex::Print() << "ddf_norm_level: lev=" << lev
+                       << " valid_cells=" << current.boxArray().numPts()
+                       << " linf=" << level_linf
+                       << " l2=" << level_diff_l2
+                       << " ref_l2=" << level_ref_l2
+                       << " rel_l2=" << level_rel_l2 << '\n';
+
+        for (int q = 0; q < Q; ++q) {
+            const Real linf = difference.norminf(q);
+            const Real diff_l2 = difference.norm2(q);
+            const Real ref_l2 = reference_on_current.norm2(q);
+            const Real rel_l2 =
+                ref_l2 > 0.0 ? diff_l2 / ref_l2 : 0.0;
+            amrex::Print() << "ddf_norm_component: lev=" << lev
+                           << " q=" << q
+                           << " linf=" << linf
+                           << " l2=" << diff_l2
+                           << " ref_l2=" << ref_l2
+                           << " rel_l2=" << rel_l2 << '\n';
+        }
+    }
+
+    const Real global_diff_l2 = std::sqrt(global_diff_l2_sq);
+    const Real global_ref_l2 = std::sqrt(global_ref_l2_sq);
+    const Real global_rel_l2 =
+        global_ref_l2 > 0.0 ? global_diff_l2 / global_ref_l2 : 0.0;
+    amrex::Print() << "ddf_norm_global: linf=" << global_linf
+                   << " l2=" << global_diff_l2
+                   << " ref_l2=" << global_ref_l2
+                   << " rel_l2=" << global_rel_l2 << '\n'
+                   << "ddf_norm_end\n";
 }
 
 void AmrCoreLBM::ReadCheckpoint() {
