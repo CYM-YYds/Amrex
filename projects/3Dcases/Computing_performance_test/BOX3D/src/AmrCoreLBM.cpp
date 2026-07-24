@@ -723,23 +723,8 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
     amrex::MultiFab& f_old_lev_c = f_old[lev - 1];
     amrex::Real scale = tau[lev] / tau[lev - 1] / 2.0;
 
-    // Use the same target layout as FillPatchTwoLevels to expose the exact
-    // fine-side and coarse-side interpolation regions selected by AMReX.
     const amrex::IntVect fill_ng = mf.nGrowVect();
     const auto& coarsener = mapper->BoxCoarsener(refRatio(lev - 1));
-    const auto& fpc = FabArrayBase::TheFPinfo(
-        f_old_lev_f, mf, fill_ng, coarsener,
-        Geom(lev), Geom(lev - 1), nullptr);
-    perf_stats.interp_fillpatch_boxes +=
-        static_cast<long long>(fpc.ba_fine_patch.size());
-    for (int i = 0; i < fpc.ba_fine_patch.size(); ++i) {
-        perf_stats.interp_fillpatch_fine_cells +=
-            fpc.ba_fine_patch[i].numPts();
-    }
-    for (int i = 0; i < fpc.ba_crse_patch.size(); ++i) {
-        perf_stats.interp_fillpatch_coarse_cells +=
-            fpc.ba_crse_patch[i].numPts();
-    }
 
     const bool direct_target =
         &mf == &f_old_lev_f &&
@@ -773,17 +758,16 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                     continue;
                 }
 
-                Vector<Box> work_boxes(leftover.begin(), leftover.end());
-                Box fine_envelope = work_boxes.front();
-                for (int i = 1; i < work_boxes.size(); ++i) {
-                    fine_envelope.minBox(work_boxes[i]);
+                // 每个离散 fine ghost 区域单独保留对应的 coarse stencil。
+                // 若先合并为包围盒，会把中间无需插值的 coarse cell 也纳入
+                // staging，并显著放大 PhysBCFunct 的扫描范围。
+                for (const Box& work_box : leftover) {
+                    coarse_boxes.push_back(coarsener.doit(work_box));
+                    coarse_owners.push_back(
+                        f_old_lev_f.DistributionMap()[fine_index]);
+                    fine_work_boxes.push_back(Vector<Box>{work_box});
+                    fine_indices.push_back(fine_index);
                 }
-
-                coarse_boxes.push_back(coarsener.doit(fine_envelope));
-                coarse_owners.push_back(
-                    f_old_lev_f.DistributionMap()[fine_index]);
-                fine_work_boxes.push_back(std::move(work_boxes));
-                fine_indices.push_back(fine_index);
             }
 
             coarse_stage.clear();
@@ -858,6 +842,22 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             fphysbc(mf, 0, Q, fill_ng, time, 0);
         }
         return;
+    }
+
+    // 通用路径沿用 TheFPinfo 的目标区域。mode 2 的正常时间推进已在
+    // 上方返回，因此不会再逐次遍历 patch 元数据；布局变化时仍可安全回退。
+    const auto& fpc = FabArrayBase::TheFPinfo(
+        f_old_lev_f, mf, fill_ng, coarsener,
+        Geom(lev), Geom(lev - 1), nullptr);
+    perf_stats.interp_fillpatch_boxes +=
+        static_cast<long long>(fpc.ba_fine_patch.size());
+    for (int i = 0; i < fpc.ba_fine_patch.size(); ++i) {
+        perf_stats.interp_fillpatch_fine_cells +=
+            fpc.ba_fine_patch[i].numPts();
+    }
+    for (int i = 0; i < fpc.ba_crse_patch.size(); ++i) {
+        perf_stats.interp_fillpatch_coarse_cells +=
+            fpc.ba_crse_patch[i].numPts();
     }
 
     if (cf_interp_mode >= 1) {
