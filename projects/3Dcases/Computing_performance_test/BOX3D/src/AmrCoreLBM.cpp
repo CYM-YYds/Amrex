@@ -721,9 +721,10 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
 
     // Use the same target layout as FillPatchTwoLevels to expose the exact
     // fine-side and coarse-side interpolation regions selected by AMReX.
+    const amrex::IntVect fill_ng = mf.nGrowVect();
     const auto& coarsener = mapper->BoxCoarsener(refRatio(lev - 1));
     const auto& fpc = FabArrayBase::TheFPinfo(
-        f_old_lev_f, mf, amrex::IntVect(nghost), coarsener,
+        f_old_lev_f, mf, fill_ng, coarsener,
         Geom(lev), Geom(lev - 1), nullptr);
     perf_stats.interp_fillpatch_boxes +=
         static_cast<long long>(fpc.ba_fine_patch.size());
@@ -743,11 +744,11 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
         // 状态布局不同，必须使用 ParallelCopy；正常时间推进时则直接
         // FillBoundary，保持 FillPatchTwoLevels 的原有语义。
         if (&mf == &f_old_lev_f) {
-            mf.FillBoundary(0, Q, amrex::IntVect(nghost),
+            mf.FillBoundary(0, Q, fill_ng,
                             Geom(lev).periodicity());
         } else {
             mf.ParallelCopy(f_old_lev_f, 0, 0, Q, amrex::IntVect(0),
-                            amrex::IntVect(nghost), Geom(lev).periodicity());
+                            fill_ng, Geom(lev).periodicity());
         }
 
         if (!fpc.ba_crse_patch.empty()) {
@@ -784,19 +785,19 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             }
 
             mf.ParallelCopy(fine_patch, 0, 0, Q, amrex::IntVect(0),
-                            amrex::IntVect(nghost), Geom(lev).periodicity());
+                            fill_ng, Geom(lev).periodicity());
         }
 
         if (Gpu::inLaunchRegion()) {
             GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
             PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
                 geom[lev], bcs, gpu_bndry_func);
-            fphysbc(mf, 0, Q, amrex::IntVect(nghost), time, 0);
+            fphysbc(mf, 0, Q, fill_ng, time, 0);
         } else {
             CpuBndryFuncFab bndry_func(nullptr);
             PhysBCFunct<CpuBndryFuncFab> fphysbc(
                 geom[lev], bcs, bndry_func);
-            fphysbc(mf, 0, Q, amrex::IntVect(nghost), time, 0);
+            fphysbc(mf, 0, Q, fill_ng, time, 0);
         }
         return;
     }
