@@ -22,8 +22,8 @@ TINY_PROFILE = TRUE
 ```
 
 Build the profiling executable and submit the one-GPU, 1000-step job from the
-case root. Use the intended HPC compiler environment; AMReX requires GCC 8 or
-newer:
+case root. This case currently targets AMReX 26.06 and C++20; use GCC 11 or
+newer in the intended HPC compiler environment:
 
 ```bash
 ./scripts/compile.sh

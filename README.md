@@ -2,8 +2,8 @@
 
 本仓库用于维护基于 AMReX 的 LBM + AMR 算例开发与实验代码，包含 2D/3D 多类流动场与粒子耦合场景。
 
-当前主要使用的 AMReX 版本为 `amrex-26.01`，同时保留 `amrex-23.09` 和
-`amrex-26.06` 作为历史兼容与上游版本对照。
+多数算例仍以 `amrex-26.01` 为默认版本，同时保留 `amrex-23.09` 用于历史兼容。
+`amrex-26.06` 既用于上游版本对照，也已被 BOX3D 性能算例采用。
 
 ## 1. 项目架构概览
 
@@ -32,7 +32,7 @@ Amrex/
 
 - `amrex-26.01/`: 当前主版本，算例默认优先对齐该版本头文件与接口。
 - `amrex-23.09/`: 历史版本/对照版本，便于迁移排查与行为对比。
-- `amrex-26.06/`: 上游版本对照目录，不改变现有算例默认使用 `amrex-26.01` 的约定。
+- `amrex-26.06/`: 上游版本对照目录；BOX3D 已迁移到该版本，其他算例仍以各自 `config/GNUmakefile` 为准。
 
 ### 2.2 算例目录
 
@@ -118,3 +118,5 @@ dsub -s ./scripts/submit.sh
 ## 5. 备注
 
 - 本仓库包含多个算例并行演化，建议每个算例目录维护独立的 `.clangd` 与 `config/compile_commands.json`，减少跨算例语义干扰。
+- 使用根目录 `learnamerx.code-workspace` 切换多个算例时，`clangd.arguments` 中的 `--query-driver` 路径必须以逗号分隔。生成数据库后应确认编译器、C++ 标准和 `AMREX_HOME` 与该算例一致，再重启 clangd。
+- 算例目录中的 `.clangd` 只作用于该目录及其子目录；`Index.Background` 控制后台索引，不会禁止 clangd 诊断用户主动打开的其他文件。

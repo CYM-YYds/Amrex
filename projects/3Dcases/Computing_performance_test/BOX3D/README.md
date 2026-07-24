@@ -62,4 +62,20 @@
 
 当前主循环调用 `JaberCycle2()`；其粗细网格传输、两层 ghost 策略和迁移边界保护见
 [AMR 网格通信文档](docs/amr_grid_communication.md)。构建和数值验证必须在算例目标的 HPC
-编译环境中进行，AMReX 当前要求 GCC 8 或更新版本。
+编译环境中进行。该算例的 `config/GNUmakefile` 当前指向 `amrex-26.06`，使用 C++20，
+并要求 GCC 11 或更新版本。
+
+## IDE 语义分析
+
+`.clangd` 从 `config/compile_commands.json` 读取本算例的编译参数，并用主机模式近似解析
+NVCC 编译单元。配置中的 CUDA 关键字定义及 `blockIdx` 同类型替身只供 clangd 使用，
+不进入真实 NVCC 构建。仓库根工作区的 `--query-driver` 必须使用逗号分隔多个编译器路径，
+否则 clangd 无法提取 GCC 11 标准库目录，并会从缺失 `<numbers>` 开始产生级联误报。
+
+完整刷新数据库并检查 clangd 时，可在算例根目录执行：
+
+```bash
+CCDB_REQUIRE_FULL=1 CCDB_MERGE_OLD=0 ./scripts/compile.sh
+clangd --check=src/main.cpp --compile-commands-dir=config --enable-config \
+  '--query-driver=/home/HPCBase/compilers/gcc/*/bin/g++'
+```
