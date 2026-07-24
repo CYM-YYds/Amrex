@@ -32,4 +32,4 @@ mpirun \
     -npernode 1 \
     -x PATH -x LD_LIBRARY_PATH \
     --mca plm_rsh_agent /opt/batch/agent/tools/dstart \
-    bash -lc 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-${MPI_LOCALRANKID:-0}}; exec ./main3d.gnu.TPROF.MPI.CUDA.ex config/inputs max_step=1000 amr.plot_int=1000000 checkpoint.chk_int=-1 lbm.cf_interp_mode=1'
+    bash -lc 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-${MPI_LOCALRANKID:-0}}; exec ./main3d.gnu.TPROF.MPI.CUDA.ex config/inputs max_step=1000 amr.plot_int=1000000 checkpoint.chk_int=-1 lbm.cf_interp_mode=2'
