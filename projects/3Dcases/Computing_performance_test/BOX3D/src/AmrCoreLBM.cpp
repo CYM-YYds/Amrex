@@ -764,6 +764,19 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             coarse_patch.ParallelCopy(
                 f_old_lev_c, 0, 0, Q, amrex::IntVect(0),
                 amrex::IntVect(0), Geom(lev - 1).periodicity());
+            if (Gpu::inLaunchRegion()) {
+                GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
+                PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(
+                    geom[lev - 1], bcs, gpu_bndry_func);
+                cphysbc(coarse_patch, 0, Q, coarse_patch.nGrowVect(),
+                        time, 0);
+            } else {
+                CpuBndryFuncFab bndry_func(nullptr);
+                PhysBCFunct<CpuBndryFuncFab> cphysbc(
+                    geom[lev - 1], bcs, bndry_func);
+                cphysbc(coarse_patch, 0, Q, coarse_patch.nGrowVect(),
+                        time, 0);
+            }
 
             // 只在实际 coarse interpolation patch 上做非平衡 DDF 缩放。
             for (MFIter mfi(coarse_patch, false); mfi.isValid(); ++mfi) {
