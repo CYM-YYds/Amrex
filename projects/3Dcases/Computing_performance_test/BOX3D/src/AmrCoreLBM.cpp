@@ -783,23 +783,60 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
         }
 
         if (!fine_indices.empty()) {
-            coarse_stage.setDomainBndry(
-                std::numeric_limits<Real>::quiet_NaN(), Geom(lev - 1));
             coarse_stage.ParallelCopy(
                 f_old_lev_c, 0, 0, Q, amrex::IntVect(0),
                 amrex::IntVect(0), Geom(lev - 1).periodicity());
-            if (Gpu::inLaunchRegion()) {
-                GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-                PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(
-                    geom[lev - 1], bcs, gpu_bndry_func);
-                cphysbc(coarse_stage, 0, Q, coarse_stage.nGrowVect(),
-                        time, 0);
-            } else {
-                CpuBndryFuncFab bndry_func(nullptr);
-                PhysBCFunct<CpuBndryFuncFab> cphysbc(
-                    geom[lev - 1], bcs, bndry_func);
-                cphysbc(coarse_stage, 0, Q, coarse_stage.nGrowVect(),
-                        time, 0);
+
+            // AmrCoreFill 不施加额外 ext_dir 数值；通用 PhysBCFunct 在这里
+            // 等价于把非周期域外 stencil 复制为最近的域内 coarse 值。
+            // 只为真正越过物理边界的 staging Box 启动复制 kernel，避免
+            // 每次插值对全部离散 Fab 执行通用边界管理。
+            const Box coarse_domain = Geom(lev - 1).Domain();
+            const auto coarse_lo = amrex::lbound(coarse_domain);
+            const auto coarse_hi = amrex::ubound(coarse_domain);
+            const auto coarse_periodic =
+                Geom(lev - 1).isPeriodicArray();
+            for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+                const Box bx = mfi.validbox();
+                bool needs_physical_fill = false;
+                for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                    needs_physical_fill =
+                        needs_physical_fill ||
+                        (!coarse_periodic[dir] &&
+                         (bx.smallEnd(dir) < coarse_domain.smallEnd(dir) ||
+                          bx.bigEnd(dir) > coarse_domain.bigEnd(dir)));
+                }
+                if (!needs_physical_fill) {
+                    continue;
+                }
+
+                const auto coarse = coarse_stage.array(mfi);
+                amrex::ParallelFor(
+                    bx, Q,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                        const int src_i =
+                            coarse_periodic[0]
+                                ? i
+                                : (i < coarse_lo.x
+                                       ? coarse_lo.x
+                                       : (i > coarse_hi.x ? coarse_hi.x : i));
+                        const int src_j =
+                            coarse_periodic[1]
+                                ? j
+                                : (j < coarse_lo.y
+                                       ? coarse_lo.y
+                                       : (j > coarse_hi.y ? coarse_hi.y : j));
+                        const int src_k =
+                            coarse_periodic[2]
+                                ? k
+                                : (k < coarse_lo.z
+                                       ? coarse_lo.z
+                                       : (k > coarse_hi.z ? coarse_hi.z : k));
+                        if (src_i != i || src_j != j || src_k != k) {
+                            coarse(i, j, k, q) =
+                                coarse(src_i, src_j, src_k, q);
+                        }
+                    });
             }
 
             for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
