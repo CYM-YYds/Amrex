@@ -169,6 +169,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     int cf_mask_mode = 1;
     // 0：全区域分步；1：全区域融合；2：交界区域分步；3：交界区域融合。
     int average_mode = 1;
+    // 0：AMReX FillPatchTwoLevels；1：LBM 专用粗到细 DDF 插值。
+    int cf_interp_mode = 0;
 
     amrex::Vector<amrex::BCRec> bcs;
     amrex::Vector<amrex::Real> err;

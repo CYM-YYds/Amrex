@@ -2378,6 +2378,47 @@ void interp_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
+void interp_bilinear_d3q(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    amrex::IntVect const& ratio) noexcept {
+    const int ic = amrex::coarsen(i, ratio[0]);
+    const int jc = amrex::coarsen(j, ratio[1]);
+    const int kc = amrex::coarsen(k, ratio[2]);
+    const int ioff = i - ic * ratio[0];
+    const int joff = j - jc * ratio[1];
+    const int koff = k - kc * ratio[2];
+    const bool xlo = ioff * 2 < ratio[0];
+    const bool ylo = joff * 2 < ratio[1];
+    const bool zlo = koff * 2 < ratio[2];
+    const int sx = xlo ? -1 : 1;
+    const int sy = ylo ? -1 : 1;
+    const int sz = zlo ? -1 : 1;
+    const Real wx = xlo ? Real(ratio[0] + 1 + 2 * ioff) / Real(2 * ratio[0])
+                        : Real(3 * ratio[0] - 1 - 2 * ioff) / Real(2 * ratio[0]);
+    const Real wy = ylo ? Real(ratio[1] + 1 + 2 * joff) / Real(2 * ratio[1])
+                        : Real(3 * ratio[1] - 1 - 2 * joff) / Real(2 * ratio[1]);
+    const Real wz = zlo ? Real(ratio[2] + 1 + 2 * koff) / Real(2 * ratio[2])
+                        : Real(3 * ratio[2] - 1 - 2 * koff) / Real(2 * ratio[2]);
+    const Real ax = Real(1.0) - wx;
+    const Real ay = Real(1.0) - wy;
+    const Real az = Real(1.0) - wz;
+
+    for (int q = 0; q < Q; ++q) {
+        fine(i, j, k, q) =
+            coarse(ic, jc, kc, q) * wx * wy * wz +
+            coarse(ic + sx, jc, kc, q) * ax * wy * wz +
+            coarse(ic, jc + sy, kc, q) * wx * ay * wz +
+            coarse(ic + sx, jc + sy, kc, q) * ax * ay * wz +
+            coarse(ic, jc, kc + sz, q) * wx * wy * az +
+            coarse(ic + sx, jc, kc + sz, q) * ax * wy * az +
+            coarse(ic, jc + sy, kc + sz, q) * wx * ay * az +
+            coarse(ic + sx, jc + sy, kc + sz, q) * ax * ay * az;
+    }
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
 void average_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
                    amrex::Real scale) {
 

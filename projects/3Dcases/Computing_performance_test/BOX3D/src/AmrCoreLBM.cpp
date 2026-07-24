@@ -290,6 +290,7 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  U0     =" << std::setw(10) << std::right << U0 << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  cf_mask=" << std::setw(10) << std::right << cf_mask_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  avg_mode=" << std::setw(10) << std::right << average_mode << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  cf_interp=" << std::setw(10) << std::right << cf_interp_mode << std::endl;
 
     for (int lev = 0; lev <= finest_level; lev++) {
         amrex::Print() << std::setw(15) << std::left << "  tau    =" << std::setw(10) << std::right << tau[lev] << std::endl;
@@ -489,6 +490,10 @@ void AmrCoreLBM::ReadParameters() {
         pp.query("average_mode", average_mode);
         if (average_mode < 0 || average_mode > 3) {
             amrex::Abort("lbm.average_mode must be 0, 1, 2, or 3");
+        }
+        pp.query("cf_interp_mode", cf_interp_mode);
+        if (cf_interp_mode < 0 || cf_interp_mode > 1) {
+            amrex::Abort("lbm.cf_interp_mode must be 0 or 1");
         }
         int n = pp.countval("err");
         if (n > 0) {
@@ -729,6 +734,71 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
     for (int i = 0; i < fpc.ba_crse_patch.size(); ++i) {
         perf_stats.interp_fillpatch_coarse_cells +=
             fpc.ba_crse_patch[i].numPts();
+    }
+
+    if (cf_interp_mode == 1) {
+        ScopedPerfTimer timer(perf_stats.interp_fillpatch);
+
+        // 先完成同层 fine 数据填充。RemakeLevel 时目标 mf 与当前 fine
+        // 状态布局不同，必须使用 ParallelCopy；正常时间推进时则直接
+        // FillBoundary，保持 FillPatchTwoLevels 的原有语义。
+        if (&mf == &f_old_lev_f) {
+            mf.FillBoundary(0, Q, amrex::IntVect(nghost),
+                            Geom(lev).periodicity());
+        } else {
+            mf.ParallelCopy(f_old_lev_f, 0, 0, Q, amrex::IntVect(0),
+                            amrex::IntVect(nghost), Geom(lev).periodicity());
+        }
+
+        if (!fpc.ba_crse_patch.empty()) {
+            amrex::MultiFab coarse_patch(
+                fpc.ba_crse_patch, fpc.dm_patch, Q, 0, amrex::MFInfo(),
+                *fpc.fact_crse_patch);
+            amrex::MultiFab fine_patch(
+                fpc.ba_fine_patch, fpc.dm_patch, Q, 0, amrex::MFInfo(),
+                *fpc.fact_fine_patch);
+
+            coarse_patch.setDomainBndry(
+                std::numeric_limits<Real>::quiet_NaN(), Geom(lev - 1));
+            coarse_patch.ParallelCopy(
+                f_old_lev_c, 0, 0, Q, amrex::IntVect(0),
+                amrex::IntVect(0), Geom(lev - 1).periodicity());
+
+            // 只在实际 coarse interpolation patch 上做非平衡 DDF 缩放。
+            for (MFIter mfi(coarse_patch, false); mfi.isValid(); ++mfi) {
+                auto coarse = coarse_patch.array(mfi);
+                const Box bx = mfi.validbox();
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    average_scale(i, j, k, coarse, scale);
+                });
+            }
+
+            const auto ratio = refRatio(lev - 1);
+            for (MFIter mfi(fine_patch, false); mfi.isValid(); ++mfi) {
+                const auto fine = fine_patch.array(mfi);
+                const auto coarse = coarse_patch.const_array(mfi);
+                const Box bx = mfi.validbox();
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    interp_bilinear_d3q(i, j, k, fine, coarse, ratio);
+                });
+            }
+
+            mf.ParallelCopy(fine_patch, 0, 0, Q, amrex::IntVect(0),
+                            amrex::IntVect(nghost), Geom(lev).periodicity());
+        }
+
+        if (Gpu::inLaunchRegion()) {
+            GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
+            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
+                geom[lev], bcs, gpu_bndry_func);
+            fphysbc(mf, 0, Q, amrex::IntVect(nghost), time, 0);
+        } else {
+            CpuBndryFuncFab bndry_func(nullptr);
+            PhysBCFunct<CpuBndryFuncFab> fphysbc(
+                geom[lev], bcs, bndry_func);
+            fphysbc(mf, 0, Q, amrex::IntVect(nghost), time, 0);
+        }
+        return;
     }
 
     {
