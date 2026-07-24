@@ -170,7 +170,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     int cf_mask_mode = 1;
     // 0：全区域分步；1：全区域融合；2：交界区域分步；3：交界区域融合。
     int average_mode = 1;
-    // 0：AMReX FillPatchTwoLevels；1：FPinfo patch；2：直接写 fine ghost。
+    // 0：AMReX FillPatchTwoLevels；1：FPinfo patch；2：直接写 fine ghost；
+    // 3：直接插值并在同一 kernel 内完成粗 DDF 非平衡缩放。
     int cf_interp_mode = 0;
 
     amrex::Vector<amrex::BCRec> bcs;

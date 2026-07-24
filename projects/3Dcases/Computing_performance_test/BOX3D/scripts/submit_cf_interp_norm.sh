@@ -36,17 +36,17 @@ run_case() {
         bash -lc "$1"
 }
 
-REFERENCE_PREFIX="ddf_norm_mode1_"
+REFERENCE_PREFIX="ddf_norm_mode2_"
 REFERENCE_CHECKPOINT="${REFERENCE_PREFIX}00000064"
 
 run_case \
     "export CUDA_VISIBLE_DEVICES=0; exec ./main3d.gnu.TPROF.MPI.CUDA.ex config/inputs \
 max_step=64 amr.plot_int=1000000 checkpoint.chk_int=64 \
 checkpoint.chk_prefix=${REFERENCE_PREFIX} checkpoint.keep_latest_only=0 \
-checkpoint.write_particles=0 lbm.cf_interp_mode=1"
+        checkpoint.write_particles=0 lbm.cf_interp_mode=2"
 
 run_case \
     "export CUDA_VISIBLE_DEVICES=0; exec ./main3d.gnu.TPROF.MPI.CUDA.ex config/inputs \
 max_step=64 amr.plot_int=1000000 checkpoint.chk_int=-1 \
-checkpoint.write_particles=0 lbm.cf_interp_mode=2 \
+        checkpoint.write_particles=0 lbm.cf_interp_mode=3 \
 verification.ddf_reference_checkpoint=${REFERENCE_CHECKPOINT}"

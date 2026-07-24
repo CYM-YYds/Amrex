@@ -2419,6 +2419,68 @@ void interp_bilinear_d3q(
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
+void interp_bilinear_d3q_scaled(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    amrex::IntVect const& ratio, amrex::Real scale) noexcept {
+    const int ic = amrex::coarsen(i, ratio[0]);
+    const int jc = amrex::coarsen(j, ratio[1]);
+    const int kc = amrex::coarsen(k, ratio[2]);
+    const int ioff = i - ic * ratio[0];
+    const int joff = j - jc * ratio[1];
+    const int koff = k - kc * ratio[2];
+    const bool xlo = ioff * 2 < ratio[0];
+    const bool ylo = joff * 2 < ratio[1];
+    const bool zlo = koff * 2 < ratio[2];
+    const int sx = xlo ? -1 : 1;
+    const int sy = ylo ? -1 : 1;
+    const int sz = zlo ? -1 : 1;
+    const Real wx = xlo ? Real(ratio[0] + 1 + 2 * ioff) / Real(2 * ratio[0])
+                        : Real(3 * ratio[0] - 1 - 2 * ioff) / Real(2 * ratio[0]);
+    const Real wy = ylo ? Real(ratio[1] + 1 + 2 * joff) / Real(2 * ratio[1])
+                        : Real(3 * ratio[1] - 1 - 2 * joff) / Real(2 * ratio[1]);
+    const Real wz = zlo ? Real(ratio[2] + 1 + 2 * koff) / Real(2 * ratio[2])
+                        : Real(3 * ratio[2] - 1 - 2 * koff) / Real(2 * ratio[2]);
+    const Real ax = Real(1.0) - wx;
+    const Real ay = Real(1.0) - wy;
+    const Real az = Real(1.0) - wz;
+
+    const int ci[8] = {ic, ic + sx, ic, ic + sx, ic, ic + sx, ic, ic + sx};
+    const int cj[8] = {jc, jc, jc + sy, jc + sy, jc, jc, jc + sy, jc + sy};
+    const int ck[8] = {kc, kc, kc, kc, kc + sz, kc + sz, kc + sz, kc + sz};
+    const Real weight[8] = {
+        wx * wy * wz, ax * wy * wz, wx * ay * wz, ax * ay * wz,
+        wx * wy * az, ax * wy * az, wx * ay * az, ax * ay * az};
+
+    Real result[Q] = {};
+    for (int s = 0; s < 8; ++s) {
+        Real rho = 0.0;
+        Real ux = 0.0;
+        Real uy = 0.0;
+        Real uz = 0.0;
+        for (int q = 0; q < Q; ++q) {
+            const Real fq = coarse(ci[s], cj[s], ck[s], q);
+            rho += fq;
+            ux += fq * e[q][0];
+            uy += fq * e[q][1];
+            uz += fq * e[q][2];
+        }
+        ux /= rho;
+        uy /= rho;
+        uz /= rho;
+        for (int q = 0; q < Q; ++q) {
+            const Real fq = coarse(ci[s], cj[s], ck[s], q);
+            const Real feq = feqQian(rho, {ux, uy, uz}, q);
+            result[q] += weight[s] * (feq + (fq - feq) * scale);
+        }
+    }
+    for (int q = 0; q < Q; ++q) {
+        fine(i, j, k, q) = result[q];
+    }
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
 void average_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
                    amrex::Real scale) {
 

@@ -499,8 +499,8 @@ void AmrCoreLBM::ReadParameters() {
             amrex::Abort("lbm.average_mode must be 0, 1, 2, or 3");
         }
         pp.query("cf_interp_mode", cf_interp_mode);
-        if (cf_interp_mode < 0 || cf_interp_mode > 2) {
-            amrex::Abort("lbm.cf_interp_mode must be 0, 1, or 2");
+        if (cf_interp_mode < 0 || cf_interp_mode > 3) {
+            amrex::Abort("lbm.cf_interp_mode must be 0, 1, 2, or 3");
         }
         int n = pp.countval("err");
         if (n > 0) {
@@ -851,16 +851,19 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                     });
             }
 
-            for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-                const auto coarse = coarse_stage.array(mfi);
-                const Box bx = mfi.validbox();
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        average_scale(i, j, k, coarse, scale);
-                    });
+            if (cf_interp_mode != 3) {
+                for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+                    const auto coarse = coarse_stage.array(mfi);
+                    const Box bx = mfi.validbox();
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            average_scale(i, j, k, coarse, scale);
+                        });
+                }
             }
 
             const auto ratio = refRatio(lev - 1);
+            const bool fused_interp = cf_interp_mode == 3;
             for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
                 const int stage_index = mfi.index();
                 const int fine_index = fine_indices[stage_index];
@@ -869,8 +872,13 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                 for (const Box& bx : fine_work_boxes[stage_index]) {
                     amrex::ParallelFor(
                         bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                            interp_bilinear_d3q(
-                                i, j, k, fine, coarse, ratio);
+                            if (fused_interp) {
+                                interp_bilinear_d3q_scaled(
+                                    i, j, k, fine, coarse, ratio, scale);
+                            } else {
+                                interp_bilinear_d3q(
+                                    i, j, k, fine, coarse, ratio);
+                            }
                         });
                 }
             }
