@@ -1,89 +1,69 @@
-# BOX3D Performance Profiling
+# BOX3D 性能分析
 
-## Purpose
+## 目的
 
-This case measures coarse-fine AMR transfer costs in the recursive
-`JaberCycle2()` path. The relevant data path is:
+这个算例用于测量递归 `JaberCycle2()` 路径中的粗细网格 AMR 传输开销。相关的数据路径如下：
 
 ```text
 FillGhostLevel -> FillDdfPatch -> FillPatchTwoLevels
-AverageDownGhostLevel -> selected LBM restriction -> ParallelCopy
+AverageDownGhostLevel -> 选定的 LBM restriction -> ParallelCopy
 ```
 
-The detailed case timers identify the high-level subphases. AMReX
-TinyProfiler then resolves the nested operations inside `FillPatchTwoLevels()`.
+算例级的详细计时器会标出高层子阶段，而 AMReX TinyProfiler 会进一步解析 `FillPatchTwoLevels()` 内部的嵌套操作。
 
-## Build And Submit
+## 构建与提交
 
-`config/GNUmakefile` currently enables AMReX TinyProfiler:
+`config/GNUmakefile` 当前已启用 AMReX TinyProfiler：
 
 ```make
 TINY_PROFILE = TRUE
 ```
 
-Build the profiling executable and submit the one-GPU, 1000-step job from the
-case root. This case currently targets AMReX 26.06 and C++20; use GCC 11 or
-newer in the intended HPC compiler environment:
+请在算例根目录下构建性能分析可执行文件，并提交一个单 GPU、1000 步的任务。这个算例当前面向 AMReX 26.06 和 C++20；在目标 HPC 编译环境中请使用 GCC 11 或更新版本：
 
 ```bash
 ./scripts/compile.sh
 dsub -s ./scripts/submit_tiny_profile.sh
 ```
 
-The submit script requires `main3d.gnu.TPROF.MPI.CUDA.ex`, suppresses plot and
-checkpoint output, and passes:
+提交脚本需要 `main3d.gnu.TPROF.MPI.CUDA.ex`，会关闭绘图和 checkpoint 输出，并传入：
 
 ```text
 tiny_profiler.device_synchronize_around_region=1
 tiny_profiler.print_threshold=0.01
 ```
 
-The first option synchronizes the GPU at profiling-region boundaries. It gives
-meaningful attribution for asynchronous CUDA kernels, but increases measured
-wall time. Do not compare the resulting `JaberCycle_time` directly with a
-normal `TINY_PROFILE = FALSE` run.
+第一个选项会在 profiling 区域边界同步 GPU。它能为异步 CUDA kernel 提供更有意义的归因，但会增加测得的墙钟时间。不要把得到的 `JaberCycle_time` 直接和普通 `TINY_PROFILE = FALSE` 的运行结果比较。
 
-Validate the launch contract before submitting:
+提交前请先验证启动约定：
 
 ```bash
 bash tests/test_tiny_profile_submit.sh
 ```
 
-## Historical Profile Result
+## 历史性能分析结果
 
-The completed `569665-tiny-profile.log` 1000-step run recorded:
+已完成的 `569665-tiny-profile.log` 1000 步运行记录如下：
 
-| Operation | Time | Interpretation |
+| 操作 | 时间 | 解释 |
 |---|---:|---|
-| `FillPatchTwoLevels` inclusive | 54.01 s | dominant Interp subpath |
-| `CellConservativeLinear::interp()` | 28.54 s | conservative coarse-to-fine interpolation in that historical build |
-| `FillPatchSingleLevel` inclusive | 21.19 s | source fill, ghost fill, and physical-boundary work |
-| `amrex::Copy()` | 13.15 s | fine-side temporary data copy before restriction |
-| `amrex::average_down()` inclusive | 8.98 s | fine-to-coarse restriction |
+| `FillPatchTwoLevels` inclusive | 54.01 s | 主导的 Interp 子路径 |
+| `CellConservativeLinear::interp()` | 28.54 s | 该历史版本中的保守型粗到细插值 |
+| `FillPatchSingleLevel` inclusive | 21.19 s | 源填充、ghost 填充和物理边界工作 |
+| `amrex::Copy()` | 13.15 s | restriction 前 fine 端临时数据拷贝 |
+| `amrex::average_down()` inclusive | 8.98 s | fine 到 coarse 的 restriction |
 
-This profile predates the current DDF-path selection of `cell_bilinear_interp` and the current
-two-ghost stream changes. It remains evidence for the older conservative-mapper path, not a
-direct benchmark for the present source tree.
+这份 profile 早于当前 DDF 路径中对 `cell_bilinear_interp` 的选择，以及当前的双 ghost 流变化。因此它仍然只能作为旧的保守映射路径的证据，不能直接作为当前源码树的基准。
 
-The `FillPatchTwoLevels` wrapper itself has only 0.413 s exclusive time.
-Optimization should therefore target interpolation work, boundary/ghost fills,
-and patch granularity, not wrapper metadata. The temporary `MultiFab`
-allocation is also not a primary target; its case-level timer was 0.15 s in
-the same 1000-step window.
+`FillPatchTwoLevels` 包装器本身的 exclusive 时间只有 0.413 s。因此优化应重点放在插值工作、边界/ghost 填充和 patch 粒度上，而不是包装器元数据。临时 `MultiFab` 分配也不是主要目标；在同一 1000 步窗口里，它的算例级计时只有 0.15 s。
 
-TinyProfiler counts include regridding work. In job `569665`, it recorded 7136
-`FillPatchTwoLevels` calls while JaberCycle recorded 7000 `FillGhostLevel`
-calls. The additional 136 calls come from regridding paths such as
-`RemakeLevel()`. Similarly, 7087 `average_down` calls include 87 regridding
-restrictions in addition to the 7000 JaberCycle calls.
+TinyProfiler 的计数包含 regrid 工作。在 job `569665` 中，它记录了 7136 次 `FillPatchTwoLevels` 调用，而 JaberCycle 记录了 7000 次 `FillGhostLevel` 调用。多出来的 136 次来自 `RemakeLevel()` 等 regrid 路径。同样，7087 次 `average_down` 调用中包含了 87 次 regrid restriction，另外 7000 次来自 JaberCycle 调用。
 
-## Current Full-Run Baseline: Job 571393
+## 当前全运行基线：Job 571393
 
-`logs/submit/571393-out.log` completed the 64,000-step cavity case on one
-GPU. It contains 64 independent 1000-step windows. The values below are sums
-over those windows, not the final `step64000` line alone.
+`logs/submit/571393-out.log` 完成了单 GPU 的 64,000 步 cavity 算例。它包含 64 个独立的 1000 步窗口。下面的数值是这些窗口的累计和，而不是只看最终的 `step64000` 行。
 
-| Quantity | Accumulated time | Share of `JaberCycle2` |
+| 数量 | 累计时间 | 占 `JaberCycle2` 的比例 |
 |---|---:|---:|
 | `JaberCycle2` | 10376.60 s | 100.00% |
 | `Compute total` | 10451.08 s | - |
@@ -96,21 +76,13 @@ over those windows, not the final `step64000` line alone.
 | Comm | 496.85 s | 4.79% |
 | Swap | 4.34 s | 0.04% |
 
-`Compute total` is measured from immediately before regridding to immediately
-after `JaberCycle2()`. It therefore equals `regrid_time + JaberCycle_time`
-plus the small host-side cost of computing the weighted-update metric and
-loop/timer bookkeeping. Plot output is outside this interval. In this run the
-residual was about 1--2 ms per 1000-step window.
+`Compute total` 的测量区间是从 regridding 之前立即开始，到 `JaberCycle2()` 之后立即结束。因此它等于 `regrid_time + JaberCycle_time`，再加上计算加权更新指标以及循环/计时器簿记的极小主机端开销。绘图输出不在这个区间内。在这次运行中，残差约为每个 1000 步窗口 1--2 ms。
 
-`Interp + Average = 4148.17 s`, or 39.97% of `JaberCycle2`, is a useful
-derived transfer subtotal. It must not be added to the phase rows above,
-because it is composed of two of them.
+`Interp + Average = 4148.17 s`，即 `JaberCycle2` 的 39.97%，是一个有用的派生传输小计。它不能再加到上面的阶段行里，因为它本身就是其中两项的组合。
 
-The detailed transfer timers are synchronized nested timers. Their totals are
-useful for attribution but are not a strict partition of `Interp` or
-`Average`:
+详细的传输计时器是同步的嵌套计时器。它们的总和适合做归因分析，但并不是 `Interp` 或 `Average` 的严格分割：
 
-| Nested operation | Accumulated time |
+| 嵌套操作 | 累计时间 |
 |---|---:|
 | `interp_fillpatch` | 1693.40 s |
 | `interp_scale` | 435.95 s |
@@ -119,235 +91,168 @@ useful for attribution but are not a strict partition of `Interp` or
 | `average_down` | 586.17 s |
 | `average_alloc` | 14.68 s |
 
-The run used `TINY_PROFILE = TRUE`, so its throughput is a profiling baseline,
-not an unsynchronized production-speed benchmark. The case reports a
-weighted `MLUPS_total` of 370.13 over all 64 windows.
+这次运行使用了 `TINY_PROFILE = TRUE`，因此其吞吐量只是 profiling 基线，而不是未同步的生产速度基准。该算例在全部 64 个窗口上报告的加权 `MLUPS_total` 为 370.13。
 
-### Performance Overview Plot
+### 性能总览图
 
-Generate a six-panel overview from any complete submit log:
+可从任意完整提交日志生成一个六面板总览：
 
 ```bash
 python3 scripts/plot_run_performance.py logs/submit/571393-out.log \
   --output docs/571393_performance_overview.png
 ```
 
-The checked-in output is
-[`571393_performance_overview.png`](571393_performance_overview.png). The
-fourth panel uses `average_scale_cells` as a proxy for repeated AMR transfer
-work, not as the instantaneous number of valid mesh cells. In job 571393 it
-has Pearson correlation 0.9994 with Stream time; this shows that both follow
-the AMR coverage, not that restriction directly causes Stream to slow down.
+已提交的输出文件是 [`571393_performance_overview.png`](571393_performance_overview.png)。第四个面板使用 `average_scale_cells` 作为重复 AMR 传输工作的代理量，而不是当前有效网格单元的瞬时数量。在 job 571393 中，它与 Stream 时间的 Pearson 相关系数为 0.9994；这说明两者都随 AMR 覆盖范围变化，而不是 restriction 直接导致 Stream 变慢。
 
-### Scope Of The Jaber A6 Comparison
+### Jaber A6 对比的适用范围
 
-Jaber et al.'s A6 cavity test and this case share the broad target of a
-`Re=1000`, `64^3`, D3Q27, double-precision, four-level cavity calculation
-with regridding every 32 coarse steps. Both use linear coarse-to-fine spatial
-interpolation. They are not direct performance peers: A6 is a single-GPU,
-fixed-`4^3` block, GPU-native octree solver with interface-only restriction and
-in-place shared-memory streaming. BOX3D uses AMReX patches, generic
-`FillPatchTwoLevels()`, coarse-level covered/interface masks, and dual-MultiFab
-pull streaming. The current default `average_mode=3` uses an LBM-specific fused
-restriction over a cached coarse-interface parent list; a full fine-valid
-restriction is still performed before regridding. These masks are not Jaber's
-fine-level `cells_ID_mask`, and the historical job `571393` predates the current
-interface-only path. Match mesh coverage, Mach number, refinement criterion, and
-active-node counting before comparing MLUPS.
+Jaber et al. 的 A6 cavity 测试与这个算例在大目标上相同：都是 `Re=1000`、`64^3`、D3Q27、双精度、四层 cavity 计算，并且每 32 个 coarse 步进行一次 regridding。两者都使用线性的 coarse-to-fine 空间插值。但它们并不是直接的性能对标对象：A6 是单 GPU、固定 `4^3` block、GPU 原生 octree 求解器，使用仅界面 restriction 和原地 shared-memory streaming。BOX3D 则使用 AMReX patch、通用 `FillPatchTwoLevels()`、coarse-level 的覆盖/界面 mask，以及双 MultiFab pull streaming。当前默认的 `average_mode=3` 使用的是针对 LBM 的融合 restriction，并基于缓存的 coarse-interface parent 列表；在 regridding 之前仍会执行完整的 fine-valid restriction。这些 mask 不是 Jaber 的 fine-level `cells_ID_mask`，而历史 job `571393` 也早于当前的仅界面路径。在比较 MLUPS 之前，应先匹配网格覆盖、马赫数、细化准则和 active-node 计数。
 
-## Boundary Work-Box Experiment: Job 572280
+## Boundary 工作盒实验：Job 572280
 
-`Boundary()` originally launched over every valid cell and let
-`fill_boundary()` reject interior cells. The revised implementation caches
-disjoint physical-boundary Box lists after mesh construction/regrid and launches
-only those boxes. Job `572280` is a one-GPU, 1000-step run of this revision;
-job `571805` is the immediately preceding one-GPU comparison run.
+`Boundary()` 以前会在所有有效单元上启动，然后让 `fill_boundary()` 去拒绝内部单元。修订后的实现会在 mesh 构建/regrid 之后缓存彼此不相交的物理边界 Box 列表，并且只在这些 Box 上启动。job `572280` 是这版修改的单 GPU、1000 步运行；job `571805` 是紧接着的上一轮单 GPU 对比运行。
 
-| Quantity | Job 571805 | Job 572280 | Change |
+| 数量 | Job 571805 | Job 572280 | 变化 |
 |---|---:|---:|---:|
-| Boundary | 17.3817 s | 7.8342 s | -54.93% (2.219x speedup) |
+| Boundary | 17.3817 s | 7.8342 s | -54.93%（2.219x 加速） |
 | `JaberCycle2` | 187.1537 s | 161.3041 s | -13.81% |
 | Compute total | 188.2410 s | 162.3385 s | -13.76% |
 | `MLUPS_total` | 343.64 | 398.70 | +16.02% |
 
-The new counters report `boundary_full_cells=69,021,204,480` and
-`boundary_launch_cells=2,552,369,464`; the kernel launch region is therefore
-3.698% of the former full-valid-cell region, a 96.302% geometric reduction.
-The transfer work counters are close between the two runs
-(`interp_scale_cells` differs by about 1.0%, while `average_scale_cells` differs
-by about 0.06%), but this is not a controlled isolated-kernel benchmark: mesh
-evolution and other phase times also differ. Attribute the 2.219x Boundary
-improvement directly to this experiment; treat the total-time change as an
-observed run-level result rather than a pure Boundary contribution.
+新的计数器报告 `boundary_full_cells=69,021,204,480` 和 `boundary_launch_cells=2,552,369,464`；因此 kernel 启动区域只有原始全有效单元区域的 3.698%，几何上减少了 96.302%。两次运行的传输工作计数接近（`interp_scale_cells` 约差 1.0%，而 `average_scale_cells` 约差 0.06%），但这并不是一个受控的独立 kernel 基准：网格演化和其他阶段时间也不同。Boundary 的 2.219x 改善应直接归因于这次实验；总时间变化应视为运行级观测结果，而不是纯粹的 Boundary 贡献。
 
-The revision was also exercised by two-GPU, 64-step smoke job `572281`. The
-test completed without an AMReX abort or MPI/CUDA failure; strict numerical
-equivalence still requires field norms or a reference profile comparison.
+这次修改也在双 GPU、64 步的 smoke job `572281` 中得到验证。测试过程中没有出现 AMReX abort，也没有 MPI/CUDA 失败；严格的数值一致性仍然需要 field norm 或参考 profile 对比。
 
-## Pie Chart
+## 饼图
 
-Generate the three pie charts from the 64-window aggregated timing data:
+可根据 64 个窗口的汇总计时数据生成三张饼图：
 
 ```bash
 python3 scripts/plot_transfer_cost_pies.py
 ```
 
-The script requires `matplotlib` and writes
-`docs/transfer_cost_pies.png`. The overall chart uses the supplied JaberCycle
-total of 7608.30 s. The printed two-decimal categories sum to 7608.29 s due to
-rounding.
+该脚本需要 `matplotlib`，并会写出 `docs/transfer_cost_pies.png`。整体图使用给定的 JaberCycle 总时长 7608.30 s。由于四舍五入，打印出来的两位小数类别加和为 7608.29 s。
 
-The Interp chart removes 24.98 s of regridding transfer time from the raw
-`FillDdfPatch` subphase before comparing it to the JaberCycle-only Interp
-total. The Average chart retains a 3.30 s residual for temporary destruction,
-loop overhead, and timer-boundary work, so each pie closes to its stated total.
+Interp 图在与仅包含 JaberCycle 的 Interp 总时长比较之前，会先从原始 `FillDdfPatch` 子阶段中扣除 24.98 s 的 regridding 传输时间。Average 图保留了 3.30 s 的残差，用于临时对象销毁、循环开销和计时器边界工作，因此每个饼图都能闭合到其声明的总时长。
 
-## Interpolation-Scaling Work Boxes: Job 572516
+## 插值缩放工作盒：Job 572516
 
-`FillDdfPatch()` previously evaluated the non-equilibrium DDF rescaling kernel
-over every valid coarse cell before each `FillPatchTwoLevels()` call. The revised
-implementation caches the exact coarse source regions represented by AMReX's
-`FPinfo.ba_crse_patch`, intersects them with the coarse BoxArray, and reuses the
-result until the next regrid. This includes the `CellBilinear::CoarseBox()`
-stencil halo and periodic source shifts. A mismatched target BoxArray during
-`RemakeLevel()` deliberately falls back to full-level scaling.
+在每次调用 `FillPatchTwoLevels()` 之前，`FillDdfPatch()` 以前会对每个有效 coarse 单元都执行非平衡 DDF 重标定 kernel。修订后的实现会缓存 AMReX 的 `FPinfo.ba_crse_patch` 所表示的精确 coarse 源区域，把它们与 coarse BoxArray 求交，并在下一次 regrid 之前复用结果。这包括 `CellBilinear::CoarseBox()` 的 stencil halo 和周期性源偏移。`RemakeLevel()` 期间如果目标 BoxArray 不匹配，则会有意回退到整层缩放。
 
-Jobs `572280` and `572516` are controlled one-GPU, 1000-step runs. Their mesh
-evolution, `average_scale_cells`, and boundary counters are identical.
+jobs `572280` 和 `572516` 是受控的单 GPU、1000 步运行。它们的网格演化、`average_scale_cells` 和边界计数器完全一致。
 
-| Quantity | Job 572280 | Job 572516 | Change |
+| 数量 | Job 572280 | Job 572516 | 变化 |
 |---|---:|---:|---:|
 | Interp scaling cells | 17,586,585,600 | 1,274,175,728 | -92.755% |
-| `interp_scale` | 7.2384 s | 2.5620 s | -64.605% (2.825x speedup) |
+| `interp_scale` | 7.2384 s | 2.5620 s | -64.605%（2.825x 加速） |
 | Interp total | 34.2778 s | 29.2789 s | -14.583% |
 | `JaberCycle2` | 161.3041 s | 156.4781 s | -2.992% |
 | Compute total | 162.3385 s | 157.5063 s | -2.977% |
 | `MLUPS_total` | 398.70 | 410.93 | +3.068% |
 
-The optimized run launched 290,497 interpolation-scaling work boxes. Despite
-the increased launch count, the reduced DDF reconstruction work produced a net
-gain. Two-GPU, 64-step smoke job `572517` also completed through two regrids
-without an AMReX, MPI, or CUDA failure. The smoke run verifies execution and
-communication safety only; strict numerical equivalence still requires field
-norms or a reference-profile comparison.
+优化后的运行启动了 290,497 个插值缩放工作盒。尽管启动次数增加了，但减少后的 DDF 重构工作带来了净收益。双 GPU、64 步的 smoke job `572517` 也成功完成了两次 regrid，没有出现 AMReX、MPI 或 CUDA 失败。smoke 运行只验证执行和通信安全；严格的数值一致性仍然需要 field norm 或参考 profile 对比。
 
-## Fused Fine-to-Coarse Restriction: Job 572591
+## 融合 fine-to-coarse restriction：Job 572591
 
-The previous `AverageDownGhostLevel()` allocated a temporary fine `MultiFab`,
-copied all fine valid DDFs, rescaled them in a separate kernel, and then called
-generic `amrex::average_down()`. The revised path caches a coarse-shaped buffer,
-uses one CUDA warp per coarse parent to rescale and average its fine children,
-and performs one `ParallelCopy()` into the real coarse level. The copy-back is
-retained because the fine-derived and coarse layouts or MPI ownership may differ.
+之前的 `AverageDownGhostLevel()` 会分配一个临时 fine `MultiFab`，拷贝所有 fine valid DDF，先在单独的 kernel 中缩放，再调用通用的 `amrex::average_down()`。修订后的路径会缓存一个 coarse 形状的缓冲区，每个 coarse parent 用一个 CUDA warp 来缩放并平均其 fine 子单元，然后通过一次 `ParallelCopy()` 写回真实的 coarse 层。保留回写是因为 fine 派生布局与 coarse 布局，或者 MPI 所有权可能不同。
 
-Job `572587`, mode 1, is the pre-change baseline. Job `572591` uses the fused
-restriction. Both are one-GPU, 1000-step runs with identical transfer and boundary
-cell counters.
+job `572587`，模式 1，是修改前的基线。job `572591` 使用了融合 restriction。两者都是单 GPU、1000 步运行，传输和边界单元计数完全一致。
 
-| Quantity | 572587 mode 1 | 572591 | Change |
+| 数量 | 572587 模式 1 | 572591 | 变化 |
 |---|---:|---:|---:|
 | Average total | 33.9745 s | 29.2931 s | -13.779% |
 | `JaberCycle2` | 161.9143 s | 153.6465 s | -5.106% |
 | Compute total | 163.0239 s | 154.7040 s | -5.103% |
 | `MLUPS_total` | 397.02 | 418.37 | +5.378% |
 
-For job `572591`, `average_fused=27.2083 s` and
-`average_copyback=2.0667 s`; the legacy allocation, copy, and scale fields are
-zero. The selected q-lane warp kernel compiles for `sm_80` with 56 registers and
-no stack or register spills. A child-lane alternative (job `572593`) used 194
-registers and raised Average to 65.1121 s, so it was rejected.
+在 job `572591` 中，`average_fused=27.2083 s`，`average_copyback=2.0667 s`；旧的分配、拷贝和 scale 字段都为零。选定的 q-lane warp kernel 可为 `sm_80` 编译，使用 56 个寄存器，没有 stack spill 或寄存器 spill。一个 child-lane 备选方案（job `572593`）使用了 194 个寄存器，并把 Average 提高到了 65.1121 s，因此被否决。
 
-That version restricted every fine valid covered region and preserved the
-previous AMReX semantics. Its final two-GPU, 64-step smoke job `572595`
-completed through two regrids and reached `finest_level=2` without an AMReX,
-MPI, CUDA, or assertion failure.
+该版本对每个 fine valid covered 区域都执行 restriction，并保留了之前的 AMReX 语义。最终的双 GPU、64 步 smoke job `572595` 成功穿过两次 regrid，达到 `finest_level=2`，没有出现 AMReX、MPI、CUDA 或断言失败。
 
-## Interface-only Restriction: Jobs 573417 and 573418
+## 仅界面 restriction：Jobs 573417 和 573418
 
-`lbm.average_mode` selects the restriction implementation:
+`lbm.average_mode` 用于选择 restriction 实现：
 
-| Mode | Region | Implementation |
+| 模式 | 区域 | 实现 |
 |---:|---|---|
-| 0 | all fine valid cells | split copy/scale/restrict using `f_new` as scratch |
-| 1 | all fine valid cells | fused scale/restrict using a coarsened-fine buffer |
-| 2 | coarse-fine interface | split sparse copy/scale/restrict using `f_new` as scratch |
-| 3 | coarse-fine interface | fused sparse scale/restrict |
+| 0 | 所有 fine valid cells | 使用 `f_new` 作为临时区的拆分 copy/scale/restrict |
+| 1 | 所有 fine valid cells | 使用变粗后的 fine 缓冲区进行融合 scale/restrict |
+| 2 | coarse-fine interface | 使用 `f_new` 作为临时区的拆分 sparse copy/scale/restrict |
+| 3 | coarse-fine interface | 融合 sparse scale/restrict |
 
-Modes 2 and 3 use the same cached sparse coarse-parent Box list. The list is
-rebuilt after regridding and must contain exactly the same number of cells as
-the coarse `interface_mask`. The normal time-step restriction updates only this
-collar; the existing `AverageDownValid()` call before every regrid performs the
-required full synchronization before covered coarse cells can be exposed.
+模式 2 和 3 使用同一个缓存的 sparse coarse-parent Box 列表。该列表会在 regridding 后重建，并且必须与 coarse `interface_mask` 具有完全相同的单元数量。正常时间步中的 restriction 只更新这个 collar；而在每次 regrid 前的现有 `AverageDownValid()` 调用，会在覆盖的 coarse 单元暴露之前执行所需的完整同步。
 
-Jobs `573417` (mode 2) and `573418` (mode 3) are one-GPU, 1000-step runs. Both
-processed 274,898,288 coarse parents and 2,199,186,304 fine children. Their 31
-regrid mesh-statistics sequences are identical.
+jobs `573417`（模式 2）和 `573418`（模式 3）都是单 GPU、1000 步运行。两者处理了 274,898,288 个 coarse parents 和 2,199,186,304 个 fine children。它们的 31 组 regrid mesh-statistics 序列完全一致。
 
-| Quantity | Mode 2 | Mode 3 | Change |
+| 数量 | 模式 2 | 模式 3 | 变化 |
 |---|---:|---:|---:|
 | Average total | 22.4954 s | 5.7458 s | -74.46% |
 | `JaberCycle2` | 237.9553 s | 226.1978 s | -4.94% |
 | Compute total | 239.9378 s | 228.3266 s | -4.84% |
 | `MLUPS_total` | 269.75 | 283.47 | +5.09% |
 
-Mode 2 spent 4.5648 s copying interface children into `f_new`, 3.5150 s
-scaling them, 13.6801 s restricting them, and 0.7121 s copying results back.
-Mode 3 spent 4.7930 s in the fused kernel and 0.9360 s copying results back.
-The large Average reduction makes mode 3 the default in `config/inputs`.
+模式 2 用 4.5648 s 将界面子单元拷贝到 `f_new`，用 3.5150 s 对它们进行缩放，用 13.6801 s 做 restriction，并用 0.7121 s 将结果拷回。模式 3 用 4.7930 s 跑融合 kernel，并用 0.9360 s 拷回结果。Average 的大幅下降使模式 3 成为了 `config/inputs` 中的默认值。
 
-Two-GPU, 64-step smoke job `573419` also completed with two MPI ranks and the
-expected interface work-list/mask counts. This verifies that sparse-buffer
-copy-back executes across the tested MPI decomposition; it does not establish
-strict field-norm equivalence with modes 0 or 1.
+双 GPU、64 步 smoke job `573419` 也在两个 MPI rank 下完成，并且界面工作列表/mask 计数符合预期。这验证了 sparse-buffer 回写能跨所测试的 MPI 分解正常执行；但它并不能证明与模式 0 或 1 的严格 field norm 等价。
 
-Rebuild and submit the same short performance configuration from the case
-directory with:
+可在算例目录下用下面命令重新构建并提交同样的短性能配置：
 
 ```bash
 ./scripts/compile.sh
 dsub -s ./scripts/submit_interp_scale_perf.sh
 ```
 
-## Direct Coarse-to-Fine Path: `cf_interp_mode=2`
+## 直接 coarse-to-fine 路径：`cf_interp_mode=2`
 
-`cf_interp_mode=2` is not a replacement for the interpolation formula. During
-normal time stepping it bypasses the generic `FillPatchTwoLevels()` call and
-uses regrid-cached fine ghost work boxes:
+`cf_interp_mode=2` 并不是插值公式的替代品。在正常时间推进中，它会绕过通用的 `FillPatchTwoLevels()` 调用，并使用 regrid 缓存的 fine ghost 工作盒：
 
 ```text
 coarse_stage.ParallelCopy
-  -> coarse physical-boundary fill when required
-  -> average_scale on the required coarse stencil boxes
-  -> interp_bilinear_d3q directly into fine ghost boxes
-  -> fine FillBoundary and physical-boundary fill
+  -> 必要时进行 coarse 物理边界填充
+  -> 在所需 coarse stencil Box 上执行 average_scale
+  -> 直接把 interp_bilinear_d3q 写入 fine ghost Box
+  -> fine FillBoundary 和物理边界填充
 ```
 
-The cached geometry includes one physical-boundary flag per coarse staging Box.
-This removes repeated host-side Box/domain checks from subsequent time steps,
-but does not remove the dominant DDF data movement or kernels
-(`ParallelCopy`, `average_scale`, interpolation, and fine `FillBoundary`).
+缓存的几何信息为每个 coarse staging Box 包含一个物理边界标志。这样可以在后续时间步中去掉重复的主机端 Box/domain 检查，但不会去掉占主导的 DDF 数据搬运或 kernel（`ParallelCopy`、`average_scale`、插值和 fine `FillBoundary`）。
 
-Jobs `574431` and `574438` compared `cf_interp_mode=1` and `2` with the same
-executable, input, one GPU, 64 steps, and regrids at steps 32 and 64. The
-valid-cell DDF field comparison covered all 27 components on levels 0--2:
+jobs `574431` 和 `574438` 使用同一个可执行文件、同一输入、单 GPU、64 步，并在第 32 和 64 步 regrid，比较了 `cf_interp_mode=1` 与 `2`。覆盖 0--2 层所有 27 个分量的 valid-cell DDF 字段比较结果为：
 
 ```text
 global linf=0, l2=0, relative_l2=0
 ```
 
-Thus the direct path was bitwise identical for this test. The short-run mode-2
-wall time changed from 4.4045 s to 4.4741 s, which is measurement noise rather
-than a demonstrated speedup. The cached boundary flag is therefore a
-correctness-preserving micro-optimization, not a reason to change the
-production default. Further optimization should measure the individual
-`ParallelCopy`, coarse scaling, interpolation, and fine ghost-fill costs before
-changing their data flow.
+因此对于这次测试，直接路径在 bitwise 层面完全一致。短运行中 mode-2 的墙钟时间从 4.4045 s 变为 4.4741 s，这属于测量噪声，而不是已经证明的加速。因此，缓存边界标志是一种保持正确性的微优化，而不是修改生产路径的理由。在当前源码中，`cf_interp_mode` 默认值为 `0`；mode 2 必须通过运行时参数显式选择。进一步优化前，应分别测量 `ParallelCopy`、coarse 缩放、插值和 fine ghost-fill 的开销，再决定是否改变数据流。
 
-## Further Measurement
+## 融合 coarse-to-fine 实验：`cf_interp_mode=3`
 
-The next useful restriction check is a strict field-norm comparison between
-mode 3 and a full-restriction mode at matched regrid points. For broader kernel
-optimization, record level-indexed transfer time, box count, valid cells,
-grown-box cells, covered cells, and interface cells. Collide and Stream still
-launch broad boxes and branch per cell; use level data to decide whether cached
-active work regions remove enough work to offset additional kernel launches.
+模式 3 是作为独立实验加入的。它保留了 mode-2 的 staging 布局，但移除了单独的 `average_scale()` kernel，并在每个八点 coarse stencil 上把非平衡缩放直接放进插值 kernel：
+
+```text
+coarse_stage.ParallelCopy
+  -> interp_bilinear_d3q_scaled
+     （coarse 宏观量重构 + 缩放 + 插值）
+  -> fine FillBoundary 和物理边界填充
+```
+
+64 步的 field-norm 作业 `574441` 在模式 2 和 3 上生成了 bitwise 一致的 valid DDF 字段（`global linf=0`, `l2=0`, `relative_l2=0`）。随后在 job `574442` 中进行了一个更公平的、没有 checkpoint 输出的 1000 步比较：
+
+| 数量 | 模式 2 | 模式 3 |
+| --- | ---: | ---: |
+| 总时间 | 123.0075 s | 126.5287 s |
+
+这两次运行最终出现了不同的 regrid 历史。融合 kernel 改变了浮点运算顺序，而这些微小差异最终会影响 AMR tagging 准则。因此，总时间差不能视为严格的固定网格 A/B 结果；但它已经足以否定模式 3 作为生产替代方案。对每个 fine 单元重算八个 coarse stencil 缩放也会增加算术量和寄存器压力。
+
+## coarse stencil 去重实验
+
+随后，直接缓存又改成了让 fine 工作盒之间共享相同的 `coarse Box + DistributionMap owner`。这保留了 mode-2 的浮点路径，并在 job `574447` 的 64 步 field-norm 回归测试中通过，valid DDF 误差为零。
+
+在 job `574448` 中的 1000 步后续测试测得：
+
+| 数量 | 模式 2 | 模式 3 |
+| --- | ---: | ---: |
+| 总时间 | 124.0775 s | 128.5400 s |
+
+mode-2 的结果与去重前基线在统计上没有变化。当前几何中重复的 coarse staging 太少，或者剩余的 `ParallelCopy`、插值和 fine `FillBoundary` 工作占主导。这种优化在数值上是安全的，但没有展示出端到端收益。
+
+同一个 job 报告在 1000 步窗口里大约有 `12.15 s` 的 `FillBoundary` 和 `22.21 s` 的 mode-2 `interp_fillpatch`。后续工作应聚焦 fine 同层 ghost 通信和 coarse staging 数据搬运，而不是进一步做 Box-list 去重。这些计时包含动态演化的 AMR 层次，不能当作固定网格 kernel 来比较。

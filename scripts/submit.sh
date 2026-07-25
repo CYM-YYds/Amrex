@@ -17,8 +17,8 @@ source /home/HPCBase/tools/module-5.2.0/init/profile.sh
 module use /home/HPCBase/modulefiles/
 module purge
 module load mpi/hmpi/1.2.0_bs2.4.0_sp1
-module load compilers/cuda/12.1.0
-module load compilers/gcc/10.3.1
+module load compilers/cuda/12.8.0
+module load compilers/gcc/11.3.0
 
 #===========================================================
 #获得hostfile

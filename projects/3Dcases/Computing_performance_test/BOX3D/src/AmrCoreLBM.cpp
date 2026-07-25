@@ -767,14 +767,10 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                 // 若先合并为包围盒，会把中间无需插值的 coarse cell 也纳入
                 // staging，并显著放大 PhysBCFunct 的扫描范围。
                 for (const Box& work_box : leftover) {
-                    coarse_boxes.push_back(coarsener.doit(work_box));
-                    coarse_owners.push_back(
-                        f_old_lev_f.DistributionMap()[fine_index]);
-                    fine_work_boxes.push_back(Vector<Box>{work_box});
-                    fine_indices.push_back(fine_index);
-
-                    bool needs_fill = false;
                     const Box coarse_box = coarsener.doit(work_box);
+                    const int owner =
+                        f_old_lev_f.DistributionMap()[fine_index];
+                    bool needs_fill = false;
                     for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
                         needs_fill =
                             needs_fill ||
@@ -784,8 +780,27 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                               coarse_box.bigEnd(dir) >
                                   Geom(lev - 1).Domain().bigEnd(dir)));
                     }
-                    needs_physical_fill.push_back(
-                        static_cast<unsigned char>(needs_fill));
+                    int stage_index = -1;
+                    for (int candidate = 0;
+                         candidate < static_cast<int>(coarse_boxes.size());
+                         ++candidate) {
+                        if (coarse_boxes[candidate] == coarse_box &&
+                            coarse_owners[candidate] == owner) {
+                            stage_index = candidate;
+                            break;
+                        }
+                    }
+                    if (stage_index < 0) {
+                        stage_index = static_cast<int>(coarse_boxes.size());
+                        coarse_boxes.push_back(coarse_box);
+                        coarse_owners.push_back(owner);
+                        fine_work_boxes.push_back({});
+                        fine_indices.push_back({});
+                        needs_physical_fill.push_back(
+                            static_cast<unsigned char>(needs_fill));
+                    }
+                    fine_work_boxes[stage_index].push_back(work_box);
+                    fine_indices[stage_index].push_back(fine_index);
                 }
             }
 
@@ -866,10 +881,15 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             const bool fused_interp = cf_interp_mode == 3;
             for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
                 const int stage_index = mfi.index();
-                const int fine_index = fine_indices[stage_index];
-                const auto fine = mf.array(fine_index);
                 const auto coarse = coarse_stage.const_array(mfi);
-                for (const Box& bx : fine_work_boxes[stage_index]) {
+                for (int work_index = 0;
+                     work_index < static_cast<int>(
+                                        fine_work_boxes[stage_index].size());
+                     ++work_index) {
+                    const int fine_index =
+                        fine_indices[stage_index][work_index];
+                    const auto fine = mf.array(fine_index);
+                    const Box& bx = fine_work_boxes[stage_index][work_index];
                     amrex::ParallelFor(
                         bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                             if (fused_interp) {
