@@ -39,6 +39,14 @@ lbm.cf_mask_mode = 1
 # 3 = 仅 coarse-fine interface，融合执行非平衡缩放与 Restrict（当前实测默认）
 # 注：regrid 前仍通过 AverageDownValid() 执行完整 fine-to-coarse 同步
 lbm.average_mode = 3
+
+# 粗网格到细网格 ghost cell 的 DDF 插值模式：
+# 0 = AMReX FillPatchTwoLevels；先缩放 coarse stencil，再执行通用插值
+# 1 = FPinfo patch；仅缩放实际插值所需的 coarse 工作区
+# 2 = 稀疏 coarse staging，直接插值并写入 fine ghost（当前实测最快）
+# 3 = 直接写 fine ghost，并在同一 kernel 内完成粗 DDF 非平衡缩放
+lbm.cf_interp_mode = 2
+
 # *****************************************************************
 # mesh setting
 #
