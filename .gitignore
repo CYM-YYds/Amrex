@@ -48,8 +48,3 @@ __pycache__/
 *.dat
 *.pdf
 
-# Compile DB (optional keep)
-# compile_commands.json
-
-# Generated BOX3D DDF norm output
-projects/3Dcases/Computing_performance_test/BOX3D/ddf_norm_mode1_00000064/
