@@ -2376,6 +2376,48 @@ void interp_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
     }
 }
 
+// 当前 BOX3D 方腔流不使用体力或 SGS 黏性。该专用路径一次读入
+// D3Q27 分布函数并在后续 BGK 更新中复用，避免原路径第二遍从
+// MultiFab 重新加载 DDF。预先计算 u^2 也避免 feqQian() 对每个 q 重复
+// 计算相同的速度模平方。
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void collide_bgk_register(int i, int j, int k,
+                          amrex::Array4<amrex::Real> const& fold,
+                          amrex::Real omega) noexcept {
+    Real fq[Q];
+    Real rho = 0.0;
+    Real momentum_x = 0.0;
+    Real momentum_y = 0.0;
+    Real momentum_z = 0.0;
+
+#pragma unroll
+    for (int q = 0; q < Q; ++q) {
+        const Real value = fold(i, j, k, q);
+        fq[q] = value;
+        rho += value;
+        momentum_x += value * e[q][0];
+        momentum_y += value * e[q][1];
+        momentum_z += value * e[q][2];
+    }
+
+    const Real inv_rho = 1.0 / rho;
+    const Real ux = momentum_x * inv_rho;
+    const Real uy = momentum_y * inv_rho;
+    const Real uz = momentum_z * inv_rho;
+    const Real velocity_sq = ux * ux + uy * uy + uz * uz;
+    const Real equilibrium_common = 1.0 - 1.5 * velocity_sq;
+    const Real keep = 1.0 - omega;
+
+#pragma unroll
+    for (int q = 0; q < Q; ++q) {
+        const Real eu = e[q][0] * ux + e[q][1] * uy + e[q][2] * uz;
+        const Real feq = w[q] * rho *
+                         (equilibrium_common + 3.0 * eu + 4.5 * eu * eu);
+        fold(i, j, k, q) = keep * fq[q] + omega * feq;
+    }
+}
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void interp_bilinear_d3q(

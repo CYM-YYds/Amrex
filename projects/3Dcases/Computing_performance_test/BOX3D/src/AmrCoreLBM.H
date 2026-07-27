@@ -168,6 +168,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     int particle_num = 1;
     // 0：禁用粗细网格 mask；1：逐单元 mask；2：逐单元 mask 加 Box 分类。
     int cf_mask_mode = 1;
+    // 0：原始通用 BGK；1：无外力/无 SGS 的 D3Q27 寄存器复用路径。
+    int collide_mode = 0;
     // 0：全区域分步；1：全区域融合；2：交界区域分步；3：交界区域融合。
     int average_mode = 1;
     // 0：AMReX FillPatchTwoLevels；1：FPinfo patch；2：直接写 fine ghost；

@@ -32,6 +32,11 @@ lbm.err = 0.005 0.010 0.020 0.040
 # 2 = 逐 cell mask + Box 分类；完全 active/inactive Box 可整体执行或跳过
 lbm.cf_mask_mode = 1
 
+# BGK 碰撞内核：
+# 0 = 原始通用路径（保留作为数值/性能基线）
+# 1 = 无外力/无 SGS 的 D3Q27 专用路径，寄存器复用 DDF 并合并 feq 公共项
+lbm.collide_mode = 1
+
 # 细网格到粗网格的 DDF 平均下传模式：
 # 0 = 全部 fine valid，复用 f_new，分步执行 Copy + Scale + Restrict
 # 1 = 全部 fine valid，融合执行非平衡缩放与 Restrict

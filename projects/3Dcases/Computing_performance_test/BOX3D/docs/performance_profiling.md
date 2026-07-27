@@ -108,6 +108,23 @@ python3 scripts/plot_run_performance.py logs/submit/571393-out.log \
 
 Jaber et al. 的 A6 cavity 测试与这个算例在大目标上相同：都是 `Re=1000`、`64^3`、D3Q27、双精度、四层 cavity 计算，并且每 32 个 coarse 步进行一次 regridding。两者都使用线性的 coarse-to-fine 空间插值。但它们并不是直接的性能对标对象：A6 是单 GPU、固定 `4^3` block、GPU 原生 octree 求解器，使用仅界面 restriction 和原地 shared-memory streaming。BOX3D 则使用 AMReX patch、通用 `FillPatchTwoLevels()`、coarse-level 的覆盖/界面 mask，以及双 MultiFab pull streaming。当前默认的 `average_mode=3` 使用的是针对 LBM 的融合 restriction，并基于缓存的 coarse-interface parent 列表；在 regridding 之前仍会执行完整的 fine-valid restriction。这些 mask 不是 Jaber 的 fine-level `cells_ID_mask`，而历史 job `571393` 也早于当前的仅界面路径。在比较 MLUPS 之前，应先匹配网格覆盖、马赫数、细化准则和 active-node 计数。
 
+### 专用 BGK 碰撞路径：Job 575206
+
+`lbm.collide_mode=1` 是针对当前 BOX3D 无体力、无 SGS 方腔流的 D3Q27 BGK 专用路径：将 27 个 DDF 一次读入线程局部数组，复用它们完成宏观量与碰撞写回，并把 `u^2` 公共项提前计算。原始 `collide_mode=0` 保留为基线；两者都使用现有的 cell mask、MultiFab 布局和同一个 JaberCycle2 调度。
+
+Job `575206` 在同一张 GPU 上依次运行两个 mode，每个 mode 为 `step1000` 窗口：
+
+| 指标 | mode 0 | mode 1 | 变化 |
+|---|---:|---:|---:|
+| `collide` | 50.8128 s | 25.3797 s | -50.05% |
+| `JaberCycle2` / `solv` | 116.8631 s | 91.1620 s | -21.99% |
+| `Compute total` | 117.8087 s | 92.1033 s | -21.82% |
+| `MLUPS_solv` | 521.03 | 667.92 | +28.19% |
+
+按当前一致的 MLUPS 口径换算，Collision 等效吞吐从 `1.198 GLUPS` 提升到 `2.399 GLUPS`；论文 A6 表中的对应估算值约为 `2.081 GLUPS`。两个 mode 的 332 条 regrid/mask 统计逐行一致。
+
+为检查重排浮点运算是否改变结果，Job `575207` 进行了 64 步 valid-DDF checkpoint 对比：`rel_l2=1.0699e-15`、`linf=1.3878e-15`，且未观察到网格序列偏移。优化 kernel 的 `sm_80` 编译使用 190--202 个寄存器，无 stack/spill；寄存器增加是这条路径的主要占用率风险，应在其他 GPU 上重新测量。
+
 ## Boundary 工作盒实验：Job 572280
 
 `Boundary()` 以前会在所有有效单元上启动，然后让 `fill_boundary()` 去拒绝内部单元。修订后的实现会在 mesh 构建/regrid 之后缓存彼此不相交的物理边界 Box 列表，并且只在这些 Box 上启动。job `572280` 是这版修改的单 GPU、1000 步运行；job `571805` 是紧接着的上一轮单 GPU 对比运行。

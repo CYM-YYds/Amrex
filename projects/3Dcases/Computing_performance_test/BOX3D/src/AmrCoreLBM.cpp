@@ -296,6 +296,7 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  Ma     =" << std::setw(10) << std::right << Ma << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  U0     =" << std::setw(10) << std::right << U0 << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  cf_mask=" << std::setw(10) << std::right << cf_mask_mode << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  col_mode=" << std::setw(10) << std::right << collide_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  avg_mode=" << std::setw(10) << std::right << average_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  cf_interp=" << std::setw(10) << std::right << cf_interp_mode << std::endl;
 
@@ -493,6 +494,10 @@ void AmrCoreLBM::ReadParameters() {
         pp.query("cf_mask_mode", cf_mask_mode);
         if (cf_mask_mode < 0 || cf_mask_mode > 2) {
             amrex::Abort("lbm.cf_mask_mode must be 0, 1, or 2");
+        }
+        pp.query("collide_mode", collide_mode);
+        if (collide_mode < 0 || collide_mode > 1) {
+            amrex::Abort("lbm.collide_mode must be 0 or 1");
         }
         pp.query("average_mode", average_mode);
         if (average_mode < 0 || average_mode > 3) {
@@ -1936,6 +1941,7 @@ void AmrCoreLBM::Collide(int lev, int n) {
     amrex::MultiFab& force_lev = force[lev];
     amrex::Real dt = Geom(lev).CellSizeArray()[0];
     amrex::Real tau_lev = tau[lev];
+    const amrex::Real omega_lev = 1.0 / tau_lev;
     const Box domain = Geom(lev).Domain();
     const bool has_fine_level = (lev < finest_level);
     AMREX_ALWAYS_ASSERT(n <= cf_interface_mask_nghost);
@@ -1946,6 +1952,40 @@ void AmrCoreLBM::Collide(int lev, int n) {
         const Array4<Real>& s = shear_lev.array(mfi);
         const Array4<Real>& Ft = force_lev.array(mfi);
 
+        // collide_mode 在 host 侧选择 kernel，避免把基线和优化路径编译进
+        // 同一个 device kernel，否则不同路径的寄存器需求会彼此干扰。
+        const auto launch_active = [&](const Box& launch_box) {
+            if (collide_mode == 0) {
+                amrex::ParallelFor(launch_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+                });
+            } else {
+                amrex::ParallelFor(launch_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    collide_bgk_register(i, j, k, fold, omega_lev);
+                });
+            }
+        };
+
+        const auto launch_masked = [&](const Box& launch_box,
+                                       const Array4<const int>& covered,
+                                       const Array4<const int>& interface) {
+            if (collide_mode == 0) {
+                amrex::ParallelFor(launch_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    if (covered(i, j, k) != 0 && interface(i, j, k) == 0) {
+                        return;
+                    }
+                    collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+                });
+            } else {
+                amrex::ParallelFor(launch_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    if (covered(i, j, k) != 0 && interface(i, j, k) == 0) {
+                        return;
+                    }
+                    collide_bgk_register(i, j, k, fold, omega_lev);
+                });
+            }
+        };
+
         if (has_fine_level && cf_mask_mode == 2) {
             const auto box_class = collide_box_classes[lev][mfi.index()];
             if (box_class == inactive_box) {
@@ -1953,38 +1993,20 @@ void AmrCoreLBM::Collide(int lev, int n) {
             }
 
             if (box_class == active_box) {
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-                });
+                launch_active(bx);
             } else {
                 const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
                 const Array4<const int>& interface = interface_mask[lev].const_array(mfi);
 
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    if (covered(i, j, k) != 0 && interface(i, j, k) == 0) {
-                        return;
-                    }
-
-                    collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-                });
+                launch_masked(bx, covered, interface);
             }
         } else if (has_fine_level && cf_mask_mode == 1) {
             const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
             const Array4<const int>& interface = interface_mask[lev].const_array(mfi);
 
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                if (covered(i, j, k) != 0 && interface(i, j, k) == 0) {
-                    return;
-                }
-
-                collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-            });
+            launch_masked(bx, covered, interface);
         } else {
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-                // collide_cumulant(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-                // collide_cumulant_opt2(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-            });
+            launch_active(bx);
         }
     }
 }
