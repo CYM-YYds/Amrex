@@ -29,7 +29,6 @@ lbm.err = 0.005 0.010 0.020 0.040
 # 粗细网格覆盖掩码模式：
 # 0 = 不使用 mask，粗层所有 cell 都参与 Collide/Stream
 # 1 = 使用逐 cell mask，跳过被细层覆盖的粗层内部 cell（当前实测默认）
-# 2 = 逐 cell mask + Box 分类；完全 active/inactive Box 可整体执行或跳过
 lbm.cf_mask_mode = 1
 
 # BGK 碰撞内核：

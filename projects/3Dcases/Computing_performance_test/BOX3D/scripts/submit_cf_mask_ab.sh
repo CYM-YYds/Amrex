@@ -26,7 +26,7 @@ trap 'rm -f "${hostfile}"' EXIT
 awk '{ if (length($1) > 0 && length($2) > 0) print $1 " slots=" $2 }' \
     "${CCS_ALLOC_FILE}" > "${hostfile}"
 
-for mode in 0 1 2; do
+for mode in 0 1; do
     echo "=== CF_MASK_AB_BEGIN mode=${mode} ==="
     mpirun \
         -hostfile "${hostfile}" \

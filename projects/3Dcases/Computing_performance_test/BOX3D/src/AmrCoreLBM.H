@@ -166,7 +166,7 @@ class AmrCoreLBM : public amrex::AmrCore {
 
     int nghost = 2;
     int particle_num = 1;
-    // 0：禁用粗细网格 mask；1：逐单元 mask；2：逐单元 mask 加 Box 分类。
+    // 0：禁用粗细网格 mask；1：逐单元 mask。
     int cf_mask_mode = 1;
     // 0：原始通用 BGK；1：无外力/无 SGS 的 D3Q27 寄存器复用路径。
     int collide_mode = 0;
@@ -199,9 +199,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::iMultiFab> interface_mask;
     amrex::Vector<amrex::Long> covered_cell_counts;
     amrex::Vector<amrex::Long> interface_cell_counts;
-    // 按层、按粗层 Box 保存调度分类：部分 active、完全 active 或 inactive。
-    amrex::Vector<amrex::Vector<unsigned char>> collide_box_classes;
-    amrex::Vector<amrex::Vector<unsigned char>> stream_box_classes;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> interp_scale_work_boxes;
     // mode 2：按 fine Box 归属缓存 coarse stencil，并直接写对应 fine Fab。
     amrex::Vector<amrex::MultiFab> interp_direct_coarse_stage;
