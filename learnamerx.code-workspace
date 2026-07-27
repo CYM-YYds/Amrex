@@ -19,6 +19,7 @@
             "**/chk*/**": true,
             "**/amrex-23.09/**": true,
             "**/amrex-26.01/**": true,
+            "**/amrex-26.06/**": true,
             "**/*.ex": true,
             "**/*.log": true,
             "**/*.zip": true,
