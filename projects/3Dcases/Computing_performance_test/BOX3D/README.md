@@ -39,6 +39,20 @@
 
 这些细分计时会在测量点同步 GPU，因此适合在同一插桩构建中定位耗时来源；不应与未插桩运行的绝对吞吐直接比较。
 
+## 运行时碰撞路径
+
+`lbm.collide_mode` 在 host 侧选择 D3Q27 BGK 碰撞实现，不改变 AMR 网格、cell mask
+或 `JaberCycle2()` 调度：
+
+| 模式 | 实现 | 用途 |
+| ---: | --- | --- |
+| `0` | 原始逐方向读取路径 | 语义基线与回归对照。 |
+| `1` | 将 27 个 DDF 缓存在寄存器并复用宏观量的专用路径 | 当前无体力、无 SGS 方腔流的默认性能路径。 |
+
+受控单 GPU 的 1000 步 A/B 测试和 64 步 DDF 范数验证分别由
+`scripts/submit_collide_ab.sh` 与 `scripts/submit_collide_norm.sh` 提交。当前实测数据、
+统计窗口和寄存器压力限制见[性能分析文档](docs/performance_profiling.md#专用-bgk-碰撞路径job-575206)。
+
 ### 调用量与近似工作量：`perf_count`
 
 | 字段 | 含义 |
