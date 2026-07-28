@@ -32,7 +32,7 @@
 | `interp_scale` | 粗网格到细网格填充前的 LBM 非平衡量缩放。 |
 | `interp_cache_build` | 网格建立或 regrid 后构造 direct coarse-to-fine 插值布局的主机端耗时。 |
 | `interp_regrid_fill` | `RemakeLevel()` 为新网格布局调用 `FillDdfPatch()` 的耗时，归属于 regrid 而非时间推进中的 `interp`。 |
-| `interp_fillpatch` | AMReX `FillPatchTwoLevels()` 执行的粗细网格填充。 |
+| `interp_fillpatch` | 当前 DDF 粗细网格填充实现的总耗时；可能是通用 patch 路径或 direct 路径。 |
 | `average_alloc` / `average_copy` / `average_scale` | 分步 restriction 的缓冲、复制与非平衡量缩放耗时；融合模式下应为 0。 |
 | `average_down` | 当前所选 restriction 路径的总耗时，包含 kernel 与结果回写。 |
 | `average_fused` | 恢复宏观量、非平衡量缩放及 8 个 fine child 平均的融合 kernel 耗时。 |

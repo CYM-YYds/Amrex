@@ -239,7 +239,7 @@ jobs `574431` 和 `574438` 使用同一个可执行文件、同一输入、单 G
 global linf=0, l2=0, relative_l2=0
 ```
 
-因此对于这次测试，直接路径在 bitwise 层面完全一致。短运行中 mode-2 的墙钟时间从 4.4045 s 变为 4.4741 s，这属于测量噪声，而不是已经证明的加速。因此，缓存边界标志是一种保持正确性的微优化，而不是修改生产路径的理由。在当前源码中，`cf_interp_mode` 默认值为 `0`；mode 2 必须通过运行时参数显式选择。进一步优化前，应分别测量 `ParallelCopy`、coarse 缩放、插值和 fine ghost-fill 的开销，再决定是否改变数据流。
+因此对于这次测试，直接路径在 bitwise 层面完全一致。短运行中 mode-2 的墙钟时间从 4.4045 s 变为 4.4741 s，这属于测量噪声，而不是已经证明的加速。因此，缓存边界标志是一种保持正确性的微优化，而不是修改生产路径的理由。C++ 成员回退值仍为 `0`，当前算例的 `config/inputs` 已显式选择 mode 2。进一步优化前，应分别测量 `ParallelCopy`、coarse 缩放、插值和 fine ghost-fill 的开销，再决定是否改变数据流。
 
 ## 融合 coarse-to-fine 实验：`cf_interp_mode=3`
 
@@ -283,10 +283,24 @@ mode-2 的结果与去重前基线在统计上没有变化。当前几何中重�
 
 ## direct 插值缓存生命周期与计时归属
 
-direct 路径的几何布局现由 `BuildInterpDirectCache()` 统一构造，并在
+direct 路径的单层几何布局现由 `BuildDirectInterpolationCache()` 构造，并在
 `RebuildCoarseFineCaches()` 中随 mask、边界工作区和 restriction 缓存一起失效和重建。
-`FillDdfPatch()` 只保留初始化特殊路径所需的延迟构建回退。`interp_cache_build`
-和 `interp_cache_builds` 分别记录构建总耗时和次数。
+总入口只负责清理和编排：
+
+```text
+RebuildCoarseFineCaches
+  -> RebuildCoarseFineMasks
+  -> BuildBoundaryWorkBoxes
+  -> BuildInterpolationCache
+       mode 0   -> BuildInterpScaleWorkBoxes
+       mode 1   -> 不构造持久插值缓存
+       mode 2/3 -> BuildDirectInterpolationCache(lev)
+  -> BuildRestrictionCache
+```
+
+因此 mode 2/3 不再额外构造只供 mode 0 消费的 `interp_scale_work_boxes`。
+`FillDdfPatch()` 只保留初始化特殊路径所需的 direct-cache 延迟构建回退。
+`interp_cache_build` 和 `interp_cache_builds` 分别记录 direct 布局的构建总耗时和次数。
 
 job `575341` 用 mode 1 checkpoint 对 mode 2 做了 64 步逐层、逐 DDF 回归，所有
 27 个分量均得到 `linf=0, l2=0, relative_l2=0`。job `575343` 在同一 GPU、同一

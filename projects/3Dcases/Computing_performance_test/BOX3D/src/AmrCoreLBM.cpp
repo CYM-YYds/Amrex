@@ -691,7 +691,7 @@ void AmrCoreLBM::FillPatch(int lev, amrex::Real time, amrex::MultiFab& mf) {
     }
 }
 
-void AmrCoreLBM::BuildInterpDirectCache(int lev) {
+void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     const double start = amrex::second();
     // 启动阶段的递归循环可能在 finest_level 提升前请求已分配的下一层；
     // 正常已安装层由 RebuildCoarseFineCaches() 预构建，其余情况延迟构建。
@@ -810,7 +810,7 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
         auto& fine_indices = interp_direct_fine_index[lev];
 
         if (!interp_direct_cache_ready[lev]) {
-            BuildInterpDirectCache(lev);
+            BuildDirectInterpolationCache(lev);
         }
 
         if (!fine_indices.empty()) {
@@ -1287,15 +1287,16 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
 }
 
 void AmrCoreLBM::BuildInterpolationCache() {
-
-    // 正常时间推进直接复用这些布局；FillDdfPatch() 只在初始化或特殊
-    // 目标布局尚未进入层级时保留延迟构造回退。
     if (cf_interp_mode >= 2) {
         for (int lev = 1; lev <= finest_level; ++lev) {
-            BuildInterpDirectCache(lev);
+            BuildDirectInterpolationCache(lev);
         }
+    } else if (cf_interp_mode == 0) {
+        BuildInterpScaleWorkBoxes();
     }
+}
 
+void AmrCoreLBM::BuildInterpScaleWorkBoxes() {
     // 用于插值优化
     /*     整体数据关系
     fine ghost 待填充区域

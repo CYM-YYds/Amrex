@@ -169,8 +169,9 @@ class AmrCoreLBM : public amrex::AmrCore {
   private:
     void BuildBoundaryWorkBoxes();
     void BuildInterpolationCache();
+    void BuildInterpScaleWorkBoxes();
     void BuildRestrictionCache();
-    void BuildInterpDirectCache(int lev);
+    void BuildDirectInterpolationCache(int lev);
 
     std::string plot_file{"plt"};
 
