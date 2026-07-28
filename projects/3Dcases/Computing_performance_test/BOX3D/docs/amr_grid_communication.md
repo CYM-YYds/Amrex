@@ -99,7 +99,7 @@ pull-stream 提供源数据的只读层，而 valid cell 与第一层 ghost 是 
 `CommunicateLevel()` 填充。
 
 `Boundary()` 在 Stream 后覆盖非周期物理边界的目标值。每次初始化或 regrid 后，
-`RebuildCoarseFineMasks()` 会按 level 和全局 Fab 索引缓存与物理域表面相交的 disjoint
+`RebuildCoarseFineCaches()` 会按 level 和全局 Fab 索引缓存与物理域表面相交的 disjoint
 valid-cell Box；时间推进时只对这些工作箱启动边界 kernel，不再遍历整个 valid patch。
 构造工作箱和 kernel 都依据 `Geom(lev).isPeriodicArray()` 跳过周期方向，周期 ghost 则由
 `CommunicateLevel()` 的 `FillBoundary(periodicity)` 提供。当前 `main.cpp` 创建 `Geometry`
@@ -133,7 +133,7 @@ coarse cell 的条带，用于裁剪粗层 Collide/Stream。粗细 ghost 填充�
 ## 当前实现的性能边界
 
 `FillPatchTwoLevels()` 仅为所需 coarse-fine patch 插值。当前 `FillDdfPatch()` 的
-`interp_scale` 同样不再缩放整层粗网格：`RebuildCoarseFineMasks()` 直接复用 AMReX
+`interp_scale` 同样不再缩放整层粗网格：`RebuildCoarseFineCaches()` 直接复用 AMReX
 `FPinfo.ba_crse_patch` 描述的粗层 patch，并将其与粗层 valid Box 相交，生成按 coarse Box
 索引的缓存工作箱。`ba_crse_patch` 已由 `CellBilinear::CoarseBox()` 扩展到插值 stencil
 所需范围，因此不会遗漏三线性插值读取的相邻粗单元。周期方向还会枚举 periodic shift，

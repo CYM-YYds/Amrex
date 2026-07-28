@@ -617,7 +617,7 @@ void AmrCoreLBM::WriteMultiParticleFile(const int step, const amrex::Real time) 
 //********************************************************************//
 void AmrCoreLBM::InitMesh(amrex::Real cur_time) {
     InitFromScratch(cur_time);
-    RebuildCoarseFineMasks();
+    RebuildCoarseFineCaches();
 }
 void AmrCoreLBM::FillCoarsePatch(int lev, amrex::Real time, amrex::MultiFab& mf) // 根本没有用到
 {
@@ -691,6 +691,88 @@ void AmrCoreLBM::FillPatch(int lev, amrex::Real time, amrex::MultiFab& mf) {
     }
 }
 
+void AmrCoreLBM::BuildInterpDirectCache(int lev) {
+    const double start = amrex::second();
+    // 启动阶段的递归循环可能在 finest_level 提升前请求已分配的下一层；
+    // 正常已安装层由 RebuildCoarseFineCaches() 预构建，其余情况延迟构建。
+    AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
+
+    const auto fill_ng = f_old[lev].nGrowVect();
+    const auto& coarsener =
+        cell_bilinear_interp.BoxCoarsener(refRatio(lev - 1));
+    const BoxArray& fine_ba = f_old[lev].boxArray();
+    const BoxArray fine_ba_simplified = fine_ba.simplified();
+    Box fine_domain = Geom(lev).Domain();
+    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+        if (Geom(lev).isPeriodic(dir)) {
+            fine_domain.grow(dir, fill_ng[dir]);
+        }
+    }
+
+    Vector<Box> coarse_boxes;
+    Vector<int> coarse_owners;
+    auto& coarse_stage = interp_direct_coarse_stage[lev];
+    auto& fine_work_boxes = interp_direct_fine_boxes[lev];
+    auto& fine_indices = interp_direct_fine_index[lev];
+    auto& needs_physical_fill = interp_direct_needs_physical_fill[lev];
+    coarse_stage.clear();
+    fine_work_boxes.clear();
+    fine_indices.clear();
+    needs_physical_fill.clear();
+
+    for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
+        const Box target =
+            amrex::grow(fine_ba[fine_index], fill_ng) & fine_domain;
+        const BoxList leftover = fine_ba_simplified.complementIn(target);
+        for (const Box& work_box : leftover) {
+            const Box coarse_box = coarsener.doit(work_box);
+            const int owner = f_old[lev].DistributionMap()[fine_index];
+            bool needs_fill = false;
+            for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                needs_fill =
+                    needs_fill ||
+                    (!Geom(lev - 1).isPeriodic(dir) &&
+                     (coarse_box.smallEnd(dir) <
+                          Geom(lev - 1).Domain().smallEnd(dir) ||
+                      coarse_box.bigEnd(dir) >
+                          Geom(lev - 1).Domain().bigEnd(dir)));
+            }
+
+            int stage_index = -1;
+            for (int candidate = 0;
+                 candidate < static_cast<int>(coarse_boxes.size());
+                 ++candidate) {
+                if (coarse_boxes[candidate] == coarse_box &&
+                    coarse_owners[candidate] == owner) {
+                    stage_index = candidate;
+                    break;
+                }
+            }
+            if (stage_index < 0) {
+                stage_index = static_cast<int>(coarse_boxes.size());
+                coarse_boxes.push_back(coarse_box);
+                coarse_owners.push_back(owner);
+                fine_work_boxes.push_back({});
+                fine_indices.push_back({});
+                needs_physical_fill.push_back(
+                    static_cast<unsigned char>(needs_fill));
+            }
+            fine_work_boxes[stage_index].push_back(work_box);
+            fine_indices[stage_index].push_back(fine_index);
+        }
+    }
+
+    if (!coarse_boxes.empty()) {
+        BoxArray coarse_stage_ba(
+            coarse_boxes.data(), static_cast<int>(coarse_boxes.size()));
+        DistributionMapping coarse_stage_dm(std::move(coarse_owners));
+        coarse_stage.define(coarse_stage_ba, coarse_stage_dm, Q, 0);
+    }
+    interp_direct_cache_ready[lev] = 1;
+    ++perf_stats.interp_cache_builds;
+    perf_stats.interp_cache_build += amrex::second() - start;
+}
+
 void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) // 加入缩放
 {
     // amrex::AllPrint()<<"FillDdfPatch from " << lev-1 << " to " << lev <<std::endl;
@@ -721,87 +803,14 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
         &mf == &f_old_lev_f &&
         mf.getBDKey() == f_old_lev_f.getBDKey();
 
-    if (cf_interp_mode == 2 && direct_target) {
+    if (cf_interp_mode >= 2 && direct_target) {
         ScopedPerfTimer timer(perf_stats.interp_fillpatch);
         auto& coarse_stage = interp_direct_coarse_stage[lev];
         auto& fine_work_boxes = interp_direct_fine_boxes[lev];
         auto& fine_indices = interp_direct_fine_index[lev];
 
         if (!interp_direct_cache_ready[lev]) {
-            const BoxArray& fine_ba = f_old_lev_f.boxArray();         // fine_ba 是当前细层所有 valid patch 的集合。
-            const BoxArray fine_ba_simplified = fine_ba.simplified(); // 几何简化后的集合fine_ba.
-            Box fine_domain = Geom(lev).Domain();
-            for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-                if (Geom(lev).isPeriodic(dir)) {
-                    fine_domain.grow(dir, fill_ng[dir]);
-                }
-            }
-
-            Vector<Box> coarse_boxes;
-            Vector<int> coarse_owners;
-            fine_work_boxes.clear();
-            fine_indices.clear();
-            auto& needs_physical_fill = interp_direct_needs_physical_fill[lev];
-            needs_physical_fill.clear();
-
-            for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
-                Box target = amrex::grow(fine_ba[fine_index], fill_ng) & fine_domain;
-                const BoxList leftover = fine_ba_simplified.complementIn(target); // 真正需要粗网格插值的区域
-                if (leftover.isEmpty()) {
-                    continue;
-                }
-
-                // 每个离散 fine ghost 区域单独保留对应的 coarse stencil。
-                // 若先合并为包围盒，会把中间无需插值的 coarse cell 也纳入
-                // staging，并显著放大 PhysBCFunct 的扫描范围。
-                for (const Box& work_box : leftover) {
-                    const Box coarse_box = coarsener.doit(work_box);
-                    const int owner =
-                        f_old_lev_f.DistributionMap()[fine_index];
-                    bool needs_fill = false;
-                    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-                        needs_fill =
-                            needs_fill ||
-                            (!Geom(lev - 1).isPeriodic(dir) &&
-                             (coarse_box.smallEnd(dir) <
-                                  Geom(lev - 1).Domain().smallEnd(dir) ||
-                              coarse_box.bigEnd(dir) >
-                                  Geom(lev - 1).Domain().bigEnd(dir)));
-                    }
-                    int stage_index = -1;
-                    for (int candidate = 0;
-                         candidate < static_cast<int>(coarse_boxes.size());
-                         ++candidate) {
-                        if (coarse_boxes[candidate] == coarse_box &&
-                            coarse_owners[candidate] == owner) {
-                            stage_index = candidate;
-                            break;
-                        }
-                    }
-                    if (stage_index < 0) {
-                        stage_index = static_cast<int>(coarse_boxes.size());
-                        coarse_boxes.push_back(coarse_box);
-                        coarse_owners.push_back(owner);
-                        fine_work_boxes.push_back({});
-                        fine_indices.push_back({});
-                        needs_physical_fill.push_back(
-                            static_cast<unsigned char>(needs_fill));
-                    }
-                    fine_work_boxes[stage_index].push_back(work_box);
-                    fine_indices[stage_index].push_back(fine_index);
-                }
-            }
-
-            coarse_stage.clear();
-            if (!coarse_boxes.empty()) {
-                BoxArray coarse_stage_ba(
-                    coarse_boxes.data(),
-                    static_cast<int>(coarse_boxes.size()));
-                DistributionMapping coarse_stage_dm(std::move(coarse_owners));
-                coarse_stage.define(
-                    coarse_stage_ba, coarse_stage_dm, Q, 0);
-            }
-            interp_direct_cache_ready[lev] = 1;
+            BuildInterpDirectCache(lev);
         }
 
         if (!fine_indices.empty()) {
@@ -1124,7 +1133,7 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
         interp_direct_cache_ready.begin(),
         interp_direct_cache_ready.end(), 0);
     regrid(0, cur_time);
-    RebuildCoarseFineMasks();
+    RebuildCoarseFineCaches();
 
     if (ParallelDescriptor::IOProcessor()) {
         amrex::Print() << "regrid_observe: finest_level=" << finest_level << '\n';
@@ -1162,7 +1171,7 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
     }
 }
 
-void AmrCoreLBM::RebuildCoarseFineMasks() {
+void AmrCoreLBM::RebuildCoarseFineCaches() {
     covered_cell_counts.assign(max_level + 1, 0);
     interface_cell_counts.assign(max_level + 1, 0);
 
@@ -1178,6 +1187,14 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
         average_down_buffer[lev].clear();
         average_interface_buffer[lev].clear();
         average_interface_fine_box[lev].clear();
+    }
+
+    // 正常时间推进直接复用这些布局；FillDdfPatch() 只在初始化或特殊
+    // 目标布局尚未进入层级时保留延迟构造回退。
+    if (cf_interp_mode >= 2) {
+        for (int lev = 1; lev <= finest_level; ++lev) {
+            BuildInterpDirectCache(lev);
+        }
     }
 
     // 用于平均下采样优化
@@ -2157,7 +2174,11 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
     amrex::MultiFab force_new(ba, dm, AMREX_SPACEDIM, nghost);
     amrex::MultiFab shear_new(ba, dm, 1, nghost);
 
-    FillDdfPatch(lev, time, old_state);
+    {
+        ScopedPerfTimer timer(perf_stats.interp_regrid_fill);
+        ++perf_stats.interp_regrid_fill_calls;
+        FillDdfPatch(lev, time, old_state);
+    }
     // FillPatch(lev, time, old_state);
 
     std::swap(new_state, f_new[lev]);
@@ -2587,5 +2608,5 @@ void AmrCoreLBM::ReadCheckpoint() {
         particles[i]->Restart(chkname, pname);
     }
 
-    RebuildCoarseFineMasks();
+    RebuildCoarseFineCaches();
 }

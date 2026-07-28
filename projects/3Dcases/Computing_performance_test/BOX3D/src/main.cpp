@@ -163,7 +163,9 @@ int main(int argc, char* argv[]) {
                           << " MLUPS_total=" << total_mlups
                           << std::endl;
                 std::cout << "step" << step
-                          << " perf_detail(s): interp_scale=" << perf.interp_scale
+                          << " perf_detail(s): interp_cache_build=" << perf.interp_cache_build
+                          << " interp_regrid_fill=" << perf.interp_regrid_fill
+                          << " interp_scale=" << perf.interp_scale
                           << " interp_fillpatch=" << perf.interp_fillpatch
                           << " average_alloc=" << perf.average_alloc
                           << " average_copy=" << perf.average_copy
@@ -175,6 +177,8 @@ int main(int argc, char* argv[]) {
                           << std::endl;
                 std::cout << "step" << step
                           << " perf_count: fillghost_calls=" << perf.fillghost_calls
+                          << " interp_cache_builds=" << perf.interp_cache_builds
+                          << " interp_regrid_fill_calls=" << perf.interp_regrid_fill_calls
                           << " avgdown_calls=" << perf.avgdown_calls
                           << " interp_scale_full_cells=" << perf.interp_scale_full_cells
                           << " interp_scale_cells=" << perf.interp_scale_cells

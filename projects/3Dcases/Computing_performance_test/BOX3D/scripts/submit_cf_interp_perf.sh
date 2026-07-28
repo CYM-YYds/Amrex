@@ -43,4 +43,4 @@ run_case "export CUDA_VISIBLE_DEVICES=0; exec ./main3d.gnu.TPROF.MPI.CUDA.ex \
 ${COMMON_ARGS} lbm.cf_interp_mode=2"
 
 run_case "export CUDA_VISIBLE_DEVICES=0; exec ./main3d.gnu.TPROF.MPI.CUDA.ex \
-${COMMON_ARGS} lbm.cf_interp_mode=3"
+${COMMON_ARGS} lbm.cf_interp_mode=1"

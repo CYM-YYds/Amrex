@@ -34,6 +34,10 @@ class AmrCoreLBM : public amrex::AmrCore {
 
     struct PerfStats {
         double interp = 0.0;
+        double interp_cache_build = 0.0;
+        long long interp_cache_builds = 0;
+        double interp_regrid_fill = 0.0;
+        long long interp_regrid_fill_calls = 0;
         double interp_scale = 0.0;
         double interp_fillpatch = 0.0;
         double collide = 0.0;
@@ -109,7 +113,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf);
     void RefineMesh(amrex::Real time);
     // CUDA 扩展版设备 Lambda 要求包裹它的成员函数必须是 public 公有访问权限
-    void RebuildCoarseFineMasks();
+    void RebuildCoarseFineCaches();
     void FindCentre();
     //********************************************************************//
     //                           lbm  function                            //
@@ -162,6 +166,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow) override;
 
   private:
+    void BuildInterpDirectCache(int lev);
+
     std::string plot_file{"plt"};
 
     int nghost = 2;

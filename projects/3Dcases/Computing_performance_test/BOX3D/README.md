@@ -30,6 +30,8 @@
 | 字段 | 含义 |
 | --- | --- |
 | `interp_scale` | 粗网格到细网格填充前的 LBM 非平衡量缩放。 |
+| `interp_cache_build` | 网格建立或 regrid 后构造 direct coarse-to-fine 插值布局的主机端耗时。 |
+| `interp_regrid_fill` | `RemakeLevel()` 为新网格布局调用 `FillDdfPatch()` 的耗时，归属于 regrid 而非时间推进中的 `interp`。 |
 | `interp_fillpatch` | AMReX `FillPatchTwoLevels()` 执行的粗细网格填充。 |
 | `average_alloc` / `average_copy` / `average_scale` | 分步 restriction 的缓冲、复制与非平衡量缩放耗时；融合模式下应为 0。 |
 | `average_down` | 当前所选 restriction 路径的总耗时，包含 kernel 与结果回写。 |
@@ -54,6 +56,8 @@
 统计窗口和寄存器压力限制见[性能分析文档](docs/performance_profiling.md#专用-bgk-碰撞路径job-575206)。
 
 ### 调用量与近似工作量：`perf_count`
+
+`interp_cache_builds` 记录该统计窗口内 direct coarse-to-fine 插值布局的实际构建次数，需与 `interp_cache_build` 配合判断重建频率和单次成本。`interp_regrid_fill_calls` 则记录 regrid 期间重新填充 level 数据的次数。
 
 | 字段 | 含义 |
 | --- | --- |

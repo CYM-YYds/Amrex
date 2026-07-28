@@ -252,19 +252,26 @@ coarse_stage.ParallelCopy
   -> fine FillBoundary 和物理边界填充
 ```
 
-64 步的 field-norm 作业 `574441` 在模式 2 和 3 上生成了 bitwise 一致的 valid DDF 字段（`global linf=0`, `l2=0`, `relative_l2=0`）。随后在 job `574442` 中进行了一个更公平的、没有 checkpoint 输出的 1000 步比较：
+在缓存生命周期重构时发现，原 direct-path 条件只接受
+`cf_interp_mode == 2`。因此 jobs `574441`、`574442`、`574447` 和
+`574448` 的 mode 3 实际落入了通用 FPinfo patch 路径，并未执行上面的融合
+direct kernel。这些作业不能用于评价融合算法。条件现已改为
+`cf_interp_mode >= 2`，mode 3 必须重新进行 field-norm 和性能验证。
+
+历史 1000 步数据为：
 
 | 数量 | 模式 2 | 模式 3 |
 | --- | ---: | ---: |
 | 总时间 | 123.0075 s | 126.5287 s |
 
-这两次运行最终出现了不同的 regrid 历史。融合 kernel 改变了浮点运算顺序，而这些微小差异最终会影响 AMR tagging 准则。因此，总时间差不能视为严格的固定网格 A/B 结果；但它已经足以否定模式 3 作为生产替代方案。对每个 fine 单元重算八个 coarse stencil 缩放也会增加算术量和寄存器压力。
+这两次运行最终出现了不同的 regrid 历史，因此总时间差不能视为严格的固定网格
+A/B 结果。该表只保留为历史通用路径数据，不是支持或否定融合 kernel 的证据。
 
 ## coarse stencil 去重实验
 
 随后，直接缓存又改成了让 fine 工作盒之间共享相同的 `coarse Box + DistributionMap owner`。这保留了 mode-2 的浮点路径，并在 job `574447` 的 64 步 field-norm 回归测试中通过，valid DDF 误差为零。
 
-在 job `574448` 中的 1000 步后续测试测得：
+job `574448` 比较的是 direct mode 2 与同样意外回退到通用路径的 mode 3：
 
 | 数量 | 模式 2 | 模式 3 |
 | --- | ---: | ---: |
@@ -273,3 +280,33 @@ coarse_stage.ParallelCopy
 mode-2 的结果与去重前基线在统计上没有变化。当前几何中重复的 coarse staging 太少，或者剩余的 `ParallelCopy`、插值和 fine `FillBoundary` 工作占主导。这种优化在数值上是安全的，但没有展示出端到端收益。
 
 同一个 job 报告在 1000 步窗口里大约有 `12.15 s` 的 `FillBoundary` 和 `22.21 s` 的 mode-2 `interp_fillpatch`。后续工作应聚焦 fine 同层 ghost 通信和 coarse staging 数据搬运，而不是进一步做 Box-list 去重。这些计时包含动态演化的 AMR 层次，不能当作固定网格 kernel 来比较。
+
+## direct 插值缓存生命周期与计时归属
+
+direct 路径的几何布局现由 `BuildInterpDirectCache()` 统一构造，并在
+`RebuildCoarseFineCaches()` 中随 mask、边界工作区和 restriction 缓存一起失效和重建。
+`FillDdfPatch()` 只保留初始化特殊路径所需的延迟构建回退。`interp_cache_build`
+和 `interp_cache_builds` 分别记录构建总耗时和次数。
+
+job `575341` 用 mode 1 checkpoint 对 mode 2 做了 64 步逐层、逐 DDF 回归，所有
+27 个分量均得到 `linf=0, l2=0, relative_l2=0`。job `575343` 在同一 GPU、同一
+可执行文件和输入下顺序运行 1000 步，结果为：
+
+| 数量 | mode 2 direct | mode 1 patch |
+| --- | ---: | ---: |
+| 时间推进插值 `interp` | 30.2840 s | 34.0167 s |
+| 总计算时间 | 120.8544 s | 124.0695 s |
+| `MLUPS_total` | 505.38 | 490.76 |
+| 缓存构建 | 0.00464 s / 96 次 | 0 s / 0 次 |
+
+mode 2 在该次动态 AMR 运行中将时间推进插值耗时降低约 11.0%，总计算时间降低约
+2.6%。两段运行的后期网格统计略有差异，因此这是受控程度较高的端到端结果，仍不等同于
+固定网格 kernel 基准。旧的 `interp_fillpatch` 同时累计时间推进和 `RemakeLevel()` 的
+regrid 填充，可能略大于 `interp`；新增 `interp_regrid_fill` 和
+`interp_regrid_fill_calls` 后，两种调用来源可单独解释。
+
+增加归属字段后，job `575351` 再次运行相同 A/B。mode 2 得到
+`interp=29.4486 s`、`interp_fillpatch=29.7810 s`、
+`interp_regrid_fill=0.3559 s`，即扣除 regrid 填充后为 `29.4251 s`，与外层
+时间推进统计仅差约 `0.024 s`。mode 1 也满足同一关系。缓存构建仍为
+`0.00463 s / 96 次`，证明布局构建已不再是插值热路径。
