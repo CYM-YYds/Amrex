@@ -2387,24 +2387,24 @@ void collide_bgk_register(int i, int j, int k,
                           amrex::Real omega) noexcept {
     Real fq[Q];
     Real rho = 0.0;
-    Real momentum_x = 0.0;
-    Real momentum_y = 0.0;
-    Real momentum_z = 0.0;
+    Real uxt = 0.0;
+    Real uyt = 0.0;
+    Real uzt = 0.0;
 
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
-        const Real value = fold(i, j, k, q);
-        fq[q] = value;
-        rho += value;
-        momentum_x += value * e[q][0];
-        momentum_y += value * e[q][1];
-        momentum_z += value * e[q][2];
+        const Real ft = fold(i, j, k, q);
+        fq[q] = ft; // 这里专门额外设置这个变量，避免在后续计算中重复从显存中读取fold(i, j, k, q)
+        rho += ft;
+        uxt += ft * e[q][0];
+        uyt += ft * e[q][1];
+        uzt += ft * e[q][2];
     }
 
     const Real inv_rho = 1.0 / rho;
-    const Real ux = momentum_x * inv_rho;
-    const Real uy = momentum_y * inv_rho;
-    const Real uz = momentum_z * inv_rho;
+    const Real ux = uxt * inv_rho;
+    const Real uy = uyt * inv_rho;
+    const Real uz = uzt * inv_rho;
     const Real velocity_sq = ux * ux + uy * uy + uz * uz;
     const Real equilibrium_common = 1.0 - 1.5 * velocity_sq;
     const Real keep = 1.0 - omega;

@@ -728,8 +728,8 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
         auto& fine_indices = interp_direct_fine_index[lev];
 
         if (!interp_direct_cache_ready[lev]) {
-            const BoxArray& fine_ba = f_old_lev_f.boxArray();
-            const BoxArray fine_ba_simplified = fine_ba.simplified();
+            const BoxArray& fine_ba = f_old_lev_f.boxArray();         // fine_ba 是当前细层所有 valid patch 的集合。
+            const BoxArray fine_ba_simplified = fine_ba.simplified(); // 几何简化后的集合fine_ba.
             Box fine_domain = Geom(lev).Domain();
             for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
                 if (Geom(lev).isPeriodic(dir)) {
@@ -746,7 +746,7 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
 
             for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
                 Box target = amrex::grow(fine_ba[fine_index], fill_ng) & fine_domain;
-                const BoxList leftover = fine_ba_simplified.complementIn(target);
+                const BoxList leftover = fine_ba_simplified.complementIn(target); // 真正需要粗网格插值的区域
                 if (leftover.isEmpty()) {
                     continue;
                 }
@@ -872,7 +872,7 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                 const auto coarse = coarse_stage.const_array(mfi);
                 for (int work_index = 0;
                      work_index < static_cast<int>(
-                                        fine_work_boxes[stage_index].size());
+                                      fine_work_boxes[stage_index].size());
                      ++work_index) {
                     const int fine_index =
                         fine_indices[stage_index][work_index];
