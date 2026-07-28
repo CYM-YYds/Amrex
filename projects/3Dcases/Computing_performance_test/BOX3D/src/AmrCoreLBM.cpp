@@ -1189,84 +1189,65 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
         average_interface_fine_box[lev].clear();
     }
 
-    // 正常时间推进直接复用这些布局；FillDdfPatch() 只在初始化或特殊
-    // 目标布局尚未进入层级时保留延迟构造回退。
-    if (cf_interp_mode >= 2) {
-        for (int lev = 1; lev <= finest_level; ++lev) {
-            BuildInterpDirectCache(lev);
-        }
+    RebuildCoarseFineMasks();
+    BuildBoundaryWorkBoxes();
+    BuildInterpolationCache();
+    BuildRestrictionCache();
+}
+
+void AmrCoreLBM::RebuildCoarseFineMasks() {
+    if (cf_mask_mode == 0) {
+        return;
     }
 
-    // 用于平均下采样优化
     for (int lev = 0; lev < finest_level; ++lev) {
-        BoxArray coarse_from_fine = amrex::coarsen(f_old[lev + 1].boxArray(), refRatio(lev)); // 把细层所有 valid Box 的索引范围映射到对应的粗层索引空间。
-
-        // 模式 1 对全部细层 valid cell 做平均。缓冲区沿用细层的数据归属，使 kernel
-        // 能够读取本地 fine Fab；后续由 ParallelCopy 重分配到粗层 DistributionMap。
-        if (average_mode == 1) {
-            average_down_buffer[lev].define(coarse_from_fine, f_old[lev + 1].DistributionMap(),
-                                            Q, 0);
-        }
-        if (average_mode < 2) {
-            continue;
-        }
-
-        // 模式 2/3 在每次 regrid 后一次性构造稀疏工作区，避免每个时间步都对
-        // 全部 covered 父单元启动线程，再在 kernel 内跳过非交界单元。
-        BoxList interface_boxes;
-        Vector<int> interface_owners;
-        Vector<int> fine_box_indices;
         const Box domain = Geom(lev).Domain();
-        const auto& periodicity = Geom(lev).periodicity();
-        const auto& fine_dm = f_old[lev + 1].DistributionMap();
+        covered_mask[lev] = amrex::makeFineMask(
+            f_old[lev], f_old[lev + 1], amrex::IntVect(cf_covered_mask_nghost), refRatio(lev),
+            Geom(lev).periodicity(), 0, 1);
 
-        /*当前 covered_box
-               |
-               | 向外扩展一层并裁剪到 domain
-               v
-        search_box
-               |
-               | 减去所有 coarse_from_fine 覆盖区域
-               v
-        uncovered BoxList
-               |
-               | 每块向外扩展一层
-               | 再与当前 covered_box 求交
-               v
-        interface candidates */
-        for (int ibox = 0; ibox < coarse_from_fine.size(); ++ibox) {
-            const Box& covered_box = coarse_from_fine[ibox];
-            // 与 uncovered 邻居相接的 covered 父单元组成粗细交界条带。
-            // ref_ratio=2 时，一层粗单元宽度在物理上对应两层细单元。
-            const Box search_box = amrex::grow(covered_box, 1) & domain;
-            const BoxList uncovered = coarse_from_fine.complementIn(search_box, periodicity);
-            BoxList candidates;
-            for (const Box& uncovered_box : uncovered) {
-                const Box interface_box = amrex::grow(uncovered_box, 1) & covered_box;
-                if (interface_box.ok()) {
-                    candidates.push_back(interface_box);
+        interface_mask[lev].define(f_old[lev].boxArray(), f_old[lev].DistributionMap(), 1,
+                                   cf_interface_mask_nghost);
+        interface_mask[lev].setVal(0);
+        const auto domain_lo = amrex::lbound(domain);
+        const auto domain_hi = amrex::ubound(domain);
+
+        for (MFIter mfi(interface_mask[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const Box bx = mfi.growntilebox(cf_interface_mask_nghost) & domain;
+            const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
+            const Array4<int>& interface = interface_mask[lev].array(mfi);
+
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                if (covered(i, j, k) == 0) {
+                    return;
                 }
-            }
 
-            const BoxList disjoint = amrex::removeOverlap(candidates);
-            for (const Box& interface_box : disjoint) {
-                interface_boxes.push_back(interface_box);
-                // 保存来源 fine Box 的进程归属和 Fab 编号，使其子单元保持本地可读，
-                // 无需先将数据汇集到额外的临时缓冲区。
-                interface_owners.push_back(fine_dm[ibox]); // 当前box的进程归属
-                fine_box_indices.push_back(ibox);          // 当前box的编号
-            }
+                for (int dk = -1; dk <= 1; ++dk) {
+                    for (int dj = -1; dj <= 1; ++dj) {
+                        for (int di = -1; di <= 1; ++di) {
+                            const int ni = i + di;
+                            const int nj = j + dj;
+                            const int nk = k + dk;
+                            const bool in_domain =
+                                (ni >= domain_lo.x && ni <= domain_hi.x) &&
+                                (nj >= domain_lo.y && nj <= domain_hi.y) &&
+                                (nk >= domain_lo.z && nk <= domain_hi.z);
+                            if (in_domain && covered(ni, nj, nk) == 0) {
+                                interface(i, j, k) = 1;
+                                return;
+                            }
+                        }
+                    }
+                }
+            });
         }
 
-        BoxArray interface_ba(interface_boxes);
-        if (!interface_ba.empty()) {
-            DistributionMapping interface_dm(interface_owners);
-            average_interface_buffer[lev].define(interface_ba, interface_dm, Q, 0);
-            average_interface_fine_box[lev] = std::move(fine_box_indices);
-        }
+        covered_cell_counts[lev] = covered_mask[lev].sum(0, 0);
+        interface_cell_counts[lev] = interface_mask[lev].sum(0, 0);
     }
+}
 
-    // 用于边界处理优化
+void AmrCoreLBM::BuildBoundaryWorkBoxes() {
     for (int lev = 0; lev <= finest_level; ++lev) {
         const BoxArray& ba = f_old[lev].boxArray();
         const Box domain = Geom(lev).Domain();
@@ -1299,8 +1280,19 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
                 }
             }
 
-            BoxList disjoint_faces = amrex::removeOverlap(boundary_faces);
+            const BoxList disjoint_faces = amrex::removeOverlap(boundary_faces);
             level_boundary_boxes[ibox].assign(disjoint_faces.begin(), disjoint_faces.end());
+        }
+    }
+}
+
+void AmrCoreLBM::BuildInterpolationCache() {
+
+    // 正常时间推进直接复用这些布局；FillDdfPatch() 只在初始化或特殊
+    // 目标布局尚未进入层级时保留延迟构造回退。
+    if (cf_interp_mode >= 2) {
+        for (int lev = 1; lev <= finest_level; ++lev) {
+            BuildInterpDirectCache(lev);
         }
     }
 
@@ -1353,56 +1345,58 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
                 disjoint_boxes.end());
         }
     }
+}
 
-    if (cf_mask_mode == 0) {
-        return;
-    }
-
+void AmrCoreLBM::BuildRestrictionCache() {
     for (int lev = 0; lev < finest_level; ++lev) {
-        const BoxArray& crse_ba = f_old[lev].boxArray();
-        const Box domain = Geom(lev).Domain();
-        covered_mask[lev] = amrex::makeFineMask(
-            f_old[lev], f_old[lev + 1], amrex::IntVect(cf_covered_mask_nghost), refRatio(lev),
-            Geom(lev).periodicity(), 0, 1);
+        BoxArray coarse_from_fine =
+            amrex::coarsen(f_old[lev + 1].boxArray(), refRatio(lev));
 
-        interface_mask[lev].define(f_old[lev].boxArray(), f_old[lev].DistributionMap(), 1,
-                                   cf_interface_mask_nghost);
-        interface_mask[lev].setVal(0);
-        const auto domain_lo = amrex::lbound(domain);
-        const auto domain_hi = amrex::ubound(domain);
-
-        for (MFIter mfi(interface_mask[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            const Box bx = mfi.growntilebox(cf_interface_mask_nghost) & domain;
-            const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
-            const Array4<int>& interface = interface_mask[lev].array(mfi);
-
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                if (covered(i, j, k) == 0) {
-                    return;
-                }
-
-                for (int dk = -1; dk <= 1; ++dk) {
-                    for (int dj = -1; dj <= 1; ++dj) {
-                        for (int di = -1; di <= 1; ++di) {
-                            const int ni = i + di;
-                            const int nj = j + dj;
-                            const int nk = k + dk;
-                            const bool in_domain = (ni >= domain_lo.x && ni <= domain_hi.x) &&
-                                                   (nj >= domain_lo.y && nj <= domain_hi.y) &&
-                                                   (nk >= domain_lo.z && nk <= domain_hi.z);
-                            if (in_domain && covered(ni, nj, nk) == 0) {
-                                interface(i, j, k) = 1;
-                                return;
-                            }
-                        }
-                    }
-                }
-            });
+        if (average_mode == 1) {
+            average_down_buffer[lev].define(
+                coarse_from_fine, f_old[lev + 1].DistributionMap(), Q, 0);
+        }
+        if (average_mode < 2) {
+            continue;
         }
 
-        covered_cell_counts[lev] = covered_mask[lev].sum(0, 0);
-        interface_cell_counts[lev] = interface_mask[lev].sum(0, 0);
-        if (average_mode >= 2) {
+        BoxList interface_boxes;
+        Vector<int> interface_owners;
+        Vector<int> fine_box_indices;
+        const Box domain = Geom(lev).Domain();
+        const auto& periodicity = Geom(lev).periodicity();
+        const auto& fine_dm = f_old[lev + 1].DistributionMap();
+
+        for (int ibox = 0; ibox < coarse_from_fine.size(); ++ibox) {
+            const Box& covered_box = coarse_from_fine[ibox];
+            const Box search_box = amrex::grow(covered_box, 1) & domain;
+            const BoxList uncovered =
+                coarse_from_fine.complementIn(search_box, periodicity);
+            BoxList candidates;
+            for (const Box& uncovered_box : uncovered) {
+                const Box interface_box =
+                    amrex::grow(uncovered_box, 1) & covered_box;
+                if (interface_box.ok()) {
+                    candidates.push_back(interface_box);
+                }
+            }
+
+            const BoxList disjoint = amrex::removeOverlap(candidates);
+            for (const Box& interface_box : disjoint) {
+                interface_boxes.push_back(interface_box);
+                interface_owners.push_back(fine_dm[ibox]);
+                fine_box_indices.push_back(ibox);
+            }
+        }
+
+        BoxArray interface_ba(interface_boxes);
+        if (!interface_ba.empty()) {
+            DistributionMapping interface_dm(interface_owners);
+            average_interface_buffer[lev].define(interface_ba, interface_dm, Q, 0);
+            average_interface_fine_box[lev] = std::move(fine_box_indices);
+        }
+
+        if (cf_mask_mode != 0) {
             // 几何方法构造的工作 Box 必须与逐单元 interface mask 覆盖完全相同的父单元，
             // 否则平均下传过程可能遗漏或重复处理单元。
             const Long restriction_interface_cells =

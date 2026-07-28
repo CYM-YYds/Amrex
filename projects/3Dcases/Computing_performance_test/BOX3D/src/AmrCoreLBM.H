@@ -114,6 +114,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void RefineMesh(amrex::Real time);
     // CUDA 扩展版设备 Lambda 要求包裹它的成员函数必须是 public 公有访问权限
     void RebuildCoarseFineCaches();
+    void RebuildCoarseFineMasks();
     void FindCentre();
     //********************************************************************//
     //                           lbm  function                            //
@@ -166,6 +167,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow) override;
 
   private:
+    void BuildBoundaryWorkBoxes();
+    void BuildInterpolationCache();
+    void BuildRestrictionCache();
     void BuildInterpDirectCache(int lev);
 
     std::string plot_file{"plt"};
