@@ -119,8 +119,8 @@ regrid 的 `RemakeLevel()` 也可能传入不同布局的临时 `MultiFab`。因
 | `f_old[lev-1]`                           | `AmrCoreLBM` | coarse level`BoxArray/DM`         | 原始 coarse DDF，只读来源                   |
 | `f_old[lev]`                             | `AmrCoreLBM` | fine level`BoxArray/DM`           | 正常时间推进的 fine 目标                    |
 | `interp_direct_coarse_stage[lev]`        | `AmrCoreLBM` | 按 fine owner 构造的稀疏 coarse Box | mode 2/3 的 coarse stencil 临时容器         |
-| `interp_direct_fine_boxes[lev]`          | `AmrCoreLBM` | `stage_index -> work boxes`       | 记录每个 staging Box 要写的 fine ghost 区域 |
-| `interp_direct_fine_index[lev]`          | `AmrCoreLBM` | `stage_index -> fine Fab index`   | 找到目标 fine Fab                           |
+| `interp_direct_fine_boxes[lev]`          | `AmrCoreLBM` | `stage_index -> work_box`         | 记录每个 staging Box 要写的 fine ghost 区域 |
+| `interp_direct_fine_index[lev]`          | `AmrCoreLBM` | `stage_index -> fine_index`       | 找到目标 fine Fab                           |
 | `interp_direct_needs_physical_fill[lev]` | `AmrCoreLBM` | 每个 staging Box 一个标志           | 识别 coarse stencil 是否越过非周期物理边界  |
 
 `coarse_stage` 不是完整 coarse level 的副本。它只保存当前 coarse-fine ghost 插值所需的 stencil，并把这些 Box 分配给对应 fine Fab 的 MPI owner。
@@ -208,7 +208,7 @@ const int owner = f_old[lev].DistributionMap()[fine_index];
 
 staging Box 被放到目标 fine Fab 所在的 MPI rank/GPU。这样 `ParallelCopy()` 先把 coarse 数据搬到目标设备，插值 kernel 随后就可以读本地 `coarse_stage` 并直接写目标 fine Fab。
 
-在当前 BOX3D 的 coarse/fine 对齐条件下，一个合法 `work_box` 对应一个确定的 coarse stencil；不同 `work_box` 不会产生完全相同的 stencil。因此当前实现不再做 `(coarse_box, owner)` 的全局去重，而是让每个 `work_box` 独立对应一个 staging Box。
+在当前 BOX3D 的 coarse/fine 对齐条件下，一个合法 `work_box` 对应一个确定的 coarse stencil；不同 `work_box` 不会产生完全相同的 stencil。因此当前实现不做全局去重，而是让每个 `work_box` 独立对应一个 staging Box。`fine_index` 唯一确定该 fine Fab 的 `DistributionMap()` owner，所以不需要额外保存一份 work-box 列表或 owner 映射。
 
 ### 4.7 `needs_physical_fill`
 

@@ -213,8 +213,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> interp_scale_work_boxes;
     // mode 2：按 fine Box 归属缓存 coarse stencil，并直接写对应 fine Fab。
     amrex::Vector<amrex::MultiFab> interp_direct_coarse_stage;
-    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> interp_direct_fine_boxes;
-    amrex::Vector<amrex::Vector<amrex::Vector<int>>> interp_direct_fine_index;
+    // mode 2/3：每个 staging Box 与一个 fine work Box/Fab 一一对应。
+    amrex::Vector<amrex::Vector<amrex::Box>> interp_direct_fine_boxes;
+    amrex::Vector<amrex::Vector<int>> interp_direct_fine_index;
     amrex::Vector<amrex::Vector<unsigned char>> interp_direct_needs_physical_fill;
     amrex::Vector<unsigned char> interp_direct_cache_ready;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; //boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box

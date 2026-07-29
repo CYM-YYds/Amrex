@@ -744,12 +744,10 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
             const int stage_index = static_cast<int>(coarse_boxes.size());
             coarse_boxes.push_back(coarse_box);
             coarse_owners.push_back(owner);
-            fine_work_boxes.push_back({});
-            fine_indices.push_back({});
+            fine_work_boxes.push_back(work_box);
+            fine_indices.push_back(fine_index);
             needs_physical_fill.push_back(
                 static_cast<unsigned char>(needs_fill));
-            fine_work_boxes[stage_index].push_back(work_box);
-            fine_indices[stage_index].push_back(fine_index);
         }
     }
 
@@ -870,25 +868,19 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
                 const int stage_index = mfi.index();
                 const auto coarse = coarse_stage.const_array(mfi);
-                for (int work_index = 0;
-                     work_index < static_cast<int>(
-                                      fine_work_boxes[stage_index].size());
-                     ++work_index) {
-                    const int fine_index =
-                        fine_indices[stage_index][work_index];
-                    const auto fine = mf.array(fine_index);
-                    const Box& bx = fine_work_boxes[stage_index][work_index];
-                    amrex::ParallelFor(
-                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                            if (fused_interp) {
-                                interp_bilinear_d3q_scaled(
-                                    i, j, k, fine, coarse, ratio, scale);
-                            } else {
-                                interp_bilinear_d3q(
-                                    i, j, k, fine, coarse, ratio);
-                            }
-                        });
-                }
+                const int fine_index = fine_indices[stage_index];
+                const auto fine = mf.array(fine_index);
+                const Box& bx = fine_work_boxes[stage_index];
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        if (fused_interp) {
+                            interp_bilinear_d3q_scaled(
+                                i, j, k, fine, coarse, ratio, scale);
+                        } else {
+                            interp_bilinear_d3q(
+                                i, j, k, fine, coarse, ratio);
+                        }
+                    });
             }
         }
 
