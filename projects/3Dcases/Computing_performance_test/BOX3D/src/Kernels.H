@@ -2437,12 +2437,12 @@ void interp_bilinear_d3q(
     const int sy = ylo ? -1 : 1;
     const int sz = zlo ? -1 : 1;
     const Real wx = xlo ? Real(ratio[0] + 1 + 2 * ioff) / Real(2 * ratio[0])
-                        : Real(3 * ratio[0] - 1 - 2 * ioff) / Real(2 * ratio[0]);
+                        : Real(3 * ratio[0] - 1 - 2 * ioff) / Real(2 * ratio[0]); // wx = coarse(ic) 的权重
     const Real wy = ylo ? Real(ratio[1] + 1 + 2 * joff) / Real(2 * ratio[1])
                         : Real(3 * ratio[1] - 1 - 2 * joff) / Real(2 * ratio[1]);
     const Real wz = zlo ? Real(ratio[2] + 1 + 2 * koff) / Real(2 * ratio[2])
                         : Real(3 * ratio[2] - 1 - 2 * koff) / Real(2 * ratio[2]);
-    const Real ax = Real(1.0) - wx;
+    const Real ax = Real(1.0) - wx; // ax = coarse(ic+sx) 的权重
     const Real ay = Real(1.0) - wy;
     const Real az = Real(1.0) - wz;
 

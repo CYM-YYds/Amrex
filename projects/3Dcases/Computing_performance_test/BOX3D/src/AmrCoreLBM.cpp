@@ -693,8 +693,9 @@ void AmrCoreLBM::FillPatch(int lev, amrex::Real time, amrex::MultiFab& mf) {
 
 void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     const double start = amrex::second();
-    // 启动阶段的递归循环可能在 finest_level 提升前请求已分配的下一层；
-    // 正常已安装层由 RebuildCoarseFineCaches() 预构建，其余情况延迟构建。
+    // Regrid 过程中，RemakeLevel() 会在统一的
+    // RebuildCoarseFineCaches() 完成前调用 FillDdfPatch()；
+    // 因此新布局的 direct cache 允许在首次使用时延迟构建。
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
     const auto fill_ng = f_old[lev].nGrowVect(); // 获取f_old[lev] 在 x、y、z 三个方向上分配的 ghost cell 层数。
@@ -798,6 +799,8 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
         auto& fine_work_boxes = interp_direct_fine_boxes[lev];
         auto& fine_indices = interp_direct_fine_index[lev];
 
+        // RemakeLevel() 可能早于 RebuildCoarseFineCaches() 到达这里；
+        // 对这种 regrid 期间的首次调用，按当前 fine 布局补建 direct cache。
         if (!interp_direct_cache_ready[lev]) {
             BuildDirectInterpolationCache(lev);
         }
@@ -814,8 +817,7 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             const Box coarse_domain = Geom(lev - 1).Domain();
             const auto coarse_lo = amrex::lbound(coarse_domain);
             const auto coarse_hi = amrex::ubound(coarse_domain);
-            const auto coarse_periodic =
-                Geom(lev - 1).isPeriodicArray();
+            const auto coarse_periodic = Geom(lev - 1).isPeriodicArray();
             for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
                 const int stage_index = mfi.index();
                 if (!interp_direct_needs_physical_fill[lev][stage_index]) {
@@ -874,11 +876,9 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                 amrex::ParallelFor(
                     bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                         if (fused_interp) {
-                            interp_bilinear_d3q_scaled(
-                                i, j, k, fine, coarse, ratio, scale);
+                            interp_bilinear_d3q_scaled(i, j, k, fine, coarse, ratio, scale);
                         } else {
-                            interp_bilinear_d3q(
-                                i, j, k, fine, coarse, ratio);
+                            interp_bilinear_d3q(i, j, k, fine, coarse, ratio);
                         }
                     });
             }
