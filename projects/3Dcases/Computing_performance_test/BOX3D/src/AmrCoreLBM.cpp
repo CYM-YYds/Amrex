@@ -738,25 +738,16 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
                           Geom(lev - 1).Domain().bigEnd(dir)));
             }
 
-            int stage_index = -1;
-            for (int candidate = 0;
-                 candidate < static_cast<int>(coarse_boxes.size());
-                 ++candidate) {
-                if (coarse_boxes[candidate] == coarse_box &&
-                    coarse_owners[candidate] == owner) {
-                    stage_index = candidate;
-                    break;
-                }
-            }
-            if (stage_index < 0) {
-                stage_index = static_cast<int>(coarse_boxes.size());
-                coarse_boxes.push_back(coarse_box);
-                coarse_owners.push_back(owner);
-                fine_work_boxes.push_back({});
-                fine_indices.push_back({});
-                needs_physical_fill.push_back(
-                    static_cast<unsigned char>(needs_fill));
-            }
+            // 在当前 BOX3D 的 coarse/fine 对齐条件下，不同合法 work_box
+            // 不会映射到同一个 coarse stencil；每个 work_box 独立建立
+            // 一个 staging Fab，避免保留无效的全局去重搜索。
+            const int stage_index = static_cast<int>(coarse_boxes.size());
+            coarse_boxes.push_back(coarse_box);
+            coarse_owners.push_back(owner);
+            fine_work_boxes.push_back({});
+            fine_indices.push_back({});
+            needs_physical_fill.push_back(
+                static_cast<unsigned char>(needs_fill));
             fine_work_boxes[stage_index].push_back(work_box);
             fine_indices[stage_index].push_back(fine_index);
         }

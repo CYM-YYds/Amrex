@@ -208,13 +208,7 @@ const int owner = f_old[lev].DistributionMap()[fine_index];
 
 staging Box 被放到目标 fine Fab 所在的 MPI rank/GPU。这样 `ParallelCopy()` 先把 coarse 数据搬到目标设备，插值 kernel 随后就可以读本地 `coarse_stage` 并直接写目标 fine Fab。
 
-去重键是：
-
-```text
-(coarse_box, owner)
-```
-
-只有 stencil Box 和 owner 都相同时才能共用一个 staging Box。
+在当前 BOX3D 的 coarse/fine 对齐条件下，一个合法 `work_box` 对应一个确定的 coarse stencil；不同 `work_box` 不会产生完全相同的 stencil。因此当前实现不再做 `(coarse_box, owner)` 的全局去重，而是让每个 `work_box` 独立对应一个 staging Box。
 
 ### 4.7 `needs_physical_fill`
 
@@ -244,7 +238,7 @@ leftover / fine work boxes
         v
 coarse stencil boxes
         |
-        | 按 fine owner 布置，用 (box, owner) 去重
+        | 按目标 fine Fab 的 owner 布置，一一对应
         v
 coarse_stage MultiFab
 ```
