@@ -73,6 +73,7 @@
 
 ## 深入分析资料
 
+- [`FillDdfPatch()` 函数学习文档](src/FillDdfPatch函数学习文档.md)
 - [性能分析流程、测量结果与图表](docs/performance_profiling.md)
 - [AMR 网格通信、幽灵单元填充与粗细网格传输](docs/amr_grid_communication.md)
 

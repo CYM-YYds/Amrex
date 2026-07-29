@@ -697,9 +697,9 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     // 正常已安装层由 RebuildCoarseFineCaches() 预构建，其余情况延迟构建。
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
-    const auto fill_ng = f_old[lev].nGrowVect();
+    const auto fill_ng = f_old[lev].nGrowVect(); // 获取f_old[lev] 在 x、y、z 三个方向上分配的 ghost cell 层数。
     const auto& coarsener =
-        cell_bilinear_interp.BoxCoarsener(refRatio(lev - 1));
+        cell_bilinear_interp.BoxCoarsener(refRatio(lev - 1)); // 根据细化比和 cell_bilinear_interp 插值模板，把 fine 目标区域转换成所需 coarse stencil 区域的 Box 转换器。
     const BoxArray& fine_ba = f_old[lev].boxArray();
     const BoxArray fine_ba_simplified = fine_ba.simplified();
     Box fine_domain = Geom(lev).Domain();
