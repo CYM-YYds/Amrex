@@ -2430,35 +2430,48 @@ void interp_bilinear_d3q(
     const int ioff = i - ic * ratio[0];
     const int joff = j - jc * ratio[1];
     const int koff = k - kc * ratio[2];
-    int sx, sy, sz;
-    Real wx, wy, wz;
-    Real ax, ay, az;
 
     if (ratio[0] == 2 && ratio[1] == 2 && ratio[2] == 2) {
         // ratio=2 时，每个方向只有 offset=0/1；当前 coarse parent
-        // 的权重恒为 3/4，相邻 coarse cell 的权重恒为 1/4。
-        sx = ioff == 0 ? -1 : 1;
-        sy = joff == 0 ? -1 : 1;
-        sz = koff == 0 ? -1 : 1;
-        wx = wy = wz = Real(0.75);
-        ax = ay = az = Real(0.25);
-    } else {
-        const bool xlo = ioff * 2 < ratio[0];
-        const bool ylo = joff * 2 < ratio[1];
-        const bool zlo = koff * 2 < ratio[2];
-        sx = xlo ? -1 : 1;
-        sy = ylo ? -1 : 1;
-        sz = zlo ? -1 : 1;
-        wx = xlo ? Real(ratio[0] + 1 + 2 * ioff) / Real(2 * ratio[0])
-                 : Real(3 * ratio[0] - 1 - 2 * ioff) / Real(2 * ratio[0]);
-        wy = ylo ? Real(ratio[1] + 1 + 2 * joff) / Real(2 * ratio[1])
-                 : Real(3 * ratio[1] - 1 - 2 * joff) / Real(2 * ratio[1]);
-        wz = zlo ? Real(ratio[2] + 1 + 2 * koff) / Real(2 * ratio[2])
-                 : Real(3 * ratio[2] - 1 - 2 * koff) / Real(2 * ratio[2]);
-        ax = Real(1.0) - wx;
-        ay = Real(1.0) - wy;
-        az = Real(1.0) - wz;
+        // 的权重恒为 3/4，相邻 coarse cell 的权重恒为 1/4；
+        // 8 个三维组合权重可直接化为 27/64、9/64、3/64、1/64。
+        const int sx = ioff == 0 ? -1 : 1;
+        const int sy = joff == 0 ? -1 : 1;
+        const int sz = koff == 0 ? -1 : 1;
+        constexpr Real w000 = Real(27.0 / 64.0);
+        constexpr Real w100 = Real(9.0 / 64.0);
+        constexpr Real w110 = Real(3.0 / 64.0);
+        constexpr Real w111 = Real(1.0 / 64.0);
+
+        for (int q = 0; q < Q; ++q) {
+            fine(i, j, k, q) =
+                coarse(ic, jc, kc, q) * w000 +
+                coarse(ic + sx, jc, kc, q) * w100 +
+                coarse(ic, jc + sy, kc, q) * w100 +
+                coarse(ic + sx, jc + sy, kc, q) * w110 +
+                coarse(ic, jc, kc + sz, q) * w100 +
+                coarse(ic + sx, jc, kc + sz, q) * w110 +
+                coarse(ic, jc + sy, kc + sz, q) * w110 +
+                coarse(ic + sx, jc + sy, kc + sz, q) * w111;
+        }
+        return;
     }
+
+    const bool xlo = ioff * 2 < ratio[0];
+    const bool ylo = joff * 2 < ratio[1];
+    const bool zlo = koff * 2 < ratio[2];
+    const int sx = xlo ? -1 : 1;
+    const int sy = ylo ? -1 : 1;
+    const int sz = zlo ? -1 : 1;
+    const Real wx = xlo ? Real(ratio[0] + 1 + 2 * ioff) / Real(2 * ratio[0])
+                        : Real(3 * ratio[0] - 1 - 2 * ioff) / Real(2 * ratio[0]);
+    const Real wy = ylo ? Real(ratio[1] + 1 + 2 * joff) / Real(2 * ratio[1])
+                        : Real(3 * ratio[1] - 1 - 2 * joff) / Real(2 * ratio[1]);
+    const Real wz = zlo ? Real(ratio[2] + 1 + 2 * koff) / Real(2 * ratio[2])
+                        : Real(3 * ratio[2] - 1 - 2 * koff) / Real(2 * ratio[2]);
+    const Real ax = Real(1.0) - wx;
+    const Real ay = Real(1.0) - wy;
+    const Real az = Real(1.0) - wz;
 
     for (int q = 0; q < Q; ++q) {
         fine(i, j, k, q) =

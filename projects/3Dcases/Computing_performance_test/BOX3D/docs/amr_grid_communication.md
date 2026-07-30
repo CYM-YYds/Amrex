@@ -11,16 +11,19 @@ AMReX 的 patch-based AMR 实现；不要把它与 Jaber 论文中 GPU-native �
 ```text
 粗层 -> 细层：FillGhostLevel(lev + 1, time, true)
               -> FillDdfPatch()
-              -> FillPatchTwoLevels()
+              -> mode 2 direct staging（当前 inputs）
+                 或 FillPatchTwoLevels()（mode 0/回退路径）
 
 细层 -> 粗层：AverageDownGhostLevel(lev, true)
               -> fused LBM restriction
               -> ParallelCopy()
 ```
 
-`FillGhostLevel()` 将目标细层的 `f_old[lev]` 传给 `FillDdfPatch()`。后者以
-`f_old[lev-1]` 为粗层源，先将非平衡部分缩放到 `f_new[lev-1]` 临时缓存，再将
-该缓存作为 `FillPatchTwoLevels()` 的 coarse source。
+`FillGhostLevel()` 将目标细层的 `f_old[lev]` 传给 `FillDdfPatch()`。当前
+`cf_interp_mode=2` 且目标布局匹配时，后者以 `f_old[lev-1]` 为粗层源，先复制到
+按 fine owner 布置的 `interp_direct_coarse_stage[lev]`，再执行粗 DDF 缩放和
+`interp_bilinear_d3q()`，直接写入 fine work box。mode 0 或 regrid 目标布局不匹配时，
+才回退到 `FillPatchTwoLevels()` 相关路径。
 
 缩放使用：
 
@@ -32,18 +35,17 @@ f^scaled = f^eq + (f - f^eq) * tau_f / (2 * tau_c)
 
 ## 哪些细层区域真正使用粗层插值
 
-`FillDdfPatch()` 不是“用粗层覆盖全部 fine ghost”的简单赋值。AMReX 的
-`FillPatchTwoLevels()` 首先构造待补区域：
+`FillDdfPatch()` 不是“用粗层覆盖全部 fine ghost”的简单赋值。direct mode 先构造
+待补区域；通用 mode 则由 AMReX `FillPatchTwoLevels()` 构造：
 
 ```text
 grow(目标 fine Box, nghost) - fine source 的 BoxArray 覆盖区域
 ```
 
-这个差集由 `FabArrayBase::FPinfo` 缓存。它包含细层自身没有同层有效数据、但为
-计算所需的区域；在非物理边界处，这正是 coarse-fine ghost 区。AMReX 只为这些
-patch 建立粗层源并调用配置的插值器。当前 DDF 路径在 `FillDdfPatch()` 中选用
-`cell_bilinear_interp`；代码中保留了被注释的 `cell_cons_interp` 对照实现。其他
-AMReX 填充路径是否使用保守线性插值，不能据此推断。
+这个差集由 direct cache 的 `fine_ba_simplified.complementIn(target)` 或通用路径的
+`FabArrayBase::FPinfo` 描述。它包含细层自身没有同层有效数据、但为计算所需的区域；
+在非物理边界处，这正是 coarse-fine ghost 区。当前 DDF 路径在 `FillDdfPatch()` 中
+选用 `cell_bilinear_interp`；mode 0/回退路径则继续由 `FillPatchTwoLevels()` 调度。
 
 同一个 fine ghost 位置最终的来源取决于其位置：
 
@@ -55,8 +57,9 @@ AMReX 填充路径是否使用保守线性插值，不能据此推断。
 | 缺少同层 fine 来源的 coarse-fine 边界 | 缩放后的粗层插值     |
 
 因此，粗细交界 ghost 的插值公式只取粗层 DDF；邻近 fine valid 值不参与该插值。
-但 fine 数据仍参与整个填充操作，用于覆盖同层和周期来源。代码先复制粗插细的
-临时 patch，随后以 `FillPatchSingleLevel()` 补入可由 fine source 获得的区域。
+但 fine 数据仍参与整个填充操作，用于覆盖同层和周期来源。direct mode 先复制粗层
+stencil 到 `coarse_stage` 并写入 fine work box，随后以 fine `FillBoundary()` 补入
+可由 fine source 获得的区域。
 
 ## 细到粗平均
 

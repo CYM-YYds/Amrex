@@ -5,11 +5,14 @@
 这个算例用于测量递归 `JaberCycle2()` 路径中的粗细网格 AMR 传输开销。相关的数据路径如下：
 
 ```text
-FillGhostLevel -> FillDdfPatch -> FillPatchTwoLevels
+FillGhostLevel -> FillDdfPatch
+                 -> mode 2 direct staging（当前 inputs）
+                 -> FillPatchTwoLevels（mode 0/回退路径）
 AverageDownGhostLevel -> 选定的 LBM restriction -> ParallelCopy
 ```
 
-算例级的详细计时器会标出高层子阶段，而 AMReX TinyProfiler 会进一步解析 `FillPatchTwoLevels()` 内部的嵌套操作。
+算例级的详细计时器会标出高层子阶段；使用 mode 0 或 regrid 回退路径时，AMReX
+TinyProfiler 还会进一步解析 `FillPatchTwoLevels()` 内部的嵌套操作。
 
 ## 构建与提交
 
@@ -267,19 +270,17 @@ direct kernel。这些作业不能用于评价融合算法。条件现已改为
 这两次运行最终出现了不同的 regrid 历史，因此总时间差不能视为严格的固定网格
 A/B 结果。该表只保留为历史通用路径数据，不是支持或否定融合 kernel 的证据。
 
-## coarse stencil 去重实验
+## coarse stencil staging 的当前设计结论
 
-随后，直接缓存又改成了让 fine 工作盒之间共享相同的 `coarse Box + DistributionMap owner`。这保留了 mode-2 的浮点路径，并在 job `574447` 的 64 步 field-norm 回归测试中通过，valid DDF 误差为零。
+在当前 BOX3D 的 coarse/fine 对齐条件下，一个合法 `work_box` 对应一个确定的
+coarse stencil；不同合法 `work_box` 不会产生完全相同的 stencil。因此当前 direct
+cache 不做 `(coarse_box, owner)` 全局去重，而是让每个 `work_box` 独立对应一个
+staging Box/Fab。`fine_index` 唯一确定目标 Fab 的 `DistributionMap()` owner，
+该 owner 用于构造 `coarse_stage` 的 `DistributionMapping`。
 
-job `574448` 比较的是 direct mode 2 与同样意外回退到通用路径的 mode 3：
-
-| 数量 | 模式 2 | 模式 3 |
-| --- | ---: | ---: |
-| 总时间 | 124.0775 s | 128.5400 s |
-
-mode-2 的结果与去重前基线在统计上没有变化。当前几何中重复的 coarse staging 太少，或者剩余的 `ParallelCopy`、插值和 fine `FillBoundary` 工作占主导。这种优化在数值上是安全的，但没有展示出端到端收益。
-
-同一个 job 报告在 1000 步窗口里大约有 `12.15 s` 的 `FillBoundary` 和 `22.21 s` 的 mode-2 `interp_fillpatch`。后续工作应聚焦 fine 同层 ghost 通信和 coarse staging 数据搬运，而不是进一步做 Box-list 去重。这些计时包含动态演化的 AMR 层次，不能当作固定网格 kernel 来比较。
+这项设计删除了无实际几何收益的候选 Box 搜索；它不等于合并部分重叠的 coarse
+stencil，也不改变 `ParallelCopy`、coarse 缩放、插值或 fine `FillBoundary` 的工作量。
+历史 job `574448` 仍可作为过去去重实验的记录，但不再作为当前实现的描述或优化依据。
 
 ## direct 插值缓存生命周期与计时归属
 
