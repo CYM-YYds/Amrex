@@ -11,8 +11,8 @@ AMReX 的 patch-based AMR 实现；不要把它与 Jaber 论文中 GPU-native �
 ```text
 粗层 -> 细层：FillGhostLevel(lev + 1, time, true)
               -> FillDdfPatch()
-              -> mode 2 direct staging（当前 inputs）
-                 或 FillPatchTwoLevels()（mode 0/回退路径）
+              -> direct staging（正常时间推进）
+                 或 FPinfo temporary patch（RemakeLevel 布局迁移）
 
 细层 -> 粗层：AverageDownGhostLevel(lev, true)
               -> fused LBM restriction
@@ -20,9 +20,9 @@ AMReX 的 patch-based AMR 实现；不要把它与 Jaber 论文中 GPU-native �
 ```
 
 `FillGhostLevel()` 将目标细层的 `f_old[lev]` 传给 `FillDdfPatch()`。当前
-`cf_interp_mode=2` 且目标布局匹配时，后者以 `f_old[lev-1]` 为粗层源，先复制到
+目标布局匹配时，后者以 `f_old[lev-1]` 为粗层源，先复制到
 按 fine owner 布置的 `interp_direct_coarse_stage[lev]`，再执行粗 DDF 缩放和
-`interp_bilinear_d3q()`，直接写入 fine work box。mode 0 或 regrid 目标布局不匹配时，
+`interp_bilinear_d3q()`，直接写入 fine work box。regrid 目标布局不匹配时，
 才回退到 `FillPatchTwoLevels()` 相关路径。
 
 缩放使用：
@@ -45,7 +45,7 @@ grow(目标 fine Box, nghost) - fine source 的 BoxArray 覆盖区域
 这个差集由 direct cache 的 `fine_ba_simplified.complementIn(target)` 或通用路径的
 `FabArrayBase::FPinfo` 描述。它包含细层自身没有同层有效数据、但为计算所需的区域；
 在非物理边界处，这正是 coarse-fine ghost 区。当前 DDF 路径在 `FillDdfPatch()` 中
-选用 `cell_bilinear_interp`；mode 0/回退路径则继续由 `FillPatchTwoLevels()` 调度。
+选用 `cell_bilinear_interp`；布局迁移回退路径使用同一插值公式和 FPinfo temporary patch。
 
 同一个 fine ghost 位置最终的来源取决于其位置：
 

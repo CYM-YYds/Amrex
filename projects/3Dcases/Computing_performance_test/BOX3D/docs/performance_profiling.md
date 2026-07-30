@@ -6,13 +6,13 @@
 
 ```text
 FillGhostLevel -> FillDdfPatch
-                 -> mode 2 direct staging（当前 inputs）
-                 -> FillPatchTwoLevels（mode 0/回退路径）
+                 -> direct staging（正常时间推进）
+                 -> FPinfo temporary patch（RemakeLevel 布局迁移）
 AverageDownGhostLevel -> 选定的 LBM restriction -> ParallelCopy
 ```
 
-算例级的详细计时器会标出高层子阶段；使用 mode 0 或 regrid 回退路径时，AMReX
-TinyProfiler 还会进一步解析 `FillPatchTwoLevels()` 内部的嵌套操作。
+算例级的详细计时器会标出高层子阶段；重构布局迁移走 FPinfo temporary patch，
+其临时对象和数据搬运会归入 regrid 插值计时。
 
 ## 构建与提交
 
@@ -222,9 +222,9 @@ jobs `573417`（模式 2）和 `573418`（模式 3）都是单 GPU、1000 步运
 dsub -s ./scripts/submit_interp_scale_perf.sh
 ```
 
-## 直接 coarse-to-fine 路径：`cf_interp_mode=2`
+## 当前 coarse-to-fine 路径
 
-`cf_interp_mode=2` 并不是插值公式的替代品。在正常时间推进中，它会绕过通用的 `FillPatchTwoLevels()` 调用，并使用 regrid 缓存的 fine ghost 工作盒：
+正常时间推进使用 regrid 缓存的 fine ghost 工作盒：
 
 ```text
 coarse_stage.ParallelCopy
@@ -236,39 +236,15 @@ coarse_stage.ParallelCopy
 
 缓存的几何信息为每个 coarse staging Box 包含一个物理边界标志。这样可以在后续时间步中去掉重复的主机端 Box/domain 检查，但不会去掉占主导的 DDF 数据搬运或 kernel（`ParallelCopy`、`average_scale`、插值和 fine `FillBoundary`）。
 
-jobs `574431` 和 `574438` 使用同一个可执行文件、同一输入、单 GPU、64 步，并在第 32 和 64 步 regrid，比较了 `cf_interp_mode=1` 与 `2`。覆盖 0--2 层所有 27 个分量的 valid-cell DDF 字段比较结果为：
+历史 jobs `574431` 和 `574438` 比较了已删除的 FPinfo 实验路径与当前 direct 路径。覆盖 0--2 层所有 27 个分量的 valid-cell DDF 字段比较结果为：
 
 ```text
 global linf=0, l2=0, relative_l2=0
 ```
 
-因此对于这次测试，直接路径在 bitwise 层面完全一致。短运行中 mode-2 的墙钟时间从 4.4045 s 变为 4.4741 s，这属于测量噪声，而不是已经证明的加速。因此，缓存边界标志是一种保持正确性的微优化，而不是修改生产路径的理由。C++ 成员回退值仍为 `0`，当前算例的 `config/inputs` 已显式选择 mode 2。进一步优化前，应分别测量 `ParallelCopy`、coarse 缩放、插值和 fine ghost-fill 的开销，再决定是否改变数据流。
-
-## 融合 coarse-to-fine 实验：`cf_interp_mode=3`
-
-模式 3 是作为独立实验加入的。它保留了 mode-2 的 staging 布局，但移除了单独的 `average_scale()` kernel，并在每个八点 coarse stencil 上把非平衡缩放直接放进插值 kernel：
-
-```text
-coarse_stage.ParallelCopy
-  -> interp_bilinear_d3q_scaled
-     （coarse 宏观量重构 + 缩放 + 插值）
-  -> fine FillBoundary 和物理边界填充
-```
-
-在缓存生命周期重构时发现，原 direct-path 条件只接受
-`cf_interp_mode == 2`。因此 jobs `574441`、`574442`、`574447` 和
-`574448` 的 mode 3 实际落入了通用 FPinfo patch 路径，并未执行上面的融合
-direct kernel。这些作业不能用于评价融合算法。条件现已改为
-`cf_interp_mode >= 2`，mode 3 必须重新进行 field-norm 和性能验证。
-
-历史 1000 步数据为：
-
-| 数量 | 模式 2 | 模式 3 |
-| --- | ---: | ---: |
-| 总时间 | 123.0075 s | 126.5287 s |
-
-这两次运行最终出现了不同的 regrid 历史，因此总时间差不能视为严格的固定网格
-A/B 结果。该表只保留为历史通用路径数据，不是支持或否定融合 kernel 的证据。
+这确认了 direct 与此前 FPinfo 实验路径在该测试中 bitwise 一致。当前代码只保留
+direct 的数据组织；进一步优化应分别测量 `ParallelCopy`、coarse 缩放、插值和 fine
+ghost-fill 的开销。
 
 ## coarse stencil staging 的当前设计结论
 
@@ -293,35 +269,33 @@ RebuildCoarseFineCaches
   -> RebuildCoarseFineMasks
   -> BuildBoundaryWorkBoxes
   -> BuildInterpolationCache
-       mode 0   -> BuildInterpScaleWorkBoxes
-       mode 1   -> 不构造持久插值缓存
-       mode 2/3 -> BuildDirectInterpolationCache(lev)
+       -> BuildDirectInterpolationCache(lev)
   -> BuildRestrictionCache
 ```
 
-因此 mode 2/3 不再额外构造只供 mode 0 消费的 `interp_scale_work_boxes`。
-`FillDdfPatch()` 只保留初始化特殊路径所需的 direct-cache 延迟构建回退。
+`FillDdfPatch()` 仅在正常时间推进的 direct 目标缺少缓存时延迟构建；
+`RemakeLevel()` 布局不匹配时使用 temporary patch，不会构造或使用 direct cache。
 `interp_cache_build` 和 `interp_cache_builds` 分别记录 direct 布局的构建总耗时和次数。
 
-job `575341` 用 mode 1 checkpoint 对 mode 2 做了 64 步逐层、逐 DDF 回归，所有
+job `575341` 用已删除的 FPinfo 实验路径 checkpoint 对当前 direct 路径做了 64 步逐层、逐 DDF 回归，所有
 27 个分量均得到 `linf=0, l2=0, relative_l2=0`。job `575343` 在同一 GPU、同一
 可执行文件和输入下顺序运行 1000 步，结果为：
 
-| 数量 | mode 2 direct | mode 1 patch |
+| 数量 | 当前 direct | 历史 FPinfo patch |
 | --- | ---: | ---: |
 | 时间推进插值 `interp` | 30.2840 s | 34.0167 s |
 | 总计算时间 | 120.8544 s | 124.0695 s |
 | `MLUPS_total` | 505.38 | 490.76 |
 | 缓存构建 | 0.00464 s / 96 次 | 0 s / 0 次 |
 
-mode 2 在该次动态 AMR 运行中将时间推进插值耗时降低约 11.0%，总计算时间降低约
+当前 direct 路径在该次动态 AMR 运行中将时间推进插值耗时降低约 11.0%，总计算时间降低约
 2.6%。两段运行的后期网格统计略有差异，因此这是受控程度较高的端到端结果，仍不等同于
 固定网格 kernel 基准。旧的 `interp_fillpatch` 同时累计时间推进和 `RemakeLevel()` 的
 regrid 填充，可能略大于 `interp`；新增 `interp_regrid_fill` 和
 `interp_regrid_fill_calls` 后，两种调用来源可单独解释。
 
-增加归属字段后，job `575351` 再次运行相同 A/B。mode 2 得到
+增加归属字段后，job `575351` 再次运行相同 A/B。当前 direct 路径得到
 `interp=29.4486 s`、`interp_fillpatch=29.7810 s`、
 `interp_regrid_fill=0.3559 s`，即扣除 regrid 填充后为 `29.4251 s`，与外层
-时间推进统计仅差约 `0.024 s`。mode 1 也满足同一关系。缓存构建仍为
+时间推进统计仅差约 `0.024 s`。历史 FPinfo 路径也满足同一关系。缓存构建仍为
 `0.00463 s / 96 次`，证明布局构建已不再是插值热路径。

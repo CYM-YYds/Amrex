@@ -33,10 +33,6 @@ using namespace amrex;
 namespace {
 constexpr int cf_interface_mask_nghost = 2;
 constexpr int cf_covered_mask_nghost = cf_interface_mask_nghost + 1;
-// mode 2 的源码级插值选择开关。改为 true 后，direct 路径使用
-// CellConservativeLinear 风格的逐 DDF 守恒线性重构；false 保持当前三线性路径。
-constexpr bool use_conservative_direct_interp = false;
-
 class ScopedPerfTimer {
   public:
     explicit ScopedPerfTimer(double& accum)
@@ -84,7 +80,6 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     interface_mask.resize(nlevs_max);
     covered_cell_counts.resize(nlevs_max, 0);
     interface_cell_counts.resize(nlevs_max, 0);
-    interp_scale_work_boxes.resize(nlevs_max);
     interp_direct_coarse_stage.resize(nlevs_max);
     interp_direct_fine_boxes.resize(nlevs_max);
     interp_direct_fine_index.resize(nlevs_max);
@@ -284,7 +279,6 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  cf_mask=" << std::setw(10) << std::right << cf_mask_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  col_mode=" << std::setw(10) << std::right << collide_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  avg_mode=" << std::setw(10) << std::right << average_mode << std::endl;
-    amrex::Print() << std::setw(15) << std::left << "  cf_interp=" << std::setw(10) << std::right << cf_interp_mode << std::endl;
 
     for (int lev = 0; lev <= finest_level; lev++) {
         amrex::Print() << std::setw(15) << std::left << "  tau    =" << std::setw(10) << std::right << tau[lev] << std::endl;
@@ -488,10 +482,6 @@ void AmrCoreLBM::ReadParameters() {
         pp.query("average_mode", average_mode);
         if (average_mode < 0 || average_mode > 3) {
             amrex::Abort("lbm.average_mode must be 0, 1, 2, or 3");
-        }
-        pp.query("cf_interp_mode", cf_interp_mode);
-        if (cf_interp_mode < 0 || cf_interp_mode > 3) {
-            amrex::Abort("lbm.cf_interp_mode must be 0, 1, 2, or 3");
         }
         int n = pp.countval("err");
         if (n > 0) {
@@ -702,11 +692,8 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
     const auto fill_ng = f_old[lev].nGrowVect(); // 获取f_old[lev] 在 x、y、z 三个方向上分配的 ghost cell 层数。
-    Interpolater* interp_mapper = use_conservative_direct_interp
-                                      ? static_cast<Interpolater*>(&cell_cons_interp)
-                                      : static_cast<Interpolater*>(&cell_bilinear_interp);
     const auto& coarsener =
-        interp_mapper->BoxCoarsener(refRatio(lev - 1));
+        cell_bilinear_interp.BoxCoarsener(refRatio(lev - 1));
     const BoxArray& fine_ba = f_old[lev].boxArray();
     const BoxArray fine_ba_simplified = fine_ba.simplified();
     Box fine_domain = Geom(lev).Domain();
@@ -769,44 +756,28 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     perf_stats.interp_cache_build += amrex::second() - start;
 }
 
-void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) // 加入缩放
+void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf)
 {
-    // amrex::AllPrint()<<"FillDdfPatch from " << lev-1 << " to " << lev <<std::endl;
-
-    // 原 AMReX 守恒线性插值，保留以便对照。
-    // Interpolater* mapper = &cell_cons_interp;
-
-    // Jaber 论文式三线性插值：8 个粗格点加权。
-    Interpolater* mapper = &cell_bilinear_interp;
-
-    amrex::MultiFab& f_new_lev_c = f_new[lev - 1]; // 用f_new当缓存容器
-    amrex::MultiFab& f_old_lev_f = f_old[lev];     // 保持和传入的mf一致
-
-    amrex::Vector<amrex::MultiFab*> cmf{&f_new_lev_c};
-    amrex::Vector<amrex::MultiFab*> fmf{&f_old_lev_f};
-
-    amrex::Vector<Real> ctime{time};
-    amrex::Vector<Real> ftime{time};
-
-    // 如果是粗网格插值到细网格valid,无论如何只需要操作粗网格就可以了。
+    amrex::MultiFab& f_old_lev_f = f_old[lev];
     amrex::MultiFab& f_old_lev_c = f_old[lev - 1];
-    amrex::Real scale = tau[lev] / tau[lev - 1] / 2.0;
+    const amrex::Real scale = tau[lev] / tau[lev - 1] / 2.0;
 
     const amrex::IntVect fill_ng = mf.nGrowVect();
-    const auto& coarsener = mapper->BoxCoarsener(refRatio(lev - 1));
+    const auto ratio = refRatio(lev - 1);
+    AMREX_ALWAYS_ASSERT(ratio == amrex::IntVect(2));
+    const auto& coarsener = cell_bilinear_interp.BoxCoarsener(ratio);
 
-    const bool direct_target =
-        &mf == &f_old_lev_f &&
-        mf.getBDKey() == f_old_lev_f.getBDKey();
+    const bool direct_target = &mf == &f_old_lev_f;
 
-    if (cf_interp_mode >= 2 && direct_target) {
+    if (direct_target) {
         ScopedPerfTimer timer(perf_stats.interp_fillpatch);
         auto& coarse_stage = interp_direct_coarse_stage[lev];
         auto& fine_work_boxes = interp_direct_fine_boxes[lev];
         auto& fine_indices = interp_direct_fine_index[lev];
 
-        // RemakeLevel() 可能早于 RebuildCoarseFineCaches() 到达这里；
-        // 对这种 regrid 期间的首次调用，按当前 fine 布局补建 direct cache。
+        // 仅正常时间推进会走 direct 路径。Regrid 的 RemakeLevel() 传入
+        // 新布局的临时 old_state，布局不匹配时会在下方走通用迁移路径。
+        // 若缓存尚未建立，则按当前 f_old[lev] 布局延迟构建。
         if (!interp_direct_cache_ready[lev]) {
             BuildDirectInterpolationCache(lev);
         }
@@ -860,19 +831,15 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                     });
             }
 
-            if (cf_interp_mode != 3) {
-                for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-                    const auto coarse = coarse_stage.array(mfi);
-                    const Box bx = mfi.validbox();
-                    amrex::ParallelFor(
-                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                            average_scale(i, j, k, coarse, scale);
-                        });
-                }
+            for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+                const auto coarse = coarse_stage.array(mfi);
+                const Box bx = mfi.validbox();
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        average_scale(i, j, k, coarse, scale);
+                    });
             }
 
-            const auto ratio = refRatio(lev - 1);
-            const bool fused_interp = cf_interp_mode == 3;
             for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
                 const int stage_index = mfi.index();
                 const auto coarse = coarse_stage.const_array(mfi);
@@ -881,19 +848,13 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                 const Box& bx = fine_work_boxes[stage_index];
                 amrex::ParallelFor(
                     bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        if (fused_interp) {
-                            interp_bilinear_d3q_scaled(i, j, k, fine, coarse, ratio, scale);
-                        } else if (use_conservative_direct_interp) {
-                            interp_conservative_linear_d3q(i, j, k, fine, coarse, ratio);
-                        } else {
-                            interp_bilinear_d3q(i, j, k, fine, coarse, ratio);
-                        }
+                        interp_bilinear_d3q(i, j, k, fine, coarse);
                     });
             }
         }
 
-        // FillPatchTwoLevels 的最终步骤：同层 fine valid 数据覆盖 coarse
-        // 插值结果，随后再应用细层物理边界条件。
+        // 保持与 FillPatchTwoLevels 相同的最终优先级：同层 fine valid
+        // 数据覆盖 coarse 插值结果，随后施加细层物理边界条件。
         mf.FillBoundary(0, Q, fill_ng, Geom(lev).periodicity());
         if (Gpu::inLaunchRegion()) { // 对 mf 的非周期物理域外 ghost cell施加 fine level 的物理边界条件
             GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
@@ -909,8 +870,9 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
         return;
     }
 
-    // 通用路径沿用 TheFPinfo 的目标区域。mode 2 的正常时间推进已在
-    // 上方返回，因此不会再逐次遍历 patch 元数据；布局变化时仍可安全回退。
+    // Regrid 时目标 old_state 的布局不同于 f_old[lev]。此处按 FPinfo
+    // 构造临时 coarse/fine patch：旧 fine valid 数据优先迁移，新增 valid
+    // 区域及 coarse-fine ghost 由 coarse 插值补全。
     const auto& fpc = FabArrayBase::TheFPinfo(
         f_old_lev_f, mf, fill_ng, coarsener,
         Geom(lev), Geom(lev - 1), nullptr);
@@ -925,7 +887,7 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             fpc.ba_crse_patch[i].numPts();
     }
 
-    if (cf_interp_mode >= 1) {
+    {
         ScopedPerfTimer timer(perf_stats.interp_fillpatch);
 
         if (!fpc.ba_crse_patch.empty()) {
@@ -964,13 +926,12 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                 });
             }
 
-            const auto ratio = refRatio(lev - 1);
             for (MFIter mfi(fine_patch, false); mfi.isValid(); ++mfi) {
                 const auto fine = fine_patch.array(mfi);
                 const auto coarse = coarse_patch.const_array(mfi);
                 const Box bx = mfi.validbox();
                 amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    interp_bilinear_d3q(i, j, k, fine, coarse, ratio);
+                    interp_bilinear_d3q(i, j, k, fine, coarse);
                 });
             }
 
@@ -978,16 +939,10 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                             fill_ng, Geom(lev).periodicity());
         }
 
-        // 与 AMReX 保持相同优先级：coarse 插值先写，最后由同层 fine
-        // valid 数据覆盖重叠 ghost。RemakeLevel 的目标布局不同时使用
-        // ParallelCopy，正常时间推进则直接 FillBoundary。
-        if (&mf == &f_old_lev_f) {
-            mf.FillBoundary(0, Q, fill_ng,
-                            Geom(lev).periodicity());
-        } else {
-            mf.ParallelCopy(f_old_lev_f, 0, 0, Q, amrex::IntVect(0),
-                            fill_ng, Geom(lev).periodicity());
-        }
+        // 此路径的目标不是当前 f_old[lev]；旧 fine valid 数据以最高优先级
+        // 迁移到新布局，并覆盖前面由 coarse 插值写入的重叠区域。
+        mf.ParallelCopy(f_old_lev_f, 0, 0, Q, amrex::IntVect(0),
+                        fill_ng, Geom(lev).periodicity());
 
         if (Gpu::inLaunchRegion()) {
             GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
@@ -1001,56 +956,6 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
             fphysbc(mf, 0, Q, fill_ng, time, 0);
         }
         return;
-    }
-
-    {
-        ScopedPerfTimer timer(perf_stats.interp_scale);
-        // 用于判断当前传入 FillDdfPatch() 的目标细层 mf，是否与此前构造 interp_scale_work_boxes 缓存时使用的细层网格布局一致。
-        const bool cache_matches_target =
-            lev <= finest_level && mf.getBDKey() == f_old_lev_f.getBDKey();
-        for (MFIter mfi(f_old_lev_c, false); mfi.isValid(); ++mfi) {
-            const Array4<Real>& fold = f_old_lev_c.array(mfi);
-            const Array4<Real>& fnew = f_new_lev_c.array(mfi);
-            perf_stats.interp_scale_full_cells += mfi.validbox().numPts();
-
-            if (cache_matches_target) {
-                for (const Box& bx : interp_scale_work_boxes[lev - 1][mfi.index()]) {
-                    perf_stats.interp_scale_cells += bx.numPts();
-                    ++perf_stats.interp_scale_launch_boxes;
-                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        interp_scale(i, j, k, fold, fnew, scale);
-                    });
-                }
-            } else {
-                const Box bx = mfi.validbox();
-                perf_stats.interp_scale_cells += bx.numPts();
-                ++perf_stats.interp_scale_launch_boxes;
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    interp_scale(i, j, k, fold, fnew, scale);
-                });
-            }
-        }
-    }
-
-    {
-        ScopedPerfTimer timer(perf_stats.interp_fillpatch);
-        if (Gpu::inLaunchRegion()) {
-            GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(geom[lev - 1], bcs, gpu_bndry_func);
-            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(geom[lev], bcs, gpu_bndry_func);
-
-            amrex::FillPatchTwoLevels(mf, time, cmf, ctime, fmf, ftime, 0, 0, Q,
-                                      geom[lev - 1], geom[lev], cphysbc, 0, fphysbc, 0,
-                                      refRatio(lev - 1), mapper, bcs, 0);
-        } else {
-            CpuBndryFuncFab bndry_func(nullptr);
-            PhysBCFunct<CpuBndryFuncFab> cphysbc(geom[lev - 1], bcs, bndry_func);
-            PhysBCFunct<CpuBndryFuncFab> fphysbc(geom[lev], bcs, bndry_func);
-
-            amrex::FillPatchTwoLevels(mf, time, cmf, ctime, fmf, ftime, 0, 0, Q,
-                                      geom[lev - 1], geom[lev], cphysbc, 0, fphysbc, 0,
-                                      refRatio(lev - 1), mapper, bcs, 0); // 如果time与ftime匹配,则会把细网格覆盖过去。
-        }
     }
 }
 
@@ -1169,7 +1074,6 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
     for (int lev = 0; lev <= max_level; ++lev) {
         covered_mask[lev].clear();
         interface_mask[lev].clear();
-        interp_scale_work_boxes[lev].clear();
         interp_direct_coarse_stage[lev].clear();
         interp_direct_fine_boxes[lev].clear();
         interp_direct_fine_index[lev].clear();
@@ -1235,18 +1139,6 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
 
         covered_cell_counts[lev] = covered_mask[lev].sum(0, 0);
         interface_cell_counts[lev] = interface_mask[lev].sum(0, 0);
-        if (cf_mask_mode != 0) {
-            // 几何方法构造的工作 Box 必须与逐单元 interface mask 覆盖完全相同的父单元，
-            // 否则平均下传过程可能遗漏或重复处理单元。
-            const Long restriction_interface_cells =
-                average_interface_fine_box[lev].empty()
-                    ? 0
-                    : average_interface_buffer[lev].boxArray().numPts();
-            AMREX_ALWAYS_ASSERT(restriction_interface_cells == interface_cell_counts[lev]);
-            amrex::Print() << "average_interface_observe: lev=" << lev
-                           << " cells=" << restriction_interface_cells
-                           << " boxes=" << average_interface_fine_box[lev].size() << '\n';
-        }
     }
 }
 
@@ -1290,64 +1182,8 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
 }
 
 void AmrCoreLBM::BuildInterpolationCache() {
-    if (cf_interp_mode >= 2) {
-        for (int lev = 1; lev <= finest_level; ++lev) {
-            BuildDirectInterpolationCache(lev);
-        }
-    } else if (cf_interp_mode == 0) {
-        BuildInterpScaleWorkBoxes();
-    }
-}
-
-void AmrCoreLBM::BuildInterpScaleWorkBoxes() {
-    // 用于插值优化
-    /*     整体数据关系
-    fine ghost 待填充区域
-            ↓ TheFPinfo
-    fpc.ba_crse_patch
-            ↓ 周期平移
-    needed_crse_box + shift
-            ↓ 与粗层 BoxArray 求交
-    (index_of_coarse_box, intersection_box)
-            ↓ 去重并缓存
-    interp_scale_work_boxes[lev][coarse_box_id] */
-    for (int lev = 0; lev < finest_level; ++lev) {
-        const int fine_lev = lev + 1;
-        const BoxArray& crse_ba = f_old[lev].boxArray();
-        auto& level_work_boxes = interp_scale_work_boxes[lev];
-        level_work_boxes.resize(crse_ba.size());
-
-        const auto& coarsener = cell_bilinear_interp.BoxCoarsener(refRatio(lev)); // 区域转换器,根据需要填充的fine区域，计算对应的coarse区域
-        const auto& fpc = FabArrayBase::TheFPinfo(
-            f_old[fine_lev], f_old[fine_lev], amrex::IntVect(nghost), coarsener,
-            Geom(fine_lev), Geom(lev), nullptr); // 获取FillPatch几何信息, 会减去能够由同层 fine Box 填充的区域
-
-        const auto periodic_shifts = Geom(lev).periodicity().shiftIntVect();
-        amrex::Vector<std::pair<int, Box>> intersections; // 这是一个临时交集结果容器, 后面会调用
-
-        for (int ibox = 0; ibox < fpc.ba_crse_patch.size(); ++ibox) { // ba_crse_patch表示为了填充细层 nghost 层 ghost cell，经过同层 fine 数据覆盖后，仍然需要从粗层插值的那些区域，在粗网格索引空间中对应哪些 Box。
-            const Box& needed_crse_box = fpc.ba_crse_patch[ibox];
-            for (const IntVect& shift : periodic_shifts) {
-                crse_ba.intersections(needed_crse_box + shift, intersections); // 它检查平移后的所需区域与粗层所有 valid Box 的交集，并将这些交集存储在 intersections 容器中。
-                for (const auto& intersection : intersections) {
-                    level_work_boxes[intersection.first].push_back(intersection.second);
-                }
-            }
-        }
-
-        for (auto& work_boxes_for_one_coarse_box : level_work_boxes) {
-            BoxList box_list;
-
-            for (const Box& work_box : work_boxes_for_one_coarse_box) {
-                box_list.push_back(work_box);
-            }
-
-            BoxList disjoint_boxes = amrex::removeOverlap(box_list);
-
-            work_boxes_for_one_coarse_box.assign(
-                disjoint_boxes.begin(),
-                disjoint_boxes.end());
-        }
+    for (int lev = 1; lev <= finest_level; ++lev) {
+        BuildDirectInterpolationCache(lev);
     }
 }
 

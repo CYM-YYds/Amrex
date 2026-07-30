@@ -2352,30 +2352,6 @@ void swap_ddf(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
     }
 }
 
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void interp_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
-                  amrex::Array4<amrex::Real> const& fnew, amrex::Real scale) {
-    Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0, ft = 0.0, res = 0.0;
-
-    for (int q = 0; q < Q; q++) {
-        ft = fold(i, j, k, q); // 这里的f就是压力分布函数
-        rhot += ft;
-        uxt += ft * e[q][0];
-        uyt += ft * e[q][1];
-        uzt += ft * e[q][2];
-    }
-
-    uxt = uxt / rhot;
-    uyt = uyt / rhot;
-    uzt = uzt / rhot;
-
-    for (int q = 0; q < Q; q++) {
-        res = feqQian(rhot, {uxt, uyt, uzt}, q);
-        fnew(i, j, k, q) = res + (fold(i, j, k, q) - res) * scale;
-    }
-}
-
 // 当前 BOX3D 方腔流不使用体力或 SGS 黏性。该专用路径一次读入
 // D3Q27 分布函数并在后续 BGK 更新中复用，避免原路径第二遍从
 // MultiFab 重新加载 DDF。预先计算 u^2 也避免 feqQian() 对每个 q 重复
@@ -2422,179 +2398,28 @@ AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void interp_bilinear_d3q(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
-    amrex::Array4<amrex::Real const> const& coarse,
-    amrex::IntVect const& ratio) noexcept {
-    const int ic = amrex::coarsen(i, ratio[0]);
-    const int jc = amrex::coarsen(j, ratio[1]);
-    const int kc = amrex::coarsen(k, ratio[2]);
-    const int ioff = i - ic * ratio[0];
-    const int joff = j - jc * ratio[1];
-    const int koff = k - kc * ratio[2];
-
-    if (ratio[0] == 2 && ratio[1] == 2 && ratio[2] == 2) {
-        // ratio=2 时，每个方向只有 offset=0/1；当前 coarse parent
-        // 的权重恒为 3/4，相邻 coarse cell 的权重恒为 1/4；
-        // 8 个三维组合权重可直接化为 27/64、9/64、3/64、1/64。
-        const int sx = ioff == 0 ? -1 : 1;
-        const int sy = joff == 0 ? -1 : 1;
-        const int sz = koff == 0 ? -1 : 1;
-        constexpr Real w000 = Real(27.0 / 64.0);
-        constexpr Real w100 = Real(9.0 / 64.0);
-        constexpr Real w110 = Real(3.0 / 64.0);
-        constexpr Real w111 = Real(1.0 / 64.0);
-
-        for (int q = 0; q < Q; ++q) {
-            fine(i, j, k, q) =
-                coarse(ic, jc, kc, q) * w000 +
-                coarse(ic + sx, jc, kc, q) * w100 +
-                coarse(ic, jc + sy, kc, q) * w100 +
-                coarse(ic + sx, jc + sy, kc, q) * w110 +
-                coarse(ic, jc, kc + sz, q) * w100 +
-                coarse(ic + sx, jc, kc + sz, q) * w110 +
-                coarse(ic, jc + sy, kc + sz, q) * w110 +
-                coarse(ic + sx, jc + sy, kc + sz, q) * w111;
-        }
-        return;
-    }
-
-    const bool xlo = ioff * 2 < ratio[0];
-    const bool ylo = joff * 2 < ratio[1];
-    const bool zlo = koff * 2 < ratio[2];
-    const int sx = xlo ? -1 : 1;
-    const int sy = ylo ? -1 : 1;
-    const int sz = zlo ? -1 : 1;
-    const Real wx = xlo ? Real(ratio[0] + 1 + 2 * ioff) / Real(2 * ratio[0])
-                        : Real(3 * ratio[0] - 1 - 2 * ioff) / Real(2 * ratio[0]);
-    const Real wy = ylo ? Real(ratio[1] + 1 + 2 * joff) / Real(2 * ratio[1])
-                        : Real(3 * ratio[1] - 1 - 2 * joff) / Real(2 * ratio[1]);
-    const Real wz = zlo ? Real(ratio[2] + 1 + 2 * koff) / Real(2 * ratio[2])
-                        : Real(3 * ratio[2] - 1 - 2 * koff) / Real(2 * ratio[2]);
-    const Real ax = Real(1.0) - wx;
-    const Real ay = Real(1.0) - wy;
-    const Real az = Real(1.0) - wz;
+    amrex::Array4<amrex::Real const> const& coarse) noexcept {
+    const int ic = amrex::coarsen(i, 2);
+    const int jc = amrex::coarsen(j, 2);
+    const int kc = amrex::coarsen(k, 2);
+    const int sx = i - 2 * ic == 0 ? -1 : 1;
+    const int sy = j - 2 * jc == 0 ? -1 : 1;
+    const int sz = k - 2 * kc == 0 ? -1 : 1;
+    constexpr Real w000 = Real(27.0 / 64.0);
+    constexpr Real w100 = Real(9.0 / 64.0);
+    constexpr Real w110 = Real(3.0 / 64.0);
+    constexpr Real w111 = Real(1.0 / 64.0);
 
     for (int q = 0; q < Q; ++q) {
         fine(i, j, k, q) =
-            coarse(ic, jc, kc, q) * wx * wy * wz +
-            coarse(ic + sx, jc, kc, q) * ax * wy * wz +
-            coarse(ic, jc + sy, kc, q) * wx * ay * wz +
-            coarse(ic + sx, jc + sy, kc, q) * ax * ay * wz +
-            coarse(ic, jc, kc + sz, q) * wx * wy * az +
-            coarse(ic + sx, jc, kc + sz, q) * ax * wy * az +
-            coarse(ic, jc + sy, kc + sz, q) * wx * ay * az +
-            coarse(ic + sx, jc + sy, kc + sz, q) * ax * ay * az;
-    }
-}
-
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-amrex::Real interp_minmod(amrex::Real a, amrex::Real b) noexcept {
-    return (a * b <= amrex::Real(0.0))
-               ? amrex::Real(0.0)
-               : (a > amrex::Real(0.0) ? amrex::min(a, b)
-                                       : amrex::max(a, b));
-}
-
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void interp_conservative_linear_d3q(
-    int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
-    amrex::Array4<amrex::Real const> const& coarse,
-    amrex::IntVect const& ratio) noexcept {
-    const int ic = amrex::coarsen(i, ratio[0]);
-    const int jc = amrex::coarsen(j, ratio[1]);
-    const int kc = amrex::coarsen(k, ratio[2]);
-    const int ioff = i - ic * ratio[0];
-    const int joff = j - jc * ratio[1];
-    const int koff = k - kc * ratio[2];
-
-    // CellConservativeLinear 风格的 cell-centered MUSCL 重构：
-    // 斜率由左右 coarse cell 的 one-sided difference 做 minmod 限制，
-    // fine child 的中心相对 coarse parent 中心位于 +/- 1/4（ratio=2）。
-    const amrex::Real dx =
-        (amrex::Real(2 * ioff + 1) / amrex::Real(ratio[0]) - amrex::Real(1.0)) *
-        amrex::Real(0.5);
-    const amrex::Real dy =
-        (amrex::Real(2 * joff + 1) / amrex::Real(ratio[1]) - amrex::Real(1.0)) *
-        amrex::Real(0.5);
-    const amrex::Real dz =
-        (amrex::Real(2 * koff + 1) / amrex::Real(ratio[2]) - amrex::Real(1.0)) *
-        amrex::Real(0.5);
-
-    for (int q = 0; q < Q; ++q) {
-        const amrex::Real uc = coarse(ic, jc, kc, q);
-        const amrex::Real sx = interp_minmod(
-            uc - coarse(ic - 1, jc, kc, q),
-            coarse(ic + 1, jc, kc, q) - uc);
-        const amrex::Real sy = interp_minmod(
-            uc - coarse(ic, jc - 1, kc, q),
-            coarse(ic, jc + 1, kc, q) - uc);
-        const amrex::Real sz = interp_minmod(
-            uc - coarse(ic, jc, kc - 1, q),
-            coarse(ic, jc, kc + 1, q) - uc);
-        fine(i, j, k, q) = uc + dx * sx + dy * sy + dz * sz;
-    }
-}
-
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void interp_bilinear_d3q_scaled(
-    int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
-    amrex::Array4<amrex::Real const> const& coarse,
-    amrex::IntVect const& ratio, amrex::Real scale) noexcept {
-    const int ic = amrex::coarsen(i, ratio[0]);
-    const int jc = amrex::coarsen(j, ratio[1]);
-    const int kc = amrex::coarsen(k, ratio[2]);
-    const int ioff = i - ic * ratio[0];
-    const int joff = j - jc * ratio[1];
-    const int koff = k - kc * ratio[2];
-    const bool xlo = ioff * 2 < ratio[0];
-    const bool ylo = joff * 2 < ratio[1];
-    const bool zlo = koff * 2 < ratio[2];
-    const int sx = xlo ? -1 : 1;
-    const int sy = ylo ? -1 : 1;
-    const int sz = zlo ? -1 : 1;
-    const Real wx = xlo ? Real(ratio[0] + 1 + 2 * ioff) / Real(2 * ratio[0])
-                        : Real(3 * ratio[0] - 1 - 2 * ioff) / Real(2 * ratio[0]);
-    const Real wy = ylo ? Real(ratio[1] + 1 + 2 * joff) / Real(2 * ratio[1])
-                        : Real(3 * ratio[1] - 1 - 2 * joff) / Real(2 * ratio[1]);
-    const Real wz = zlo ? Real(ratio[2] + 1 + 2 * koff) / Real(2 * ratio[2])
-                        : Real(3 * ratio[2] - 1 - 2 * koff) / Real(2 * ratio[2]);
-    const Real ax = Real(1.0) - wx;
-    const Real ay = Real(1.0) - wy;
-    const Real az = Real(1.0) - wz;
-
-    const int ci[8] = {ic, ic + sx, ic, ic + sx, ic, ic + sx, ic, ic + sx};
-    const int cj[8] = {jc, jc, jc + sy, jc + sy, jc, jc, jc + sy, jc + sy};
-    const int ck[8] = {kc, kc, kc, kc, kc + sz, kc + sz, kc + sz, kc + sz};
-    const Real weight[8] = {
-        wx * wy * wz, ax * wy * wz, wx * ay * wz, ax * ay * wz,
-        wx * wy * az, ax * wy * az, wx * ay * az, ax * ay * az};
-
-    Real result[Q] = {};
-    for (int s = 0; s < 8; ++s) {
-        Real rho = 0.0;
-        Real ux = 0.0;
-        Real uy = 0.0;
-        Real uz = 0.0;
-        for (int q = 0; q < Q; ++q) {
-            const Real fq = coarse(ci[s], cj[s], ck[s], q);
-            rho += fq;
-            ux += fq * e[q][0];
-            uy += fq * e[q][1];
-            uz += fq * e[q][2];
-        }
-        ux /= rho;
-        uy /= rho;
-        uz /= rho;
-        for (int q = 0; q < Q; ++q) {
-            const Real fq = coarse(ci[s], cj[s], ck[s], q);
-            const Real feq = feqQian(rho, {ux, uy, uz}, q);
-            result[q] += weight[s] * (feq + (fq - feq) * scale);
-        }
-    }
-    for (int q = 0; q < Q; ++q) {
-        fine(i, j, k, q) = result[q];
+            coarse(ic, jc, kc, q) * w000 +
+            coarse(ic + sx, jc, kc, q) * w100 +
+            coarse(ic, jc + sy, kc, q) * w100 +
+            coarse(ic + sx, jc + sy, kc, q) * w110 +
+            coarse(ic, jc, kc + sz, q) * w100 +
+            coarse(ic + sx, jc, kc + sz, q) * w110 +
+            coarse(ic, jc + sy, kc + sz, q) * w110 +
+            coarse(ic + sx, jc + sy, kc + sz, q) * w111;
     }
 }
 

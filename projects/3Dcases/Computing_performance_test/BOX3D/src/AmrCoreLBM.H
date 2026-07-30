@@ -38,7 +38,6 @@ class AmrCoreLBM : public amrex::AmrCore {
         long long interp_cache_builds = 0;
         double interp_regrid_fill = 0.0;
         long long interp_regrid_fill_calls = 0;
-        double interp_scale = 0.0;
         double interp_fillpatch = 0.0;
         double collide = 0.0;
         double stream = 0.0;
@@ -55,9 +54,6 @@ class AmrCoreLBM : public amrex::AmrCore {
         double swap = 0.0;
         long long fillghost_calls = 0;
         long long avgdown_calls = 0;
-        long long interp_scale_full_cells = 0;
-        long long interp_scale_cells = 0;
-        long long interp_scale_launch_boxes = 0;
         long long interp_fillpatch_fine_cells = 0;
         long long interp_fillpatch_coarse_cells = 0;
         long long interp_fillpatch_boxes = 0;
@@ -169,7 +165,6 @@ class AmrCoreLBM : public amrex::AmrCore {
   private:
     void BuildBoundaryWorkBoxes();
     void BuildInterpolationCache();
-    void BuildInterpScaleWorkBoxes();
     void BuildRestrictionCache();
     void BuildDirectInterpolationCache(int lev);
 
@@ -183,9 +178,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     int collide_mode = 0;
     // 0：全区域分步；1：全区域融合；2：交界区域分步；3：交界区域融合。
     int average_mode = 1;
-    // 0：AMReX FillPatchTwoLevels；1：FPinfo patch；2：直接写 fine ghost；
-    // 3：直接插值并在同一 kernel 内完成粗 DDF 非平衡缩放。
-    int cf_interp_mode = 0;
 
     amrex::Vector<amrex::BCRec> bcs;
     amrex::Vector<amrex::Real> err;
@@ -210,10 +202,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::iMultiFab> interface_mask;
     amrex::Vector<amrex::Long> covered_cell_counts;
     amrex::Vector<amrex::Long> interface_cell_counts;
-    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> interp_scale_work_boxes;
-    // mode 2：按 fine Box 归属缓存 coarse stencil，并直接写对应 fine Fab。
+    // 按 fine Box 归属缓存 coarse stencil，并直接写对应 fine Fab。
     amrex::Vector<amrex::MultiFab> interp_direct_coarse_stage;
-    // mode 2/3：每个 staging Box 与一个 fine work Box/Fab 一一对应。
+    // 每个 staging Box 与一个 fine work Box/Fab 一一对应。
     amrex::Vector<amrex::Vector<amrex::Box>> interp_direct_fine_boxes;
     amrex::Vector<amrex::Vector<int>> interp_direct_fine_index;
     amrex::Vector<amrex::Vector<unsigned char>> interp_direct_needs_physical_fill;

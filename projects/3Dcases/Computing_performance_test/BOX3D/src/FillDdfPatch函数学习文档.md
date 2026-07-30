@@ -2,7 +2,7 @@
 
 > 适用范围：`projects/3Dcases/Computing_performance_test/BOX3D/` 当前代码。
 >
-> 当前运行主线：`config/inputs` 设置 `lbm.cf_interp_mode = 2`。
+> 当前实现固定使用稀疏 coarse staging、非平衡缩放和 ratio=2 的三线性插值。
 >
 > 本文的“插值”是 **AMR 粗层到细层的 DDF ghost 填充**，不是 IBM 粒子与流场之间的 `InterpForce()`。
 
@@ -52,20 +52,11 @@ main()
 
 `JaberCycle2()` 对每个非最细层先填充下一层 ghost，再推进当前层。下一层以一半时间步连续推进两次，最后才平均回粗层。
 
-### 1.3 先认准当前生效模式
+### 1.3 当前唯一实现
 
-`AmrCoreLBM.H` 中 `cf_interp_mode` 的 C++ 初值是 `0`，但运行时会由 `ReadParameters()` 读取输入文件覆盖。当前 `config/inputs` 设为：
-
-```text
-lbm.cf_interp_mode = 2
-```
-
-因此建议按以下顺序学习：
-
-1. 以 mode 2 理解当前实际数据流；
-2. 再用 mode 0 理解它与 AMReX `FillPatchTwoLevels()` 的对应关系；
-3. mode 1 用于理解 `TheFPinfo()` 生成的 patch 布局；
-4. mode 3 是融合缩放实验路径，不作为首次阅读主线。
+正常时间推进使用预构建的 direct cache；重构时目标布局不同，自动使用
+`TheFPinfo()` 临时 patch 迁移旧 fine valid 数据并初始化新增 valid 区域。两条路径
+采用相同的 coarse 非平衡缩放和 ratio=2 三线性公式，不再有运行时模式选择。
 
 ## 2. 学习所需的四个文件
 
@@ -118,7 +109,7 @@ regrid 的 `RemakeLevel()` 也可能传入不同布局的临时 `MultiFab`。因
 | ------------------------------------------ | -------------- | ----------------------------------- | ------------------------------------------- |
 | `f_old[lev-1]`                           | `AmrCoreLBM` | coarse level`BoxArray/DM`         | 原始 coarse DDF，只读来源                   |
 | `f_old[lev]`                             | `AmrCoreLBM` | fine level`BoxArray/DM`           | 正常时间推进的 fine 目标                    |
-| `interp_direct_coarse_stage[lev]`        | `AmrCoreLBM` | 按 fine owner 构造的稀疏 coarse Box | mode 2/3 的 coarse stencil 临时容器         |
+| `interp_direct_coarse_stage[lev]`        | `AmrCoreLBM` | 按 fine owner 构造的稀疏 coarse Box | coarse stencil 临时容器         |
 | `interp_direct_fine_boxes[lev]`          | `AmrCoreLBM` | `stage_index -> work_box`         | 记录每个 staging Box 要写的 fine ghost 区域 |
 | `interp_direct_fine_index[lev]`          | `AmrCoreLBM` | `stage_index -> fine_index`       | 找到目标 fine Box                           |
 | `interp_direct_needs_physical_fill[lev]` | `AmrCoreLBM` | 每个 staging Box 一个标志           | 识别 coarse stencil 是否越过非周期物理边界  |
@@ -212,7 +203,7 @@ staging Box 被放到目标 fine Fab 所在的 MPI rank/GPU。这样 `ParallelCo
 
 ### 4.7 `needs_physical_fill`
 
-如果 coarse stencil 越过非周期 coarse domain，cache 会记录该 Box 需要物理边界补值。mode 2 时的实现把域外索引截断到最近的域内 cell，例如：
+如果 coarse stencil 越过非周期 coarse domain，cache 会记录该 Box 需要物理边界补值。当前实现把域外索引截断到最近的域内 cell，例如：
 
 ```text
 -1 -> 0
@@ -245,7 +236,7 @@ coarse_stage MultiFab
 
 到这一步还没有执行 DDF 缩放和插值，只是确定“写哪些 fine cell、读哪些 coarse cell、数据放到哪个 owner”。
 
-## 5. 第二层：mode 2 每次调用真正做了什么
+## 5. 第二层：每次调用真正做了什么
 
 ### 5.1 判断 direct 路径能否使用
 
@@ -255,7 +246,7 @@ const bool direct_target =
     mf.getBDKey() == f_old_lev_f.getBDKey();
 ```
 
-只有目标就是当前 `f_old[lev]` 且布局键匹配时，mode 2/3 才使用预构建 direct cache。
+只有目标就是当前 `f_old[lev]` 且布局键匹配时，才使用预构建 direct cache。
 
 ### 5.2 把 coarse DDF 搬到 staging 布局
 
@@ -276,7 +267,7 @@ f_old[lev-1] -> interp_direct_coarse_stage[lev]
 
 ### 5.3 粗层非平衡 DDF 缩放
 
-对 mode 2，每个 staging cell 执行：
+每个 staging cell 执行：
 
 ```cpp
 average_scale(i, j, k, coarse, scale);
@@ -299,7 +290,7 @@ kernel 先由所有 `Q` 个 DDF 恢复 `rho` 和 `u`，计算平衡态 `feq`，�
 ### 5.4 三线性插值直接写 fine ghost
 
 ```cpp
-interp_bilinear_d3q(i, j, k, fine, coarse, ratio);
+interp_bilinear_d3q(i, j, k, fine, coarse);
 ```
 
 对每个 fine ghost cell 和每个 DDF 方向 `q`，kernel 从 8 个 coarse 点取值：
@@ -351,21 +342,15 @@ $$
 
 三维情况只是在 x、y、z 方向各选两个 coarse 点，将三个一维权重相乘后对 8 个点求和。
 
-当前 `Kernels.H` 对 `ratio=(2,2,2)` 保留了专用快速路径：三个方向的权重只可能是
-`3/4` 或 `1/4`，八个组合权重直接使用 `27/64`、`9/64`、`3/64`、`1/64`，不再在
-每个 fine cell 内重复计算通用权重公式。其他 refinement ratio 仍使用通用路径；该改动
-需要通过 DDF 范数回归和受控性能 A/B 验证，不能仅凭静态代码推断加速。
+当前代码固定要求 `ratio=(2,2,2)`。三个方向的权重只可能是 `3/4` 或 `1/4`，八个组合
+权重直接使用 `27/64`、`9/64`、`3/64`、`1/64`，不再保留通用 refinement-ratio 分支。
 
-## 7. 四种 `cf_interp_mode` 的对照
+## 7. direct 与重构迁移两条调用路径
 
-|  mode | 数据路径                                                                                 | 学习价值                                      |
-| ----: | ---------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `0` | 在`f_new[lev-1]` 上缩放所需 coarse 区域，再调用 AMReX `FillPatchTwoLevels()`         | 理解通用 AMReX FillPatch 语义的对照基线       |
-| `1` | `TheFPinfo()` 构造 `coarse_patch/fine_patch`，缩放、插值后 `ParallelCopy()` 回目标 | 理解 AMReX patch 元数据和稀疏临时`MultiFab` |
-| `2` | 预构建`coarse_stage`，缩放 coarse DDF，直接写 fine ghost                               | **当前 `config/inputs` 的实际路径**   |
-| `3` | 在`interp_bilinear_d3q_scaled()` 中融合缩放和插值                                      | 实验路径；理解融合 kernel 后再阅读            |
-
-注意：mode 2/3 只在 `direct_target == true` 时走 direct 路径。布局不匹配时，它们会落入后面的通用 `TheFPinfo()` patch 处理，所以“参数是 mode 2”不代表所有调用都必然执行 direct kernel。
+`direct_target == true` 时，`mf` 就是 `f_old[lev]`，使用缓存直接填 coarse-fine ghost。
+`RemakeLevel()` 传入新布局的临时 `old_state`，因此 `direct_target == false`：通用 patch
+先用 coarse 插值写新增 valid 区域和缺失 ghost，再用旧 `f_old[lev]` 覆盖能迁移的 fine
+valid/ghost，最后处理物理边界。
 
 ## 8. 容易混淆的五个点
 
@@ -417,6 +402,6 @@ ParallelCopy 为什么可能产生 MPI 通信？
 - `coarse_stage` 为什么要跟随 fine owner？
 - `average_scale()` 缩放的是什么，为什么不能直接乘整个 `f_q`？
 - `FillBoundary()` 和 coarse-fine 插值各自填充哪些 ghost？
-- 为什么 mode 2 在 regrid 目标布局不匹配时需要回退？
+- 为什么 direct 路径在 regrid 目标布局不匹配时需要回退？
 
 如果这六个问题都能脱离代码回答，就已经掌握了当前 BOX3D `FillDdfPatch()` 的主体逻辑。
