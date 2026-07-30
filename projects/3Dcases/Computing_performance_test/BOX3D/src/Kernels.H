@@ -2488,6 +2488,56 @@ void interp_bilinear_d3q(
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
+amrex::Real interp_minmod(amrex::Real a, amrex::Real b) noexcept {
+    return (a * b <= amrex::Real(0.0))
+               ? amrex::Real(0.0)
+               : (a > amrex::Real(0.0) ? amrex::min(a, b)
+                                       : amrex::max(a, b));
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void interp_conservative_linear_d3q(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    amrex::IntVect const& ratio) noexcept {
+    const int ic = amrex::coarsen(i, ratio[0]);
+    const int jc = amrex::coarsen(j, ratio[1]);
+    const int kc = amrex::coarsen(k, ratio[2]);
+    const int ioff = i - ic * ratio[0];
+    const int joff = j - jc * ratio[1];
+    const int koff = k - kc * ratio[2];
+
+    // CellConservativeLinear 风格的 cell-centered MUSCL 重构：
+    // 斜率由左右 coarse cell 的 one-sided difference 做 minmod 限制，
+    // fine child 的中心相对 coarse parent 中心位于 +/- 1/4（ratio=2）。
+    const amrex::Real dx =
+        (amrex::Real(2 * ioff + 1) / amrex::Real(ratio[0]) - amrex::Real(1.0)) *
+        amrex::Real(0.5);
+    const amrex::Real dy =
+        (amrex::Real(2 * joff + 1) / amrex::Real(ratio[1]) - amrex::Real(1.0)) *
+        amrex::Real(0.5);
+    const amrex::Real dz =
+        (amrex::Real(2 * koff + 1) / amrex::Real(ratio[2]) - amrex::Real(1.0)) *
+        amrex::Real(0.5);
+
+    for (int q = 0; q < Q; ++q) {
+        const amrex::Real uc = coarse(ic, jc, kc, q);
+        const amrex::Real sx = interp_minmod(
+            uc - coarse(ic - 1, jc, kc, q),
+            coarse(ic + 1, jc, kc, q) - uc);
+        const amrex::Real sy = interp_minmod(
+            uc - coarse(ic, jc - 1, kc, q),
+            coarse(ic, jc + 1, kc, q) - uc);
+        const amrex::Real sz = interp_minmod(
+            uc - coarse(ic, jc, kc - 1, q),
+            coarse(ic, jc, kc + 1, q) - uc);
+        fine(i, j, k, q) = uc + dx * sx + dy * sy + dz * sz;
+    }
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
 void interp_bilinear_d3q_scaled(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,

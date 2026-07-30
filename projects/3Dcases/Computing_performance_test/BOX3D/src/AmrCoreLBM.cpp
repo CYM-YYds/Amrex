@@ -33,6 +33,9 @@ using namespace amrex;
 namespace {
 constexpr int cf_interface_mask_nghost = 2;
 constexpr int cf_covered_mask_nghost = cf_interface_mask_nghost + 1;
+// mode 2 的源码级插值选择开关。改为 true 后，direct 路径使用
+// CellConservativeLinear 风格的逐 DDF 守恒线性重构；false 保持当前三线性路径。
+constexpr bool use_conservative_direct_interp = false;
 
 class ScopedPerfTimer {
   public:
@@ -699,8 +702,11 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
     const auto fill_ng = f_old[lev].nGrowVect(); // 获取f_old[lev] 在 x、y、z 三个方向上分配的 ghost cell 层数。
+    Interpolater* interp_mapper = use_conservative_direct_interp
+                                      ? static_cast<Interpolater*>(&cell_cons_interp)
+                                      : static_cast<Interpolater*>(&cell_bilinear_interp);
     const auto& coarsener =
-        cell_bilinear_interp.BoxCoarsener(refRatio(lev - 1)); // 根据细化比和 cell_bilinear_interp 插值模板，把 fine 目标区域转换成所需 coarse stencil 区域的 Box 转换器。
+        interp_mapper->BoxCoarsener(refRatio(lev - 1));
     const BoxArray& fine_ba = f_old[lev].boxArray();
     const BoxArray fine_ba_simplified = fine_ba.simplified();
     Box fine_domain = Geom(lev).Domain();
@@ -877,6 +883,8 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf) //
                     bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                         if (fused_interp) {
                             interp_bilinear_d3q_scaled(i, j, k, fine, coarse, ratio, scale);
+                        } else if (use_conservative_direct_interp) {
+                            interp_conservative_linear_d3q(i, j, k, fine, coarse, ratio);
                         } else {
                             interp_bilinear_d3q(i, j, k, fine, coarse, ratio);
                         }
@@ -1227,6 +1235,18 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
 
         covered_cell_counts[lev] = covered_mask[lev].sum(0, 0);
         interface_cell_counts[lev] = interface_mask[lev].sum(0, 0);
+        if (cf_mask_mode != 0) {
+            // 几何方法构造的工作 Box 必须与逐单元 interface mask 覆盖完全相同的父单元，
+            // 否则平均下传过程可能遗漏或重复处理单元。
+            const Long restriction_interface_cells =
+                average_interface_fine_box[lev].empty()
+                    ? 0
+                    : average_interface_buffer[lev].boxArray().numPts();
+            AMREX_ALWAYS_ASSERT(restriction_interface_cells == interface_cell_counts[lev]);
+            amrex::Print() << "average_interface_observe: lev=" << lev
+                           << " cells=" << restriction_interface_cells
+                           << " boxes=" << average_interface_fine_box[lev].size() << '\n';
+        }
     }
 }
 
@@ -1380,18 +1400,6 @@ void AmrCoreLBM::BuildRestrictionCache() {
             average_interface_fine_box[lev] = std::move(fine_box_indices);
         }
 
-        if (cf_mask_mode != 0) {
-            // 几何方法构造的工作 Box 必须与逐单元 interface mask 覆盖完全相同的父单元，
-            // 否则平均下传过程可能遗漏或重复处理单元。
-            const Long restriction_interface_cells =
-                average_interface_fine_box[lev].empty()
-                    ? 0
-                    : average_interface_buffer[lev].boxArray().numPts();
-            AMREX_ALWAYS_ASSERT(restriction_interface_cells == interface_cell_counts[lev]);
-            amrex::Print() << "average_interface_observe: lev=" << lev
-                           << " cells=" << restriction_interface_cells
-                           << " boxes=" << average_interface_fine_box[lev].size() << '\n';
-        }
     }
 }
 
