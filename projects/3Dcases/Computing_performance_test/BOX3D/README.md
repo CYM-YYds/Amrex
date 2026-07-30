@@ -31,7 +31,7 @@
 | --- | --- |
 | `interp_scale` | 粗网格到细网格填充前的 LBM 非平衡量缩放。 |
 | `interp_cache_build` | 网格建立或 regrid 后构造 direct coarse-to-fine 插值布局的主机端耗时。 |
-| `interp_regrid_fill` | `RemakeLevel()` 为新网格布局调用 `FillDdfPatch()` 的耗时，归属于 regrid 而非时间推进中的 `interp`。 |
+| `interp_regrid_fill` | `RemakeLevel()` 调用 `RemakeDdfState()` 迁移新网格布局的耗时，归属于 regrid 而非时间推进中的 `interp`。 |
 | `interp_fillpatch` | 当前 DDF 粗细网格填充实现的总耗时；可能是通用 patch 路径或 direct 路径。 |
 | `average_alloc` / `average_copy` / `average_scale` | 分步 restriction 的缓冲、复制与非平衡量缩放耗时；融合模式下应为 0。 |
 | `average_down` | 当前所选 restriction 路径的总耗时，包含 kernel 与结果回写。 |
@@ -73,7 +73,7 @@
 
 ## 深入分析资料
 
-- [`FillDdfPatch()` 函数学习文档](src/FillDdfPatch函数学习文档.md)
+- [DDF coarse-to-fine 填充学习文档](src/FillDdfPatch函数学习文档.md)
 - [性能分析流程、测量结果与图表](docs/performance_profiling.md)
 - [AMR 网格通信、幽灵单元填充与粗细网格传输](docs/amr_grid_communication.md)
 

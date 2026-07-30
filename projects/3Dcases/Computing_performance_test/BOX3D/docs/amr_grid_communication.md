@@ -10,7 +10,7 @@ AMReX 的 patch-based AMR 实现；不要把它与 Jaber 论文中 GPU-native �
 
 ```text
 粗层 -> 细层：FillGhostLevel(lev + 1, time, true)
-              -> FillDdfPatch()
+              -> FillDdfGhostFromCoarse()
               -> direct staging（正常时间推进）
                  或 FPinfo temporary patch（RemakeLevel 布局迁移）
 
@@ -19,7 +19,7 @@ AMReX 的 patch-based AMR 实现；不要把它与 Jaber 论文中 GPU-native �
               -> ParallelCopy()
 ```
 
-`FillGhostLevel()` 将目标细层的 `f_old[lev]` 传给 `FillDdfPatch()`。当前
+`FillGhostLevel()` 调用 `FillDdfGhostFromCoarse()` 填充目标细层的 `f_old[lev]`。当前
 目标布局匹配时，后者以 `f_old[lev-1]` 为粗层源，先复制到
 按 fine owner 布置的 `interp_direct_coarse_stage[lev]`，再执行粗 DDF 缩放和
 `interp_bilinear_d3q()`，直接写入 fine work box。regrid 目标布局不匹配时，
@@ -35,7 +35,7 @@ f^scaled = f^eq + (f - f^eq) * tau_f / (2 * tau_c)
 
 ## 哪些细层区域真正使用粗层插值
 
-`FillDdfPatch()` 不是“用粗层覆盖全部 fine ghost”的简单赋值。direct mode 先构造
+`FillDdfGhostFromCoarse()` 不是“用粗层覆盖全部 fine ghost”的简单赋值。direct 路径先构造
 待补区域；通用 mode 则由 AMReX `FillPatchTwoLevels()` 构造：
 
 ```text
@@ -44,7 +44,7 @@ grow(目标 fine Box, nghost) - fine source 的 BoxArray 覆盖区域
 
 这个差集由 direct cache 的 `fine_ba_simplified.complementIn(target)` 或通用路径的
 `FabArrayBase::FPinfo` 描述。它包含细层自身没有同层有效数据、但为计算所需的区域；
-在非物理边界处，这正是 coarse-fine ghost 区。当前 DDF 路径在 `FillDdfPatch()` 中
+在非物理边界处，这正是 coarse-fine ghost 区。当前 DDF 路径在 `FillDdfGhostFromCoarse()` 中
 选用 `cell_bilinear_interp`；布局迁移回退路径使用同一插值公式和 FPinfo temporary patch。
 
 同一个 fine ghost 位置最终的来源取决于其位置：
@@ -135,7 +135,7 @@ coarse cell 的条带，用于裁剪粗层 Collide/Stream。粗细 ghost 填充�
 
 ## 当前实现的性能边界
 
-`FillPatchTwoLevels()` 仅为所需 coarse-fine patch 插值。当前 `FillDdfPatch()` 的
+`FillPatchTwoLevels()` 仅为所需 coarse-fine patch 插值。当前 `RemakeDdfState()` 的
 `interp_scale` 同样不再缩放整层粗网格：`RebuildCoarseFineCaches()` 直接复用 AMReX
 `FPinfo.ba_crse_patch` 描述的粗层 patch，并将其与粗层 valid Box 相交，生成按 coarse Box
 索引的缓存工作箱。`ba_crse_patch` 已由 `CellBilinear::CoarseBox()` 扩展到插值 stencil
@@ -154,6 +154,6 @@ coarse cell 的条带，用于裁剪粗层 Collide/Stream。粗细 ghost 填充�
 相关源码入口：
 
 - `src/main.cpp`: `JaberCycle2()`
-- `src/AmrCoreLBM.cpp`: `FillDdfPatch()`、`FillGhostLevel()`、`AverageDownGhostLevel()`
+- `src/AmrCoreLBM.cpp`: `FillDdfGhostFromCoarse()`、`RemakeDdfState()`、`FillGhostLevel()`、`AverageDownGhostLevel()`
 - `amrex-26.06/Src/AmrCore/AMReX_FillPatchUtil_I.H`: `FillPatchTwoLevels_doit()`
 - `amrex-26.06/Src/Base/AMReX_FabArrayBase.cpp`: `FabArrayBase::FPinfo`

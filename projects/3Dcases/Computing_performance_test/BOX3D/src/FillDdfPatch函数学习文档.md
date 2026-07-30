@@ -1,4 +1,4 @@
-# BOX3D `FillDdfPatch()` 学习文档
+# BOX3D DDF coarse-to-fine 填充学习文档
 
 > 适用范围：`projects/3Dcases/Computing_performance_test/BOX3D/` 当前代码。
 >
@@ -16,7 +16,7 @@
 2. 粗细交界处由 coarse DDF 插值得到的数据；
 3. 物理边界条件。
 
-`FillDdfPatch()` 把这三类来源按正确优先级写入细层目标 `MultiFab`：
+`FillDdfGhostFromCoarse()` 把这三类来源按正确优先级写入当前细层的 ghost：
 
 ```text
 coarse f_old[lev-1]
@@ -39,7 +39,7 @@ fine coarse-fine ghost
 f_old[lev] 的 ghost 可供后续计算使用
 ```
 
-`FillDdfPatch()` **不负责**碰撞、迁移和 fine-to-coarse 平均下传。平均下传由 `AverageDownGhostLevel()` 处理。
+`FillDdfGhostFromCoarse()` **不负责**碰撞、迁移和 fine-to-coarse 平均下传。平均下传由 `AverageDownGhostLevel()` 处理。
 
 ### 1.2 当前时间推进中的调用链
 
@@ -47,16 +47,17 @@ f_old[lev] 的 ghost 可供后续计算使用
 main()
   -> JaberCycle2(0, cur_time, lid)
       -> FillGhostLevel(lev + 1, cur_time, true)
-          -> FillDdfPatch(lev + 1, cur_time, f_old[lev + 1])
+          -> FillDdfGhostFromCoarse(lev + 1, cur_time)
 ```
 
 `JaberCycle2()` 对每个非最细层先填充下一层 ghost，再推进当前层。下一层以一半时间步连续推进两次，最后才平均回粗层。
 
 ### 1.3 当前唯一实现
 
-正常时间推进使用预构建的 direct cache；重构时目标布局不同，自动使用
-`TheFPinfo()` 临时 patch 迁移旧 fine valid 数据并初始化新增 valid 区域。两条路径
-采用相同的 coarse 非平衡缩放和 ratio=2 三线性公式，不再有运行时模式选择。
+正常时间推进调用 `FillDdfGhostFromCoarse()`，使用预构建的 direct cache；
+`RemakeLevel()` 调用 `RemakeDdfState()`，使用 `TheFPinfo()` 临时 patch 迁移旧 fine
+valid 数据并初始化新增 valid 区域。两条路径采用相同的 coarse 非平衡缩放和 ratio=2
+三线性公式，不再有运行时模式选择或函数内分流。
 
 ## 2. 学习所需的四个文件
 
@@ -64,7 +65,7 @@ main()
 | ----------------------------------- | ---------------------------------------------------------------- |
 | [`main.cpp`](main.cpp)             | `JaberCycle2()` 何时请求 ghost 填充                            |
 | [`AmrCoreLBM.H`](AmrCoreLBM.H)     | DDF`MultiFab`、运行模式和 direct cache 的所有权                |
-| [`AmrCoreLBM.cpp`](AmrCoreLBM.cpp) | `BuildDirectInterpolationCache()` 和 `FillDdfPatch()` 主逻辑 |
+| [`AmrCoreLBM.cpp`](AmrCoreLBM.cpp) | `BuildDirectInterpolationCache()`、ghost 填充和重构迁移逻辑 |
 | [`Kernels.H`](Kernels.H)           | `average_scale()` 和 `interp_bilinear_d3q()` 的数值公式      |
 
 推荐在编辑器中按以下顺序跳转：
@@ -72,7 +73,7 @@ main()
 ```text
 JaberCycle2
   -> FillGhostLevel
-  -> FillDdfPatch
+  -> FillDdfGhostFromCoarse
   -> BuildDirectInterpolationCache
   -> average_scale
   -> interp_bilinear_d3q
@@ -80,28 +81,21 @@ JaberCycle2
 
 ## 3. 参数、容器和所有权
 
-### 3.1 函数参数
+### 3.1 两个函数的职责
 
 ```cpp
-void AmrCoreLBM::FillDdfPatch(
-    int lev,
-    amrex::Real time,
-    amrex::MultiFab& mf);
+void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time);
+void AmrCoreLBM::RemakeDdfState(
+    int lev, amrex::Real time, amrex::MultiFab& new_old_state);
 ```
 
-| 参数     | 含义                                                 |
-| -------- | ---------------------------------------------------- |
-| `lev`  | 要填充的 fine level，因此 coarse level 是`lev - 1` |
-| `time` | 边界处理和 FillPatch 接口使用的物理时间              |
-| `mf`   | 被写入的 fine 目标`MultiFab`                       |
+| 函数 | 目标 | 主要写入区域 |
+| --- | --- | --- |
+| `FillDdfGhostFromCoarse` | `f_old[lev]` | coarse-fine ghost、同层/物理边界 ghost |
+| `RemakeDdfState` | 新布局 `old_state` | 迁移的 valid、新增 valid 和全部所需 ghost |
 
-正常时间推进中：
-
-```cpp
-mf == f_old[lev]
-```
-
-regrid 的 `RemakeLevel()` 也可能传入不同布局的临时 `MultiFab`。因此代码会用地址和 `BDKey` 判断 direct cache 是否与当前目标布局匹配；不匹配时安全回退到通用 patch 路径。
+`RemakeDdfState()` 不接触 direct cache，因此不会把旧布局的 `fine_index` 或 staging Box
+误用于新布局。
 
 ### 3.2 主要数据容器
 
@@ -354,7 +348,7 @@ valid/ghost，最后处理物理边界。
 
 ## 8. 容易混淆的五个点
 
-1. **`FillDdfPatch()` 不是 IBM 插值。** `InterpForce()` 处理拉格朗日粒子与欧拉网格的耦合，两者的数据拥有者、kernel 和物理意义都不同。
+1. **DDF coarse-to-fine 填充不是 IBM 插值。** `InterpForce()` 处理拉格朗日粒子与欧拉网格的耦合，两者的数据拥有者、kernel 和物理意义都不同。
 2. **`leftover` 不等于全部 ghost。** 它已经减去可由同层 fine valid 提供的部分。
 3. **`coarse_box` 不是 `work_box` 的简单粗化。** 它还包含插值 stencil halo。
 4. **`coarse_stage` 不是物理状态的新拥有者。** 它是布局缓存与每次调用的短期数据 staging 容器；真正 coarse DDF 仍由 `f_old[lev-1]` 拥有。
@@ -404,4 +398,4 @@ ParallelCopy 为什么可能产生 MPI 通信？
 - `FillBoundary()` 和 coarse-fine 插值各自填充哪些 ghost？
 - 为什么 direct 路径在 regrid 目标布局不匹配时需要回退？
 
-如果这六个问题都能脱离代码回答，就已经掌握了当前 BOX3D `FillDdfPatch()` 的主体逻辑。
+如果这六个问题都能脱离代码回答，就已经掌握了当前 BOX3D DDF coarse-to-fine 填充的主体逻辑。

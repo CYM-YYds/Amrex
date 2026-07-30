@@ -25,7 +25,7 @@ OVERALL = [
     ("Swap", 4.16),
 ]
 
-# The raw FillDdfPatch timers include 24.98 s from RemakeLevel/regridding,
+# The raw legacy DDF-fill timers include 24.98 s from RemakeLevel/regridding,
 # while the Interp total covers JaberCycle only. Remove that overlap so this
 # pie closes exactly to the JaberCycle Interp total.
 INTERP = [

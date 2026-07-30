@@ -686,9 +686,8 @@ void AmrCoreLBM::FillPatch(int lev, amrex::Real time, amrex::MultiFab& mf) {
 
 void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     const double start = amrex::second();
-    // Regrid 过程中，RemakeLevel() 会在统一的
-    // RebuildCoarseFineCaches() 完成前调用 FillDdfPatch()；
-    // 因此新布局的 direct cache 允许在首次使用时延迟构建。
+    // RebuildCoarseFineCaches() 之后会统一重建缓存；在此之前若正常时间推进
+    // 已请求 ghost 填充，FillDdfGhostFromCoarse() 会按当前布局延迟构建。
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
     const auto fill_ng = f_old[lev].nGrowVect(); // 获取f_old[lev] 在 x、y、z 三个方向上分配的 ghost cell 层数。
@@ -756,119 +755,117 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     perf_stats.interp_cache_build += amrex::second() - start;
 }
 
-void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf)
-{
-    amrex::MultiFab& f_old_lev_f = f_old[lev];
+void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
+    amrex::MultiFab& mf = f_old[lev];
     amrex::MultiFab& f_old_lev_c = f_old[lev - 1];
     const amrex::Real scale = tau[lev] / tau[lev - 1] / 2.0;
 
     const amrex::IntVect fill_ng = mf.nGrowVect();
     const auto ratio = refRatio(lev - 1);
     AMREX_ALWAYS_ASSERT(ratio == amrex::IntVect(2));
-    const auto& coarsener = cell_bilinear_interp.BoxCoarsener(ratio);
 
-    const bool direct_target = &mf == &f_old_lev_f;
+    ScopedPerfTimer timer(perf_stats.interp_fillpatch);
+    auto& coarse_stage = interp_direct_coarse_stage[lev];
+    auto& fine_work_boxes = interp_direct_fine_boxes[lev];
+    auto& fine_indices = interp_direct_fine_index[lev];
 
-    if (direct_target) {
-        ScopedPerfTimer timer(perf_stats.interp_fillpatch);
-        auto& coarse_stage = interp_direct_coarse_stage[lev];
-        auto& fine_work_boxes = interp_direct_fine_boxes[lev];
-        auto& fine_indices = interp_direct_fine_index[lev];
+    if (!fine_indices.empty()) {
+        coarse_stage.ParallelCopy(
+            f_old_lev_c, 0, 0, Q, amrex::IntVect(0),
+            amrex::IntVect(0), Geom(lev - 1).periodicity());
 
-        // 仅正常时间推进会走 direct 路径。Regrid 的 RemakeLevel() 传入
-        // 新布局的临时 old_state，布局不匹配时会在下方走通用迁移路径。
-        // 若缓存尚未建立，则按当前 f_old[lev] 布局延迟构建。
-        if (!interp_direct_cache_ready[lev]) {
-            BuildDirectInterpolationCache(lev);
-        }
-
-        if (!fine_indices.empty()) {
-            coarse_stage.ParallelCopy(
-                f_old_lev_c, 0, 0, Q, amrex::IntVect(0),
-                amrex::IntVect(0), Geom(lev - 1).periodicity());
-
-            // AmrCoreFill 不施加额外 ext_dir 数值；通用 PhysBCFunct 在这里
-            // 等价于把非周期域外 stencil 复制为最近的域内 coarse 值。
-            // 只为真正越过物理边界的 staging Box 启动复制 kernel，避免
-            // 每次插值对全部离散 Fab 执行通用边界管理。
-            const Box coarse_domain = Geom(lev - 1).Domain();
-            const auto coarse_lo = amrex::lbound(coarse_domain);
-            const auto coarse_hi = amrex::ubound(coarse_domain);
-            const auto coarse_periodic = Geom(lev - 1).isPeriodicArray();
-            for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-                const int stage_index = mfi.index();
-                if (!interp_direct_needs_physical_fill[lev][stage_index]) {
-                    continue;
-                }
-
-                const Box bx = mfi.validbox();
-                const auto coarse = coarse_stage.array(mfi);
-                amrex::ParallelFor(
-                    bx, Q,
-                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                        const int src_i =
-                            coarse_periodic[0]
-                                ? i
-                                : (i < coarse_lo.x
-                                       ? coarse_lo.x
-                                       : (i > coarse_hi.x ? coarse_hi.x : i));
-                        const int src_j =
-                            coarse_periodic[1]
-                                ? j
-                                : (j < coarse_lo.y
-                                       ? coarse_lo.y
-                                       : (j > coarse_hi.y ? coarse_hi.y : j));
-                        const int src_k =
-                            coarse_periodic[2]
-                                ? k
-                                : (k < coarse_lo.z
-                                       ? coarse_lo.z
-                                       : (k > coarse_hi.z ? coarse_hi.z : k));
-                        if (src_i != i || src_j != j || src_k != k) {
-                            coarse(i, j, k, q) =
-                                coarse(src_i, src_j, src_k, q);
-                        }
-                    });
+        // AmrCoreFill 不施加额外 ext_dir 数值；通用 PhysBCFunct 在这里
+        // 等价于把非周期域外 stencil 复制为最近的域内 coarse 值。
+        // 只为真正越过物理边界的 staging Box 启动复制 kernel，避免
+        // 每次插值对全部离散 Fab 执行通用边界管理。
+        const Box coarse_domain = Geom(lev - 1).Domain();
+        const auto coarse_lo = amrex::lbound(coarse_domain);
+        const auto coarse_hi = amrex::ubound(coarse_domain);
+        const auto coarse_periodic = Geom(lev - 1).isPeriodicArray();
+        for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+            const int stage_index = mfi.index();
+            if (!interp_direct_needs_physical_fill[lev][stage_index]) {
+                continue;
             }
 
-            for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-                const auto coarse = coarse_stage.array(mfi);
-                const Box bx = mfi.validbox();
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        average_scale(i, j, k, coarse, scale);
-                    });
-            }
-
-            for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-                const int stage_index = mfi.index();
-                const auto coarse = coarse_stage.const_array(mfi);
-                const int fine_index = fine_indices[stage_index];
-                const auto fine = mf.array(fine_index);
-                const Box& bx = fine_work_boxes[stage_index];
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        interp_bilinear_d3q(i, j, k, fine, coarse);
-                    });
-            }
+            const Box bx = mfi.validbox();
+            const auto coarse = coarse_stage.array(mfi);
+            amrex::ParallelFor(
+                bx, Q,
+                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                    const int src_i =
+                        coarse_periodic[0]
+                            ? i
+                            : (i < coarse_lo.x
+                                   ? coarse_lo.x
+                                   : (i > coarse_hi.x ? coarse_hi.x : i));
+                    const int src_j =
+                        coarse_periodic[1]
+                            ? j
+                            : (j < coarse_lo.y
+                                   ? coarse_lo.y
+                                   : (j > coarse_hi.y ? coarse_hi.y : j));
+                    const int src_k =
+                        coarse_periodic[2]
+                            ? k
+                            : (k < coarse_lo.z
+                                   ? coarse_lo.z
+                                   : (k > coarse_hi.z ? coarse_hi.z : k));
+                    if (src_i != i || src_j != j || src_k != k) {
+                        coarse(i, j, k, q) =
+                            coarse(src_i, src_j, src_k, q);
+                    }
+                });
         }
 
-        // 保持与 FillPatchTwoLevels 相同的最终优先级：同层 fine valid
-        // 数据覆盖 coarse 插值结果，随后施加细层物理边界条件。
-        mf.FillBoundary(0, Q, fill_ng, Geom(lev).periodicity());
-        if (Gpu::inLaunchRegion()) { // 对 mf 的非周期物理域外 ghost cell施加 fine level 的物理边界条件
-            GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
-                geom[lev], bcs, gpu_bndry_func);
-            fphysbc(mf, 0, Q, fill_ng, time, 0);
-        } else {
-            CpuBndryFuncFab bndry_func(nullptr);
-            PhysBCFunct<CpuBndryFuncFab> fphysbc(
-                geom[lev], bcs, bndry_func);
-            fphysbc(mf, 0, Q, fill_ng, time, 0);
+        for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+            const auto coarse = coarse_stage.array(mfi);
+            const Box bx = mfi.validbox();
+            amrex::ParallelFor(
+                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    average_scale(i, j, k, coarse, scale);
+                });
         }
-        return;
+
+        for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+            const int stage_index = mfi.index();
+            const auto coarse = coarse_stage.const_array(mfi);
+            const int fine_index = fine_indices[stage_index];
+            const auto fine = mf.array(fine_index);
+            const Box& bx = fine_work_boxes[stage_index];
+            amrex::ParallelFor(
+                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    interp_bilinear_d3q(i, j, k, fine, coarse);
+                });
+        }
     }
+
+    // 保持与 FillPatchTwoLevels 相同的最终优先级：同层 fine valid
+    // 数据覆盖 coarse 插值结果，随后施加细层物理边界条件。
+    mf.FillBoundary(0, Q, fill_ng, Geom(lev).periodicity());
+    if (Gpu::inLaunchRegion()) { // 对 mf 的非周期物理域外 ghost cell施加 fine level 的物理边界条件
+        GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
+        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
+            geom[lev], bcs, gpu_bndry_func);
+        fphysbc(mf, 0, Q, fill_ng, time, 0);
+    } else {
+        CpuBndryFuncFab bndry_func(nullptr);
+        PhysBCFunct<CpuBndryFuncFab> fphysbc(
+            geom[lev], bcs, bndry_func);
+        fphysbc(mf, 0, Q, fill_ng, time, 0);
+    }
+}
+
+void AmrCoreLBM::RemakeDdfState(
+    int lev, amrex::Real time, amrex::MultiFab& new_old_state) {
+    amrex::MultiFab& mf = new_old_state;
+    amrex::MultiFab& f_old_lev_f = f_old[lev];
+    amrex::MultiFab& f_old_lev_c = f_old[lev - 1];
+    const amrex::Real scale = tau[lev] / tau[lev - 1] / 2.0;
+    const amrex::IntVect fill_ng = mf.nGrowVect();
+    const auto ratio = refRatio(lev - 1);
+    AMREX_ALWAYS_ASSERT(ratio == amrex::IntVect(2));
+    const auto& coarsener = cell_bilinear_interp.BoxCoarsener(ratio);
 
     // Regrid 时目标 old_state 的布局不同于 f_old[lev]。此处按 FPinfo
     // 构造临时 coarse/fine patch：旧 fine valid 数据优先迁移，新增 valid
@@ -955,7 +952,6 @@ void AmrCoreLBM::FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf)
                 geom[lev], bcs, bndry_func);
             fphysbc(mf, 0, Q, fill_ng, time, 0);
         }
-        return;
     }
 }
 
@@ -1235,7 +1231,6 @@ void AmrCoreLBM::BuildRestrictionCache() {
             average_interface_buffer[lev].define(interface_ba, interface_dm, Q, 0);
             average_interface_fine_box[lev] = std::move(fine_box_indices);
         }
-
     }
 }
 
@@ -1624,7 +1619,7 @@ void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
     amrex::MultiFab& f_old_lev = f_old[lev];
 
     if (is_scale) {
-        FillDdfPatch(lev, time, f_old_lev);
+        FillDdfGhostFromCoarse(lev, time);
     } else {
         FillPatch(lev, time, f_old_lev);
     }
@@ -1999,7 +1994,7 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
     {
         ScopedPerfTimer timer(perf_stats.interp_regrid_fill);
         ++perf_stats.interp_regrid_fill_calls;
-        FillDdfPatch(lev, time, old_state);
+        RemakeDdfState(lev, time, old_state);
     }
     // FillPatch(lev, time, old_state);
 

@@ -105,11 +105,13 @@ class AmrCoreLBM : public amrex::AmrCore {
     void InitMesh(amrex::Real cur_time);
     void FillCoarsePatch(int lev, amrex::Real time, amrex::MultiFab& mf);
     void FillPatch(int lev, amrex::Real time, amrex::MultiFab& mf);
-    void FillDdfPatch(int lev, amrex::Real time, amrex::MultiFab& mf);
     void FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf);
     void RefineMesh(amrex::Real time);
     // CUDA 扩展版设备 Lambda 要求包裹它的成员函数必须是 public 公有访问权限
     void RebuildCoarseFineCaches();
+    void FillDdfGhostFromCoarse(int lev, amrex::Real time);
+    void RemakeDdfState(int lev, amrex::Real time,
+                        amrex::MultiFab& new_old_state);
     void RebuildCoarseFineMasks();
     void FindCentre();
     //********************************************************************//

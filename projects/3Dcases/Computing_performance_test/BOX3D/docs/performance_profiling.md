@@ -5,7 +5,7 @@
 这个算例用于测量递归 `JaberCycle2()` 路径中的粗细网格 AMR 传输开销。相关的数据路径如下：
 
 ```text
-FillGhostLevel -> FillDdfPatch
+FillGhostLevel -> FillDdfGhostFromCoarse
                  -> direct staging（正常时间推进）
                  -> FPinfo temporary patch（RemakeLevel 布局迁移）
 AverageDownGhostLevel -> 选定的 LBM restriction -> ParallelCopy
@@ -153,11 +153,11 @@ python3 scripts/plot_transfer_cost_pies.py
 
 该脚本需要 `matplotlib`，并会写出 `docs/transfer_cost_pies.png`。整体图使用给定的 JaberCycle 总时长 7608.30 s。由于四舍五入，打印出来的两位小数类别加和为 7608.29 s。
 
-Interp 图在与仅包含 JaberCycle 的 Interp 总时长比较之前，会先从原始 `FillDdfPatch` 子阶段中扣除 24.98 s 的 regridding 传输时间。Average 图保留了 3.30 s 的残差，用于临时对象销毁、循环开销和计时器边界工作，因此每个饼图都能闭合到其声明的总时长。
+Interp 图在与仅包含 JaberCycle 的 Interp 总时长比较之前，会先从旧的 DDF 填充子阶段中扣除 24.98 s 的 regridding 传输时间。Average 图保留了 3.30 s 的残差，用于临时对象销毁、循环开销和计时器边界工作，因此每个饼图都能闭合到其声明的总时长。
 
 ## 插值缩放工作盒：Job 572516
 
-在每次调用 `FillPatchTwoLevels()` 之前，`FillDdfPatch()` 以前会对每个有效 coarse 单元都执行非平衡 DDF 重标定 kernel。修订后的实现会缓存 AMReX 的 `FPinfo.ba_crse_patch` 所表示的精确 coarse 源区域，把它们与 coarse BoxArray 求交，并在下一次 regrid 之前复用结果。这包括 `CellBilinear::CoarseBox()` 的 stencil halo 和周期性源偏移。`RemakeLevel()` 期间如果目标 BoxArray 不匹配，则会有意回退到整层缩放。
+在每次调用 `FillPatchTwoLevels()` 之前，旧的统一 DDF 填充函数会对每个有效 coarse 单元都执行非平衡 DDF 重标定 kernel。修订后的实现会缓存 AMReX 的 `FPinfo.ba_crse_patch` 所表示的精确 coarse 源区域，把它们与 coarse BoxArray 求交，并在下一次 regrid 之前复用结果。这包括 `CellBilinear::CoarseBox()` 的 stencil halo 和周期性源偏移。`RemakeLevel()` 期间如果目标 BoxArray 不匹配，则会有意回退到整层缩放。
 
 jobs `572280` 和 `572516` 是受控的单 GPU、1000 步运行。它们的网格演化、`average_scale_cells` 和边界计数器完全一致。
 
@@ -273,7 +273,7 @@ RebuildCoarseFineCaches
   -> BuildRestrictionCache
 ```
 
-`FillDdfPatch()` 仅在正常时间推进的 direct 目标缺少缓存时延迟构建；
+`FillDdfGhostFromCoarse()` 仅在正常时间推进缺少缓存时延迟构建；
 `RemakeLevel()` 布局不匹配时使用 temporary patch，不会构造或使用 direct cache。
 `interp_cache_build` 和 `interp_cache_builds` 分别记录 direct 布局的构建总耗时和次数。
 
