@@ -157,7 +157,7 @@ Interp 图在与仅包含 JaberCycle 的 Interp 总时长比较之前，会先�
 
 ## 插值缩放工作盒：Job 572516
 
-在每次调用 `FillPatchTwoLevels()` 之前，旧的统一 DDF 填充函数会对每个有效 coarse 单元都执行非平衡 DDF 重标定 kernel。修订后的实现会缓存 AMReX 的 `FPinfo.ba_crse_patch` 所表示的精确 coarse 源区域，把它们与 coarse BoxArray 求交，并在下一次 regrid 之前复用结果。这包括 `CellBilinear::CoarseBox()` 的 stencil halo 和周期性源偏移。`RemakeLevel()` 期间如果目标 BoxArray 不匹配，则会有意回退到整层缩放。
+旧的统一 DDF 填充函数会对每个有效 coarse 单元都执行非平衡 DDF 重标定 kernel。当前正常推进缓存每个 fine ghost `work_box` 所需的精确 coarse stencil；`RemakeLevel()` 则根据 `FPinfo.ba_crse_patch` 建立临时 patch。两条路径都只缩放实际插值源区域，不再整层缩放。
 
 jobs `572280` 和 `572516` 是受控的单 GPU、1000 步运行。它们的网格演化、`average_scale_cells` 和边界计数器完全一致。
 
@@ -273,8 +273,9 @@ RebuildCoarseFineCaches
   -> BuildRestrictionCache
 ```
 
-`FillDdfGhostFromCoarse()` 仅在正常时间推进缺少缓存时延迟构建；
-`RemakeLevel()` 布局不匹配时使用 temporary patch，不会构造或使用 direct cache。
+初始建网、regrid 和 restart 后，`RebuildCoarseFineCaches()` 会建立 direct cache；
+`FillDdfGhostFromCoarse()` 只消费已就绪的缓存。`RemakeLevel()` 使用 temporary patch，
+不会构造或使用 direct cache。
 `interp_cache_build` 和 `interp_cache_builds` 分别记录 direct 布局的构建总耗时和次数。
 
 job `575341` 用已删除的 FPinfo 实验路径 checkpoint 对当前 direct 路径做了 64 步逐层、逐 DDF 回归，所有

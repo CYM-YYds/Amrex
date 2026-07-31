@@ -105,7 +105,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
 
     bcs.resize(Q);
 
-    for (int idim = 0; idim < AMREX_SPACEDIM; idim++) {
+    for (int idim = 0; idim < AMREX_SPACEDIM; idim++) { // 为每个 DDF 分量、每个空间方向设置低端和高端的边界类型,设置为foextrap
         for (int comp = 0; comp < Q; ++comp) {
             bcs[comp].setLo(idim, bc_lo[idim]);
             bcs[comp].setHi(idim, bc_hi[idim]);
@@ -686,8 +686,6 @@ void AmrCoreLBM::FillPatch(int lev, amrex::Real time, amrex::MultiFab& mf) {
 
 void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     const double start = amrex::second();
-    // RebuildCoarseFineCaches() 之后会统一重建缓存；在此之前若正常时间推进
-    // 已请求 ghost 填充，FillDdfGhostFromCoarse() 会按当前布局延迟构建。
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
     const auto fill_ng = f_old[lev].nGrowVect(); // 获取f_old[lev] 在 x、y、z 三个方向上分配的 ghost cell 层数。
@@ -734,7 +732,6 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
             // 在当前 BOX3D 的 coarse/fine 对齐条件下，不同合法 work_box
             // 不会映射到同一个 coarse stencil；每个 work_box 独立建立
             // 一个 staging Fab，避免保留无效的全局去重搜索。
-            const int stage_index = static_cast<int>(coarse_boxes.size());
             coarse_boxes.push_back(coarse_box);
             coarse_owners.push_back(owner);
             fine_work_boxes.push_back(work_box);
@@ -862,17 +859,17 @@ void AmrCoreLBM::RemakeDdfState(
     amrex::MultiFab& f_old_lev_f = f_old[lev];
     amrex::MultiFab& f_old_lev_c = f_old[lev - 1];
     const amrex::Real scale = tau[lev] / tau[lev - 1] / 2.0;
-    const amrex::IntVect fill_ng = mf.nGrowVect();
+    const amrex::IntVect fill_ng(0);
     const auto ratio = refRatio(lev - 1);
     AMREX_ALWAYS_ASSERT(ratio == amrex::IntVect(2));
     const auto& coarsener = cell_bilinear_interp.BoxCoarsener(ratio);
 
     // Regrid 时目标 old_state 的布局不同于 f_old[lev]。此处按 FPinfo
     // 构造临时 coarse/fine patch：旧 fine valid 数据优先迁移，新增 valid
-    // 区域及 coarse-fine ghost 由 coarse 插值补全。
+    // 新布局中缺少旧 fine 来源的 valid 区域由 coarse 插值补全。
     const auto& fpc = FabArrayBase::TheFPinfo(
         f_old_lev_f, mf, fill_ng, coarsener,
-        Geom(lev), Geom(lev - 1), nullptr);
+        Geom(lev), Geom(lev - 1), nullptr); // 比较旧 fine 布局 f_old_lev_f 和新 fine 布局 mf，找出新布局中不能从旧 fine 数据直接获得、必须由 coarse 插值填充的区域，并生成相应的 coarse stencil 布局信息。
     perf_stats.interp_fillpatch_boxes +=
         static_cast<long long>(fpc.ba_fine_patch.size());
     for (int i = 0; i < fpc.ba_fine_patch.size(); ++i) {
@@ -887,7 +884,8 @@ void AmrCoreLBM::RemakeDdfState(
     {
         ScopedPerfTimer timer(perf_stats.interp_fillpatch);
 
-        if (!fpc.ba_crse_patch.empty()) {
+        if (!fpc.ba_crse_patch.empty()) { // ba_fine_patch[n]：需要写入的 fine 区域
+            // ba_crse_patch[n]：插值该 fine 区域需要读取的 coarse stencil
             amrex::MultiFab coarse_patch(
                 fpc.ba_crse_patch, fpc.dm_patch, Q, 0, amrex::MFInfo(),
                 *fpc.fact_crse_patch);
@@ -896,22 +894,24 @@ void AmrCoreLBM::RemakeDdfState(
                 *fpc.fact_fine_patch);
 
             coarse_patch.setDomainBndry(
-                std::numeric_limits<Real>::quiet_NaN(), Geom(lev - 1));
+                std::numeric_limits<Real>::quiet_NaN(), Geom(lev - 1)); // 位于非周期物理域外的单元设置为 NaN
             coarse_patch.ParallelCopy(
                 f_old_lev_c, 0, 0, Q, amrex::IntVect(0),
                 amrex::IntVect(0), Geom(lev - 1).periodicity());
             if (Gpu::inLaunchRegion()) {
-                GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
+                GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{}); // 创建一个名为 gpu_bndry_func 的 GPU 边界函数包装器，并用临时的 AmrCoreFill 对象初始化它。
                 PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(
                     geom[lev - 1], bcs, gpu_bndry_func);
-                cphysbc(coarse_patch, 0, Q, coarse_patch.nGrowVect(),
-                        time, 0);
+                cphysbc(
+                    coarse_patch, 0, Q, coarse_patch.nGrowVect(),
+                    time, 0); // 根据物理边界条件填充coarse_patch 的 valid Box物理区域之外的stencil cell
             } else {
                 CpuBndryFuncFab bndry_func(nullptr);
                 PhysBCFunct<CpuBndryFuncFab> cphysbc(
                     geom[lev - 1], bcs, bndry_func);
-                cphysbc(coarse_patch, 0, Q, coarse_patch.nGrowVect(),
-                        time, 0);
+                cphysbc(
+                    coarse_patch, 0, Q, coarse_patch.nGrowVect(),
+                    time, 0);
             }
 
             // 只在实际 coarse interpolation patch 上做非平衡 DDF 缩放。
@@ -936,22 +936,8 @@ void AmrCoreLBM::RemakeDdfState(
                             fill_ng, Geom(lev).periodicity());
         }
 
-        // 此路径的目标不是当前 f_old[lev]；旧 fine valid 数据以最高优先级
-        // 迁移到新布局，并覆盖前面由 coarse 插值写入的重叠区域。
         mf.ParallelCopy(f_old_lev_f, 0, 0, Q, amrex::IntVect(0),
-                        fill_ng, Geom(lev).periodicity());
-
-        if (Gpu::inLaunchRegion()) {
-            GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
-                geom[lev], bcs, gpu_bndry_func);
-            fphysbc(mf, 0, Q, fill_ng, time, 0);
-        } else {
-            CpuBndryFuncFab bndry_func(nullptr);
-            PhysBCFunct<CpuBndryFuncFab> fphysbc(
-                geom[lev], bcs, bndry_func);
-            fphysbc(mf, 0, Q, fill_ng, time, 0);
-        }
+                        fill_ng, Geom(lev).periodicity()); // 把 regrid 前旧 fine 网格中仍然有效的数据，迁移到 regrid 后的新 fine 布局。
     }
 }
 
@@ -1996,7 +1982,6 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
         ++perf_stats.interp_regrid_fill_calls;
         RemakeDdfState(lev, time, old_state);
     }
-    // FillPatch(lev, time, old_state);
 
     std::swap(new_state, f_new[lev]);
     std::swap(old_state, f_old[lev]);

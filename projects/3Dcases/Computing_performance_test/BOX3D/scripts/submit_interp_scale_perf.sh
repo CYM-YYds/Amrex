@@ -15,7 +15,7 @@ module use /home/HPCBase/modulefiles/
 module purge
 module load mpi/hmpi/1.2.0_bs2.4.0_sp1
 module load compilers/cuda/12.1.0
-module load compilers/gcc/10.3.1
+module load compilers/gcc/11.3.0
 
 case_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${case_dir}"

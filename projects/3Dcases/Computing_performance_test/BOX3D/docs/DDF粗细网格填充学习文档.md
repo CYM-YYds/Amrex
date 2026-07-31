@@ -61,12 +61,12 @@ valid 数据并初始化新增 valid 区域。两条路径采用相同的 coarse
 
 ## 2. 学习所需的四个文件
 
-| 文件                                | 重点内容                                                         |
-| ----------------------------------- | ---------------------------------------------------------------- |
-| [`main.cpp`](main.cpp)             | `JaberCycle2()` 何时请求 ghost 填充                            |
-| [`AmrCoreLBM.H`](AmrCoreLBM.H)     | DDF`MultiFab`、运行模式和 direct cache 的所有权                |
+| 文件                                | 重点内容                                                      |
+| ----------------------------------- | ------------------------------------------------------------- |
+| [`main.cpp`](main.cpp)             | `JaberCycle2()` 何时请求 ghost 填充                         |
+| [`AmrCoreLBM.H`](AmrCoreLBM.H)     | DDF`MultiFab`、运行模式和 direct cache 的所有权             |
 | [`AmrCoreLBM.cpp`](AmrCoreLBM.cpp) | `BuildDirectInterpolationCache()`、ghost 填充和重构迁移逻辑 |
-| [`Kernels.H`](Kernels.H)           | `average_scale()` 和 `interp_bilinear_d3q()` 的数值公式      |
+| [`Kernels.H`](Kernels.H)           | `average_scale()` 和 `interp_bilinear_d3q()` 的数值公式   |
 
 推荐在编辑器中按以下顺序跳转：
 
@@ -89,10 +89,10 @@ void AmrCoreLBM::RemakeDdfState(
     int lev, amrex::Real time, amrex::MultiFab& new_old_state);
 ```
 
-| 函数 | 目标 | 主要写入区域 |
-| --- | --- | --- |
-| `FillDdfGhostFromCoarse` | `f_old[lev]` | coarse-fine ghost、同层/物理边界 ghost |
-| `RemakeDdfState` | 新布局 `old_state` | 迁移的 valid、新增 valid 和全部所需 ghost |
+| 函数                       | 目标                | 主要写入区域                              |
+| -------------------------- | ------------------- | ----------------------------------------- |
+| `FillDdfGhostFromCoarse` | `f_old[lev]`      | coarse-fine ghost、同层/物理边界 ghost    |
+| `RemakeDdfState`         | 新布局`old_state` | 迁移的 valid、新增 valid 和全部所需 ghost |
 
 `RemakeDdfState()` 不接触 direct cache，因此不会把旧布局的 `fine_index` 或 staging Box
 误用于新布局。
@@ -103,7 +103,7 @@ void AmrCoreLBM::RemakeDdfState(
 | ------------------------------------------ | -------------- | ----------------------------------- | ------------------------------------------- |
 | `f_old[lev-1]`                           | `AmrCoreLBM` | coarse level`BoxArray/DM`         | 原始 coarse DDF，只读来源                   |
 | `f_old[lev]`                             | `AmrCoreLBM` | fine level`BoxArray/DM`           | 正常时间推进的 fine 目标                    |
-| `interp_direct_coarse_stage[lev]`        | `AmrCoreLBM` | 按 fine owner 构造的稀疏 coarse Box | coarse stencil 临时容器         |
+| `interp_direct_coarse_stage[lev]`        | `AmrCoreLBM` | 按 fine owner 构造的稀疏 coarse Box | coarse stencil 临时容器                     |
 | `interp_direct_fine_boxes[lev]`          | `AmrCoreLBM` | `stage_index -> work_box`         | 记录每个 staging Box 要写的 fine ghost 区域 |
 | `interp_direct_fine_index[lev]`          | `AmrCoreLBM` | `stage_index -> fine_index`       | 找到目标 fine Box                           |
 | `interp_direct_needs_physical_fill[lev]` | `AmrCoreLBM` | 每个 staging Box 一个标志           | 识别 coarse stencil 是否越过非周期物理边界  |
@@ -112,7 +112,7 @@ void AmrCoreLBM::RemakeDdfState(
 
 ## 4. 第一层：先看几何区域如何构造
 
-这一层在 `BuildDirectInterpolationCache(lev)` 中完成。它通常由 `RebuildCoarseFineCaches()` 在初始建网、regrid 或 restart 后重建，而不是每个时间步重复构造。
+这一层在 `BuildDirectInterpolationCache(lev)` 中完成。它由 `RebuildCoarseFineCaches()` 在初始建网、regrid 或 restart 后统一重建，而不是每个时间步重复构造；正常推进进入填充函数时缓存已经就绪。
 
 4.1 `fine_ba` 与 `fine_ba_simplified`
 
@@ -232,15 +232,11 @@ coarse_stage MultiFab
 
 ## 5. 第二层：每次调用真正做了什么
 
-### 5.1 判断 direct 路径能否使用
+### 5.1 direct cache 已在时间推进前建立
 
-```cpp
-const bool direct_target =
-    &mf == &f_old_lev_f &&
-    mf.getBDKey() == f_old_lev_f.getBDKey();
-```
-
-只有目标就是当前 `f_old[lev]` 且布局键匹配时，才使用预构建 direct cache。
+`FillDdfGhostFromCoarse()` 没有目标 `MultiFab` 参数，写入目标固定为当前 `f_old[lev]`。
+它只消费 `RebuildCoarseFineCaches()` 建立的 direct cache。布局迁移是
+`RemakeDdfState()` 的职责，不会在该函数内按布局选择另一条路径。
 
 ### 5.2 把 coarse DDF 搬到 staging 布局
 
@@ -339,12 +335,12 @@ $$
 当前代码固定要求 `ratio=(2,2,2)`。三个方向的权重只可能是 `3/4` 或 `1/4`，八个组合
 权重直接使用 `27/64`、`9/64`、`3/64`、`1/64`，不再保留通用 refinement-ratio 分支。
 
-## 7. direct 与重构迁移两条调用路径
+## 7. normal ghost 填充与重构迁移两条调用路径
 
-`direct_target == true` 时，`mf` 就是 `f_old[lev]`，使用缓存直接填 coarse-fine ghost。
-`RemakeLevel()` 传入新布局的临时 `old_state`，因此 `direct_target == false`：通用 patch
-先用 coarse 插值写新增 valid 区域和缺失 ghost，再用旧 `f_old[lev]` 覆盖能迁移的 fine
-valid/ghost，最后处理物理边界。
+`FillDdfGhostFromCoarse()` 固定写当前 `f_old[lev]` 的 ghost：它使用缓存的 staging Box，
+不迁移 valid 数据。`RemakeLevel()` 单独调用 `RemakeDdfState()`：后者先用 `FPinfo` 临时
+patch 的 coarse 插值初始化新增 valid 区域和所需 ghost，再以旧 `f_old[lev]` 覆盖可迁移的
+fine valid 数据，最后处理物理边界。
 
 ## 8. 容易混淆的五个点
 
@@ -353,49 +349,3 @@ valid/ghost，最后处理物理边界。
 3. **`coarse_box` 不是 `work_box` 的简单粗化。** 它还包含插值 stencil halo。
 4. **`coarse_stage` 不是物理状态的新拥有者。** 它是布局缓存与每次调用的短期数据 staging 容器；真正 coarse DDF 仍由 `f_old[lev-1]` 拥有。
 5. **数值等价不等于性能更好。** 短程 DDF 范数回归只能证明测试范围内的数值一致性；性能结论需要同一可执行文件、输入、GPU 和输出设置下的 1000 步窗口 A/B 测量。
-
-## 9. 建议的学习练习
-
-### 练习 1：只追踪一个 fine Box 的几何
-
-选定 `lev = 1`、一个 `fine_index` 和 `nghost = 2`，手工记录：
-
-```text
-fine_ba[fine_index]
-target
-leftover 中的每个 work_box
-对应 coarse_box
-owner
-needs_physical_fill
-```
-
-### 练习 2：只追数据搬运
-
-对一个 `stage_index` 回答：
-
-```text
-源 MultiFab 是谁？
-目标 MultiFab 是谁？
-ParallelCopy 为什么可能产生 MPI 通信？
-这个 stage 最终写哪些 fine Fab？
-```
-
-### 练习 3：只追一个 DDF 分量
-
-选一个 fine ghost cell 和一个 `q`，计算：
-
-1. 8 个 coarse stencil 坐标；
-2. 每个点缩放后的 `f_q`；
-3. 8 个三线性权重；
-4. 最终 fine `f_q`。
-
-## 10. 学完后应能回答的问题
-
-- 为什么 coarse 插值只写 `leftover`，而不是整个 `target`？
-- `BoxCoarsener` 为什么可能比简单 `coarsen()` 得到更大的 coarse Box？
-- `coarse_stage` 为什么要跟随 fine owner？
-- `average_scale()` 缩放的是什么，为什么不能直接乘整个 `f_q`？
-- `FillBoundary()` 和 coarse-fine 插值各自填充哪些 ghost？
-- 为什么 direct 路径在 regrid 目标布局不匹配时需要回退？
-
-如果这六个问题都能脱离代码回答，就已经掌握了当前 BOX3D DDF coarse-to-fine 填充的主体逻辑。

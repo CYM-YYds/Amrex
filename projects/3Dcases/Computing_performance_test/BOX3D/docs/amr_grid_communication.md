@@ -11,19 +11,22 @@ AMReX 的 patch-based AMR 实现；不要把它与 Jaber 论文中 GPU-native �
 ```text
 粗层 -> 细层：FillGhostLevel(lev + 1, time, true)
               -> FillDdfGhostFromCoarse()
-              -> direct staging（正常时间推进）
-                 或 FPinfo temporary patch（RemakeLevel 布局迁移）
+              -> direct staging
+
+网格重构：RemakeLevel()
+              -> RemakeDdfState()
+              -> FPinfo temporary patch
 
 细层 -> 粗层：AverageDownGhostLevel(lev, true)
               -> fused LBM restriction
               -> ParallelCopy()
 ```
 
-`FillGhostLevel()` 调用 `FillDdfGhostFromCoarse()` 填充目标细层的 `f_old[lev]`。当前
-目标布局匹配时，后者以 `f_old[lev-1]` 为粗层源，先复制到
+`FillGhostLevel()` 调用 `FillDdfGhostFromCoarse()` 填充目标细层的 `f_old[lev]`。它以
+`f_old[lev-1]` 为粗层源，先复制到
 按 fine owner 布置的 `interp_direct_coarse_stage[lev]`，再执行粗 DDF 缩放和
-`interp_bilinear_d3q()`，直接写入 fine work box。regrid 目标布局不匹配时，
-才回退到 `FillPatchTwoLevels()` 相关路径。
+`interp_bilinear_d3q()`，直接写入 fine work box。`RemakeLevel()` 不调用此函数；它由
+`RemakeDdfState()` 用临时 `FPinfo` patch 完成旧 fine valid 数据迁移和新增区域初始化。
 
 缩放使用：
 
@@ -35,17 +38,16 @@ f^scaled = f^eq + (f - f^eq) * tau_f / (2 * tau_c)
 
 ## 哪些细层区域真正使用粗层插值
 
-`FillDdfGhostFromCoarse()` 不是“用粗层覆盖全部 fine ghost”的简单赋值。direct 路径先构造
-待补区域；通用 mode 则由 AMReX `FillPatchTwoLevels()` 构造：
+`FillDdfGhostFromCoarse()` 不是“用粗层覆盖全部 fine ghost”的简单赋值。它先构造待补区域：
 
 ```text
 grow(目标 fine Box, nghost) - fine source 的 BoxArray 覆盖区域
 ```
 
-这个差集由 direct cache 的 `fine_ba_simplified.complementIn(target)` 或通用路径的
-`FabArrayBase::FPinfo` 描述。它包含细层自身没有同层有效数据、但为计算所需的区域；
-在非物理边界处，这正是 coarse-fine ghost 区。当前 DDF 路径在 `FillDdfGhostFromCoarse()` 中
-选用 `cell_bilinear_interp`；布局迁移回退路径使用同一插值公式和 FPinfo temporary patch。
+这个差集由 direct cache 的 `fine_ba_simplified.complementIn(target)` 描述。它包含细层自身
+没有同层有效数据、但为计算所需的区域；在非物理边界处，这正是 coarse-fine ghost 区。
+`RemakeDdfState()` 的临时 `FabArrayBase::FPinfo` 则描述新布局所需的 valid 与 ghost patch。
+两条路径都使用 `cell_bilinear_interp` 和同一非平衡 DDF 缩放。
 
 同一个 fine ghost 位置最终的来源取决于其位置：
 
@@ -135,16 +137,13 @@ coarse cell 的条带，用于裁剪粗层 Collide/Stream。粗细 ghost 填充�
 
 ## 当前实现的性能边界
 
-`FillPatchTwoLevels()` 仅为所需 coarse-fine patch 插值。当前 `RemakeDdfState()` 的
-`interp_scale` 同样不再缩放整层粗网格：`RebuildCoarseFineCaches()` 直接复用 AMReX
-`FPinfo.ba_crse_patch` 描述的粗层 patch，并将其与粗层 valid Box 相交，生成按 coarse Box
-索引的缓存工作箱。`ba_crse_patch` 已由 `CellBilinear::CoarseBox()` 扩展到插值 stencil
-所需范围，因此不会遗漏三线性插值读取的相邻粗单元。周期方向还会枚举 periodic shift，
-将域外 patch 映射回实际粗层源单元。
+正常时间推进只处理 direct cache 记录的 coarse stencil Box，而非整层 coarse 网格。
+`RemakeDdfState()` 也只对 `FPinfo.ba_crse_patch` 所给出的临时 coarse patch 缩放；它不读取
+或复用旧布局的 direct cache。`CellBilinear::BoxCoarsener()` 已把 patch 扩展到三线性 stencil
+所需范围，周期映射由 `ParallelCopy()` 完成。
 
-正常时间推进中，目标 `MultiFab` 与当前 fine level 的 BDKey 一致，使用缓存工作箱；
-`RemakeLevel()` 在 regrid 期间传入尚未安装的新 BoxArray，此时缓存尚不匹配，代码保留
-整层缩放回退，待 regrid 完成并重建缓存后再进入裁剪路径。
+direct cache 在初始建网、每次 regrid 和 restart 后由 `RebuildCoarseFineCaches()` 统一建立。
+因此进入正常时间推进的 `FillDdfGhostFromCoarse()` 时，缓存已经就绪，不在热路径中延迟重建。
 
 当前粗层 `covered_mask` 已能跳过大部分完全被细网格覆盖的 Collide/Stream 单元，但仍以
 完整 launch box 加逐 cell 分支实现。Boundary 工作箱说明了另一条可行路径：在 regrid
