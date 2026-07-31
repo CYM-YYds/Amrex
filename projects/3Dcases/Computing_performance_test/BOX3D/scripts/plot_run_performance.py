@@ -108,7 +108,9 @@ def parse_log(path: Path) -> list[Window]:
             window.mlups_total = values["MLUPS_total"]
         elif " perf_detail(s):" in line:
             values = parse_values(line)
-            window.detail = {name: values[name] for name in DETAILS}
+            # Detail fields evolved as the interpolation/restriction paths
+            # changed. Missing legacy fields are zero for plotting purposes.
+            window.detail = {name: values.get(name, 0.0) for name in DETAILS}
         elif " perf_count:" in line:
             values = parse_values(line)
             window.average_scale_cells = values["average_scale_cells"]
