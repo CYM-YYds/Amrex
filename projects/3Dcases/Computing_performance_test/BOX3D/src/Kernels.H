@@ -2423,6 +2423,58 @@ void interp_bilinear_d3q(
     }
 }
 
+// AMReX 中比率为2的单元守恒线性插值的设备端实现。
+// 采用限制型单侧斜率，保证所有精细网格数值落在相邻粗网格单元取值区间内，
+// 同时维持粗网格单元平均值守恒。
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void interp_cell_cons_linear_children_d3q(
+    int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    amrex::Box const& fine_work_box) noexcept {
+    for (int q = 0; q < Q; ++q) {
+        const Real center = coarse(ic, jc, kc, q);
+        const Real dxp = coarse(ic + 1, jc, kc, q) - center;
+        const Real dxm = center - coarse(ic - 1, jc, kc, q);
+        const Real dyp = coarse(ic, jc + 1, kc, q) - center;
+        const Real dym = center - coarse(ic, jc - 1, kc, q);
+        const Real dzp = coarse(ic, jc, kc + 1, q) - center;
+        const Real dzm = center - coarse(ic, jc, kc - 1, q);
+        const Real sx = (dxp * dxm > Real(0))
+            ? std::copysign(amrex::min(std::abs(dxp), std::abs(dxm)), dxp)
+            : Real(0);
+        const Real sy = (dyp * dym > Real(0))
+            ? std::copysign(amrex::min(std::abs(dyp), std::abs(dym)), dyp)
+            : Real(0);
+        const Real sz = (dzp * dzm > Real(0))
+            ? std::copysign(amrex::min(std::abs(dzp), std::abs(dzm)), dzp)
+            : Real(0);
+
+#pragma unroll
+        for (int koff = 0; koff < 2; ++koff) {
+#pragma unroll
+            for (int joff = 0; joff < 2; ++joff) {
+#pragma unroll
+                for (int ioff = 0; ioff < 2; ++ioff) {
+                    const int i = 2 * ic + ioff;
+                    const int j = 2 * jc + joff;
+                    const int k = 2 * kc + koff;
+                    if (fine_work_box.contains(i, j, k)) {
+                        const Real ox =
+                            ioff == 0 ? Real(-0.25) : Real(0.25);
+                        const Real oy =
+                            joff == 0 ? Real(-0.25) : Real(0.25);
+                        const Real oz =
+                            koff == 0 ? Real(-0.25) : Real(0.25);
+                        fine(i, j, k, q) =
+                            center + ox * sx + oy * sy + oz * sz;
+                    }
+                }
+            }
+        }
+    }
+}
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void average_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,

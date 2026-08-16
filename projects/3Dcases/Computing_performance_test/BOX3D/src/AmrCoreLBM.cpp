@@ -289,6 +289,13 @@ void AmrCoreLBM::PrintLbmParm() {
 }
 void AmrCoreLBM::ReadParameters() {
     {
+        ParmParse pp("lbm");
+        pp.query("interp_mode", interp_mode);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            interp_mode == 0 || interp_mode == 1,
+            "lbm.interp_mode must be 0 (trilinear) or 1 (GPU conservative linear)");
+    }
+    {
         ParmParse pp("amr");
         pp.query("plot_file", plot_file);
         pp.query("grid_eff", grid_eff);
@@ -689,8 +696,11 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
     const auto fill_ng = f_old[lev].nGrowVect(); // 获取f_old[lev] 在 x、y、z 三个方向上分配的 ghost cell 层数。
-    const auto& coarsener =
-        cell_bilinear_interp.BoxCoarsener(refRatio(lev - 1));
+    Interpolater* interp_mapper = interp_mode == 0
+        ? static_cast<Interpolater*>(&cell_bilinear_interp)
+        : static_cast<Interpolater*>(&cell_cons_interp);
+    const auto coarsener =
+        interp_mapper->BoxCoarsener(refRatio(lev - 1));
     const BoxArray& fine_ba = f_old[lev].boxArray();
     const BoxArray fine_ba_simplified = fine_ba.simplified();
     Box fine_domain = Geom(lev).Domain();
@@ -765,6 +775,7 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
     auto& coarse_stage = interp_direct_coarse_stage[lev];
     auto& fine_work_boxes = interp_direct_fine_boxes[lev];
     auto& fine_indices = interp_direct_fine_index[lev];
+    const int interp_mode_local = interp_mode;
 
     if (!fine_indices.empty()) {
         coarse_stage.ParallelCopy(
@@ -830,10 +841,20 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
             const int fine_index = fine_indices[stage_index];
             const auto fine = mf.array(fine_index);
             const Box& bx = fine_work_boxes[stage_index];
-            amrex::ParallelFor(
-                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    interp_bilinear_d3q(i, j, k, fine, coarse);
-                });
+            if (interp_mode_local == 0) {
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        interp_bilinear_d3q(i, j, k, fine, coarse);
+                    });
+            } else {
+                const Box coarse_parent_box = amrex::coarsen(bx, 2);
+                amrex::ParallelFor(
+                    coarse_parent_box,
+                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
+                        interp_cell_cons_linear_children_d3q(
+                            ic, jc, kc, fine, coarse, bx);
+                    });
+            }
         }
     }
 
@@ -862,7 +883,11 @@ void AmrCoreLBM::RemakeDdfState(
     const amrex::IntVect fill_ng(0);
     const auto ratio = refRatio(lev - 1);
     AMREX_ALWAYS_ASSERT(ratio == amrex::IntVect(2));
-    const auto& coarsener = cell_bilinear_interp.BoxCoarsener(ratio);
+    const int interp_mode_local = interp_mode;
+    Interpolater* interp_mapper = interp_mode == 0
+        ? static_cast<Interpolater*>(&cell_bilinear_interp)
+        : static_cast<Interpolater*>(&cell_cons_interp);
+    const auto coarsener = interp_mapper->BoxCoarsener(ratio);
 
     // Regrid 时目标 old_state 的布局不同于 f_old[lev]。此处按 FPinfo
     // 构造临时 coarse/fine patch：旧 fine valid 数据优先迁移，新增 valid
@@ -927,9 +952,20 @@ void AmrCoreLBM::RemakeDdfState(
                 const auto fine = fine_patch.array(mfi);
                 const auto coarse = coarse_patch.const_array(mfi);
                 const Box bx = mfi.validbox();
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    interp_bilinear_d3q(i, j, k, fine, coarse);
-                });
+                if (interp_mode_local == 0) {
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        interp_bilinear_d3q(i, j, k, fine, coarse);
+                        });
+                } else {
+                    const Box coarse_parent_box = amrex::coarsen(bx, 2);
+                    amrex::ParallelFor(
+                        coarse_parent_box,
+                        [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
+                            interp_cell_cons_linear_children_d3q(
+                                ic, jc, kc, fine, coarse, bx);
+                        });
+                }
             }
 
             mf.ParallelCopy(fine_patch, 0, 0, Q, amrex::IntVect(0),

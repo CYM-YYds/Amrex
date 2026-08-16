@@ -44,6 +44,11 @@ lbm.collide_mode = 1
 # 注：regrid 前仍通过 AverageDownValid() 执行完整 fine-to-coarse 同步
 lbm.average_mode = 3
 
+# 粗到细 DDF 插值：
+# 0 = ratio-2 三线性（现有快速基线）
+# 1 = GPU 守恒线性（CellConservativeLinear 风格的受限斜率）
+lbm.interp_mode = 0
+
 # 粗网格到细网格的 DDF 插值固定为：稀疏 coarse staging -> 非平衡缩放
 # -> ratio=2 的三线性插值。重构时自动切换到布局迁移 patch，不需要模式参数。
 

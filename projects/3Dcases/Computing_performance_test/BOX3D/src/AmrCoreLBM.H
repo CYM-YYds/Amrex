@@ -180,6 +180,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     int collide_mode = 0;
     // 0：全区域分步；1：全区域融合；2：交界区域分步；3：交界区域融合。
     int average_mode = 1;
+    // 粗到细 DDF 插值：0 = ratio-2 三线性；1 = GPU 守恒线性。
+    int interp_mode = 0;
 
     amrex::Vector<amrex::BCRec> bcs;
     amrex::Vector<amrex::Real> err;
