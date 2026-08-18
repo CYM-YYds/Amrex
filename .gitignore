@@ -34,6 +34,7 @@ research/
 projects/师兄代码开发
 # AI 过程产物
 docs/superpowers/
+.account-migration/
 # IDE/editor
 
 # Python bytecode cache
