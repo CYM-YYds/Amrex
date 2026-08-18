@@ -9,7 +9,7 @@ from paraview.simple import *
 paraview.simple._DisableFirstRenderCameraReset()
 
 # create a new 'AMReX/BoxLib Grid Reader'
-car_Re300w_010000 = AMReXBoxLibGridReader(registrationName='car_Re300w_010000', FileNames=['/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-test/test-3D/cumu_object/test03/car_Re300w_010000'])
+car_Re300w_010000 = AMReXBoxLibGridReader(registrationName='car_Re300w_010000', FileNames=['/home/iosoeqkp/whcs-share47/wangyan/amrex-test/test-3D/cumu_object/test03/car_Re300w_010000'])
 car_Re300w_010000.CellArrayStatus = []
 
 # get animation scene
@@ -272,7 +272,7 @@ renderView1.ResetCamera(False)
 renderView1.ResetCamera(109.11973571777344, 147.06016540527344, 225.41836547851562, 360.0, 0.02872588112950325, 21.816560745239258, False)
 
 # create a new 'STL Reader'
-teslamodelSCar_mesh_finestl = STLReader(registrationName='Tesla-model-S-Car_mesh_fine.stl', FileNames=['/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-test/object/Tesla-model-S-Car_mesh_fine.stl'])
+teslamodelSCar_mesh_finestl = STLReader(registrationName='Tesla-model-S-Car_mesh_fine.stl', FileNames=['/home/iosoeqkp/whcs-share47/wangyan/amrex-test/object/Tesla-model-S-Car_mesh_fine.stl'])
 
 # show data in view
 teslamodelSCar_mesh_finestlDisplay = Show(teslamodelSCar_mesh_finestl, renderView1, 'GeometryRepresentation')

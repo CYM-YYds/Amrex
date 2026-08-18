@@ -8,4 +8,4 @@ LOG_DIR="${LOG_DIR:-${CASE_DIR}/logs/compile}"
 export LOG_DIR
 cd "${CASE_DIR}"
 #exec "${SHARED_DIR}/compile.sh" "$@"
-exec "/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/scripts/compile.sh" "$@"
+exec "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/scripts/compile.sh" "$@"

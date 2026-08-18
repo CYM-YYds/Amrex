@@ -9,10 +9,10 @@
                 "./**",
                 "/home/HPCBase/compilers/cuda/12.1.0/include",
                 "/home/HPCBase/compilers/cuda/12.1.0/targets/sbsa-linux/include",
-                "/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Base",
-                "/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/AmrCore",
-                "/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Boundary",
-                "/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Particle",
+                "/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src/Base",
+                "/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src/AmrCore",
+                "/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src/Boundary",
+                "/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src/Particle",
                 "/home/HPCBase/mpi/hmpi/1.2.0-huawei-sp1/include/openmpi",
                 "/home/HPCBase/mpi/hmpi/1.2.0-huawei-sp1/include/openmpi/opal/mca/hwloc/hwloc201/hwloc/include",
                 "/home/HPCBase/mpi/hmpi/1.2.0-huawei-sp1/include/openmpi/opal/mca/event/libevent2022/libevent",
@@ -47,8 +47,8 @@
                 "path": [
                     "${workspaceFolder}",
                     ".",
-                    "/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Base",
-                    "/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/AmrCore"
+                    "/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src/Base",
+                    "/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src/AmrCore"
                 ],
                 "limitSymbolsToIncludedHeaders": true,
                 "databaseFilename": ""

@@ -53,7 +53,7 @@ SetActiveView(renderView1)
 # ----------------------------------------------------------------
 
 # create a new 'AMReX/BoxLib Grid Reader'
-settling_buf0_amr3_06000 = AMReXBoxLibGridReader(registrationName='settling_buf0_amr3_06000', FileNames=['/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-test/test-3D/notdebug7/case3_06000/'])
+settling_buf0_amr3_06000 = AMReXBoxLibGridReader(registrationName='settling_buf0_amr3_06000', FileNames=['/home/iosoeqkp/whcs-share47/wangyan/amrex-test/test-3D/notdebug7/case3_06000/'])
 settling_buf0_amr3_06000.Level = 4
 settling_buf0_amr3_06000.CellArrayStatus = ['ux', 'uy', 'uz']
 

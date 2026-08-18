@@ -7,7 +7,7 @@
 from paraview.simple import *
 import os
 #### disable automatic camera reset on 'Show'
-folder_path = "/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-test/test-3D/notdebug8/"
+folder_path = "/home/iosoeqkp/whcs-share47/wangyan/amrex-test/test-3D/notdebug8/"
 file_prefix = "case4_0"  # 文件名前缀
 start_time = 1000  # 开始时间步
 end_time = 8500  # 结束时间步

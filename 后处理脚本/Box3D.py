@@ -10,7 +10,7 @@ paraview.compatibility.minor = 11
 from paraview.simple import *
 
 
-DEFAULT_DATA_PATH = r'/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D/data32to64/case_Re1_4p_010000'
+DEFAULT_DATA_PATH = r'/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D/data32to64/case_Re1_4p_010000'
 
 
 def build_pipeline(data_path=None, source=None):

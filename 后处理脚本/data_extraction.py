@@ -11,8 +11,8 @@ import os
 # ================================================================
 
 # 基础路径
-BASE_PROJECT_DIR = '/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/Cylindertest'
-BASE_OUTPUT_DIR = '/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/Cylindertest/output'
+BASE_PROJECT_DIR = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/Cylindertest'
+BASE_OUTPUT_DIR = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/Cylindertest/output'
 
 # 数据文件夹的固定部分
 DATA_SUBFOLDER = 'data/cyl_lev3_Re40_23200'  # 每个项目下的数据路径

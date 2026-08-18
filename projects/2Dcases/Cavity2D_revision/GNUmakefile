@@ -1,4 +1,4 @@
-AMREX_HOME ?=/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/amrex-26.01
+AMREX_HOME ?=/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/amrex-26.01
 
 DEBUG	= FALSE
 

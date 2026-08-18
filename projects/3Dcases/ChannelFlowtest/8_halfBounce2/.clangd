@@ -39,12 +39,12 @@ CompileFlags:
     - -I.
     - -I./src
     # Include: AMReX 主体
-    - -I/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src
-    - -I/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Base
-    - -I/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Base/Parser
-    - -I/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/AmrCore
-    - -I/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Boundary
-    - -I/home/huazkjdxmrsgjzdsyshi/whcs-share18/wangyan/amrex-23.09/Src/Particle
+    - -I/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src
+    - -I/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src/Base
+    - -I/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src/Base/Parser
+    - -I/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src/AmrCore
+    - -I/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src/Boundary
+    - -I/home/iosoeqkp/whcs-share47/wangyan/amrex-23.09/Src/Particle
     # CUDA / 设备相关头
     - -isystem
     - /home/HPCBase/compilers/cuda/12.1.0/targets/sbsa-linux/include

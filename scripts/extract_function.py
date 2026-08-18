@@ -80,8 +80,8 @@ def process_and_export(input_path, output_path, amr_level=2):
 # 如果直接运行此脚本（非批量模式）
 if __name__ == '__main__':
     # 默认参数
-    INPUT_DATA_PATH = '/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/Cylindertest/Cylinder2D_BTDF1/data/cyl_lev3_Re40_23200'
-    OUTPUT_CSV_PATH = '/home/huazkjdxmrsgjzdsyshi/whcs-share18/caiyimin/learnamerx/Amrex/projects/Cylindertest/output_data.csv'
+    INPUT_DATA_PATH = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/Cylindertest/Cylinder2D_BTDF1/data/cyl_lev3_Re40_23200'
+    OUTPUT_CSV_PATH = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/Cylindertest/output_data.csv'
     AMR_LEVEL = 2
     
     process_and_export(INPUT_DATA_PATH, OUTPUT_CSV_PATH, AMR_LEVEL)
