@@ -279,6 +279,7 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  cf_mask=" << std::setw(10) << std::right << cf_mask_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  col_mode=" << std::setw(10) << std::right << collide_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  avg_mode=" << std::setw(10) << std::right << average_mode << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  int_mode=" << std::setw(10) << std::right << interp_mode << std::endl;
 
     for (int lev = 0; lev <= finest_level; lev++) {
         amrex::Print() << std::setw(15) << std::left << "  tau    =" << std::setw(10) << std::right << tau[lev] << std::endl;
@@ -292,8 +293,9 @@ void AmrCoreLBM::ReadParameters() {
         ParmParse pp("lbm");
         pp.query("interp_mode", interp_mode);
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-            interp_mode == 0 || interp_mode == 1,
-            "lbm.interp_mode must be 0 (trilinear) or 1 (GPU conservative linear)");
+            interp_mode >= 0 && interp_mode <= 2,
+            "lbm.interp_mode must be 0 (trilinear), 1 (GPU conservative "
+            "linear), or 2 (GPU cell quadratic)");
     }
     {
         ParmParse pp("amr");
@@ -696,9 +698,12 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
     const auto fill_ng = f_old[lev].nGrowVect(); // 获取f_old[lev] 在 x、y、z 三个方向上分配的 ghost cell 层数。
-    Interpolater* interp_mapper = interp_mode == 0
-        ? static_cast<Interpolater*>(&cell_bilinear_interp)
-        : static_cast<Interpolater*>(&cell_cons_interp);
+    Interpolater* interp_mapper = &cell_bilinear_interp;
+    if (interp_mode == 1) {
+        interp_mapper = &cell_cons_interp;
+    } else if (interp_mode == 2) {
+        interp_mapper = &quadratic_interp;
+    }
     const auto coarsener =
         interp_mapper->BoxCoarsener(refRatio(lev - 1));
     const BoxArray& fine_ba = f_old[lev].boxArray();
@@ -846,12 +851,20 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
                     bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                         interp_bilinear_d3q(i, j, k, fine, coarse);
                     });
-            } else {
+            } else if (interp_mode_local == 1) {
                 const Box coarse_parent_box = amrex::coarsen(bx, 2);
                 amrex::ParallelFor(
                     coarse_parent_box,
                     [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
                         interp_cell_cons_linear_children_d3q(
+                            ic, jc, kc, fine, coarse, bx);
+                    });
+            } else {
+                const Box coarse_parent_box = amrex::coarsen(bx, 2);
+                amrex::ParallelFor(
+                    coarse_parent_box,
+                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
+                        interp_cell_quadratic_children_d3q(
                             ic, jc, kc, fine, coarse, bx);
                     });
             }
@@ -884,9 +897,12 @@ void AmrCoreLBM::RemakeDdfState(
     const auto ratio = refRatio(lev - 1);
     AMREX_ALWAYS_ASSERT(ratio == amrex::IntVect(2));
     const int interp_mode_local = interp_mode;
-    Interpolater* interp_mapper = interp_mode == 0
-        ? static_cast<Interpolater*>(&cell_bilinear_interp)
-        : static_cast<Interpolater*>(&cell_cons_interp);
+    Interpolater* interp_mapper = &cell_bilinear_interp;
+    if (interp_mode == 1) {
+        interp_mapper = &cell_cons_interp;
+    } else if (interp_mode == 2) {
+        interp_mapper = &quadratic_interp;
+    }
     const auto coarsener = interp_mapper->BoxCoarsener(ratio);
 
     // Regrid 时目标 old_state 的布局不同于 f_old[lev]。此处按 FPinfo
@@ -955,14 +971,22 @@ void AmrCoreLBM::RemakeDdfState(
                 if (interp_mode_local == 0) {
                     amrex::ParallelFor(
                         bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        interp_bilinear_d3q(i, j, k, fine, coarse);
+                            interp_bilinear_d3q(i, j, k, fine, coarse);
+                        });
+                } else if (interp_mode_local == 1) {
+                    const Box coarse_parent_box = amrex::coarsen(bx, 2);
+                    amrex::ParallelFor(
+                        coarse_parent_box,
+                        [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
+                            interp_cell_cons_linear_children_d3q(
+                                ic, jc, kc, fine, coarse, bx);
                         });
                 } else {
                     const Box coarse_parent_box = amrex::coarsen(bx, 2);
                     amrex::ParallelFor(
                         coarse_parent_box,
                         [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                            interp_cell_cons_linear_children_d3q(
+                            interp_cell_quadratic_children_d3q(
                                 ic, jc, kc, fine, coarse, bx);
                         });
                 }
@@ -1086,9 +1110,17 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
 }
 
 void AmrCoreLBM::RebuildCoarseFineCaches() {
+    // 网格初始化或 regrid 完成后，各层的 BoxArray 和 DistributionMapping
+    // 可能已经改变。所有依赖旧网格拓扑、Box 编号或数据归属的缓存都必须
+    // 在再次执行 FillGhost、Boundary 和 AverageDown 前统一重建。
+
+    // 重新统计每个 coarse level 被 fine level 覆盖的单元数，以及覆盖区中
+    // 紧邻 coarse-fine 交界面的单元数；未被实际建立的层保持为 0。
     covered_cell_counts.assign(max_level + 1, 0);
     interface_cell_counts.assign(max_level + 1, 0);
 
+    // 先释放所有由旧网格布局生成的 MultiFab、Box 列表和索引映射，避免
+    // 后续计算继续使用已经失效的 Box 编号、owner 或 coarse/fine 对应关系。
     for (int lev = 0; lev <= max_level; ++lev) {
         covered_mask[lev].clear();
         interface_mask[lev].clear();
@@ -1102,9 +1134,21 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
         average_interface_fine_box[lev].clear();
     }
 
+    // 构造 coarse 覆盖掩码和 coarse-fine 交界掩码，供粗层
+    // Collide/Stream 跳过被细层替代的区域，并供交界限制操作使用。
     RebuildCoarseFineMasks();
+
+    // 预先找出各 fine Fab 位于非周期物理边界上的互不重叠工作 Box，
+    // Boundary() 可直接遍历这些 Box，而不必在每个时间步重复分析几何关系。
     BuildBoundaryWorkBoxes();
+
+    // 为每个 fine ghost work_box 建立所需的 coarse stencil staging Fab、
+    // fine Fab 索引和 owner 映射，供 FillDdfGhostFromCoarse() 直接插值。
+    // stencil 大小由当前 interp_mode 对应的 Interpolater::BoxCoarsener 决定。
     BuildInterpolationCache();
+
+    // 建立 fine-to-coarse 平均下传缓存：全覆盖模式使用完整 coarse 缓冲区，
+    // 稀疏模式只保存 coarse-fine 交界条带及其对应的 fine Fab 索引。
     BuildRestrictionCache();
 }
 

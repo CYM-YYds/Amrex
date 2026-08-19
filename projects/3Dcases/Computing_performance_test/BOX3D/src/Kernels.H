@@ -2475,6 +2475,74 @@ void interp_cell_cons_linear_children_d3q(
     }
 }
 
+// AMReX CellQuadratic 在 ratio=2、笛卡尔网格和当前 foextrap 边界下的
+// 融合设备实现。每个 coarse cell 只计算一次一阶、纯二阶和混合斜率，
+// 随后直接写入 fine_work_box 内的最多八个子单元。
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void interp_cell_quadratic_children_d3q(
+    int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    amrex::Box const& fine_work_box) noexcept {
+    constexpr Real quarter = Real(0.25);
+    constexpr Real half = Real(0.5);
+
+    for (int q = 0; q < Q; ++q) {
+        const Real center = coarse(ic, jc, kc, q);
+        const Real sx = half *
+            (coarse(ic + 1, jc, kc, q) - coarse(ic - 1, jc, kc, q));
+        const Real sy = half *
+            (coarse(ic, jc + 1, kc, q) - coarse(ic, jc - 1, kc, q));
+        const Real sz = half *
+            (coarse(ic, jc, kc + 1, q) - coarse(ic, jc, kc - 1, q));
+        const Real sxx = coarse(ic - 1, jc, kc, q) - Real(2) * center +
+                         coarse(ic + 1, jc, kc, q);
+        const Real syy = coarse(ic, jc - 1, kc, q) - Real(2) * center +
+                         coarse(ic, jc + 1, kc, q);
+        const Real szz = coarse(ic, jc, kc - 1, q) - Real(2) * center +
+                         coarse(ic, jc, kc + 1, q);
+        const Real sxy = quarter *
+            (coarse(ic - 1, jc - 1, kc, q) -
+             coarse(ic + 1, jc - 1, kc, q) -
+             coarse(ic - 1, jc + 1, kc, q) +
+             coarse(ic + 1, jc + 1, kc, q));
+        const Real sxz = quarter *
+            (coarse(ic - 1, jc, kc - 1, q) -
+             coarse(ic + 1, jc, kc - 1, q) -
+             coarse(ic - 1, jc, kc + 1, q) +
+             coarse(ic + 1, jc, kc + 1, q));
+        const Real syz = quarter *
+            (coarse(ic, jc - 1, kc - 1, q) -
+             coarse(ic, jc - 1, kc + 1, q) -
+             coarse(ic, jc + 1, kc - 1, q) +
+             coarse(ic, jc + 1, kc + 1, q));
+
+#pragma unroll
+        for (int koff = 0; koff < 2; ++koff) {
+#pragma unroll
+            for (int joff = 0; joff < 2; ++joff) {
+#pragma unroll
+                for (int ioff = 0; ioff < 2; ++ioff) {
+                    const int i = 2 * ic + ioff;
+                    const int j = 2 * jc + joff;
+                    const int k = 2 * kc + koff;
+                    if (fine_work_box.contains(i, j, k)) {
+                        const Real ox = ioff == 0 ? -quarter : quarter;
+                        const Real oy = joff == 0 ? -quarter : quarter;
+                        const Real oz = koff == 0 ? -quarter : quarter;
+                        fine(i, j, k, q) =
+                            center + ox * sx + oy * sy + oz * sz +
+                            half * ox * ox * sxx +
+                            half * oy * oy * syy +
+                            half * oz * oz * szz +
+                            ox * oy * sxy + ox * oz * sxz + oy * oz * syz;
+                    }
+                }
+            }
+        }
+    }
+}
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void average_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
