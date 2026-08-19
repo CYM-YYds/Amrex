@@ -1,6 +1,11 @@
-# BOX3D AMR 粗细网格通信
+# BOX3D A-B 基线：AMR 粗细网格通信
 
-本文档说明当前 BOX3D 中分布函数（DDF）的粗细网格传输路径。它描述的是
+> **BOX3D_OSI 继承资料。** 本文描述复制时的 A-B 双 `MultiFab` 基线路径，不是
+> OSI 当前实现。OSI 尚未落地；涉及 twisted/canonical 布局、per-level phase 和
+> OSI-aware MPI 的设计以
+> [OSI 算法与 AMReX 集成架构](osi_algorithm_and_architecture.md)为准。
+
+本文档说明复制基线中分布函数（DDF）的粗细网格传输路径。它描述的是
 AMReX 的 patch-based AMR 实现；不要把它与 Jaber 论文中 GPU-native 八叉树的
 显式邻接表实现混为一谈。
 

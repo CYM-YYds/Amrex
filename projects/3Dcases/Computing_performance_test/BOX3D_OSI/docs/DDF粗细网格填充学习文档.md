@@ -1,6 +1,8 @@
-# BOX3D DDF coarse-to-fine 填充学习文档
+# BOX3D A-B 基线：DDF coarse-to-fine 填充学习文档
 
-> 适用范围：`projects/3Dcases/Computing_performance_test/BOX3D/` 当前代码。
+> **BOX3D_OSI 继承资料。** 本文描述复制时的 BOX3D A-B 双 `MultiFab` 路径，供
+> OSI 开发时理解现有 coarse/fine 语义和建立数值基线。它不表示 OSI 已实现。
+> OSI 设计见 [OSI 算法与 AMReX 集成架构](osi_algorithm_and_architecture.md)。
 >
 > 当前实现固定使用稀疏 coarse staging 和非平衡缩放；`lbm.interp_mode` 在三线性、
 > GPU 守恒线性和 GPU 单元二次插值之间切换。三种模式都要求 ratio=2。
@@ -70,10 +72,10 @@ valid 数据并初始化新增 valid 区域。两条路径采用相同的 coarse
 
 | 文件                                | 重点内容                                                      |
 | ----------------------------------- | ------------------------------------------------------------- |
-| [`main.cpp`](main.cpp)             | `JaberCycle2()` 何时请求 ghost 填充                         |
-| [`AmrCoreLBM.H`](AmrCoreLBM.H)     | DDF`MultiFab`、运行模式和 direct cache 的所有权             |
-| [`AmrCoreLBM.cpp`](AmrCoreLBM.cpp) | `BuildDirectInterpolationCache()`、ghost 填充和重构迁移逻辑 |
-| [`Kernels.H`](Kernels.H)           | `average_scale()` 和 `interp_bilinear_d3q()` 的数值公式   |
+| [`main.cpp`](../src/main.cpp)             | `JaberCycle2()` 何时请求 ghost 填充                         |
+| [`AmrCoreLBM.H`](../src/AmrCoreLBM.H)     | DDF`MultiFab`、运行模式和 direct cache 的所有权             |
+| [`AmrCoreLBM.cpp`](../src/AmrCoreLBM.cpp) | `BuildDirectInterpolationCache()`、ghost 填充和重构迁移逻辑 |
+| [`Kernels.H`](../src/Kernels.H)           | `average_scale()` 和 `interp_bilinear_d3q()` 的数值公式   |
 
 推荐在编辑器中按以下顺序跳转：
 

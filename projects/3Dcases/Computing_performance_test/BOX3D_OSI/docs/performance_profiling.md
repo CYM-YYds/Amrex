@@ -1,8 +1,14 @@
-# BOX3D 性能分析
+# BOX3D A-B 基线：历史性能分析
+
+> **BOX3D_OSI 继承资料。** 本文的 job、图表和性能数字来自原 BOX3D A-B 路径，
+> 不属于 BOX3D_OSI，也不能证明 OSI 已实现或更快。OSI 后续性能结果必须在本目录
+> 重新构建、运行并按
+> [OSI 实施与验证计划](osi_implementation_plan.md)记录 canonicalization、通信和
+> 端到端开销。
 
 ## 目的
 
-这个算例用于测量递归 `JaberCycle2()` 路径中的粗细网格 AMR 传输开销。相关的数据路径如下：
+复制基线用于测量递归 `JaberCycle2()` 路径中的粗细网格 AMR 传输开销。相关的数据路径如下：
 
 ```text
 FillGhostLevel -> FillDdfGhostFromCoarse

@@ -1,112 +1,138 @@
-# BOX3D：三维方腔流耗时分析算例
+# BOX3D_OSI：AMReX 动态 AMR 上的单数组 OSI-LBM 实验算例
 
-本算例基于 AMReX 实现三维方腔流的 AMR-LBM 计算。它的主要用途是记录和分析时间推进、粗细网格数据传输及重网格等阶段的耗时，为性能归因和后续优化提供依据。
+`BOX3D_OSI` 以相邻的 `BOX3D` 为数值与性能基线，目标是在 AMReX patch-based
+动态自适应网格上实现 one-step index（OSI）分布函数存储与隐式迁移。
 
-仓库级目录说明、构建环境和通用编译流程见[根目录 README](../../../../README.md)；本文件仅说明 BOX3D 特有的性能统计口径与分析资料。
+## 当前状态
 
-## 性能统计口径
+截至 2026-08-19，本目录的核心源码、配置和脚本仍是从 `BOX3D` 复制得到的
+A-B 双 `MultiFab` pull-streaming 实现；**尚未实现 OSI，也没有 BOX3D_OSI 的编译、
+运行、数值等价或性能结果**。现阶段完成的是实现前的算法与架构设计。
+复制完成后的审查基线提交为 `6578093`（`before codex`）。
 
-程序在 `src/main.cpp` 中每推进 1000 步输出一个性能窗口。窗口结束后，累计计时器和统计计数都会重置，因此单条 `stepXXXX` 记录只对应其前一个 1000 步窗口，不能直接视为整个算例的累计耗时。
+当前源码仍具有以下基线特征：
 
-除 `compute_time`、`regrid_time` 与 `JaberCycle_time` 外，程序还输出下列三组统计信息。
+- `f_old[lev]` 和 `f_new[lev]` 各保存一套 D3Q27 分布函数；
+- `Collide()` 原位更新 `f_old`；
+- `CommunicateLevel()` 填充 `f_old` 的同层 ghost；
+- `Stream()` 从 `f_old(i-e_q)` 显式 pull 到 `f_new(i)`；
+- `Boundary()` 修正迁移后的物理边界，随后 `SwapLevel()` 交换两套 `MultiFab`；
+- `JaberCycle2()` 对细层做 2:1 时间子循环，并在运行中执行动态 regrid。
 
-### 阶段耗时：`perf(s)`
+不要把继承自 BOX3D 的历史 job、图表或性能数字描述为 OSI 结果。
 
-| 字段 | 含义 |
-| --- | --- |
-| `interp` | 粗网格向细网格填充幽灵单元及其 LBM 非平衡量缩放的总耗时。 |
-| `collide` | LBM 碰撞阶段耗时。 |
-| `stream` | LBM 迁移阶段耗时。 |
-| `average` | 细网格向粗网格限制及其相关缩放的总耗时。 |
-| `comm` | 同层数据通信耗时。 |
-| `boundary` | 边界条件处理耗时。 |
-| `swap` | 新旧分布函数数据交换耗时。 |
-| `solv` | 当前 `JaberCycle2()` 的窗口总耗时。 |
-| `total` | 包含重网格等外围工作的窗口总耗时。 |
-| `MLUPS_solv` / `MLUPS_total` | 分别以 `solv` 和 `total` 为分母计算的性能指标。 |
+## 新会话的阅读顺序
 
-### 粗细网格传输细分：`perf_detail(s)`
+计划实现或审查 OSI 时，按以下顺序阅读：
 
-| 字段 | 含义 |
-| --- | --- |
-| `interp_cache_build` | 网格建立或 regrid 后构造 direct coarse-to-fine 插值布局的主机端耗时。 |
-| `interp_regrid_fill` | `RemakeLevel()` 调用 `RemakeDdfState()` 迁移新网格布局的耗时，归属于 regrid 而非时间推进中的 `interp`。 |
-| `interp_fillpatch` | DDF 粗到细填充总耗时：正常推进是 direct staging，regrid 时是 `RemakeDdfState()` 的临时 patch。 |
-| `average_alloc` / `average_copy` / `average_scale` | 分步 restriction 的缓冲、复制与非平衡量缩放耗时；融合模式下应为 0。 |
-| `average_down` | 当前所选 restriction 路径的总耗时，包含 kernel 与结果回写。 |
-| `average_fused` | 恢复宏观量、非平衡量缩放及 8 个 fine child 平均的融合 kernel 耗时。 |
-| `average_restrict` | 拆分模式中，将已经缩放的 8 个 fine child 平均到 coarse parent 的耗时。 |
-| `average_copyback` | 从按 fine 布局的粗化结果缓冲区回写真实 coarse `MultiFab` 的耗时，可能包含 MPI 通信。 |
+1. [OSI 算法与 AMReX 集成架构](docs/osi_algorithm_and_architecture.md)：权威设计、术语、状态不变量和 AMR 兼容策略；
+2. [OSI 实施与验证计划](docs/osi_implementation_plan.md)：分阶段改动范围、接口草图和验收门槛；
+3. `src/main.cpp`：当前 `JaberCycle2()` 的递归推进与 regrid 时机；
+4. `src/AmrCoreLBM.H/.cpp`：DDF 所有权、通信、粗细层传输、重构和 checkpoint；
+5. `src/Kernels.H`：当前 collision、pull-streaming 和 boundary kernel；
+6. `config/inputs` 与 `config/GNUmakefile`：运行模式、AMReX 版本和构建设置；
+7. 本 README 后面列出的 BOX3D 基线资料。
 
-这些细分计时会在测量点同步 GPU，因此适合在同一插桩构建中定位耗时来源；不应与未插桩运行的绝对吞吐直接比较。
+论文及教学原型位于仓库的
+[`research/papers/OSI优化计划`](../../../../research/papers/OSI优化计划/)。其中：
 
-## 运行时碰撞路径
+- `A simple one-step index algorithm for implementation of lattice.pdf` 是 OSI 原论文；
+- `A simple one-step index algorithm for implementation of lattice/full.md` 是本地解析文本；
+- `learnosi.cpp`、`osi_step1.cpp`、`osi_step2.cpp`、`osi_step3.cpp` 是均匀网格参考原型，不是 AMReX 可直接移植实现。
 
-`lbm.collide_mode` 在 host 侧选择 D3Q27 BGK 碰撞实现，不改变 AMR 网格、cell mask
-或 `JaberCycle2()` 调度：
+## 已确定的总体方案
 
-| 模式 | 实现 | 用途 |
-| ---: | --- | --- |
-| `0` | 原始逐方向读取路径 | 语义基线与回归对照。 |
-| `1` | 将 27 个 DDF 缓存在寄存器并复用宏观量的专用路径 | 当前无体力、无 SGS 方腔流的默认性能路径。 |
+本算例采用“OSI 热路径 + AMR 布局边界规范化”的方案：
 
-受控单 GPU 的 1000 步 A/B 测试和 64 步 DDF 范数验证分别由
-`scripts/submit_collide_ab.sh` 与 `scripts/submit_collide_norm.sh` 提交。当前实测数据、
-统计窗口和寄存器压力限制见[性能分析文档](docs/performance_profiling.md#专用-bgk-碰撞路径job-575206)。
+```text
+普通固定布局时间步：
+    OSI twisted storage
+    -> 同址读取/碰撞/写回
+    -> OSI-aware ghost/MPI
+    -> phase 前进，隐式完成 streaming
 
-## 粗到细 DDF 插值模式
+需要 AMReX 按逻辑坐标操作时：
+    twisted MultiFab
+    -> gather/canonicalize
+    -> FillPatch / average-down / regrid / checkpoint
+    -> scatter 或直接建立新 OSI 状态
+    -> phase 重置为 0
+```
 
-`lbm.interp_mode` 同时控制 direct ghost 填充、regrid 布局迁移所需的 coarse stencil
-以及对应的 GPU kernel。当前只支持 `ref_ratio=(2,2,2)`：
+这里的 canonical layout 满足 AMReX 的普通约定：
 
-| 模式 | 实现 | 数值特点 |
-| ---: | --- | --- |
-| `0` | 固定权重三线性插值 | 快速基线；每个 fine cell 读取 8 个 coarse 点。 |
-| `1` | GPU 单元守恒线性插值 | coarse-cell-driven，使用受限斜率，8 个子单元平均保持父单元值。 |
-| `2` | GPU 单元二次插值 | `CellQuadratic` 的笛卡尔 ratio-2 公式，无限制器。 |
+```text
+mf(i,j,k,q) == 物理 cell (i,j,k) 的第 q 个 DDF
+```
 
-三模式固定网格性能脚本为 `scripts/submit_interp_ab.sh`；它要求算例目录存在包含粒子
-和 level 0--3 数据的 `chk00009000`。短程 mode 0/mode 2 DDF 差异检查由
-`scripts/submit_interp_norm.sh` 完成。最新结果和适用边界见
-[性能分析文档](docs/performance_profiling.md#三种粗到细插值模式job-580487)。
+OSI twisted layout 则满足：
 
-### 调用量与近似工作量：`perf_count`
+```text
+storage(Addr(fab,q,phase,i,j,k), q)
+    == 物理 cell (i,j,k) 的第 q 个 DDF
+```
 
-`interp_cache_builds` 记录该统计窗口内 direct coarse-to-fine 插值布局的实际构建次数，需与 `interp_cache_build` 配合判断重建频率和单次成本。`interp_regrid_fill_calls` 则记录 regrid 期间重新填充 level 数据的次数。
+采用规范化边界不是因为 OSI 与 AMR 数学上冲突，而是因为 AMReX 的
+`FillBoundary()`、`ParallelCopy()`、插值、限制和 `VisMF` 默认不知道这层地址翻译。
 
-| 字段 | 含义 |
-| --- | --- |
-| `fillghost_calls` | 粗细网格幽灵单元填充调用次数。 |
-| `avgdown_calls` | 细网格向粗网格限制调用次数。 |
-| `average_scale_cells` | 细到粗缩放处理的近似格点数。 |
-| `average_parent_cells` | restriction 实际处理的 coarse parent 数；用于核对 full 与 interface-only 工作量。 |
-| `boundary_full_cells` | 若对每层全部 valid cell 启动边界 kernel 时的基准格点数。 |
-| `boundary_launch_cells` | 实际物理边界工作箱覆盖的格点数；两者之比用于衡量边界 launch 裁剪效果。 |
+## 第一版范围
 
-## 深入分析资料
+第一版按风险从低到高推进：
 
-- [DDF coarse-to-fine 填充学习文档](docs/DDF粗细网格填充学习文档.md)
-- [性能分析流程、测量结果与图表](docs/performance_profiling.md)
-- [AMR 网格通信、幽灵单元填充与粗细网格传输](docs/amr_grid_communication.md)
+1. 单 Fab、单层、固定网格、周期边界；
+2. 多 Fab/多 MPI、单层固定网格；
+3. 非周期物理边界；
+4. 静态多层 AMR 与 2:1 子循环；
+5. 动态 regrid 的 canonicalize/reset；
+6. checkpoint/restart、完整回归与性能比较。
 
-使用 TinyProfiler 深入定位 `FillPatchTwoLevels()` 等内部开销时，应将结果用于路径归因，而非与未插桩版本比较生产吞吐。
+在前三阶段完成前，不删除 `f_new`，也不把 OSI 设为默认路径。建议保留运行时模式：
 
-当前主循环调用 `JaberCycle2()`；其粗细网格传输、两层 ghost 策略和迁移边界保护见
-[AMR 网格通信文档](docs/amr_grid_communication.md)。构建和数值验证必须在算例目标的 HPC
-编译环境中进行。该算例的 `config/GNUmakefile` 当前指向 `amrex-26.06`，使用 C++20，
-并要求 GCC 11 或更新版本。
+```text
+lbm.stream_mode = 0  # 现有 A-B 基线
+lbm.stream_mode = 1  # OSI 实验路径
+```
 
-## IDE 语义分析
+只有在数值和 MPI/AMR 回归通过后，才能评估是否移除双数组基线。
 
-`.clangd` 从 `config/compile_commands.json` 读取本算例的编译参数，并用主机模式近似解析
-NVCC 编译单元。配置中的 CUDA 关键字定义及 `blockIdx` 同类型替身只供 clangd 使用，
-不进入真实 NVCC 构建。仓库根工作区的 `--query-driver` 必须使用逗号分隔多个编译器路径，
-否则 clangd 无法提取 GCC 11 标准库目录，并会从缺失 `<numbers>` 开始产生级联误报。
+## 构建环境
 
-完整刷新数据库并检查 clangd 时，可在算例根目录执行：
+本算例继承 BOX3D 的构建环境：
+
+- AMReX：`amrex-26.06`；
+- C++：C++20；
+- 编译器：GCC 11 或更新版本；
+- 生产目标：MPI + CUDA。
+
+在算例根目录构建：
 
 ```bash
-CCDB_REQUIRE_FULL=1 CCDB_MERGE_OLD=0 ./scripts/compile.sh
-clangd --check=src/main.cpp --compile-commands-dir=config --enable-config \
-  '--query-driver=/home/HPCBase/compilers/gcc/*/bin/g++'
+./scripts/compile.sh
 ```
+
+当前构建命令只能验证继承的 A-B 基线，不能证明 OSI 已实现。
+
+## 继承的 BOX3D 基线资料
+
+以下文档和图表从 BOX3D 复制而来，用于理解现有 A-B/AMR 路径和建立后续 A/B
+对照。除非文档明确记录新的 BOX3D_OSI job，否则其中数字只属于原 BOX3D：
+
+- [DDF coarse-to-fine 填充基线](docs/DDF粗细网格填充学习文档.md)
+- [AMR 网格通信基线](docs/amr_grid_communication.md)
+- [BOX3D 历史性能资料](docs/performance_profiling.md)
+- [BOX3D 历史 MLUPS 记录](docs/MLUPS记录.md)
+
+## 证据等级
+
+后续文档和提交必须区分：
+
+1. 设计完成；
+2. 代码已实现；
+3. 静态检查通过；
+4. 编译通过；
+5. 作业完成；
+6. 数值等价/守恒验证通过；
+7. 受控性能 A/B 完成。
+
+低等级证据不能替代高等级证据。例如“成功编译”不能写成“OSI 数值正确”，短程
+smoke 也不能写成“性能提升”。
