@@ -1,0 +1,72 @@
+# *****************************************************************
+# Run until nsteps == max_step or time == stop_time,
+#     whichever comes first
+# *****************************************************************
+max_step  = 64000
+stop_time = 2500000.0
+
+amr.regrid_int  = 32
+
+amr.grid_eff          = 0.7 
+amr.n_error_buf       = 0 0 0 0 
+amr.max_grid_size     = 64 64 64 64
+amr.blocking_factor_x = 32 32 32 32
+amr.blocking_factor_y = 32 32 32 32
+amr.blocking_factor_z = 32 32 32 32
+
+amr.plot_file  = data32to64/case_Re1_4p_
+amr.plot_int   = 10000
+amr.begin_plot = 0
+
+checkpoint.begin_step = 0
+checkpoint.chk_int = 100000
+checkpoint.chk_prefix = chk
+checkpoint.keep_latest_only = true
+checkpoint.write_particles = true
+
+lbm.err = 0.005 0.010 0.020 0.040
+
+# 粗细网格覆盖掩码模式：
+# 0 = 不使用 mask，粗层所有 cell 都参与 Collide/Stream
+# 1 = 使用逐 cell mask，跳过被细层覆盖的粗层内部 cell（当前实测默认）
+lbm.cf_mask_mode = 1
+
+# BGK 碰撞内核：
+# 0 = 原始通用路径（保留作为数值/性能基线）
+# 1 = 无外力/无 SGS 的 D3Q27 专用路径，寄存器复用 DDF 并合并 feq 公共项
+lbm.collide_mode = 1
+
+# 细网格到粗网格的 DDF 平均下传模式：
+# 0 = 全部 fine valid，复用 f_new，分步执行 Copy + Scale + Restrict
+# 1 = 全部 fine valid，融合执行非平衡缩放与 Restrict
+# 2 = 仅 coarse-fine interface，复用 f_new，分步执行 Copy + Scale + Restrict
+# 3 = 仅 coarse-fine interface，融合执行非平衡缩放与 Restrict（当前实测默认）
+# 注：regrid 前仍通过 AverageDownValid() 执行完整 fine-to-coarse 同步
+lbm.average_mode = 3
+
+# 粗到细 DDF 插值：
+# 0 = ratio-2 三线性（现有快速基线）
+# 1 = GPU 守恒线性（CellConservativeLinear 风格的受限斜率）
+# 2 = GPU 单元二次插值（CellQuadratic 的笛卡尔 ratio-2 路径）
+lbm.interp_mode = 0
+
+# *****************************************************************
+# mesh setting
+#
+# *****************************************************************
+# geometry.prob_lo     =  0.0  0.0  0.0
+# geometry.prob_hi     =  2.0  1.0  1.0
+# geometry.is_periodic =  0    0    0
+
+# amr.n_cell           =  64 64 32
+# amr.max_level        =  0
+
+# amr.v                =  1     
+# amr.ref_ratio        =  2 2 2 2 
+
+# amr.blocking_factor_x = 8
+# amr.blocking_factor_y = 8
+# amr.blocking_factor_z = 8
+# *****************************************************************
+# Particles
+# *****************************************************************

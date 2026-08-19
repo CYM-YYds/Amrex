@@ -1,0 +1,486 @@
+#include <iostream>
+#include <chrono>
+
+#include <AMReX.H>
+#include <AMReX_BLProfiler.H>
+#include <AMReX_ParallelDescriptor.H>
+#include <AMReX_Utility.H>
+
+#include "AmrCoreLBM.H"
+
+using namespace amrex;
+
+void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);  // 好像更适配cumulant_opt
+void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);  // 更适配cumulant
+void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 更适配cumulant
+void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
+void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
+
+int main(int argc, char* argv[]) {
+    amrex::Initialize(argc, argv);
+
+    {
+        const Real start_time = amrex::second();
+
+        int max_step, regrid_int, plot_int, begin_plot;
+        amrex::Real stop_time;
+
+        {
+            amrex::ParmParse pp;
+            pp.query("max_step", max_step);
+            pp.query("stop_time", stop_time);
+        }
+        int chk_int = -1;
+        int begin_step = 0;
+        std::string ddf_reference_checkpoint;
+        {
+            amrex::ParmParse pp_verify("verification");
+            pp_verify.query(
+                "ddf_reference_checkpoint", ddf_reference_checkpoint);
+        }
+
+        amrex::Geometry geom(
+            amrex::Box({AMREX_D_DECL(0, 0, 0)}, {AMREX_D_DECL(NX - 1, NY - 1, NZ - 1)}),
+            amrex::RealBox({AMREX_D_DECL(0., 0., 0.)}, {AMREX_D_DECL(nx, ny, nz)}),
+            amrex::CoordSys::cartesian,
+            {AMREX_D_DECL(0, 0, 0)});
+        amrex::AmrInfo info{
+            1,             // verbose
+            max_ref_level, // max_level
+            amrex::Vector<amrex::IntVect>{(size_t)max_ref_level + 1, {AMREX_D_DECL(2, 2, 2)}},
+            amrex::Vector<amrex::IntVect>{(size_t)max_ref_level + 1, {AMREX_D_DECL(8, 8, 8)}},
+            amrex::Vector<amrex::IntVect>{(size_t)max_ref_level + 1, {AMREX_D_DECL(128, 128, 128)}}};
+
+        AmrCoreLBM lid(geom, info);
+        begin_step = lid.params().begin_step;
+        chk_int = lid.params().chk_int;
+        regrid_int = lid.params().regrid_int;
+        plot_int = lid.params().plot_int;
+        begin_plot = lid.params().begin_plot;
+
+        amrex::Real cur_time = begin_step * dt_0;
+
+        if (begin_step > 0) {
+            lid.ReadCheckpoint();
+            lid.PrintMeshInfo();
+            lid.PrintLbmParm();
+            amrex::Print() << "[Checkpoint] Restarted at step=" << begin_step
+                           << ", time=" << cur_time << "\n";
+        } else {
+            lid.InitMesh(cur_time);
+            lid.PrintMeshInfo();
+            lid.PrintLbmParm();
+            lid.InitParticle(max_ref_level);
+            lid.InitCpPoint(max_ref_level);
+            lid.PrintParticleParm();
+        }
+
+        float compute_time = 0.0f;
+        float regrid_time = 0.0f;
+        float JaberCycle_time = 0.0f;
+        double weighted_updates_window = 0.0;
+        int stats_steps = 0;
+        lid.ResetPerfStats();
+        int start_step = begin_step + 1;
+        for (int step = start_step; step <= max_step && cur_time < stop_time; step++) {
+            amrex::Print() << "STEP " << step << "starts ..." << std::endl;
+            auto start_time_compute_time = std::chrono::high_resolution_clock::now();
+            auto start_time_regrid_time = std::chrono::high_resolution_clock::now();
+            // regrid_time_outer(me, f_array, indices, story);
+
+            if (step >= 0 && step % regrid_int == 0) {
+                // 模式 2/3 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
+                // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
+                lid.AverageDownValid();
+                lid.FindCentre();
+                lid.RefineMesh(cur_time);
+                lid.RedistributeParticle();
+            }
+
+            auto end_time_regrid_time = std::chrono::high_resolution_clock::now();
+            regrid_time += std::chrono::duration<float, std::milli>(end_time_regrid_time - start_time_regrid_time).count();
+            weighted_updates_window += lid.ComputeWeightedLatticeUpdatesPerCoarseStep();
+            ++stats_steps;
+
+            /*---------------用于计算静止圆球绕流----------------------------------*/
+            // RohdeCycle(0, cur_time, lid);
+
+            auto start_time_JaberCycle = std::chrono::high_resolution_clock::now();
+            JaberCycle2(0, cur_time, lid);
+            auto end_time_JaberCycle = std::chrono::high_resolution_clock::now();
+            JaberCycle_time += std::chrono::duration<float, std::milli>(end_time_JaberCycle - start_time_JaberCycle).count();
+
+            // lid.ReduceFxy(max_ref_level, step);
+            /*--------------------------------------------------------------------*/
+
+            /*---------------用于计算多颗粒自由运动----------------------------------*/
+            // RohdeCycleMultiParticle(0, cur_time, lid);
+            // JaberCycleMultiParticle(0, cur_time, lid);
+
+            // lid.SaveParticlePosition(0, step);
+            // lid.SaveParticleVelocity(0, step);
+            // lid.SaveParticleDistance(0, step);
+            /*--------------------------------------------------------------------*/
+            auto end_time_compute_time = std::chrono::high_resolution_clock::now();
+            compute_time += std::chrono::duration<float, std::milli>(end_time_compute_time - start_time_compute_time).count();
+            cur_time += dt_0;
+
+            // if(step >= 98000 && step <= 100000 && step % 100 == 0)
+            // {
+            //     lid.ComputeCp(max_ref_level, step);
+            // }
+
+            if (step % 1000 == 0) {
+                const auto& perf = lid.GetPerfStats();
+                double total_s = static_cast<double>(compute_time) / 1000.0;
+                double solv_s = static_cast<double>(JaberCycle_time) / 1000.0;
+                double total_mlups = 0.0;
+                double solv_mlups = 0.0;
+
+                if (total_s > 0.0) {
+                    total_mlups = weighted_updates_window / total_s / 1.0e6;
+                }
+                if (solv_s > 0.0) {
+                    solv_mlups = weighted_updates_window / solv_s / 1.0e6;
+                }
+
+                lid.PrintMeshInfo();
+
+                std::cout << "step" << step << " compute_time: " << compute_time << " ms" << " regrid_time: " << regrid_time << " ms" << " JaberCycle_time: " << JaberCycle_time << " ms"
+                          << std::endl;
+                std::cout << "step" << step
+                          << " perf(s): interp=" << perf.interp
+                          << " collide=" << perf.collide
+                          << " stream=" << perf.stream
+                          << " average=" << perf.average
+                          << " comm=" << perf.comm
+                          << " boundary=" << perf.boundary
+                          << " swap=" << perf.swap
+                          << " solv=" << solv_s
+                          << " total=" << total_s
+                          << " steps=" << stats_steps
+                          << " MLUPS_solv=" << solv_mlups
+                          << " MLUPS_total=" << total_mlups
+                          << std::endl;
+                std::cout << "step" << step
+                          << " perf_detail(s): interp_cache_build=" << perf.interp_cache_build
+                          << " interp_regrid_fill=" << perf.interp_regrid_fill
+                          << " interp_fillpatch=" << perf.interp_fillpatch
+                          << " average_alloc=" << perf.average_alloc
+                          << " average_copy=" << perf.average_copy
+                          << " average_scale=" << perf.average_scale
+                          << " average_down=" << perf.average_down
+                          << " average_fused=" << perf.average_fused
+                          << " average_restrict=" << perf.average_restrict
+                          << " average_copyback=" << perf.average_copyback
+                          << std::endl;
+                std::cout << "step" << step
+                          << " perf_count: fillghost_calls=" << perf.fillghost_calls
+                          << " interp_cache_builds=" << perf.interp_cache_builds
+                          << " interp_regrid_fill_calls=" << perf.interp_regrid_fill_calls
+                          << " avgdown_calls=" << perf.avgdown_calls
+                          << " interp_fillpatch_boxes=" << perf.interp_fillpatch_boxes
+                          << " interp_fillpatch_fine_cells=" << perf.interp_fillpatch_fine_cells
+                          << " interp_fillpatch_coarse_cells=" << perf.interp_fillpatch_coarse_cells
+                          << " average_scale_cells=" << perf.average_scale_cells
+                          << " average_parent_cells=" << perf.average_parent_cells
+                          << " boundary_full_cells=" << perf.boundary_full_cells
+                          << " boundary_launch_cells=" << perf.boundary_launch_cells
+                          << std::endl;
+
+                compute_time = 0.0f;    // 改为float
+                regrid_time = 0.0f;     // 改为float
+                JaberCycle_time = 0.0f; // 改为float
+                weighted_updates_window = 0.0;
+                stats_steps = 0;
+                lid.ResetPerfStats();
+            }
+
+            if (plot_int > 0 && step >= begin_plot && step % plot_int == 0) {
+                lid.PrintMeshInfo();
+                lid.ComputeMacro();
+                lid.ComputeVorticity(cur_time);
+                lid.WriteVelocityFile(step, cur_time);
+                // lid.WriteDensityFile(step, cur_time);
+                // lid.ComputeCp(max_ref_level, step);
+                // lid.WriteMultiParticleFile(step, cur_time);
+                // lid.WriteVelocityFile(step, cur_time, max_ref_level);
+                // lid.WriteParticleFile(step, cur_time);
+                // lid.WriteVorticityFile(step, cur_time);
+                // lid.WriteVelocityFileWithParticle(step, cur_time);
+            }
+
+            if (chk_int > 0 && step % chk_int == 0) {
+                lid.WriteCheckpoint(step, cur_time);
+            }
+        }
+
+        if (!ddf_reference_checkpoint.empty()) {
+            lid.CompareDdfCheckpoint(ddf_reference_checkpoint);
+        }
+
+        amrex::Real end_total = amrex::second() - start_time;
+        if (lid.Verbose()) {
+            ParallelDescriptor::ReduceRealMax(end_total, ParallelDescriptor::IOProcessorNumber());
+            amrex::Print() << "\nTotal Time: " << end_total << '\n';
+        }
+    }
+
+    amrex::Finalize();
+
+    return 0;
+}
+
+/*---------------用于计算静止圆球绕流----------------------------------*/
+void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+
+    if (lev == max_ref_level) {
+        lid.ComputeParticle(lev);
+    }
+
+    lid.Boundary(lev);
+    lid.Collide(lev, 0);
+
+    if (lev < max_ref_level) {
+        RohdeCycle(lev + 1, cur_time, lid);
+    }
+
+    if (lev > coarsest_level) {
+        lid.FillGhostLevel(lev, cur_time, 0);
+    }
+
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, 2);
+    lid.SwapLevel(lev, 2);
+
+    if (lev < max_ref_level) {
+        lid.AverageDownGhostLevel(lev, 0);
+    }
+
+    if (lev == coarsest_level) {
+        return;
+    }
+
+    cur_time += dt;
+
+    if (lev == max_ref_level) {
+        lid.ComputeParticle(lev);
+    }
+
+    lid.Boundary(lev);
+    lid.Collide(lev, 0);
+
+    if (lev < max_ref_level) {
+        RohdeCycle(lev + 1, cur_time, lid);
+    }
+
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, 2);
+    lid.SwapLevel(lev, 2);
+
+    if (lev < max_ref_level) {
+        lid.AverageDownGhostLevel(lev, 0);
+    }
+}
+
+/*---------------用于计算静止圆球绕流----------------------------------*/
+void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+    const int nghost = lid.ghostCells();
+
+    if (lev < max_ref_level) {
+        lid.FillGhostLevel(lev + 1, cur_time, 1);
+    }
+
+    // if(lev == max_ref_level)
+    // {
+    //     lid.ComputeParticle(lev);
+    //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
+    // }
+
+    lid.Boundary(lev);
+    lid.Collide(lev, nghost);
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, nghost);
+    lid.SwapLevel(lev, nghost);
+
+    if (lev < max_ref_level) {
+        JaberCycle(lev + 1, cur_time, lid);
+        lid.AverageDownGhostLevel(lev, 1);
+    }
+
+    if (lev == coarsest_level) {
+        return;
+    }
+
+    cur_time += dt;
+
+    if (lev < max_ref_level) {
+        lid.FillGhostLevel(lev + 1, cur_time, 1);
+    }
+
+    // if(lev == max_ref_level)
+    // {
+    //     lid.ComputeParticle(lev);
+    //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
+    // }
+
+    lid.Boundary(lev);
+    lid.Collide(lev, nghost);
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, nghost);
+    lid.SwapLevel(lev, nghost);
+
+    if (lev < max_ref_level) {
+        JaberCycle(lev + 1, cur_time, lid);
+        lid.AverageDownGhostLevel(lev, 1);
+    }
+}
+
+void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+    const int nghost = lid.ghostCells();
+
+    // if(lev == max_ref_level)
+    // {
+    //     lid.ComputeParticle(lev);
+    //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
+    // }
+
+    // 1. 当前层向下一层插值一次
+    if (lev < max_ref_level) {
+        lid.FillGhostLevel(lev + 1, cur_time, 1);
+    }
+
+    // 2. 当前层推进一个时间步
+    lid.Collide(lev, nghost);
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, nghost);
+    lid.Boundary(lev);
+    lid.SwapLevel(lev, nghost);
+
+    // 3. 下一层用一半时间步连续推进两次
+    if (lev < max_ref_level) {
+        JaberCycle2(lev + 1, cur_time, lid);
+        JaberCycle2(lev + 1, cur_time + dt / 2.0, lid);
+
+        // 4. 两个细步完成后，只平均一次
+        lid.AverageDownGhostLevel(lev, 1);
+    }
+}
+
+/*---------------用于计算多颗粒自由运动----------------------------------*/
+void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+
+    if (lev == max_ref_level) {
+        lid.ComputeParticle(lev);
+        // lid.FillForceGhostLevel(lev, cur_time);
+        lid.LubForceParticle(lev, cur_time);
+        lid.MoveParticle(lev, cur_time);
+    }
+
+    lid.Boundary(lev);
+    lid.Collide(lev, 0);
+
+    if (lev < max_ref_level) {
+        RohdeCycleMultiParticle(lev + 1, cur_time, lid);
+    }
+
+    if (lev > coarsest_level) {
+        lid.FillGhostLevel(lev, cur_time, 0);
+    }
+
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, 2);
+    lid.SwapLevel(lev, 2);
+
+    if (lev < max_ref_level) {
+        lid.AverageDownGhostLevel(lev, 0);
+    }
+
+    if (lev == coarsest_level) {
+        return;
+    }
+
+    cur_time += dt;
+
+    if (lev == max_ref_level) {
+        lid.ComputeParticle(lev);
+        // lid.FillForceGhostLevel(lev, cur_time);
+        lid.LubForceParticle(lev, cur_time);
+        lid.MoveParticle(lev, cur_time);
+    }
+
+    lid.Boundary(lev);
+    lid.Collide(lev, 0);
+
+    if (lev < max_ref_level) {
+        RohdeCycleMultiParticle(lev + 1, cur_time, lid);
+    }
+
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, 2);
+    lid.SwapLevel(lev, 2);
+
+    if (lev < max_ref_level) {
+        lid.AverageDownGhostLevel(lev, 0);
+    }
+}
+
+/*---------------用于计算多颗粒自由运动----------------------------------*/
+void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+    const int nghost = lid.ghostCells();
+
+    if (lev < max_ref_level) {
+        lid.FillGhostLevel(lev + 1, cur_time, 1);
+    }
+
+    if (lev == max_ref_level) {
+        lid.ComputeParticle(lev);
+        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+        lid.LubForceParticle(lev, cur_time);
+        lid.MoveParticle(lev, cur_time);
+    }
+
+    lid.Boundary(lev);
+    lid.Collide(lev, nghost);
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, nghost);
+    lid.SwapLevel(lev, nghost);
+
+    if (lev < max_ref_level) {
+        JaberCycleMultiParticle(lev + 1, cur_time, lid);
+        lid.AverageDownGhostLevel(lev, 1);
+    }
+
+    if (lev == coarsest_level) {
+        return;
+    }
+
+    cur_time += dt;
+
+    if (lev < max_ref_level) {
+        lid.FillGhostLevel(lev + 1, cur_time, 1);
+    }
+
+    if (lev == max_ref_level) {
+        lid.ComputeParticle(lev);
+        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+        lid.LubForceParticle(lev, cur_time);
+        lid.MoveParticle(lev, cur_time);
+    }
+
+    lid.Boundary(lev);
+    lid.Collide(lev, nghost);
+    lid.CommunicateLevel(lev);
+    lid.Stream(lev, nghost);
+    lid.SwapLevel(lev, nghost);
+
+    if (lev < max_ref_level) {
+        JaberCycleMultiParticle(lev + 1, cur_time, lid);
+        lid.AverageDownGhostLevel(lev, 1);
+    }
+}
