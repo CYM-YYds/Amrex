@@ -5,15 +5,15 @@
 
 ## 1. 当前基线
 
-截至 2026-08-19，`BOX3D_OSI` 的生产推进路径仍与 `BOX3D` 基线一致：
+截至 2026-08-20，`BOX3D_OSI` 的生产推进路径仍与 `BOX3D` 基线一致：
 
 ```text
 f_old + f_new
 Collide -> Communicate -> Stream -> Boundary -> Swap
 ```
 
-本目录的复制状态由基线提交 `6578093` 固定；代码修改前的文档基线为 `7a929e9`。
-两个提交的说明均为 `before codex`。
+本目录的复制状态由基线提交 `6578093` 固定；代码修改前的文档基线为 `7a929e9`；
+阶段 1 地址实现及测试由提交 `b0e80b9` 固定。这些提交的说明均为 `before codex`。
 
 阶段 1 已经完成：
 
@@ -179,19 +179,31 @@ twisted -> canonical temp
 
 ## 7. 阶段 4：非周期物理边界
 
-目标：保持当前 BOX3D 边界公式，只替换地址解释。
+目标：保持当前 BOX3D 边界公式，并安全隔离旧 phase 输入与新 phase 输出。
 
 步骤：
 
 1. collision 和 MPI 使用旧 phase `p`；
-2. 提交 `phase=p+1`；
-3. 在新 phase 地址上执行与 A-B `Boundary(f_new)` 相同的公式；
-4. boundary work boxes 仍是 logical Box，不缓存 raw OSI 地址。
+2. 边界重建只读取旧 phase 的内部逻辑值，把每个边界格点的最终 Q 分量写入
+   canonical boundary scratch；
+3. 等待全部重建完成后提交 `phase=p+1`；
+4. 将 scratch 散布到新 phase 的 `A_q(boundary,p+1)`；
+5. boundary work boxes 仍是 logical Box，不缓存 raw OSI 地址。
+
+不能把第 2、4 步合并为一个原位 kernel。由 OSI 恒等式，某个新 phase 边界目标 raw
+槽可能正是另一个线程仍要读取的旧 phase 内部参考槽。scratch 保存最终重建结果，使
+提交 phase 后的 scatter 不再读取旧存储。
+
+当前 A-B `fill_boundary()` 的六个面判断不是互斥分支，边和角会按源码中的面处理顺序
+发生整体覆盖。第一版 scratch 填充必须确定性地复现该顺序，不能让多个面 kernel 对同一
+边/角 scratch cell 无序竞争。
 
 验收：
 
 - 单层 lid-driven cavity 与 A-B valid DDF/速度/密度对比；
 - 六个面、十二条边、八个角分别有覆盖；
+- 构造可发生跨 phase raw 槽别名的小网格测试，并通过竞争检测或确定性重复测试；
+- scratch 结果与 A-B 的面、边、角最终覆盖优先级一致；
 - boundary cache 经重新分块后仍只依赖 logical geometry；
 - 不使用 `%` 地址循环冒充物理周期边界。
 
@@ -337,9 +349,9 @@ coarse/fine 传输和 canonicalization 都必须计入端到端性能。
 | 文件 | 计划改动 | 第一责任阶段 |
 | --- | --- | ---: |
 | `src/OsiIndex.H` | 无状态 host/device Fab-local 地址 helper | 1（已实现） |
-| `src/Kernels.H` | fused OSI collision、boundary accessor | 2--4 |
-| `src/AmrCoreLBM.H` | stream mode、level phase/state、adapter 接口 | 2--7 |
-| `src/AmrCoreLBM.cpp` | launch、通信、canonicalization、AMR/restart 生命周期 | 2--7 |
+| `src/Kernels.H` | fused OSI collision、边界重建与 scratch scatter kernel | 2--4 |
+| `src/AmrCoreLBM.H` | stream mode、level phase/state、boundary scratch、adapter 接口 | 2--7 |
+| `src/AmrCoreLBM.cpp` | launch、通信、boundary scratch、canonicalization、AMR/restart 生命周期 | 2--7 |
 | `src/main.cpp` | A-B/OSI 调度选择，regrid 前后规范化边界 | 2、6 |
 | `config/inputs` | `lbm.stream_mode` 及说明 | 2 |
 | `tests/` | 地址置换、A/B norm、MPI/regrid/restart 检查 | 1--7 |

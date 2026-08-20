@@ -16,17 +16,16 @@
 
 namespace box3d_osi {
 
-// Raw coordinates accepted by an AMReX Array4.  They are deliberately kept
-// independent of IntVect so the address mathematics can be tested without an
-// AMReX runtime or a GPU.
+// AMReX Array4 可接受的原始坐标。
+// 这些坐标被刻意保持独立于 IntVect，以便可以在不依赖 AMReX 运行时或 GPU 的情况下测试地址计算。
 struct Coord3 {
     int x;
     int y;
     int z;
 };
 
-// The ring is local to one FArrayBox.  lo and length must describe the same
-// box, normally the full fabbox (valid region plus allocated ghost cells).
+// 该环状索引作用域局限于单个 FArrayBox。
+// lo 和 length 必须描述同一个 box，通常是完整的 fabbox（有效区域加上已分配的 ghost cell）。
 struct FabGeometry {
     Coord3 lo;
     Coord3 length;
@@ -34,14 +33,13 @@ struct FabGeometry {
 
 BOX3D_OSI_GPU_HOST_DEVICE
 constexpr int positive_mod(std::int64_t value, int length) noexcept {
-    // Precondition: length > 0.  Every non-empty AMReX Fab satisfies it.
+    // 先决条件：length > 0。每个非空的 AMReX Fab 都满足这一点。
     const std::int64_t remainder = value % static_cast<std::int64_t>(length);
     return static_cast<int>(remainder < 0 ? remainder + length : remainder);
 }
 
-// Map one logical coordinate to its raw coordinate in the current OSI phase.
-// Reducing phase before multiplication keeps the expression safe even when a
-// level has advanced for much longer than the local Fab length.
+// 将一个逻辑坐标映射到当前 OSI 相位下的原始坐标。
+// 在乘法前先对 phase 做模运算，可确保即使某层运行时间远长于本地 Fab 长度，也不会溢出或超出安全范围。
 BOX3D_OSI_GPU_HOST_DEVICE
 constexpr int osi_coord(int logical, int velocity, std::uint64_t phase,
                         int lo, int length) noexcept {
@@ -51,8 +49,8 @@ constexpr int osi_coord(int logical, int velocity, std::uint64_t phase,
     return lo + positive_mod(logical_offset - velocity * phase_mod, length);
 }
 
-// A_q(x,p) for one Fab.  velocity is e_q; q itself is intentionally absent so
-// this helper is independent of a particular lattice ordering.
+// 单个 Fab 中的 A_q(x,p)。
+// velocity 是 e_q；q 本身被刻意省略，因此这个辅助函数独立于特定的格子排序方式。
 BOX3D_OSI_GPU_HOST_DEVICE
 constexpr Coord3 osi_address(Coord3 logical, Coord3 velocity,
                              std::uint64_t phase,

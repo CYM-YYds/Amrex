@@ -5,13 +5,14 @@
 
 ## 当前状态
 
-截至 2026-08-19，生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
+截至 2026-08-20，生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
 pull-streaming 实现。OSI 阶段 1 的 Fab-local 地址层已经实现并测试，但还没有
 `osi_state`、per-level phase、OSI collision/communication 或 OSI 运行路径。因此，
 **当前没有 OSI 数值运行、等价性或性能结果**。
 
 复制完成后的审查基线提交为 `6578093`；开始修改代码前的文档基线提交为
-`7a929e9`，两者的提交说明均为 `before codex`。
+`7a929e9`；阶段 1 地址实现及测试由提交 `b0e80b9` 固定。这些提交的说明均为
+`before codex`。
 
 当前源码仍具有以下基线特征：
 
@@ -62,7 +63,9 @@ pull-streaming 实现。OSI 阶段 1 的 Fab-local 地址层已经实现并测�
     OSI twisted storage
     -> 同址读取/碰撞/写回
     -> OSI-aware ghost/MPI
-    -> phase 前进，隐式完成 streaming
+    -> 旧 phase 物理边界重建到 scratch
+    -> phase 前进，隐式完成内部 streaming
+    -> scratch 散布到新 phase 边界
 
 需要 AMReX 按逻辑坐标操作时：
     twisted MultiFab
@@ -84,6 +87,12 @@ OSI twisted layout 则满足：
 storage(Addr(fab,q,phase,i,j,k), q)
     == 物理 cell (i,j,k) 的第 q 个 DDF
 ```
+
+非周期物理边界是原位 OSI 的一个特殊同步点。边界公式需要从旧 phase 的内部逻辑
+cell 读取参考值，却要把重建结果写到新 phase 的边界地址；两者可能映射到同一个 raw
+槽位。因此第一版不能一边读取旧 phase 一边直接原位写新 phase，而要先把完整边界
+重建结果写入 boundary scratch，待全部旧 phase 读取完成后再提交 phase，并把 scratch
+散布到新 phase。详细别名示例与边角覆盖规则见架构文档第 7 节。
 
 采用规范化边界不是因为 OSI 与 AMR 数学上冲突，而是因为 AMReX 的
 `FillBoundary()`、`ParallelCopy()`、插值、限制和 `VisMF` 默认不知道这层地址翻译。
