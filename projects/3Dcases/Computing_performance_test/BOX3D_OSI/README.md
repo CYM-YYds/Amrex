@@ -5,10 +5,13 @@
 
 ## 当前状态
 
-截至 2026-08-19，本目录的核心源码、配置和脚本仍是从 `BOX3D` 复制得到的
-A-B 双 `MultiFab` pull-streaming 实现；**尚未实现 OSI，也没有 BOX3D_OSI 的编译、
-运行、数值等价或性能结果**。现阶段完成的是实现前的算法与架构设计。
-复制完成后的审查基线提交为 `6578093`（`before codex`）。
+截至 2026-08-19，生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
+pull-streaming 实现。OSI 阶段 1 的 Fab-local 地址层已经实现并测试，但还没有
+`osi_state`、per-level phase、OSI collision/communication 或 OSI 运行路径。因此，
+**当前没有 OSI 数值运行、等价性或性能结果**。
+
+复制完成后的审查基线提交为 `6578093`；开始修改代码前的文档基线提交为
+`7a929e9`，两者的提交说明均为 `before codex`。
 
 当前源码仍具有以下基线特征：
 
@@ -21,6 +24,15 @@ A-B 双 `MultiFab` pull-streaming 实现；**尚未实现 OSI，也没有 BOX3D_
 
 不要把继承自 BOX3D 的历史 job、图表或性能数字描述为 OSI 结果。
 
+已完成的 OSI 阶段 1 内容：
+
+- `src/OsiIndex.H` 提供 host/device 共用的 `positive_mod()`、`osi_coord()` 和
+  `osi_address()`；
+- 映射只使用单个 Fab 的 `lo/length`，`phase` 在乘法前对各轴长度取模；
+- `tests/osi_index_test.cpp` 覆盖 D3Q27 全方向、非零 `smallEnd()`、三轴不同长度、
+  超大 phase、排列性和 `A_q(x,p+1)=A_q(x-e_q,p)`；
+- CPU 测试和完整 MPI+CUDA 构建已通过，但 helper 尚未被生产 kernel 调用。
+
 ## 新会话的阅读顺序
 
 计划实现或审查 OSI 时，按以下顺序阅读：
@@ -28,10 +40,11 @@ A-B 双 `MultiFab` pull-streaming 实现；**尚未实现 OSI，也没有 BOX3D_
 1. [OSI 算法与 AMReX 集成架构](docs/osi_algorithm_and_architecture.md)：权威设计、术语、状态不变量和 AMR 兼容策略；
 2. [OSI 实施与验证计划](docs/osi_implementation_plan.md)：分阶段改动范围、接口草图和验收门槛；
 3. `src/main.cpp`：当前 `JaberCycle2()` 的递归推进与 regrid 时机；
-4. `src/AmrCoreLBM.H/.cpp`：DDF 所有权、通信、粗细层传输、重构和 checkpoint；
-5. `src/Kernels.H`：当前 collision、pull-streaming 和 boundary kernel；
-6. `config/inputs` 与 `config/GNUmakefile`：运行模式、AMReX 版本和构建设置；
-7. 本 README 后面列出的 BOX3D 基线资料。
+4. `src/OsiIndex.H` 与 `tests/osi_index_test.cpp`：已实现的 OSI 地址层及其不变量；
+5. `src/AmrCoreLBM.H/.cpp`：DDF 所有权、通信、粗细层传输、重构和 checkpoint；
+6. `src/Kernels.H`：当前 collision、pull-streaming 和 boundary kernel；
+7. `config/inputs` 与 `config/GNUmakefile`：运行模式、AMReX 版本和构建设置；
+8. 本 README 后面列出的 BOX3D 基线资料。
 
 论文及教学原型位于仓库的
 [`research/papers/OSI优化计划`](../../../../research/papers/OSI优化计划/)。其中：
@@ -110,7 +123,16 @@ lbm.stream_mode = 1  # OSI 实验路径
 ./scripts/compile.sh
 ```
 
-当前构建命令只能验证继承的 A-B 基线，不能证明 OSI 已实现。
+运行阶段 1 地址测试：
+
+```bash
+./tests/run_osi_index_test.sh
+```
+
+2026-08-19 的验证结果：GCC 11.3 CPU 地址测试通过；`MAKE_J=2 GEN_CCDB=0
+./scripts/compile.sh` 的 MPI+CUDA 完整构建通过。默认并行度 16 的首次全量构建曾因
+编译节点内存不足失败，因此这里记录的成功命令使用并行度 2。编译成功只能证明当前
+A-B 程序和 OSI 地址 helper 可构建，不能证明 OSI 时间推进或数值正确。
 
 ## 继承的 BOX3D 基线资料
 

@@ -390,7 +390,8 @@ struct OsiFabLayout {
 | 位置 | 职责 |
 | --- | --- |
 | `AmrCoreLBM.H` | stream mode、每层 phase、OSI state 和 canonical adapter 声明 |
-| `Kernels.H` | 非负取模、Fab-local 地址映射、fused OSI collision kernel |
+| `OsiIndex.H` | 非负取模和无状态 Fab-local host/device 地址映射 |
+| `Kernels.H` | fused OSI collision kernel 和 boundary accessor |
 | `AmrCoreLBM.cpp` | per-Fab launch、MPI pack/unpack、canonical gather/scatter、regrid/checkpoint 生命周期 |
 | `main.cpp` | 根据 stream mode 选择 A-B 或 OSI 推进；保持 AMR 调度一致 |
 | `config/inputs` | `lbm.stream_mode`，默认 0 直到验证完成 |

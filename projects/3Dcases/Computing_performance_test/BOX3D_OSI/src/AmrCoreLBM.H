@@ -17,6 +17,7 @@
 
 #include "LagrangeParticleContainer.H"
 #include "AuxiliaryPointContainer.H"
+#include "OsiIndex.H"
 
 class AmrCoreLBM : public amrex::AmrCore {
 

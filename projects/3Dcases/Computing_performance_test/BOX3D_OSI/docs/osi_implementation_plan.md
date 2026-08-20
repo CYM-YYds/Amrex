@@ -5,24 +5,31 @@
 
 ## 1. 当前基线
 
-截至 2026-08-19，`BOX3D_OSI` 的核心源码与 `BOX3D` 基线一致：
+截至 2026-08-19，`BOX3D_OSI` 的生产推进路径仍与 `BOX3D` 基线一致：
 
 ```text
 f_old + f_new
 Collide -> Communicate -> Stream -> Boundary -> Swap
 ```
 
-本目录的复制状态由基线提交 `6578093`（`before codex`）固定；本文档变更位于该提交之后。
+本目录的复制状态由基线提交 `6578093` 固定；代码修改前的文档基线为 `7a929e9`。
+两个提交的说明均为 `before codex`。
+
+阶段 1 已经完成：
+
+- `src/OsiIndex.H` 实现 Fab-local host/device 地址 helper；
+- `tests/osi_index_test.cpp` 和 `tests/run_osi_index_test.sh` 提供独立 CPU 测试；
+- CPU 测试通过；MPI+CUDA 完整构建通过；
+- 地址 helper 尚未进入生产 kernel，不构成 OSI 数值实现。
 
 当前没有：
 
 - `lbm.stream_mode`；
 - `osi_phase`；
-- Fab-local OSI 地址 helper；
 - OSI collision/communication；
 - canonical gather/scatter；
 - OSI checkpoint 或 regrid 适配；
-- OSI 构建、运行、数值或性能结果。
+- OSI 时间推进的运行、数值或性能结果。
 
 ## 2. 总体开发策略
 
@@ -66,15 +73,21 @@ lbm.stream_mode = 1  # OSI，实验路径
 
 ## 4. 阶段 1：纯地址映射测试
 
+状态：**已实现，并达到本阶段的代码、CPU 测试和 MPI+CUDA 编译验收；没有 LBM
+运行证据。**
+
 目标：在不接触物理 kernel 前证明 Fab-local OSI 映射正确。
 
-建议新增 device/host 共用 helper：
+实际新增的 device/host 共用 helper：
 
 ```cpp
 positive_mod(value, length)
 osi_coord(logical, velocity, phase, lo, length)
-osi_index(q, phase, i, j, k, fab_lo, fab_len)
+osi_address(logical_xyz, velocity_xyz, phase, fab_geometry)
 ```
+
+`osi_address()` 接收 `e_q` 而不接收 `q`，使地址数学不依赖 D3Q27 的具体编号顺序；
+返回值是可传给 AMReX `Array4` 的 raw 三维坐标，而不是跨 Fab 的全局线性地址。
 
 必须测试：
 
@@ -87,7 +100,9 @@ osi_index(q, phase, i, j, k, fab_lo, fab_len)
 7. 不依靠 `length * phase`，避免整数溢出；
 8. 非零 `smallEnd()` 的 Fab 正确。
 
-验收：CPU 小测试通过；CUDA 构建中的同一 helper 能编译。此阶段不宣称 LBM 正确。
+验收记录：`./tests/run_osi_index_test.sh` 通过；`MAKE_J=2 GEN_CCDB=0
+./scripts/compile.sh` 的 MPI+CUDA 完整构建通过。默认并行度 16 的首次全量构建因编译
+节点内存不足失败，降低并行度后成功。此阶段不宣称 LBM 正确。
 
 ## 5. 阶段 2：单 Fab、单层固定网格 OSI
 
@@ -321,7 +336,8 @@ coarse/fine 传输和 canonicalization 都必须计入端到端性能。
 
 | 文件 | 计划改动 | 第一责任阶段 |
 | --- | --- | ---: |
-| `src/Kernels.H` | OSI 地址 helper、fused collision、boundary accessor | 1--4 |
+| `src/OsiIndex.H` | 无状态 host/device Fab-local 地址 helper | 1（已实现） |
+| `src/Kernels.H` | fused OSI collision、boundary accessor | 2--4 |
 | `src/AmrCoreLBM.H` | stream mode、level phase/state、adapter 接口 | 2--7 |
 | `src/AmrCoreLBM.cpp` | launch、通信、canonicalization、AMR/restart 生命周期 | 2--7 |
 | `src/main.cpp` | A-B/OSI 调度选择，regrid 前后规范化边界 | 2、6 |
