@@ -11,8 +11,11 @@
 - 已确定动态 AMR 布局变化时采用 canonicalize/rebuild/reset；
 - `src/OsiIndex.H` 已实现无状态 Fab-local OSI 地址 helper，并有独立 CPU 测试；
 - 当前可执行路径仍是 BOX3D 的 A-B 双 `MultiFab` 基线；
-- 地址测试和包含该 helper 的 MPI+CUDA 完整构建已通过；尚无 OSI 时间推进的运行、
-  数值或性能证据。
+- 默认路径仍是 A-B；`lbm.stream_mode=1` 已提供严格受限的阶段 2 OSI 时间推进；
+- 地址测试、37 步独立 CPU A/B 测试和 MPI+CUDA 构建已通过；job `581325` 在单 rank、
+  单 level、单 Fab、全周期条件下完成 32 步生产 GPU A/B 逐步比较，最大 `linf` 为
+  `5.551115123e-17`；
+- 多 Fab/MPI、物理边界、AMR、restart 和 OSI 性能尚无实现或验证证据。
 
 OSI 原论文和均匀网格原型位于
 [`research/papers/OSI优化计划`](../../../../../research/papers/OSI优化计划/)。论文只验证了
@@ -404,7 +407,7 @@ checkpoint header 至少应增加：
 
 ## 13. 建议的数据结构边界
 
-以下是实现框架，不代表已有接口：
+以下数据边界已经在阶段 2 建立；后续阶段仍会扩展其生命周期：
 
 ```cpp
 enum class StreamMode : int {
@@ -412,10 +415,8 @@ enum class StreamMode : int {
     OSI = 1
 };
 
-struct OsiLevelState {
-    amrex::MultiFab ddf;
-    std::uint64_t phase = 0;
-};
+amrex::Vector<amrex::MultiFab> osi_state;
+amrex::Vector<std::uint64_t> osi_phase;
 
 struct OsiFabLayout {
     amrex::Dim3 lo;

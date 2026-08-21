@@ -5,7 +5,7 @@
 
 ## 1. 当前基线
 
-截至 2026-08-20，`BOX3D_OSI` 的生产推进路径仍与 `BOX3D` 基线一致：
+截至 2026-08-20，`BOX3D_OSI` 的默认推进路径仍与 `BOX3D` 基线一致：
 
 ```text
 f_old + f_new
@@ -20,16 +20,23 @@ Collide -> Communicate -> Stream -> Boundary -> Swap
 - `src/OsiIndex.H` 实现 Fab-local host/device 地址 helper；
 - `tests/osi_index_test.cpp` 和 `tests/run_osi_index_test.sh` 提供独立 CPU 测试；
 - CPU 测试通过；MPI+CUDA 完整构建通过；
-- 地址 helper 尚未进入生产 kernel，不构成 OSI 数值实现。
+- 地址层本身的验收不构成 OSI 数值实现；阶段 2 已将该 helper 接入受限的生产 CUDA
+  collision kernel。
 
-当前没有：
+阶段 2 已新增：
 
-- `lbm.stream_mode`；
-- `osi_phase`；
-- OSI collision/communication；
+- `lbm.stream_mode=1` 的受限实验入口；
+- 独立 `osi_state` 和 per-level `osi_phase`；
+- OSI-aware BGK collision 和单 Fab周期 logical ghost 填充；
+- CPU A/B 测试及生产 GPU 逐步 A/B valid-DDF 检查。
+
+当前仍没有：
+
+- 多 Fab/MPI OSI communication；
 - canonical gather/scatter；
 - OSI checkpoint 或 regrid 适配；
-- OSI 时间推进的运行、数值或性能结果。
+- 非周期物理边界或 AMR OSI 时间推进；
+- OSI 性能结果。
 
 ## 2. 总体开发策略
 
@@ -100,11 +107,13 @@ osi_address(logical_xyz, velocity_xyz, phase, fab_geometry)
 7. 不依靠 `length * phase`，避免整数溢出；
 8. 非零 `smallEnd()` 的 Fab 正确。
 
-验收记录：`./tests/run_osi_index_test.sh` 通过；`MAKE_J=2 GEN_CCDB=0
-./scripts/compile.sh` 的 MPI+CUDA 完整构建通过。默认并行度 16 的首次全量构建因编译
+验收记录：`./tests/run_osi_index_test.sh` 通过；`MAKE_J=2 GEN_CCDB=0 ./scripts/compile.sh` 的 MPI+CUDA 完整构建通过。默认并行度 16 的首次全量构建因编译
 节点内存不足失败，降低并行度后成功。此阶段不宣称 LBM 正确。
 
 ## 5. 阶段 2：单 Fab、单层固定网格 OSI
+
+状态：**已完成本阶段核心推进的实现、CPU 测试、MPI+CUDA 构建和 GPU 数值 A/B
+验收；独立的 OSI macro/canonical 输出视图仍待实现。**
 
 目标：隔离 AMR/MPI，只验证 OSI 隐式 streaming 与 A-B 数值等价。
 
@@ -146,6 +155,20 @@ for each logical valid cell x:
 - 质量和速度场不出现系统漂移；
 - ComputeMacro 通过 OSI accessor 或 canonical view 得到正确结果。
 
+实际验收记录：
+
+- `tests/osi_stage2_ab_test.cpp` 在非零 Fab 起点、三轴不同长度和两层 ghost 的小周期域
+  连续比较 37 步，`./tests/run_osi_stage2_test.sh` 通过；
+- `MAKE_J=2 GEN_CCDB=0 ./scripts/compile.sh` 的 MPI+CUDA 构建通过；
+- `config/inputs_osi_stage2` 由运行时断言限制为单 rank、单 level、单 Fab、全周期、
+  `collide_mode=1`，并禁止尚无 canonical adapter 的 plot/checkpoint；
+- job `581325` 成功完成 32 步。生产 CUDA OSI 和保留的 A-B reference 每步比较全部
+  valid DDF，`linf` 为 `0` 或 `5.551115123e-17`；
+- reference 推进和逐步 norm 是验证开销，因此该 job 不提供 OSI 性能证据。
+- 当前 `f_old` 作为同步 A-B oracle 与 OSI valid DDF 等价，因而宏观量也由同一 DDF
+  唯一确定；但尚未让 `ComputeMacro()` 直接读取 twisted state，plot/checkpoint 仍由
+  阶段 2 运行保护禁用。实现独立 OSI accessor/canonical view 后才满足上面的最后一项。
+
 ## 6. 阶段 3：同层多 Fab 与 MPI
 
 目标：实现 OSI-aware logical boundary pack/unpack。
@@ -176,6 +199,37 @@ twisted -> canonical temp
 - 改变 Box 分解而不改变全局问题时结果一致；
 - 专门检查跨面、跨边、跨角的 D3Q27 分量；
 - MPI 结束后、phase 提交前，logical ghost 的值与发送端 logical valid 匹配。
+
+推荐按下面顺序进入阶段三：
+
+1. 阶段 3.0：canonical 适配层
+
+   - `GatherOsiToCanonical(lev, include_ghost)`
+   - `ScatterCanonicalToOsi(lev, region)`
+   - 先验证任意 phase 下 gather 后与 A-B valid DDF 一致。
+   - 让宏观量计算能够从 canonical view 或 OSI accessor 读取。
+2. 阶段 3.1：单 rank、多 Fab
+
+   ```text
+   twisted valid
+       -> gather canonical valid
+       -> canonical.FillBoundary(periodicity)
+       -> scatter logical ghost 到当前 phase
+       -> phase += 1
+   ```
+
+   这条路径性能不是最终形态，但能首先验证多 Fab 逻辑是否正确。
+3. 阶段 3.2：多 MPI rank
+
+   - 相同 BoxArray 下比较 1 rank 与 2 rank。
+   - 比较每步全部 valid DDF。
+   - 专门检查跨面、跨边、跨角的 D3Q27 分量。
+   - phase 必须是每层统一状态，并且只能在通信完成后提交。
+4. 阶段 3.3：直接 OSI-aware 通信
+
+   canonical correctness 路径通过后，再用直接 logical pack/unpack 替换临时 `MultiFab`，并与 canonical 路径做 A/B。
+
+这里有一个关键认知：不同 Fab 的 `length` 不必相同。每个 Fab 仍使用自己的局部环形地址；MPI 交换的是“当前 phase 下的逻辑边界值”，接收端再依据自己的 Fab 几何将数据写入 logical ghost 对应的 raw 槽位。因此不能传递发送端 raw 地址，也不能直接对 twisted state 调用普通 `FillBoundary()`。
 
 ## 7. 阶段 4：非周期物理边界
 
@@ -346,30 +400,30 @@ coarse/fine 传输和 canonicalization 都必须计入端到端性能。
 
 ## 12. 文件级改动地图
 
-| 文件 | 计划改动 | 第一责任阶段 |
-| --- | --- | ---: |
-| `src/OsiIndex.H` | 无状态 host/device Fab-local 地址 helper | 1（已实现） |
-| `src/Kernels.H` | fused OSI collision、边界重建与 scratch scatter kernel | 2--4 |
-| `src/AmrCoreLBM.H` | stream mode、level phase/state、boundary scratch、adapter 接口 | 2--7 |
-| `src/AmrCoreLBM.cpp` | launch、通信、boundary scratch、canonicalization、AMR/restart 生命周期 | 2--7 |
-| `src/main.cpp` | A-B/OSI 调度选择，regrid 前后规范化边界 | 2、6 |
-| `config/inputs` | `lbm.stream_mode` 及说明 | 2 |
-| `tests/` | 地址置换、A/B norm、MPI/regrid/restart 检查 | 1--7 |
-| `scripts/` | 固定参数 A/B 提交与日志汇总 | 0、8 |
+| 文件                   | 计划改动                                                               | 第一责任阶段 |
+| ---------------------- | ---------------------------------------------------------------------- | -----------: |
+| `src/OsiIndex.H`     | 无状态 host/device Fab-local 地址 helper                               |  1（已实现） |
+| `src/Kernels.H`      | fused OSI collision、边界重建与 scratch scatter kernel                 |         2--4 |
+| `src/AmrCoreLBM.H`   | stream mode、level phase/state、boundary scratch、adapter 接口         |         2--7 |
+| `src/AmrCoreLBM.cpp` | launch、通信、boundary scratch、canonicalization、AMR/restart 生命周期 |         2--7 |
+| `src/main.cpp`       | A-B/OSI 调度选择，regrid 前后规范化边界                                |         2、6 |
+| `config/inputs`      | `lbm.stream_mode` 及说明                                             |            2 |
+| `tests/`             | 地址置换、A/B norm、MPI/regrid/restart 检查                            |         1--7 |
+| `scripts/`           | 固定参数 A/B 提交与日志汇总                                            |         0、8 |
 
 ## 13. 最小测试矩阵
 
-| 层次 | 网格/并行 | 边界 | 主要检查 |
-| --- | --- | --- | --- |
-| 地址 | 小 Fab，CPU | 无 | 排列、恒等式、越界 |
-| 单层 | 单 Fab，1 GPU | 周期 | 逐 q DDF |
-| 同层 | 多 Fab，1 GPU | 周期 | Fab seam |
-| MPI | 多 Fab，2+ rank | 周期 | face/edge/corner halo |
-| 物理边界 | 单层，1 GPU | cavity | 边界 DDF/宏观量 |
-| 静态 AMR | level 0--2 | 非周期 | per-level phase、插值/限制 |
-| 动态 AMR | 至少两次 regrid | 非周期 | canonicalize/reset |
-| restart | regrid 后 checkpoint | 非周期 | 连续/重启等价 |
-| 性能 | 固定 checkpoint A/B | 相同 | 内存、kernel、端到端 MLUPS |
+| 层次     | 网格/并行            | 边界   | 主要检查                   |
+| -------- | -------------------- | ------ | -------------------------- |
+| 地址     | 小 Fab，CPU          | 无     | 排列、恒等式、越界         |
+| 单层     | 单 Fab，1 GPU        | 周期   | 逐 q DDF                   |
+| 同层     | 多 Fab，1 GPU        | 周期   | Fab seam                   |
+| MPI      | 多 Fab，2+ rank      | 周期   | face/edge/corner halo      |
+| 物理边界 | 单层，1 GPU          | cavity | 边界 DDF/宏观量            |
+| 静态 AMR | level 0--2           | 非周期 | per-level phase、插值/限制 |
+| 动态 AMR | 至少两次 regrid      | 非周期 | canonicalize/reset         |
+| restart  | regrid 后 checkpoint | 非周期 | 连续/重启等价              |
+| 性能     | 固定 checkpoint A/B  | 相同   | 内存、kernel、端到端 MLUPS |
 
 ## 14. 结果记录规范
 

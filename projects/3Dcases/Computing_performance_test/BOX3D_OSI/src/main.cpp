@@ -1,5 +1,6 @@
 #include <iostream>
 #include <chrono>
+#include <array>
 
 #include <AMReX.H>
 #include <AMReX_BLProfiler.H>
@@ -39,19 +40,33 @@ int main(int argc, char* argv[]) {
                 "ddf_reference_checkpoint", ddf_reference_checkpoint);
         }
 
+        int runtime_max_level = max_ref_level;
+        amrex::Vector<int> periodic_input(AMREX_SPACEDIM, 0);
+        {
+            amrex::ParmParse pp_amr("amr");
+            pp_amr.query("max_level", runtime_max_level);
+            amrex::ParmParse pp_geometry("geometry");
+            pp_geometry.queryarr("is_periodic", periodic_input);
+        }
+        const std::array<int, AMREX_SPACEDIM> is_periodic{
+            AMREX_D_DECL(periodic_input[0], periodic_input[1], periodic_input[2])};
+
         amrex::Geometry geom(
             amrex::Box({AMREX_D_DECL(0, 0, 0)}, {AMREX_D_DECL(NX - 1, NY - 1, NZ - 1)}),
             amrex::RealBox({AMREX_D_DECL(0., 0., 0.)}, {AMREX_D_DECL(nx, ny, nz)}),
-            amrex::CoordSys::cartesian,
-            {AMREX_D_DECL(0, 0, 0)});
+            amrex::CoordSys::cartesian, is_periodic);
+
         amrex::AmrInfo info{
-            1,             // verbose
-            max_ref_level, // max_level
-            amrex::Vector<amrex::IntVect>{(size_t)max_ref_level + 1, {AMREX_D_DECL(2, 2, 2)}},
-            amrex::Vector<amrex::IntVect>{(size_t)max_ref_level + 1, {AMREX_D_DECL(8, 8, 8)}},
-            amrex::Vector<amrex::IntVect>{(size_t)max_ref_level + 1, {AMREX_D_DECL(128, 128, 128)}}};
+            1,                                                                                            // verbose
+            runtime_max_level,                                                                            // max_level
+            amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(2, 2, 2)}},        // 粗细比率
+            amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(2, 2, 2)}},        // 网格生成时的分块因子（每个方向的网格尺寸须为其整数倍）
+            amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(128, 128, 128)}}}; // 最大网格块大小
 
         AmrCoreLBM lid(geom, info);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            lid.streamMode() == 1 || runtime_max_level == max_ref_level,
+            "amr.max_level override is currently reserved for lbm.stream_mode=1");
         begin_step = lid.params().begin_step;
         chk_int = lid.params().chk_int;
         regrid_int = lid.params().regrid_int;
@@ -61,6 +76,9 @@ int main(int argc, char* argv[]) {
         amrex::Real cur_time = begin_step * dt_0;
 
         if (begin_step > 0) {
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                lid.streamMode() == 0,
+                "stage-2 OSI does not yet support checkpoint restart");
             lid.ReadCheckpoint();
             lid.PrintMeshInfo();
             lid.PrintLbmParm();
@@ -70,10 +88,13 @@ int main(int argc, char* argv[]) {
             lid.InitMesh(cur_time);
             lid.PrintMeshInfo();
             lid.PrintLbmParm();
-            lid.InitParticle(max_ref_level);
-            lid.InitCpPoint(max_ref_level);
-            lid.PrintParticleParm();
+            if (lid.streamMode() == 0) {
+                lid.InitParticle(max_ref_level);
+                lid.InitCpPoint(max_ref_level);
+                lid.PrintParticleParm();
+            }
         }
+        lid.ValidateOsiStage2Configuration();
 
         float compute_time = 0.0f;
         float regrid_time = 0.0f;
@@ -88,7 +109,7 @@ int main(int argc, char* argv[]) {
             auto start_time_regrid_time = std::chrono::high_resolution_clock::now();
             // regrid_time_outer(me, f_array, indices, story);
 
-            if (step >= 0 && step % regrid_int == 0) {
+            if (lid.streamMode() == 0 && step >= 0 && step % regrid_int == 0) {
                 // 模式 2/3 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
                 // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
                 lid.AverageDownValid();
@@ -106,7 +127,12 @@ int main(int argc, char* argv[]) {
             // RohdeCycle(0, cur_time, lid);
 
             auto start_time_JaberCycle = std::chrono::high_resolution_clock::now();
-            JaberCycle2(0, cur_time, lid);
+            if (lid.streamMode() == 0) {
+                JaberCycle2(0, cur_time, lid);
+            } else {
+                lid.OsiAdvancePeriodicLevel(0);
+                lid.AdvanceAndCheckOsiStage2Reference(0, step);
+            }
             auto end_time_JaberCycle = std::chrono::high_resolution_clock::now();
             JaberCycle_time += std::chrono::duration<float, std::milli>(end_time_JaberCycle - start_time_JaberCycle).count();
 

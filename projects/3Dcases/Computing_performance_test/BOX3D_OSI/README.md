@@ -5,10 +5,10 @@
 
 ## 当前状态
 
-截至 2026-08-20，生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
-pull-streaming 实现。OSI 阶段 1 的 Fab-local 地址层已经实现并测试，但还没有
-`osi_state`、per-level phase、OSI collision/communication 或 OSI 运行路径。因此，
-**当前没有 OSI 数值运行、等价性或性能结果**。
+截至 2026-08-20，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
+pull-streaming 实现。阶段 1 地址层和阶段 2 的受限 OSI 运行路径已经完成；阶段 2 只
+允许单 MPI rank、单 level、单 Fab、三向周期边界和 `collide_mode=1`。多 Fab/MPI、
+非周期边界、AMR、checkpoint 和性能路径仍未实现，不能把阶段 2 结果外推到这些范围。
 
 复制完成后的审查基线提交为 `6578093`；开始修改代码前的文档基线提交为
 `7a929e9`；阶段 1 地址实现及测试由提交 `b0e80b9` 固定。这些提交的说明均为
@@ -25,14 +25,21 @@ pull-streaming 实现。OSI 阶段 1 的 Fab-local 地址层已经实现并测�
 
 不要把继承自 BOX3D 的历史 job、图表或性能数字描述为 OSI 结果。
 
-已完成的 OSI 阶段 1 内容：
+已完成的 OSI 阶段 1/2 内容：
 
 - `src/OsiIndex.H` 提供 host/device 共用的 `positive_mod()`、`osi_coord()` 和
   `osi_address()`；
 - 映射只使用单个 Fab 的 `lo/length`，`phase` 在乘法前对各轴长度取模；
 - `tests/osi_index_test.cpp` 覆盖 D3Q27 全方向、非零 `smallEnd()`、三轴不同长度、
   超大 phase、排列性和 `A_q(x,p+1)=A_q(x-e_q,p)`；
-- CPU 测试和完整 MPI+CUDA 构建已通过，但 helper 尚未被生产 kernel 调用。
+- CPU 地址测试和完整 MPI+CUDA 构建已通过；阶段 2 production kernel 已调用该 helper。
+- `lbm.stream_mode=1` 分配独立 `osi_state` 和 per-level `osi_phase`，生产 CUDA
+  collision 通过 `osi_address()` 原位访问 D3Q27；
+- 单 Fab 周期 ghost 按当前 phase 从 logical valid 映射到 logical ghost，然后只提交
+  一次 phase，不调用显式 `Stream()`；
+- 阶段 2 同时保留并推进 A-B reference，每步比较全部 valid DDF，容差为 `1e-12`；
+- job `581325` 完成 32 个 GPU 步，逐步 `linf` 为 `0` 或
+  `5.551115123e-17`。这是受限路径的数值等价证据，不是通用 OSI 或性能结果。
 
 ## 新会话的阅读顺序
 
@@ -138,10 +145,22 @@ lbm.stream_mode = 1  # OSI 实验路径
 ./tests/run_osi_index_test.sh
 ```
 
-2026-08-19 的验证结果：GCC 11.3 CPU 地址测试通过；`MAKE_J=2 GEN_CCDB=0
+运行阶段 2 独立 CPU A/B 测试：
+
+```bash
+./tests/run_osi_stage2_test.sh
+```
+
+阶段 2 GPU smoke 使用 `config/inputs_osi_stage2` 和
+`scripts/submit_osi_stage2_smoke.sh`。该输入会禁用 regrid、输出和 checkpoint，并由
+运行时断言检查单 rank、单层、单 Fab和全周期约束。
+
+验证记录：2026-08-19，GCC 11.3 CPU 地址测试和 `MAKE_J=2 GEN_CCDB=0
 ./scripts/compile.sh` 的 MPI+CUDA 完整构建通过。默认并行度 16 的首次全量构建曾因
-编译节点内存不足失败，因此这里记录的成功命令使用并行度 2。编译成功只能证明当前
-A-B 程序和 OSI 地址 helper 可构建，不能证明 OSI 时间推进或数值正确。
+编译节点内存不足失败，因此后续构建使用并行度 2。2026-08-20，37 步独立 CPU A/B
+测试通过；job `581325` 在上述阶段 2 约束内完成 32 步生产 GPU A/B 比较，最大
+`linf=5.551115123e-17`。构建证据与数值证据必须分别引用，后者也不能外推到尚未实现的
+多 Fab、MPI、物理边界或 AMR 路径。
 
 ## 继承的 BOX3D 基线资料
 

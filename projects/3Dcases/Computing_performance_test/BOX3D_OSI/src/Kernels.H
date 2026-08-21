@@ -7,6 +7,7 @@
 #include <AMReX_PhysBCFunct.H>
 
 #include "D3Q19.H"
+#include "OsiIndex.H"
 #define KERNEL_ABS std::abs
 
 using namespace amrex;
@@ -2394,6 +2395,51 @@ void collide_bgk_register(int i, int j, int k,
     }
 }
 
+// 阶段二 OSI 碰撞：logical cell 的 Q 个分量按当前 phase 翻译到
+// Fab-local raw 槽位，碰撞前后均访问同一组槽位。
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void collide_bgk_register_osi(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& state,
+    std::uint64_t phase, box3d_osi::FabGeometry fab,
+    amrex::Real omega) noexcept {
+    Real fq[Q];
+    Real rho = 0.0;
+    Real uxt = 0.0;
+    Real uyt = 0.0;
+    Real uzt = 0.0;
+
+#pragma unroll
+    for (int q = 0; q < Q; ++q) {
+        const auto raw = box3d_osi::osi_address(
+            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
+        const Real ft = state(raw.x, raw.y, raw.z, q);
+        fq[q] = ft;
+        rho += ft;
+        uxt += ft * e[q][0];
+        uyt += ft * e[q][1];
+        uzt += ft * e[q][2];
+    }
+
+    const Real inv_rho = 1.0 / rho;
+    const Real ux = uxt * inv_rho;
+    const Real uy = uyt * inv_rho;
+    const Real uz = uzt * inv_rho;
+    const Real velocity_sq = ux * ux + uy * uy + uz * uz;
+    const Real equilibrium_common = 1.0 - 1.5 * velocity_sq;
+    const Real keep = 1.0 - omega;
+
+#pragma unroll
+    for (int q = 0; q < Q; ++q) {
+        const Real eu = e[q][0] * ux + e[q][1] * uy + e[q][2] * uz;
+        const Real feq = w[q] * rho *
+                         (equilibrium_common + 3.0 * eu + 4.5 * eu * eu);
+        const auto raw = box3d_osi::osi_address(
+            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
+        state(raw.x, raw.y, raw.z, q) = keep * fq[q] + omega * feq;
+    }
+}
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void interp_bilinear_d3q(
@@ -2441,14 +2487,14 @@ void interp_cell_cons_linear_children_d3q(
         const Real dzp = coarse(ic, jc, kc + 1, q) - center;
         const Real dzm = center - coarse(ic, jc, kc - 1, q);
         const Real sx = (dxp * dxm > Real(0))
-            ? std::copysign(amrex::min(std::abs(dxp), std::abs(dxm)), dxp)
-            : Real(0);
+                            ? std::copysign(amrex::min(std::abs(dxp), std::abs(dxm)), dxp)
+                            : Real(0);
         const Real sy = (dyp * dym > Real(0))
-            ? std::copysign(amrex::min(std::abs(dyp), std::abs(dym)), dyp)
-            : Real(0);
+                            ? std::copysign(amrex::min(std::abs(dyp), std::abs(dym)), dyp)
+                            : Real(0);
         const Real sz = (dzp * dzm > Real(0))
-            ? std::copysign(amrex::min(std::abs(dzp), std::abs(dzm)), dzp)
-            : Real(0);
+                            ? std::copysign(amrex::min(std::abs(dzp), std::abs(dzm)), dzp)
+                            : Real(0);
 
 #pragma unroll
         for (int koff = 0; koff < 2; ++koff) {
@@ -2490,11 +2536,11 @@ void interp_cell_quadratic_children_d3q(
     for (int q = 0; q < Q; ++q) {
         const Real center = coarse(ic, jc, kc, q);
         const Real sx = half *
-            (coarse(ic + 1, jc, kc, q) - coarse(ic - 1, jc, kc, q));
+                        (coarse(ic + 1, jc, kc, q) - coarse(ic - 1, jc, kc, q));
         const Real sy = half *
-            (coarse(ic, jc + 1, kc, q) - coarse(ic, jc - 1, kc, q));
+                        (coarse(ic, jc + 1, kc, q) - coarse(ic, jc - 1, kc, q));
         const Real sz = half *
-            (coarse(ic, jc, kc + 1, q) - coarse(ic, jc, kc - 1, q));
+                        (coarse(ic, jc, kc + 1, q) - coarse(ic, jc, kc - 1, q));
         const Real sxx = coarse(ic - 1, jc, kc, q) - Real(2) * center +
                          coarse(ic + 1, jc, kc, q);
         const Real syy = coarse(ic, jc - 1, kc, q) - Real(2) * center +
@@ -2502,20 +2548,20 @@ void interp_cell_quadratic_children_d3q(
         const Real szz = coarse(ic, jc, kc - 1, q) - Real(2) * center +
                          coarse(ic, jc, kc + 1, q);
         const Real sxy = quarter *
-            (coarse(ic - 1, jc - 1, kc, q) -
-             coarse(ic + 1, jc - 1, kc, q) -
-             coarse(ic - 1, jc + 1, kc, q) +
-             coarse(ic + 1, jc + 1, kc, q));
+                         (coarse(ic - 1, jc - 1, kc, q) -
+                          coarse(ic + 1, jc - 1, kc, q) -
+                          coarse(ic - 1, jc + 1, kc, q) +
+                          coarse(ic + 1, jc + 1, kc, q));
         const Real sxz = quarter *
-            (coarse(ic - 1, jc, kc - 1, q) -
-             coarse(ic + 1, jc, kc - 1, q) -
-             coarse(ic - 1, jc, kc + 1, q) +
-             coarse(ic + 1, jc, kc + 1, q));
+                         (coarse(ic - 1, jc, kc - 1, q) -
+                          coarse(ic + 1, jc, kc - 1, q) -
+                          coarse(ic - 1, jc, kc + 1, q) +
+                          coarse(ic + 1, jc, kc + 1, q));
         const Real syz = quarter *
-            (coarse(ic, jc - 1, kc - 1, q) -
-             coarse(ic, jc - 1, kc + 1, q) -
-             coarse(ic, jc + 1, kc - 1, q) +
-             coarse(ic, jc + 1, kc + 1, q));
+                         (coarse(ic, jc - 1, kc - 1, q) -
+                          coarse(ic, jc - 1, kc + 1, q) -
+                          coarse(ic, jc + 1, kc - 1, q) +
+                          coarse(ic, jc + 1, kc + 1, q));
 
 #pragma unroll
         for (int koff = 0; koff < 2; ++koff) {

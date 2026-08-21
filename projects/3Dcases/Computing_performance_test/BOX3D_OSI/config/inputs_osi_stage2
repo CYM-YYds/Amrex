@@ -1,0 +1,30 @@
+# BOX3D_OSI stage-2 smoke configuration.
+# This intentionally exercises only one MPI rank, one AMR level, one Fab,
+# periodic boundaries, and the dedicated OSI state.
+
+max_step  = 32
+stop_time = 32.0
+
+geometry.is_periodic = 1 1 1
+
+amr.max_level = 0
+amr.regrid_int = 1000000
+amr.grid_eff = 1.0
+amr.n_error_buf = 0
+amr.max_grid_size = 64
+amr.blocking_factor = 64
+amr.plot_int = -1
+amr.begin_plot = 0
+
+checkpoint.begin_step = 0
+checkpoint.chk_int = -1
+checkpoint.chk_prefix = chk_osi_stage2
+checkpoint.keep_latest_only = true
+checkpoint.write_particles = false
+
+lbm.stream_mode = 1
+lbm.collide_mode = 1
+lbm.cf_mask_mode = 0
+lbm.average_mode = 3
+lbm.interp_mode = 0
+lbm.err = 1.0e30

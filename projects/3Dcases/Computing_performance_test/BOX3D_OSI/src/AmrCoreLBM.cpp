@@ -73,6 +73,8 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
 
     f_new.resize(nlevs_max);
     f_old.resize(nlevs_max);
+    osi_state.resize(nlevs_max);
+    osi_phase.resize(nlevs_max, 0);
     average_down_buffer.resize(nlevs_max);
     average_interface_buffer.resize(nlevs_max);
     average_interface_fine_box.resize(nlevs_max);
@@ -278,6 +280,7 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  U0     =" << std::setw(10) << std::right << U0 << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  cf_mask=" << std::setw(10) << std::right << cf_mask_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  col_mode=" << std::setw(10) << std::right << collide_mode << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  str_mode=" << std::setw(10) << std::right << stream_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  avg_mode=" << std::setw(10) << std::right << average_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  int_mode=" << std::setw(10) << std::right << interp_mode << std::endl;
 
@@ -487,6 +490,10 @@ void AmrCoreLBM::ReadParameters() {
         pp.query("collide_mode", collide_mode);
         if (collide_mode < 0 || collide_mode > 1) {
             amrex::Abort("lbm.collide_mode must be 0 or 1");
+        }
+        pp.query("stream_mode", stream_mode);
+        if (stream_mode < 0 || stream_mode > 1) {
+            amrex::Abort("lbm.stream_mode must be 0 (A-B) or 1 (stage-2 OSI)");
         }
         pp.query("average_mode", average_mode);
         if (average_mode < 0 || average_mode > 3) {
@@ -1721,6 +1728,169 @@ void AmrCoreLBM::CommunicateLevel(int lev) {
     f_old_lev.FillBoundary(geom[lev].periodicity());
 }
 
+void AmrCoreLBM::ValidateOsiStage2Configuration() const {
+    if (stream_mode != 1) {
+        return;
+    }
+
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        max_level == 0 && finest_level == 0,
+        "stage-2 OSI requires amr.max_level=0");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        amrex::ParallelDescriptor::NProcs() == 1,
+        "stage-2 OSI requires exactly one MPI rank");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        boxArray(0).size() == 1,
+        "stage-2 OSI requires exactly one Fab; increase amr.max_grid_size");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        boxArray(0)[0] == Geom(0).Domain(),
+        "stage-2 OSI requires the single Fab to cover the whole domain");
+    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            Geom(0).isPeriodic(dir),
+            "stage-2 OSI requires periodic boundaries in every direction");
+    }
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        collide_mode == 1,
+        "stage-2 OSI currently supports only lbm.collide_mode=1");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        params_.begin_step == 0,
+        "stage-2 OSI does not yet support checkpoint restart");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        params_.plot_int <= 0 && params_.chk_int <= 0,
+        "stage-2 OSI requires plot/checkpoint output disabled until canonical gather is implemented");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        osi_state[0].isDefined(),
+        "stage-2 OSI state was not initialized");
+
+    amrex::Print() << "[OSI stage 2] single-rank, single-level, single-Fab "
+                      "periodic path enabled\n";
+}
+
+void AmrCoreLBM::OsiAdvancePeriodicLevel(int lev) {
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(stream_mode == 1,
+                                     "OsiAdvancePeriodicLevel requires lbm.stream_mode=1");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(lev == 0,
+                                     "stage-2 OSI advances level 0 only");
+
+    amrex::MultiFab& state_lev = osi_state[lev];
+    const std::uint64_t phase = osi_phase[lev];
+    const amrex::Real omega = 1.0 / tau[lev];
+
+    {
+        ScopedPerfTimer timer(perf_stats.collide);
+        for (MFIter mfi(state_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const Box valid_box = mfi.validbox();
+            const Box fab_box = state_lev[mfi].box();
+            const auto fab_lo = fab_box.smallEnd();
+            const box3d_osi::FabGeometry fab{
+                {fab_lo[0], fab_lo[1], fab_lo[2]},
+                {fab_box.length(0), fab_box.length(1), fab_box.length(2)}};
+            const Array4<Real>& state = state_lev.array(mfi);
+
+            amrex::ParallelFor(
+                valid_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    collide_bgk_register_osi(i, j, k, state, phase, fab, omega);
+                });
+        }
+    }
+
+    // 当前 phase 下把周期 valid 值写入 logical ghost。映射在完整 fabbox 上是
+    // 一一置换，因此 valid source 与 ghost target 的 raw 槽位不会在同 phase 别名。
+    {
+        ScopedPerfTimer timer(perf_stats.comm);
+        for (MFIter mfi(state_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const Box valid_box = mfi.validbox();
+            const Box fab_box = state_lev[mfi].box();
+            const auto valid_lo = valid_box.smallEnd();
+            const auto valid_hi = valid_box.bigEnd();
+            const auto fab_lo = fab_box.smallEnd();
+            const box3d_osi::FabGeometry fab{
+                {fab_lo[0], fab_lo[1], fab_lo[2]},
+                {fab_box.length(0), fab_box.length(1), fab_box.length(2)}};
+            const Array4<Real>& state = state_lev.array(mfi);
+
+            amrex::ParallelFor(
+                fab_box, Q,
+                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                    const bool is_valid =
+                        i >= valid_lo[0] && i <= valid_hi[0] &&
+                        j >= valid_lo[1] && j <= valid_hi[1] &&
+                        k >= valid_lo[2] && k <= valid_hi[2];
+                    if (is_valid) {
+                        return;
+                    }
+
+                    const box3d_osi::Coord3 logical_source{
+                        valid_lo[0] + box3d_osi::positive_mod(
+                                          i - valid_lo[0], valid_box.length(0)),
+                        valid_lo[1] + box3d_osi::positive_mod(
+                                          j - valid_lo[1], valid_box.length(1)),
+                        valid_lo[2] + box3d_osi::positive_mod(
+                                          k - valid_lo[2], valid_box.length(2))};
+                    const box3d_osi::Coord3 velocity_q{
+                        e[q][0], e[q][1], e[q][2]};
+                    const auto source = box3d_osi::osi_address(
+                        logical_source, velocity_q, phase, fab);
+                    const auto target = box3d_osi::osi_address(
+                        {i, j, k}, velocity_q, phase, fab);
+                    state(target.x, target.y, target.z, q) =
+                        state(source.x, source.y, source.z, q);
+                });
+        }
+    }
+
+    ++osi_phase[lev];
+}
+
+void AmrCoreLBM::AdvanceAndCheckOsiStage2Reference(int lev, int step) {
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        stream_mode == 1,
+        "AdvanceAndCheckOsiStage2Reference requires lbm.stream_mode=1");
+
+    // 保留的 A-B 状态作为阶段二逐步 oracle：valid collision、周期 ghost、
+    // 显式 pull、swap。这里故意不调用物理边界或 AMR 路径。
+    Collide(lev, 0);
+    CommunicateLevel(lev);
+    Stream(lev, 1);
+    SwapLevel(lev, 1);
+
+    amrex::MultiFab& difference = f_new[lev];
+    const amrex::MultiFab& reference = f_old[lev];
+    const amrex::MultiFab& state = osi_state[lev];
+    const std::uint64_t phase = osi_phase[lev];
+
+    for (MFIter mfi(reference, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        const Box valid_box = mfi.validbox();
+        const Box fab_box = state[mfi].box();
+        const auto fab_lo = fab_box.smallEnd();
+        const box3d_osi::FabGeometry fab{
+            {fab_lo[0], fab_lo[1], fab_lo[2]},
+            {fab_box.length(0), fab_box.length(1), fab_box.length(2)}};
+        const Array4<const Real>& ab = reference.const_array(mfi);
+        const Array4<const Real>& osi = state.const_array(mfi);
+        const Array4<Real>& diff = difference.array(mfi);
+
+        amrex::ParallelFor(
+            valid_box, Q,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                const auto raw = box3d_osi::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
+                diff(i, j, k, q) = ab(i, j, k, q) -
+                                   osi(raw.x, raw.y, raw.z, q);
+            });
+    }
+
+    const Real linf = difference.norm0(0, Q, IntVect(0));
+    constexpr Real tolerance = 1.0e-12;
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        std::isfinite(linf) && linf <= tolerance,
+        "stage-2 OSI differs from the A-B reference (linf > 1e-12)");
+    amrex::Print() << "osi_stage2_ab: step=" << step
+                   << " phase=" << phase
+                   << " linf=" << linf << '\n';
+}
+
 void AmrCoreLBM::Boundary(int lev) {
     ScopedPerfTimer timer(perf_stats.boundary);
     // amrex::AllPrint()<<"Boundary on " << lev <<std::endl;
@@ -2081,6 +2251,8 @@ void AmrCoreLBM::ClearLevel(int lev) {
 
     f_old[lev].clear();
     f_new[lev].clear();
+    osi_state[lev].clear();
+    osi_phase[lev] = 0;
     velocity[lev].clear();
     vorticity[lev].clear();
     density[lev].clear();
@@ -2104,6 +2276,10 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
     shear_lev.define(ba, dm, 1, nghost);
     f_new_lev.define(ba, dm, Q, nghost);
     f_old_lev.define(ba, dm, Q, nghost);
+    if (stream_mode == 1) {
+        osi_state.at(lev).define(ba, dm, Q, nghost);
+        osi_phase.at(lev) = 0;
+    }
 
     force_lev.setVal(0.0, nghost); // 在这里归零会不会好一点
     shear_lev.setVal(0.0, nghost);
@@ -2117,6 +2293,10 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
             init_fluid(i, j, k, fold, fnew);
         });
+    }
+
+    if (stream_mode == 1) {
+        amrex::MultiFab::Copy(osi_state[lev], f_old_lev, 0, 0, Q, nghost);
     }
 }
 

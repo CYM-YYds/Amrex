@@ -2,6 +2,7 @@
 #define D3Q19_H_
 
 #include <AMReX_Array4.H>
+#include <AMReX_RealVect.H>
 
 #define PI (3.141592653589793238462643383279)
 

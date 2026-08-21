@@ -11,13 +11,13 @@
 #include <AMReX_AmrParticles.H>
 #include <AMReX_Particles.H>
 
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <string>
 
 #include "LagrangeParticleContainer.H"
 #include "AuxiliaryPointContainer.H"
-#include "OsiIndex.H"
 
 class AmrCoreLBM : public amrex::AmrCore {
 
@@ -100,6 +100,12 @@ class AmrCoreLBM : public amrex::AmrCore {
     int ghostCells() const {
         return nghost;
     }
+    int streamMode() const {
+        return stream_mode;
+    }
+    std::uint64_t osiPhase(int lev) const {
+        return osi_phase.at(lev);
+    }
     //********************************************************************//
     //                           mesh function                            //
     //********************************************************************//
@@ -136,6 +142,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     void Collide(int lev, int n);
     void Stream(int lev, int n);
     void SwapLevel(int lev, int n);
+    void ValidateOsiStage2Configuration() const;
+    void OsiAdvancePeriodicLevel(int lev);
+    void AdvanceAndCheckOsiStage2Reference(int lev, int step);
 
     void InterpScale(int lev, int n);
     void AverageScale(int lev, int n);
@@ -179,6 +188,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     int cf_mask_mode = 1;
     // 0：原始通用 BGK；1：无外力/无 SGS 的 D3Q27 寄存器复用路径。
     int collide_mode = 0;
+    // 0：现有 A-B；1：阶段二 OSI，仅允许单 rank/单 level/单 Fab/全周期。
+    int stream_mode = 0;
     // 0：全区域分步；1：全区域融合；2：交界区域分步；3：交界区域融合。
     int average_mode = 1;
     // 粗到细 DDF 插值：0 = ratio-2 三线性；1 = GPU 守恒线性；
@@ -195,6 +206,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> force;
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
+    // 阶段二保留 A-B 两数组作为基线，OSI 使用独立单数组和 per-level phase。
+    amrex::Vector<amrex::MultiFab> osi_state;
+    amrex::Vector<std::uint64_t> osi_phase;
     // 全区域融合平均的结果缓冲区；回写前沿用细层的网格布局与数据归属。
     amrex::Vector<amrex::MultiFab> average_down_buffer;
     // 模式 2/3 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
