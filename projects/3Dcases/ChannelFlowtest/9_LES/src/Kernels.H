@@ -338,9 +338,9 @@ amrex::Real velocity_derivative(int i, int j, int k, int comp, int dir,
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void compute_viscosity_sgs_CSM(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
-                           amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx,
-                           amrex::IntVect const& lo, amrex::IntVect const& hi,
-                           amrex::IntVect const& is_periodic) {
+                               amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx,
+                               amrex::IntVect const& lo, amrex::IntVect const& hi,
+                               amrex::IntVect const& is_periodic) {
     Real SS, Q_, E_, F_CS, C;
 
     Real u_x = velocity_derivative(i, j, k, 0, 0, u, dx, lo, hi, is_periodic);
@@ -384,8 +384,8 @@ void compute_viscosity_sgs_CSM(int i, int j, int k, amrex::Array4<amrex::Real> c
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void compute_viscosity_sgs_SM_BGK(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
-                            amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx,
-                            amrex::Real tau_lev, amrex::Real dt) {
+                                  amrex::Array4<amrex::Real> const& nu_sgs, amrex::Real dx,
+                                  amrex::Real tau_lev, amrex::Real dt) {
     Real rhot = 0.0;
     Real uxt = 0.0;
     Real uyt = 0.0;
@@ -2573,6 +2573,8 @@ Real delta3p(amrex::Real r) {
 AMREX_GPU_HOST_DEVICE
 AMREX_FORCE_INLINE
 int ibm_wrap_index(int i, int n) {
+    // 将越过周期边界一层的模板下标绕回 [0,n-1]。当前 delta3p 只有 3 点支撑，
+    // 调用处的偏移仅为 -1/0/+1，因此一次加减 n 就足够。它不是通用的取模函数。
     if (i < 0)
         return n + i;
     if (i > n - 1)
@@ -2589,6 +2591,14 @@ void ibm_interp_u_rho_at(amrex::Real xp, amrex::Real yp, amrex::Real zp,
                          amrex::Real& uy,
                          amrex::Real& uz,
                          amrex::Real& rho_interp) {
+    // 用三点 regularized-delta 核把欧拉网格上的 (u,rho) 插值到任意空间点。
+    //
+    // 坐标约定很重要：xp/yp/zp 已经除以网格尺寸 delta，是“格点单位坐标”；
+    // 欧拉变量位于 cell center，所以核函数中的格点位置写成 (index + 0.5)。
+    // 三个方向的权重相乘：w = delta3p(dx)*delta3p(dy)*delta3p(dz)。
+    // 本函数同时用于：
+    //   1. 壁面拉格朗日点 B，得到 U_Lag 和 rho_Lag；
+    //   2. 壁外探测点 P，得到 U_P 和 rho_P。
     ux = 0.0;
     uy = 0.0;
     uz = 0.0;
@@ -2622,6 +2632,8 @@ AMREX_GPU_HOST_DEVICE
 AMREX_FORCE_INLINE
 amrex::Real ibm_interp_rho_at(amrex::Real xp, amrex::Real yp, amrex::Real zp,
                               amrex::Array4<amrex::Real> const& rho) {
+    // 只插值密度的轻量版本。壁面模型利用 LBM 状态方程 p=cs2*rho，
+    // 在探测点两侧 P+、P- 采样密度，从而计算局部切向压力梯度。
     amrex::Real rho_interp = 0.0;
 
     const int ix0 = static_cast<int>(amrex::Math::floor(xp));
@@ -2650,6 +2662,9 @@ AMREX_FORCE_INLINE
 amrex::Real compute_u_tau_werner_wengle(amrex::Real ur_xi,
                                         amrex::Real nu,
                                         amrex::Real etaP) {
+    // Werner-Wengle 壁面律：用于零压梯度和顺压梯度 dp/dxi<=0。
+    // 输入 ur_xi 是探测点相对壁面的切向速度，etaP 是壁面到探测点距离。
+    // 先按线性黏性底层估计 u_tau；若对应 eta+ 超过 11.81，则切换到幂律区。
     constexpr amrex::Real A = 8.3;
     constexpr amrex::Real B = 1.0 / 7.0;
     constexpr amrex::Real eta_c = 11.81;
@@ -2671,6 +2686,10 @@ amrex::Real compute_uD_apgpl(amrex::Real ur_xi,
                              amrex::Real rhoP,
                              amrex::Real etaP,
                              amrex::Real dpdxi) {
+    // APGPL（adverse-pressure-gradient power law）的速度修正。
+    // 仅在逆压梯度 dpdxi>0 时调用。它从相对切向速度 ur_xi 中扣除压力梯度
+    // 引起的两项修正，得到用于外层幂律的 uD。若 uD<=0，主函数认为该局部
+    // APGPL 解无效，并回退到真实壁面速度，而不是继续对负数做分数次幂。
     constexpr amrex::Real a = 7.5789;
     constexpr amrex::Real b = -1.4489;
     constexpr amrex::Real c_apgpl = 191.1799;
@@ -2686,6 +2705,7 @@ amrex::Real compute_uD_apgpl(amrex::Real ur_xi,
 AMREX_GPU_HOST_DEVICE
 AMREX_FORCE_INLINE
 amrex::Real residual_eta_c_apgpl(amrex::Real eta, amrex::Real rhs) {
+    // APGPL 内层线性律与外层幂律在临界 eta_c 处连续所对应的一元方程残差。
     constexpr amrex::Real A = 8.3;
     constexpr amrex::Real B = 1.0 / 7.0;
 
@@ -2695,6 +2715,7 @@ amrex::Real residual_eta_c_apgpl(amrex::Real eta, amrex::Real rhs) {
 AMREX_GPU_HOST_DEVICE
 AMREX_FORCE_INLINE
 amrex::Real derivative_eta_c_apgpl(amrex::Real eta) {
+    // 上述残差对 eta 的导数，供 Newton 迭代使用。
     constexpr amrex::Real A = 8.3;
     constexpr amrex::Real B = 1.0 / 7.0;
 
@@ -2707,6 +2728,15 @@ amrex::Real compute_eta_c_apgpl(amrex::Real rhoP,
                                 amrex::Real nu,
                                 amrex::Real etaP,
                                 amrex::Real dpdxi) {
+    // 动态求 APGPL 的临界无量纲壁距 eta_c，而不是固定使用 11.81。
+    //
+    // 将压力梯度组合成无量纲参数
+    //   K = etaP^3 * dpdxi / (rhoP * nu^2)，
+    // 再求解内外层连续性方程。算法采用“Newton + 区间保护”：
+    //   - 搜索区间 [11.78, 2*11.81]；初值 11.81；最多 5 次；
+    //   - Newton 步越界或产生 NaN 时改用区间中点；
+    //   - 若根不被当前区间正常包围，则返回约定的边界/WW 值。
+    // 这种写法适合 GPU 内联执行，迭代次数固定且不会无限循环。
     constexpr amrex::Real a = 7.5789;
     constexpr amrex::Real b = -1.4489;
     constexpr amrex::Real c_apgpl = 191.1799;
@@ -2764,6 +2794,8 @@ amrex::Real compute_u_tau_apgpl(amrex::Real ur_xi,
                                 amrex::Real nu,
                                 amrex::Real etaP,
                                 amrex::Real dpdxi) {
+    // APGPL 分支最终的摩擦速度 u_tau：仍先检查线性黏性底层；进入外层后，
+    // 使用动态求得的 eta_c 作为分界，并用修正速度 uD 代替原始 ur_xi。
     constexpr amrex::Real A = 8.3;
     constexpr amrex::Real B = 1.0 / 7.0;
 
@@ -3027,6 +3059,32 @@ AMREX_GPU_HOST_DEVICE
     }
 }
 #endif
+
+//==============================================================================
+// NF=1 槽道 IBM-LES 壁面模型主 kernel
+//==============================================================================
+// 本函数对“一个拉格朗日壁面点”完成全部壁模计算和 MDF 施力。阅读时可按以下
+// 数据流理解，而不必一开始陷入每条公式：
+//
+//   p.pos + (u,rho) 欧拉场
+//       |  [步骤1] 判断上下壁，建立从固体指向流体的法向 e_eta
+//       |  [步骤2] 在壁面点 B 插值得到 U_Lag、rho_Lag
+//       |  [步骤3] 在 P=B+3*delta*e_eta 插值得到 U_P、rho_P
+//       |  [步骤4] 从 U_P 分离切向速度，建立局部流向 e_xi
+//       |  [步骤5] 在 P+/-delta*e_xi 采样 rho，以 p=cs2*rho 求 dp/dxi
+//       |  [步骤6] WW/APGPL 壁面律 -> 摩擦速度 u_tau
+//       |  [步骤7] TBLE 梯度 -> 壁模目标切向速度 U_BR,xi
+//       |  [步骤8] 组装三维目标速度 U_BR
+//       |  [步骤9] MDF: f_L=(2*rhoLag/dt_min)*(U_Lag-U_BR)
+//       `  [步骤10] delta3p 将 -f_L 扩散回欧拉力场 Ft
+//
+// 核心思想：普通无滑移 IBM 会令目标速度等于真实壁速 U_B；粗网格 LES 无法解析
+// 黏性底层，因此这里将 IBM 的切向目标速度替换为壁面模型给出的 U_BR，允许合理
+// 滑移；法向目标仍等于真实壁面法向速度，以维持不可穿透。
+//
+// 当前限制：这是上下平面槽道、单一局部切向、NF=1 的实现。它不是适用于任意曲面
+// 的通用法向构造，也没有接入 NF>1 的两阶段 MDF。上层仅在
+// use_les && use_wall_model 时调用本函数。
 template <typename P>
 AMREX_GPU_HOST_DEVICE
     AMREX_FORCE_INLINE void
@@ -3037,11 +3095,23 @@ AMREX_GPU_HOST_DEVICE
                      amrex::Real& area,
                      amrex::Array4<amrex::Real> const& u, amrex::Array4<amrex::Real> const& rho, amrex::Array4<amrex::Real> const& Ft,
                      amrex::Real const delta, amrex::RealVect const& uc, amrex::RealVect const& wc, amrex::RealVect const& centre) {
+    // [步骤0：输入含义]
+    // p/area/x_local... 描述当前拉格朗日壁面点；u、rho 是欧拉速度和密度；
+    // Ft 是待累加的欧拉体力；delta 是当前 level 的网格尺寸。
+    // uc、wc 分别是壁面所属刚体的平动和角速度，centre 已在调用方用于构造
+    // x_local/y_local/z_local；此签名保留 centre 以与同类 IBM kernel 接口一致。
+
+    // 物理位置除以 delta，转换为 ibm_interp_* 所需的“格点单位坐标”。
     const amrex::Real xt = p.pos(0) / delta;
     const amrex::Real yt = p.pos(1) / delta;
     const amrex::Real zt = p.pos(2) / delta;
+    // LP_dr*area 是该拉格朗日点在力扩散中的离散积分权重。
     const amrex::Real IB_weight = LP_dr * area;
 
+    // [步骤1：构造壁面法向]
+    // 当前拉格朗日点铺在槽道上下两个平面。用物理 y 坐标与槽道中面比较：
+    // 下壁法向 (0,+1,0)，上壁法向 (0,-1,0)，二者都从固体指向流体。
+    // 不应改成由 (x_local,y_local,z_local) 归一化得到法向；那是球面写法。
     const amrex::Real y_mid = 0.5 * (3.5 + (NY - 3.5)) * dx_min;
     const bool is_bottom_wall = (p.pos(1) < y_mid);
 
@@ -3049,17 +3119,27 @@ AMREX_GPU_HOST_DEVICE
     const amrex::Real ny = is_bottom_wall ? 1.0 : -1.0;
     const amrex::Real nz = 0.0;
 
+    // 真实壁面速度 U_B = 平动速度 + 角速度引起的局部速度。
+    // 对当前静止槽道壁，uc=wc=0，因而 U_B=0；保留一般形式便于移动壁面。
     const amrex::Real UBx = uc[0] + wc[2] * (-y_local) + wc[1] * z_local;
     const amrex::Real UBy = uc[1] + wc[2] * x_local + wc[0] * (-z_local);
     const amrex::Real UBz = uc[2] + wc[0] * y_local + wc[1] * (-x_local);
 
+    // [步骤2：采样壁面拉格朗日点 B]
+    // U_Lag 是当前欧拉流场插值到 B 的实际速度，rhoLag 用于后面的 MDF 力缩放。
     amrex::Real uLagx, uLagy, uLagz, rhoLag;
     ibm_interp_u_rho_at(xt, yt, zt, u, rho, uLagx, uLagy, uLagz, rhoLag);
 
+    // 默认回退值：若后续探测点数据、切向速度或 APGPL 解不可靠，则 U_BR=U_B，
+    // 此点自动退化为普通无滑移 IBM，避免把 NaN/非物理解写入欧拉力场。
     amrex::Real UBRx = UBx;
     amrex::Real UBRy = UBy;
     amrex::Real UBRz = UBz;
 
+    // [步骤3：建立并采样探测点 P]
+    // etaP=3*delta 使采样点离开 IBM 扩散界面的主要影响区：
+    //   P = B + etaP*e_eta。
+    // xP/yP/zP 仍采用格点单位坐标，所以位移需再除以 delta。
     const amrex::Real eps = 1.0e-14;
     const amrex::Real etaP = 3.0 * delta;
     const amrex::Real probe_offset = etaP / delta;
@@ -3067,29 +3147,39 @@ AMREX_GPU_HOST_DEVICE
     const amrex::Real yP = yt + probe_offset * ny;
     const amrex::Real zP = zt + probe_offset * nz;
 
-    // Wall-model sample points are flow-dependent: e_xi comes from the current
-    // probe velocity, so P_plus/P_minus cannot be cached like fixed IBM weights.
-    // Only the final Lagrangian-point spreading stencil is a good low-risk
-    // candidate for later wx/wy/wz reuse, as in force_interp_extrap().
+    // e_xi 由本步探测点速度决定，因此稍后的 P_plus/P_minus 也会随流场变化，
+    // 不能像固定拉格朗日点的 delta 权重那样跨时间步缓存。
     amrex::Real UPx, UPy, UPz, rhoP;
     ibm_interp_u_rho_at(xP, yP, zP, u, rho, UPx, UPy, UPz, rhoP);
 
+    // [步骤4：速度分解并建立局部切向 e_xi]
+    //   U_P,eta = U_P dot e_eta
+    //   U_P,xi(vector) = U_P - U_P,eta*e_eta
+    //   e_xi = U_P,xi(vector) / |U_P,xi(vector)|
+    // 当前实现只沿瞬时局部流向保留一个切向分量，没有单独处理第二切向分量。
     const amrex::Real UP_eta = UPx * nx + UPy * ny + UPz * nz;
     const amrex::Real exi_raw_x = UPx - UP_eta * nx;
     const amrex::Real exi_raw_y = UPy - UP_eta * ny;
     const amrex::Real exi_raw_z = UPz - UP_eta * nz;
     const amrex::Real UP_xi = std::sqrt(exi_raw_x * exi_raw_x + exi_raw_y * exi_raw_y + exi_raw_z * exi_raw_z);
 
+    // 只有切向流速和两个采样密度均为正且远离零值时才启用壁模；否则保持回退值 U_B。
     if (UP_xi > eps && rhoP > eps && rhoLag > eps) {
         const amrex::Real exi_x = exi_raw_x / UP_xi;
         const amrex::Real exi_y = exi_raw_y / UP_xi;
         const amrex::Real exi_z = exi_raw_z / UP_xi;
 
+        // 将真实壁速投影到同一个局部切向和法向。壁面律使用相对切向速度
+        // ur_xi=|U_P,xi|-U_B,xi；最终 U_BR 的法向分量仍取 U_B,eta。
         const amrex::Real UB_xi = UBx * exi_x + UBy * exi_y + UBz * exi_z;
         const amrex::Real UB_eta = UBx * nx + UBy * ny + UBz * nz;
         const amrex::Real ur_xi = UP_xi - UB_xi;
 
         if (ur_xi > eps) {
+            // [步骤5：由密度中心差分计算局部切向压力梯度]
+            // 在 P 沿 e_xi 前后各取一个网格尺度：P+/-=P+/-delta*e_xi。
+            // LBM 状态方程 p=cs2*rho 给出
+            //   dp/dxi = cs2*(rho_plus-rho_minus)/(2*delta)。
             const amrex::Real dpdxi_half_step = delta;
             const amrex::Real h_grid = dpdxi_half_step / delta;
             const amrex::Real rho_plus = ibm_interp_rho_at(
@@ -3107,6 +3197,10 @@ AMREX_GPU_HOST_DEVICE
             amrex::Real u_tau = 0.0;
             bool wall_model_valid = true;
 
+            // [步骤6：根据压力梯度选择壁面律，求摩擦速度 u_tau]
+            // dpdxi<=0：零压梯度或顺压梯度，采用 Werner-Wengle；
+            // dpdxi> 0：逆压梯度，采用 APGPL。若 APGPL 修正速度 uD<=0，
+            // 标记本点壁模无效，后面继续使用初始化时的 U_BR=U_B。
             if (dpdxi <= 0.0) {
                 u_tau = compute_u_tau_werner_wengle(ur_xi, mv_0, etaP);
             } else {
@@ -3119,22 +3213,33 @@ AMREX_GPU_HOST_DEVICE
             }
 
             if (wall_model_valid) {
+                // [步骤7：TBLE 梯度并从探测点反推目标切向速度]
+                // 壁面剪切应力：tau_w=rhoP*u_tau^2。
                 const amrex::Real tau_w = rhoP * u_tau * u_tau;
+                // 探测点无量纲壁距 eta+=etaP*u_tau/nu，其中 mv_0 即运动黏度 nu。
                 const amrex::Real eta_plus = etaP * u_tau / mv_0;
+                // van Driest 阻尼湍黏度：nu_t=nu*kappa*eta+*(1-exp(-eta+/19))^2。
                 const amrex::Real vd = 1.0 - std::exp(-eta_plus / 19.0);
                 const amrex::Real nu_t = mv_0 * 0.41 * eta_plus * vd * vd;
+                // 带压力梯度的 TBLE 探测点速度梯度：
+                //   Gp=(tau_w+dpdxi*etaP)/(rhoP*(nu+nu_t))。
                 const amrex::Real Gp = (tau_w + dpdxi * etaP) / (rhoP * (mv_0 + nu_t));
 
+                // 沿线性外推从 P 返回壁面点 B：U_BR,xi=U_P,xi-Gp*etaP。
                 amrex::Real UBR_xi = UP_xi - Gp * etaP;
 
+                // 数值/物理保护1：若组合梯度为负，不做向壁外推，直接保留探测点切向速度。
                 if (Gp < 0.0) {
                     UBR_xi = UP_xi;
                 }
 
+                // 数值/物理保护2：逆压梯度下不允许外推目标速度低于真实壁面切向速度。
                 if (dpdxi > 0.0 && UBR_xi < UB_xi) {
                     UBR_xi = UB_xi;
                 }
 
+                // [步骤8：组装三维壁模目标速度]
+                // 切向用壁模计算的 U_BR,xi；法向用真实壁速 U_B,eta，保证不可穿透。
                 UBRx = UBR_xi * exi_x + UB_eta * nx;
                 UBRy = UBR_xi * exi_y + UB_eta * ny;
                 UBRz = UBR_xi * exi_z + UB_eta * nz;
@@ -3142,10 +3247,16 @@ AMREX_GPU_HOST_DEVICE
         }
     }
 
+    // [步骤9：由速度误差计算 NF=1 MDF 拉格朗日力]
+    // 当前代码的离散和符号约定为
+    //   f_L = (2*rhoLag/dt_min)*(U_Lag-U_BR)。
+    // 这里的 fxt/fyt/fzt 是施加给固体/统计使用的拉格朗日力方向；写入流体 Ft 时
+    // 使用其相反数。移植到另一套 IBM/LBM 代码时必须核对其 forcing 符号和时间离散。
     const amrex::Real rhot = 2.0 * rhoLag / dt_min;
     const amrex::Real fxt = rhot * (uLagx - UBRx);
     const amrex::Real fyt = rhot * (uLagy - UBRy);
     const amrex::Real fzt = rhot * (uLagz - UBRz);
+    // 将点力乘拉格朗日积分权重和欧拉单元体积，用于总力/总矩统计。
     const amrex::Real scale = IB_weight * dx_min * dx_min * dx_min;
 
     fx = fxt * scale;
@@ -3156,6 +3267,10 @@ AMREX_GPU_HOST_DEVICE
     ty = (fxt * z_local - fzt * x_local) * scale;
     tz = (fyt * x_local - fxt * y_local) * scale;
 
+    // [步骤10：把拉格朗日反力扩散回欧拉网格]
+    // 在 B 周围 3x3x3 支撑域，用与插值一致的 delta3p 张量积权重执行
+    //   Ft += -f_L * delta_h * IB_weight。
+    // 多个拉格朗日点可能同时写同一欧拉单元，因此 GPU 上必须使用原子加法。
     const int ix0 = static_cast<int>(amrex::Math::floor(xt));
     const int iy0 = static_cast<int>(amrex::Math::floor(yt));
     const int iz0 = static_cast<int>(amrex::Math::floor(zt));
