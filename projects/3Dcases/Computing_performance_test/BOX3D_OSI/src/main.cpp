@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
         if (begin_step > 0) {
             AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
                 lid.streamMode() == 0,
-                "stage-2 OSI does not yet support checkpoint restart");
+                "periodic OSI does not yet support checkpoint restart");
             lid.ReadCheckpoint();
             lid.PrintMeshInfo();
             lid.PrintLbmParm();
@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
                 lid.PrintParticleParm();
             }
         }
-        lid.ValidateOsiStage2Configuration();
+        lid.ValidateOsiPeriodicConfiguration();
 
         float compute_time = 0.0f;
         float regrid_time = 0.0f;
@@ -131,7 +131,9 @@ int main(int argc, char* argv[]) {
                 JaberCycle2(0, cur_time, lid);
             } else {
                 lid.OsiAdvancePeriodicLevel(0);
-                lid.AdvanceAndCheckOsiStage2Reference(0, step);
+                if (lid.osiReferenceEnabled()) {
+                    lid.AdvanceAndCheckOsiReference(0, step);
+                }
             }
             auto end_time_JaberCycle = std::chrono::high_resolution_clock::now();
             JaberCycle_time += std::chrono::duration<float, std::milli>(end_time_JaberCycle - start_time_JaberCycle).count();
@@ -180,6 +182,9 @@ int main(int argc, char* argv[]) {
                           << " stream=" << perf.stream
                           << " average=" << perf.average
                           << " comm=" << perf.comm
+                          << " osi_decode=" << perf.osi_decode
+                          << " osi_fillboundary=" << perf.osi_fillboundary
+                          << " osi_encode=" << perf.osi_encode
                           << " boundary=" << perf.boundary
                           << " swap=" << perf.swap
                           << " solv=" << solv_s

@@ -7,8 +7,8 @@ stop_time = 2500000.0
 
 amr.regrid_int  = 32
 
-amr.grid_eff          = 0.7 
-amr.n_error_buf       = 0 0 0 0 
+amr.grid_eff          = 0.7
+amr.n_error_buf       = 0 0 0 0
 amr.max_grid_size     = 64 64 64 64
 amr.blocking_factor_x = 32 32 32 32
 amr.blocking_factor_y = 32 32 32 32
@@ -38,9 +38,13 @@ lbm.collide_mode = 1
 
 # DDF 碰撞分布函数的流动/存储模式：
 # 0 = 现有的 A-B 基准模式（默认及生产模式）
-# 1 = 第二阶段 OSI 实验模式；要求单个 MPI rank、单个 level、单个 Fab、
-#     完全周期性几何、collide_mode=1，并禁用 plot/checkpoint 输出
+# 1 = grown-Fab OSI 实验模式；当前支持单个 level、多 Fab/MPI、完全周期性几何、
+#     collide_mode=1，并要求禁用 plot/checkpoint 输出；AMR/物理边界尚未接入
 lbm.stream_mode = 0
+
+# OSI canonical 通信缓冲一次处理的 DDF 分量数，范围 1..27。
+# 1 最省临时内存；3/9 可分别把每步 FillBoundary 次数降为 9/3。
+lbm.osi_sync_batch_components = 3
 
 # 细网格到粗网格的 DDF 平均下传模式：
 # 0 = 全部 fine valid，复用 f_new，分步执行 Copy + Scale + Restrict
@@ -67,8 +71,8 @@ lbm.interp_mode = 0
 # amr.n_cell           =  64 64 32
 # amr.max_level        =  0
 
-# amr.v                =  1     
-# amr.ref_ratio        =  2 2 2 2 
+# amr.v                =  1
+# amr.ref_ratio        =  2 2 2 2
 
 # amr.blocking_factor_x = 8
 # amr.blocking_factor_y = 8

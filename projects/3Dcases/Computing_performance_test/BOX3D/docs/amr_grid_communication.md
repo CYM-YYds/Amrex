@@ -63,7 +63,25 @@ mode 0/1/2 分别采用 `cell_bilinear_interp`、`cell_cons_interp` 和
 因此，粗细交界 ghost 的插值公式只取粗层 DDF；邻近 fine valid 值不参与该插值。
 但 fine 数据仍参与整个填充操作，用于覆盖同层和周期来源。direct mode 先复制粗层
 stencil 到 `coarse_stage` 并写入 fine work box，随后以 fine `FillBoundary()` 补入
-可由 fine source 获得的区域。
+可由 fine source 获得的区域，再由 `PhysBCFunct()` 处理非周期物理域外 ghost。
+
+这三步不是重复填充，而是按所有权逐级覆盖：
+
+```text
+coarse 插值：缺少同层 fine owner 的 coarse-fine ghost
+FillBoundary：有同层 fine valid owner 的普通 patch ghost 和周期 ghost
+PhysBCFunct：非周期物理域外 ghost，包括物理边界与 coarse-fine 边界相交的混合 ghost
+```
+
+时间推进中的 `CommunicateLevel()` 只执行同层 `FillBoundary()`，不能生成没有同层 valid
+owner 的 coarse-fine ghost；并且它位于 Collide 之后，不能补救本轮 Collide 已读取的错误
+ghost。Stream 后的 `Boundary()` 只覆盖物理边界 valid cell，也不会写上述混合 ghost。
+因此 `FillDdfGhostFromCoarse()` 尾部的 `FillBoundary()` 和 `PhysBCFunct()` 都应保留。
+
+把 `Boundary()` 扩展到物理域内的 Fab ghost 可以形成另一套自洽组织：64 步验证中，扩展
+后保留或删除上述两步的 valid DDF 差异为零。但扩展 Boundary 本身相对当前路径产生了
+`L-infinity=1.389699149e-4`、全局相对 `L2=9.318836925e-6` 的 valid DDF 差异，并改变了
+AMR tag 数。这说明它是边界与 coarse-fine 耦合格式的改变，不是保持现有语义的等价优化。
 
 ## 细到粗平均
 

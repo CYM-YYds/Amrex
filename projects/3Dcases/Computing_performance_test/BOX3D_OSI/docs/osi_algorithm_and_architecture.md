@@ -5,17 +5,24 @@
 
 ## 1. 状态与边界
 
-截至 2026-08-20：
+截至 2026-08-25：
 
 - 已确定采用 one-step index（OSI）单数组方案；
 - 已确定动态 AMR 布局变化时采用 canonicalize/rebuild/reset；
 - `src/OsiIndex.H` 已实现无状态 Fab-local OSI 地址 helper，并有独立 CPU 测试；
-- 当前可执行路径仍是 BOX3D 的 A-B 双 `MultiFab` 基线；
-- 默认路径仍是 A-B；`lbm.stream_mode=1` 已提供严格受限的阶段 2 OSI 时间推进；
+- 默认路径仍是 BOX3D 的 A-B 双 `MultiFab` 基线；`lbm.stream_mode=1` 已提供单层、
+  全周期、多 Fab/MPI 的 OSI correctness 路径；
 - 地址测试、37 步独立 CPU A/B 测试和 MPI+CUDA 构建已通过；job `581325` 在单 rank、
   单 level、单 Fab、全周期条件下完成 32 步生产 GPU A/B 逐步比较，最大 `linf` 为
   `5.551115123e-17`；
-- 多 Fab/MPI、物理边界、AMR、restart 和 OSI 性能尚无实现或验证证据。
+- 当前采用 `nGrow=2 + grown-Fab OSI`。canonical 缓冲按可配置分量数分批复用，只
+  Decode 实际通信 source valid、由 `FillBoundary()` 同步同坐标 ghost，再把实际
+  destination ghost Encode 回当前 phase；
+- jobs `582016`/`582017` 用非均匀初值和 64 Fab 完成单/双 rank 32 步 A/B，最大
+  `linf=1.498801083e-15` 且逐步序列一致；
+- CPU A/B 额外验证两层 grown 保护环在只初始同步一次后可连续推进两步而不污染 valid；
+- 正式 OSI 模式不分配完整 canonical DDF，宏观量由 OSI accessor 直接读取；已有受限
+  单层周期性能窗口，物理边界、AMR 和 restart 尚无实现或验证证据。
 
 OSI 原论文和均匀网格原型位于
 [`research/papers/OSI优化计划`](../../../../../research/papers/OSI优化计划/)。论文只验证了
@@ -35,9 +42,9 @@ OSI 原论文和均匀网格原型位于
 | canonicalize/gather | 从 twisted storage 恢复 canonical MultiFab |
 | scatter/retwist | 把 canonical DDF 写入指定 phase 的 twisted storage；第一版通常写入 phase 0 |
 
-“valid/ghost”是逻辑坐标和所有权属性，不是底层存储槽的永久属性。对固定 `q` 和
-`phase`，两者映射到互不重叠的存储槽；随着 phase 改变，同一原始槽可以先后承载不同
-逻辑 cell。
+“valid/ghost”是逻辑坐标和所有权属性，不是底层存储槽的永久属性。当前正式 OSI 将
+每个 Fab 的 valid 与两层 ghost 一起纳入环形置换。ghost 是其他 Fab valid 或周期像的
+重叠逻辑副本；通信同步同一逻辑坐标的当前 phase 值，空间迁移由随后 phase 提交完成。
 
 ## 3. 从 A-B 到 OSI
 
@@ -119,13 +126,13 @@ $$
     storage 表示 t 时刻迁移后的 incoming DDF
 
 1. Collision：
-    在 A_q(x,p) 同址读取、碰撞、写回 post-collision DDF
+    在整个 grown Fab 上按 A_q(x,p) 同址读取、碰撞、写回 post-collision DDF
 
-2. Same-level MPI/ghost：
-    从发送端 logical valid 的 A_q(x_send,p) 打包
-    写入接收端 logical ghost 的 A_q(x_ghost,p)
+2. Same-level MPI/ghost synchronization：
+    从 owner logical valid 的 A_q(x,p) 分批解码 post-collision DDF
+    按同一逻辑坐标同步接收 Fab 的 ghost 副本，并编码到 A_q(x_ghost,p)
 
-3. Physical boundary reconstruction：
+3. Physical boundary reconstruction（尚未实现）：
     只从旧 phase 的内部逻辑地址 A_q(x_i,p) 读取参考值
     计算完整边界格点的最终 DDF，并写入 boundary scratch
     不在这一阶段写 twisted storage
@@ -142,7 +149,9 @@ $$
     storage 再次表示迁移和物理边界处理后的 incoming DDF
 ```
 
-phase 只能在整层本次碰撞、必要通信和旧 phase 边界重建都完成后提交一次。不能让不同
+当前每步在碰撞后同步 owner 的 post-collision 值；接收值仍写当前 phase `p`，再由 phase
+提交表达 streaming。phase 只能在整层本次碰撞、通信和旧 phase 边界重建都完成
+后提交一次。不能让不同
 Fab、不同 MPI rank 或同一 level 的不同 kernel 各自提前增加 phase。GPU 实现还必须用
 同一 stream 的顺序或显式同步保证 scratch 已完成，不能只提前修改主机端 phase 元数据。
 
@@ -184,7 +193,8 @@ AMReX level 不是一块全局连续数组。一个全局 logical cell 可能：
 第一版建议以每个 FArrayBox 的完整分配 Box（valid + `nghost`）作为循环区域，原因是
 同层 MPI 和物理/coarse-fine ghost 都必须能按同一映射写入。
 
-这是设计选择，不是已验证结论。实现时必须用小网格排列测试确认：
+该选择已在单层全周期、多 Fab/MPI 范围通过地址测试与逐步 A/B；AMR 粗细接口仍未
+接通。实现和后续扩展必须继续确认：
 
 - 任意 `q,p` 下所有 logical cell 映射唯一；
 - 映射永不越出该 Fab 分配 Box；
@@ -193,7 +203,8 @@ AMReX level 不是一块全局连续数组。一个全局 logical cell 可能：
 
 ## 6. Ghost 与 MPI 的新契约
 
-普通 A-B 布局直接把邻居值写入固定 `ghost(i,j,k,q)`。OSI 中，MPI 语义变为：
+普通 A-B 布局直接把邻居值写入固定 `ghost(i,j,k,q)`。grown-Fab OSI 中，MPI 语义是
+同步重叠副本，而不是执行 `x -> x+e_q` 的跨 Fab streaming：
 
 ```text
 发送端 logical boundary cell
@@ -216,11 +227,23 @@ $$
 
 不能把 twisted `MultiFab` 直接交给普通 `FillBoundary()` 并期待正确结果，因为
 `FillBoundary()` 按相同 `(i,j,k,q)` 复制，而不知道发送和接收 Fab 各自的 OSI 映射。
-第一版需要显式 OSI-aware pack/unpack，或先 gather 到 canonical buffer 再调用 AMReX
-通信。前者是最终性能方向，后者可作为正确性脚手架。
+当前实现按 `lbm.osi_sync_batch_components` 将若干方向解码到 canonical `MultiFab`，
+调用普通 `FillBoundary()` 后，只把实际通信目标 ghost 编码回同一个 phase。Decode 也只
+覆盖通信可能读取的 owner-valid 源区；valid 不会从 canonical 缓冲重复回写。默认批大小 1；
+批大小 3/9 将每步通信轮数降为 9/3，但按比例增加临时内存。不能直接对 twisted
+`osi_state` 调用 `FillBoundary()`。
 
-只发送真正跨面的方向可以减少通信量；发送全部 Q 个分量更容易建立初版正确性。两种
-方案必须共用同一数值基线，不应在第一次实现中同时优化通信裁剪。
+这些源区和目标区由独立的逻辑 `Box` 缓存构造：目标 grown ghost 反向周期平移后与
+`BoxArray` valid 相交，得到 source box，再平移回 destination ghost。每个 Fab 的候选
+Box 必须先去重，否则同一 canonical cell 会被并发写入。缓存不保存 raw OSI 地址，
+因为 raw 地址随 phase 改变。运行时用 AMReX `TagVector` 将本 rank 全部小 Box 融合为
+每批一次 Decode launch 和一次 Encode launch；逐 Box launch 已实测会让启动开销淹没
+区域裁剪收益。
+
+两层 ghost 还承担 AMR 2:1 子循环的有限时间保护区：初始完整时，最大格速为 1 的
+D3Q27 连续推进两步后只保证 valid 仍可信，外层 wrap 污染可能已进入 ghost。因此两步
+后必须刷新或丢弃 ghost；若 average-down、IBM 或边界需要读取演化后的 ghost，必须
+单独证明其可信范围或增加同步。
 
 ## 7. 物理边界
 
@@ -407,7 +430,7 @@ checkpoint header 至少应增加：
 
 ## 13. 建议的数据结构边界
 
-以下数据边界已经在阶段 2 建立；后续阶段仍会扩展其生命周期：
+以下数据边界已经在阶段 2--3 建立；后续阶段仍会扩展其生命周期：
 
 ```cpp
 enum class StreamMode : int {
@@ -418,20 +441,29 @@ enum class StreamMode : int {
 amrex::Vector<amrex::MultiFab> osi_state;
 amrex::Vector<std::uint64_t> osi_phase;
 
+// 按可配置分量批大小复用的 canonical grown 同步缓冲。
+amrex::Vector<amrex::MultiFab> osi_sync_buffer;
+
 struct OsiFabLayout {
     amrex::Dim3 lo;
     amrex::Dim3 len;
 };
 ```
 
+同层通信还维护两类布局相关缓存：`[level][global Fab][Box]` 形式的 Decode/Encode
+逻辑区域，以及只覆盖本 rank Fab 的持久 `TagVector<CommunicationTag>`。前者不含 raw
+OSI 地址；后者绑定 `osi_state`、`osi_sync_buffer` 的 `Array4`，用于把多个稀疏 Box
+融合成每批一次 Decode/Encode GPU launch。因此发生 define、重新分块或销毁布局时，
+必须先清除 tags，再释放或重建其引用的 `MultiFab`。
+
 职责划分建议：
 
 | 位置 | 职责 |
 | --- | --- |
-| `AmrCoreLBM.H` | stream mode、每层 phase、OSI state 和 canonical adapter 声明 |
+| `AmrCoreLBM.H` | stream mode、每层 phase、grown OSI state、同步缓冲和通信缓存声明 |
 | `OsiIndex.H` | 非负取模和无状态 Fab-local host/device 地址映射 |
 | `Kernels.H` | fused OSI collision kernel 和 boundary accessor |
-| `AmrCoreLBM.cpp` | per-Fab launch、MPI pack/unpack、canonical gather/scatter、regrid/checkpoint 生命周期 |
+| `AmrCoreLBM.cpp` | grown-Fab launch、通信区域/tag 生命周期、phase-aware ghost 同步、regrid/checkpoint 生命周期 |
 | `main.cpp` | 根据 stream mode 选择 A-B 或 OSI 推进；保持 AMR 调度一致 |
 | `config/inputs` | `lbm.stream_mode`，默认 0 直到验证完成 |
 

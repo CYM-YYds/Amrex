@@ -154,9 +154,9 @@ void collide_ab(std::vector<double>& state, double omega) {
 
 void collide_osi(std::vector<double>& state, std::uint64_t phase,
                  double omega) {
-    for (int k = valid_lo.z; k < valid_lo.z + valid_len.z; ++k) {
-        for (int j = valid_lo.y; j < valid_lo.y + valid_len.y; ++j) {
-            for (int i = valid_lo.x; i < valid_lo.x + valid_len.x; ++i) {
+    for (int k = fab.lo.z; k < fab.lo.z + fab.length.z; ++k) {
+        for (int j = fab.lo.y; j < fab.lo.y + fab.length.y; ++j) {
+            for (int i = fab.lo.x; i < fab.lo.x + fab.length.x; ++i) {
                 std::array<double, q_count> fq{};
                 for (int q = 0; q < q_count; ++q) {
                     const Coord3 raw = osi_address(
@@ -250,8 +250,10 @@ int main() {
         stream_ab(ab, ab_next);
         ab.swap(ab_next);
 
-        collide_osi(osi, phase, omega);
+        // grown-Fab OSI 先按同一逻辑坐标同步 ghost，再让整个保护环碰撞。
+        // streaming 只由 phase 提交完成，不再跨 Fab 写 next-phase 目标槽位。
         fill_periodic_osi(osi, phase);
+        collide_osi(osi, phase, omega);
         ++phase;
 
         const double max_error = compare_valid(ab, osi, phase);
@@ -261,7 +263,29 @@ int main() {
         }
     }
 
+    // 两层保护环的 AMR 子循环不变量：初始时同步一次 grown ghost，随后连续
+    // 两步不再刷新；有限传播速度保证两步结束前 wrap 污染不能进入 valid。
+    fill_periodic_canonical(ab);
+    fill_periodic_osi(osi, phase);
+    constexpr int guard_steps = nghost;
+    for (int local_step = 1; local_step <= guard_steps; ++local_step) {
+        collide_ab(ab, omega);
+        fill_periodic_canonical(ab);
+        stream_ab(ab, ab_next);
+        ab.swap(ab_next);
+
+        collide_osi(osi, phase, omega);
+        ++phase;
+
+        const double max_error = compare_valid(ab, osi, phase);
+        if (!std::isfinite(max_error) ||
+            max_error > 64.0 * std::numeric_limits<double>::epsilon()) {
+            fail("grown-ring guard region mismatch", local_step, max_error);
+        }
+    }
+
     std::cout << "OSI stage-2 A/B test passed for " << step_count
-              << " periodic steps\n";
+              << " synchronized periodic steps and " << guard_steps
+              << " unrefreshed grown-ring guard steps\n";
     return EXIT_SUCCESS;
 }

@@ -2440,6 +2440,38 @@ void collide_bgk_register_osi(
     }
 }
 
+// 直接从 twisted OSI 存储计算 logical valid cell 的宏观量。宏观场随后使用
+// 自己的普通 MultiFab FillBoundary，因此这里不需要构造完整 canonical DDF。
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void compute_macro_osi(
+    int i, int j, int k, amrex::Array4<const amrex::Real> const& state,
+    amrex::Array4<amrex::Real> const& rho,
+    amrex::Array4<amrex::Real> const& u, std::uint64_t phase,
+    box3d_osi::FabGeometry fab) noexcept {
+    Real rhot = 0.0;
+    Real uxt = 0.0;
+    Real uyt = 0.0;
+    Real uzt = 0.0;
+
+#pragma unroll
+    for (int q = 0; q < Q; ++q) {
+        const auto raw = box3d_osi::osi_address(
+            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
+        const Real ft = state(raw.x, raw.y, raw.z, q);
+        rhot += ft;
+        uxt += ft * e[q][0];
+        uyt += ft * e[q][1];
+        uzt += ft * e[q][2];
+    }
+
+    const Real inv_rho = 1.0 / rhot;
+    u(i, j, k, 0) = uxt * inv_rho;
+    u(i, j, k, 1) = uyt * inv_rho;
+    u(i, j, k, 2) = uzt * inv_rho;
+    rho(i, j, k, 0) = rhot;
+}
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void interp_bilinear_d3q(

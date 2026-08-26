@@ -13,6 +13,13 @@ else
     TEST_CXX=c++
 fi
 
+TEST_LDFLAGS=()
+GCC11_LIBDIR=/home/HPCBase/compilers/gcc/11.3.0/lib64
+if [[ "${TEST_CXX}" == /home/HPCBase/compilers/gcc/11.3.0/bin/g++ &&
+      -d "${GCC11_LIBDIR}" ]]; then
+    TEST_LDFLAGS+=("-Wl,-rpath,${GCC11_LIBDIR}")
+fi
+
 "${TEST_CXX}" \
     -std=c++20 \
     -O2 \
@@ -21,6 +28,7 @@ fi
     -Wpedantic \
     -Werror \
     "${TEST_DIR}/osi_stage2_ab_test.cpp" \
+    "${TEST_LDFLAGS[@]}" \
     -o "${TEST_BUILD_DIR}/osi_stage2_ab_test"
 
 "${TEST_BUILD_DIR}/osi_stage2_ab_test"

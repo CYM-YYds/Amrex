@@ -871,10 +871,9 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
         }
     }
 
-    // 保持与 FillPatchTwoLevels 相同的最终优先级：同层 fine valid
-    // 数据覆盖 coarse 插值结果，随后施加细层物理边界条件。
+    // 同层 fine valid 覆盖 coarse 插值结果，随后施加细层物理边界条件。
     mf.FillBoundary(0, Q, fill_ng, Geom(lev).periodicity());
-    if (Gpu::inLaunchRegion()) { // 对 mf 的非周期物理域外 ghost cell施加 fine level 的物理边界条件
+    if (Gpu::inLaunchRegion()) {
         GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
         PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
             geom[lev], bcs, gpu_bndry_func);

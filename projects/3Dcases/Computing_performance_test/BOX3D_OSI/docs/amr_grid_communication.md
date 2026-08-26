@@ -1,8 +1,8 @@
 # BOX3D A-B 基线：AMR 粗细网格通信
 
 > **BOX3D_OSI 继承资料。** 本文描述复制时的 A-B 双 `MultiFab` AMR 基线路径，不是
-> 阶段 2 的单层 OSI 路径。OSI 当前只实现了单 rank、单 level、单 Fab、全周期推进；
-> 本文涉及的多层 AMR 通信尚未接入 OSI。twisted/canonical 布局、per-level phase 和
+> 当前的单层 OSI 周期路径。OSI 已通过 canonical view 支持多 Fab/MPI halo，但本文
+> 涉及的多层 AMR 通信尚未接入 OSI。twisted/canonical 布局、per-level phase 和
 > OSI-aware MPI 的设计以
 > [OSI 算法与 AMReX 集成架构](osi_algorithm_and_architecture.md)为准。
 
@@ -115,9 +115,10 @@ pull-stream 提供源数据的只读层，而 valid cell 与第一层 ghost 是 
 `RebuildCoarseFineCaches()` 会按 level 和全局 Fab 索引缓存与物理域表面相交的 disjoint
 valid-cell Box；时间推进时只对这些工作箱启动边界 kernel，不再遍历整个 valid patch。
 构造工作箱和 kernel 都依据 `Geom(lev).isPeriodicArray()` 跳过周期方向，周期 ghost 则由
-`CommunicateLevel()` 的 `FillBoundary(periodicity)` 提供。当前 `main.cpp` 创建 `Geometry`
-时硬编码了三个非周期方向，因此 `inputs` 中被注释的 `geometry.is_periodic` 不能单独启用
-周期算例。
+`CommunicateLevel()` 的 `FillBoundary(periodicity)` 提供。原 BOX3D A-B 基线曾在
+`main.cpp` 中硬编码三个非周期方向；BOX3D_OSI 当前会读取 `geometry.is_periodic`。
+不过 OSI 路径目前会断言三向全周期，A-B 动态 AMR 与非周期边界语义仍应按实际运行模式
+分别验证。
 
 两层 ghost 的修改已通过 64-step 单 GPU smoke 作业，并完成了 job `571393` 的
 64,000-step 单 GPU 方腔流运行；用户检查 plotfile 后未发现可视化异常。该结果排除了

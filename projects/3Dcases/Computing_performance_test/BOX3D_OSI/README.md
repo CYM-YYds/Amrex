@@ -5,16 +5,18 @@
 
 ## 当前状态
 
-截至 2026-08-20，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
-pull-streaming 实现。阶段 1 地址层和阶段 2 的受限 OSI 运行路径已经完成；阶段 2 只
-允许单 MPI rank、单 level、单 Fab、三向周期边界和 `collide_mode=1`。多 Fab/MPI、
-非周期边界、AMR、checkpoint 和性能路径仍未实现，不能把阶段 2 结果外推到这些范围。
+截至 2026-08-25，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
+pull-streaming 实现。OSI 阶段 1--3 的周期路径已经完成：单 level、三向周期边界和
+`collide_mode=1` 下支持多 Fab 与多 MPI rank。当前采用 `nGrow=2 + grown-Fab OSI`：
+每个 Fab 的 valid 与 ghost 组成统一保护环，通信同步当前 phase 的同坐标重叠副本。
+非周期边界、AMR 和 checkpoint 仍未实现；现有性能证据也只覆盖单层全周期固定网格，
+不能外推到这些范围或动态 AMR 生产负载。
 
 复制完成后的审查基线提交为 `6578093`；开始修改代码前的文档基线提交为
 `7a929e9`；阶段 1 地址实现及测试由提交 `b0e80b9` 固定。这些提交的说明均为
 `before codex`。
 
-当前源码仍具有以下基线特征：
+当前源码保留的 A-B 基线路径具有以下特征：
 
 - `f_old[lev]` 和 `f_new[lev]` 各保存一套 D3Q27 分布函数；
 - `Collide()` 原位更新 `f_old`；
@@ -25,7 +27,7 @@ pull-streaming 实现。阶段 1 地址层和阶段 2 的受限 OSI 运行路径
 
 不要把继承自 BOX3D 的历史 job、图表或性能数字描述为 OSI 结果。
 
-已完成的 OSI 阶段 1/2 内容：
+已完成的 OSI 阶段 1--3 内容：
 
 - `src/OsiIndex.H` 提供 host/device 共用的 `positive_mod()`、`osi_coord()` 和
   `osi_address()`；
@@ -33,13 +35,27 @@ pull-streaming 实现。阶段 1 地址层和阶段 2 的受限 OSI 运行路径
 - `tests/osi_index_test.cpp` 覆盖 D3Q27 全方向、非零 `smallEnd()`、三轴不同长度、
   超大 phase、排列性和 `A_q(x,p+1)=A_q(x-e_q,p)`；
 - CPU 地址测试和完整 MPI+CUDA 构建已通过；阶段 2 production kernel 已调用该 helper。
-- `lbm.stream_mode=1` 分配独立 `osi_state` 和 per-level `osi_phase`，生产 CUDA
-  collision 通过 `osi_address()` 原位访问 D3Q27；
-- 单 Fab 周期 ghost 按当前 phase 从 logical valid 映射到 logical ghost，然后只提交
-  一次 phase，不调用显式 `Stream()`；
-- 阶段 2 同时保留并推进 A-B reference，每步比较全部 valid DDF，容差为 `1e-12`；
+- `lbm.stream_mode=1` 的正式路径只分配一份 `nGrow=2` 的 `osi_state` 和
+  per-level `osi_phase`，生产 CUDA collision 通过 `osi_address()` 原位访问 D3Q27；
+- `osi_sync_buffer` 按 `lbm.osi_sync_batch_components` 分批复用：从当前 phase 解码
+  `FillBoundary()` 实际需要的 post-collision valid 源区，同步同逻辑坐标 ghost，再把
+  实际目标 ghost 编码回当前 phase；通信区域由独立几何缓存确定，不读取 AMReX 私有
+  `CopyComTags`；
+- 每层布局建立时缓存互不重叠的 Decode/Encode Box，并用 `TagVector` 把一个 rank 上的
+  小 Box 融合为每批各一次 GPU launch，避免稀疏裁剪增加 kernel 启动开销；
+  随后通过 phase 提交完成 streaming，不跨 Fab 写下一 phase 目标；
+- `verification.osi_ab_check=true` 才会额外分配并推进 A-B reference，每步比较全部
+  valid DDF，容差为 `1e-12`；默认 false 时不分配 `f_old/f_new`；
 - job `581325` 完成 32 个 GPU 步，逐步 `linf` 为 `0` 或
   `5.551115123e-17`。这是受限路径的数值等价证据，不是通用 OSI 或性能结果。
+- `ComputeMacroLevel()` 通过 OSI accessor 直接读取 twisted state，然后只对普通宏观
+  `MultiFab` 执行 `FillBoundary()`；源码中不再保留完整 `osi_canonical`；
+- `config/inputs_osi` 把 `64^3` 域切成 64 个 `16^3` Fab，并以确定性非均匀 DDF
+  初值避免均匀场掩盖通信错误；
+- grown-Fab jobs `582016`（1 rank）和 `582017`（2 ranks）均完成 32 步，最大
+  `linf=1.498801083e-15`，逐步误差序列完全一致。64 个 `16^3` Fab 下，一份 grown
+  DDF 为 13,824,000 个值，复用同步缓冲为 512,000 个值。CPU A/B 还验证了初始同步
+  后连续两步不刷新 ghost 的保护区不变量。验证模式仍含 A-B oracle，因此不是性能证据。
 
 ## 新会话的阅读顺序
 
@@ -68,15 +84,17 @@ pull-streaming 实现。阶段 1 地址层和阶段 2 的受限 OSI 运行路径
 ```text
 普通固定布局时间步：
     OSI twisted storage
-    -> 同址读取/碰撞/写回
-    -> OSI-aware ghost/MPI
+    -> 整个 grown Fab 同址读取/碰撞/写回
+    -> 当前 phase 的实际通信 source valid 分批解码到同步缓冲
+    -> FillBoundary 同步同坐标 grown ghost
+    -> 实际通信 destination ghost 编码回当前 phase
     -> 旧 phase 物理边界重建到 scratch
     -> phase 前进，隐式完成内部 streaming
     -> scratch 散布到新 phase 边界
 
 需要 AMReX 按逻辑坐标操作时：
     twisted MultiFab
-    -> gather/canonicalize
+    -> 只对所需 region/分量做临时 gather
     -> FillPatch / average-down / regrid / checkpoint
     -> scatter 或直接建立新 OSI 状态
     -> phase 重置为 0
@@ -115,14 +133,16 @@ cell 读取参考值，却要把重建结果写到新 phase 的边界地址；�
 5. 动态 regrid 的 canonicalize/reset；
 6. checkpoint/restart、完整回归与性能比较。
 
-在前三阶段完成前，不删除 `f_new`，也不把 OSI 设为默认路径。建议保留运行时模式：
+当前已达到阶段 3：OSI 正式路径在关闭 oracle 时不分配 `f_old/f_new`，但 A-B 实现仍
+保留为可选择的数值基线；OSI 尚不能设为默认路径。运行时模式为：
 
 ```text
 lbm.stream_mode = 0  # 现有 A-B 基线
 lbm.stream_mode = 1  # OSI 实验路径
 ```
 
-只有在数值和 MPI/AMR 回归通过后，才能评估是否移除双数组基线。
+即使后续完成 MPI/AMR 回归，也应先保留可构建的双数组模式用于受控 A/B；是否最终移除
+由完整回归与维护成本共同决定，不能仅凭单层周期结果决定。
 
 ## 构建环境
 
@@ -151,16 +171,54 @@ lbm.stream_mode = 1  # OSI 实验路径
 ./tests/run_osi_stage2_test.sh
 ```
 
-阶段 2 GPU smoke 使用 `config/inputs_osi_stage2` 和
-`scripts/submit_osi_stage2_smoke.sh`。该输入会禁用 regrid、输出和 checkpoint，并由
-运行时断言检查单 rank、单层、单 Fab和全周期约束。
+所有 OSI smoke/performance 作业共用 `config/inputs_osi`；不同实验只在提交脚本中覆盖
+少量参数。阶段 2 GPU smoke 由 `scripts/submit_osi_stage2_smoke.sh` 覆盖单 Fab 和 A-B
+检查参数；基础配置禁用 regrid、输出和 checkpoint，运行时断言继续检查单层和全周期
+约束。
+
+阶段 3 使用同一份 64-Fab 输入分别验证单/双 rank：
+
+```bash
+dsub -s ./scripts/submit_osi_stage3_single.sh
+dsub -s ./scripts/submit_osi_stage3_mpi.sh
+./tests/check_osi_stage3_logs.sh \
+  logs/submit/<single-job>-osi-stage3-single.log \
+  logs/submit/<mpi-job>-osi-stage3-mpi.log \
+  logs/submit/<single-array-job>-osi-stage3-single-array.log
+```
+
+关闭 A-B oracle、验证单体积数组分配的 smoke 直接使用 `config/inputs_osi` 和
+`scripts/submit_osi_stage3_single_array.sh`。启动日志必须包含
+`ab_check=0 full_ddf_arrays=1 ring_ngrow=2`，且不得出现 `osi_ab:`。job `582018` 已按
+该配置完成 32 步，Arena 峰值 used 为 189 MB；同配置但启用两数组 oracle 的 job
+`582016` 为 401 MB。这是分配模式证据，不是受控性能结论。
+
+`lbm.osi_sync_batch_components` 默认为 1；允许范围为 1--27。jobs `582514`（1 rank）
+和 `582515`（2 ranks）在同一作业内顺序比较 `B=1/3/9`：三种批大小的32步 A-B
+最大 `linf` 均为 `1.498801083e-15`。无 oracle 的第二个1000步窗口中，`B=9` 相对
+`B=1` 将单 rank `comm` 从 8.2607 s 降至 1.8910 s、双 rank最大 `comm` 从
+7.0598 s 降至 2.3699 s；对应 Arena used 分别由 189/114 MB 增至 220/130 MB。
+这是固定64³、64 Fab、同步计时路径的受控结果，不代表动态 AMR 或生产吞吐。
+
+2026-08-25 完成通信区域裁剪：64 个 `16^3` Fab、`nGrow=2` 下，每批 Decode 从
+262,144 cell 降到 151,552，Encode 从 512,000 降到 249,856，转换 cell 总数减少
+48.15%。最初逐 Box launch 虽数值正确但性能退化，已由 rank-local `TagVector` 融合
+替代。融合版 jobs `582526`/`582527` 的 1/2-rank 32 步序列一致，最大
+`linf=1.498801083e-15`。jobs `582529`/`582531` 的 1/2-rank、1000 步第二窗口中，
+`B=3` 的 `comm` 分别为 `0.8340/2.5462 s`；旧整区 jobs `582514`/`582515` 为
+`2.8531/3.3909 s`，即这组历史同配置对照分别下降 70.8%/24.9%。它们不是同一作业内的
+full-region/sparse-region 配对测试，因此仍需保留这个证据边界。
 
 验证记录：2026-08-19，GCC 11.3 CPU 地址测试和 `MAKE_J=2 GEN_CCDB=0
 ./scripts/compile.sh` 的 MPI+CUDA 完整构建通过。默认并行度 16 的首次全量构建曾因
 编译节点内存不足失败，因此后续构建使用并行度 2。2026-08-20，37 步独立 CPU A/B
 测试通过；job `581325` 在上述阶段 2 约束内完成 32 步生产 GPU A/B 比较，最大
 `linf=5.551115123e-17`。构建证据与数值证据必须分别引用，后者也不能外推到尚未实现的
-多 Fab、MPI、物理边界或 AMR 路径。
+物理边界或 AMR 路径。2026-08-21，canonical correctness jobs `581421`/`581420`
+完成首轮 64-Fab 验证；直接稀疏通信 jobs `581430`/`581429` 随后通过。2026-08-24
+按 AMR/IBM 方向改为 grown-Fab 重叠副本模型，jobs `582016`/`582017` 再次完成单/双
+rank 32 步验证，逐步误差序列一致且最大 `linf=1.498801083e-15`；job `582018` 验证
+关闭 oracle 时只有一份完整 DDF。
 
 ## 继承的 BOX3D 基线资料
 

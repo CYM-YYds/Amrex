@@ -334,7 +334,46 @@ fphysbc(mf, 0, Q, fill_ng, time, 0);
 2. `FillBoundary()` 用同层 fine valid 数据填充可覆盖 ghost；
 3. `PhysBCFunct` 完成细层物理边界处理。
 
-这个顺序保证同层高分辨率数据不会被 coarse 插值覆盖。
+这个顺序同时表达了数据来源的优先级：coarse 插值是缺省来源，同层 fine valid
+具有更高优先级，非周期物理域外位置最后由物理边界条件确定。两步收尾不能由时间推进中的
+`CommunicateLevel()` 或 `Boundary()` 替代：前者发生在 Collide 之后且只复制存在同层
+valid owner 的数据，后者发生在 Stream 之后并只修正物理边界上的 valid cell。
+
+### 5.6 为什么物理域外 ghost 也可能影响 fine valid
+
+pull streaming 读取 `target - e_q`。当 fine patch 同时靠近物理边界和 coarse-fine 边界时，
+源点可能在一个方向越出物理域、在另一个方向又落在 fine valid 区之外。该点既没有同层
+fine valid owner，也不是 `Boundary()` 直接修正的 valid cell，却仍可被 fine valid 目标读取。
+
+当前 D3Q27 路径中的一个实测例子是：
+
+```text
+目标 valid cell: (126, 7, 96), q=13, e=(-1, 0, 1)
+pull source:      (127, 7, 95)
+fine validbox:    ((64,0,96) (127,63,127))
+fine fabbox:      ((62,-2,94) (129,65,129))
+```
+
+源点的 `x=127` 位于物理边界，而 `z=95` 低于 fine Box 的 valid 下界 `z=96`，所以它是
+物理边界与 coarse-fine 边界相交处的 ghost。第一细步还可能从物理域外的
+`(128,7,94)` 更新它。只有插值尾部的 `PhysBCFunct()` 能在下一次 Collide 前给这类
+混合 ghost 施加物理边界语义；仅保留 coarse 插值或同层通信会改变后续 valid DDF。
+
+### 5.7 Boundary 扩展到 Fab ghost 的验证结论
+
+曾验证过一种替代组织：把 `Boundary()` 的工作面从 fine valid 扩展到
+`grow(validbox, nghost) & domain`，使位于物理域内、同时处于 Fab ghost 区的壁面坐标也
+执行 LBM 壁面非平衡外推。64 步单 GPU 对比得到：
+
+| 对比 | Global L-infinity | Global relative L2 | 结论 |
+| --- | ---: | ---: | --- |
+| 扩展 Boundary vs 原路径 | `1.389699149e-4` | `9.318836925e-6` | 扩展本身改变 valid DDF |
+| 扩展 Boundary 且删除尾部两步 vs 保留尾部两步 | `0` | `0` | 在该测试内尾部两步不再影响 valid DDF |
+
+第一组对比还使 level-1 的 AMR tag 数从 `69190` 变为 `69192`。因此，扩展 Boundary 后
+删除 `FillBoundary/PhysBCFunct` 在新组织内部可以得到相同结果，但新组织并不等价于当前
+格式：它用壁面非平衡外推覆盖了原本按同层 owner、coarse 插值或 `foextrap` 获得的数据。
+当前生产路径仍只对物理边界 valid cell 执行 `Boundary()`，并保留插值尾部两步。
 
 ## 6. 用一个最小数值例子理解三线性插值
 

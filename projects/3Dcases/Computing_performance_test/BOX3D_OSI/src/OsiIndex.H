@@ -24,8 +24,8 @@ struct Coord3 {
     int z;
 };
 
-// 该环状索引作用域局限于单个 FArrayBox。
-// lo 和 length 必须描述同一个 box，通常是完整的 fabbox（有效区域加上已分配的 ghost cell）。
+// 环状索引作用域由调用方显式给出。生产 grown-Fab 路径传入完整 fabbox，
+// 使 valid 与 ghost 构成同一个有限时间保护环；地址层本身不推断 valid/ghost 语义。
 struct FabGeometry {
     Coord3 lo;
     Coord3 length;

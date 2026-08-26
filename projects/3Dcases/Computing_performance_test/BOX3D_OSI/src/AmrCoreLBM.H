@@ -6,6 +6,7 @@
 #include <AMReX_BCRec.H>
 #include <AMReX_ParmParse.H>
 #include <AMReX_FillPatcher.H>
+#include <AMReX_TagParallelFor.H>
 #include <AMReX_iMultiFab.H>
 
 #include <AMReX_AmrParticles.H>
@@ -15,9 +16,25 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "LagrangeParticleContainer.H"
 #include "AuxiliaryPointContainer.H"
+#include "OsiIndex.H"
+
+namespace box3d_osi {
+struct CommunicationTag {
+    amrex::Array4<const amrex::Real> src;
+    amrex::Array4<amrex::Real> dst;
+    amrex::Box region;
+    FabGeometry fab;
+
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    const amrex::Box& box() const noexcept {
+        return region;
+    }
+};
+} // namespace box3d_osi
 
 class AmrCoreLBM : public amrex::AmrCore {
 
@@ -51,6 +68,9 @@ class AmrCoreLBM : public amrex::AmrCore {
         double average_restrict = 0.0;
         double average_copyback = 0.0;
         double comm = 0.0;
+        double osi_decode = 0.0;
+        double osi_fillboundary = 0.0;
+        double osi_encode = 0.0;
         double boundary = 0.0;
         double swap = 0.0;
         long long fillghost_calls = 0;
@@ -103,6 +123,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     int streamMode() const {
         return stream_mode;
     }
+    bool osiReferenceEnabled() const {
+        return osi_ab_check;
+    }
     std::uint64_t osiPhase(int lev) const {
         return osi_phase.at(lev);
     }
@@ -142,9 +165,10 @@ class AmrCoreLBM : public amrex::AmrCore {
     void Collide(int lev, int n);
     void Stream(int lev, int n);
     void SwapLevel(int lev, int n);
-    void ValidateOsiStage2Configuration() const;
+    void ValidateOsiPeriodicConfiguration() const;
     void OsiAdvancePeriodicLevel(int lev);
-    void AdvanceAndCheckOsiStage2Reference(int lev, int step);
+    void AdvanceAndCheckOsiReference(int lev, int step);
+    void CommunicateLevel_osi(int lev);
 
     void InterpScale(int lev, int n);
     void AverageScale(int lev, int n);
@@ -176,6 +200,7 @@ class AmrCoreLBM : public amrex::AmrCore {
 
   private:
     void BuildBoundaryWorkBoxes();
+    void BuildOsiCommunicationRegionCache(int lev);
     void BuildInterpolationCache();
     void BuildRestrictionCache();
     void BuildDirectInterpolationCache(int lev);
@@ -188,8 +213,15 @@ class AmrCoreLBM : public amrex::AmrCore {
     int cf_mask_mode = 1;
     // 0：原始通用 BGK；1：无外力/无 SGS 的 D3Q27 寄存器复用路径。
     int collide_mode = 0;
-    // 0：现有 A-B；1：阶段二 OSI，仅允许单 rank/单 level/单 Fab/全周期。
+    // 0：现有 A-B；1：OSI 实验路径，当前允许单 level/全周期并支持多 Fab/MPI。
     int stream_mode = 0;
+    // 仅用于 OSI A/B 验证：以确定性非均匀 DDF 覆盖均匀初值，暴露错误 halo 来源。
+    bool osi_verification_pattern = false;
+    // 仅在显式启用时分配 A-B 两数组并逐步比较；生产 OSI 模式保持单一体积级 DDF。
+    bool osi_ab_check = false;
+    // canonical 通信缓冲一次处理的 DDF 分量数；增大它可减少 FillBoundary 调用次数，
+    // 代价是按比例增加临时缓冲内存。
+    int osi_sync_batch_components = 3;
     // 0：全区域分步；1：全区域融合；2：交界区域分步；3：交界区域融合。
     int average_mode = 1;
     // 粗到细 DDF 插值：0 = ratio-2 三线性；1 = GPU 守恒线性；
@@ -206,9 +238,22 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> force;
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
-    // 阶段二保留 A-B 两数组作为基线，OSI 使用独立单数组和 per-level phase。
+    // OSI 生产状态只有这一份带两层保护区的 DDF；A-B 两数组仅由
+    // osi_ab_check 显式启用。环形区间是每个 Fab 的完整 grown box。
     amrex::Vector<amrex::MultiFab> osi_state;
     amrex::Vector<std::uint64_t> osi_phase;
+    // 按 osi_sync_batch_components 分批复用的 canonical 缓冲：仅通信源 valid 从
+    // twisted state 解码，FillBoundary 同步 ghost，再把通信目标编码回当前 phase。
+    amrex::Vector<amrex::MultiFab> osi_sync_buffer;
+    // 独立于 AMReX 内部 CopyComTags 的通信区域缓存。第一组是 FillBoundary
+    // 实际可能读取的 owner-valid 源区，第二组是实际写入的 grown-ghost 目标区；
+    // 两者均按 [level][global Fab index][disjoint Box] 索引。
+    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> osi_decode_boxes;
+    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> osi_encode_boxes;
+    // 将一个 rank 上的全部稀疏 Box 融合为每批各一个 GPU launch，避免区域裁剪
+    // 因大量小 kernel 启动而得不偿失。tag 中的 Array4 指针随 level 布局重建。
+    amrex::Vector<amrex::TagVector<box3d_osi::CommunicationTag>> osi_decode_tags;
+    amrex::Vector<amrex::TagVector<box3d_osi::CommunicationTag>> osi_encode_tags;
     // 全区域融合平均的结果缓冲区；回写前沿用细层的网格布局与数据归属。
     amrex::Vector<amrex::MultiFab> average_down_buffer;
     // 模式 2/3 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
