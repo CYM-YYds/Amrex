@@ -87,6 +87,7 @@
 
 - [DDF coarse-to-fine 填充学习文档](docs/DDF粗细网格填充学习文档.md)
 - [性能分析流程、测量结果与图表](docs/performance_profiling.md)
+- [64,000 步累计耗时与 MLUPS 记录](docs/MLUPS记录.md)
 - [AMR 网格通信、幽灵单元填充与粗细网格传输](docs/amr_grid_communication.md)
 
 使用 TinyProfiler 深入定位 `FillPatchTwoLevels()` 等内部开销时，应将结果用于路径归因，而非与未插桩版本比较生产吞吐。

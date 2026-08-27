@@ -105,11 +105,63 @@ python3 scripts/plot_run_performance.py logs/submit/571393-out.log \
   --output docs/571393_performance_overview.png
 ```
 
+绘图脚本依赖 Matplotlib。当前集群登录环境的系统 `python3` 不包含该包，可使用已有环境：
+
+```bash
+source /home/HPCBase/tools/anaconda3/etc/profile.d/conda.sh
+conda run -n PFBP python scripts/plot_run_performance.py logs/submit/580715-out.log \
+  --output docs/580715_performance_overview.png
+```
+
 已提交的输出文件是 [`571393_performance_overview.png`](571393_performance_overview.png)。第四个面板使用 `average_scale_cells` 作为重复 AMR 传输工作的代理量，而不是当前有效网格单元的瞬时数量。在 job 571393 中，它与 Stream 时间的 Pearson 相关系数为 0.9994；这说明两者都随 AMR 覆盖范围变化，而不是 restriction 直接导致 Stream 变慢。
+
+## 优化后完整运行：Job 580715
+
+`logs/submit/580715-out.log` 是当前优化路径的一次单 GPU、64,000 步完整运行。日志包含
+`step1000` 到 `step64000` 的 64 个独立窗口，并以 `Total Time: 6644.127034 s`
+正常结束。运行参数为 `Re=1000`、`64^3` 基础网格、四层 AMR、`nghost=2`，并启用：
+
+```text
+cf_mask=1
+collide_mode=1
+average_mode=3
+interp_mode=0
+```
+
+其中 `interp_mode=0` 是缓存 coarse stencil、直接写 fine ghost 的 ratio-2 三线性插值路径。
+下面数值是 64 个窗口的累计和：
+
+| 阶段 | 累计时间 | 占 `JaberCycle2` |
+|---|---:|---:|
+| `JaberCycle2` | 6548.62 s | 100.00% |
+| Stream | 1938.65 s | 29.60% |
+| Collide | 1847.69 s | 28.21% |
+| Interp | 1473.59 s | 22.50% |
+| Boundary | 546.37 s | 8.34% |
+| Comm | 494.93 s | 7.56% |
+| Average | 243.26 s | 3.71% |
+
+列出的六个阶段合计 `6544.49 s`；与 `JaberCycle2` 的 `4.14 s` 差值主要包含 Swap
+和计时/循环边界开销。64 个 `MLUPS_solv` 窗口的平均值为 `674.85`，范围为
+`653.93--682.91`，最后一个窗口为 `672.77`；最后窗口的 `MLUPS_total` 为 `666.91`。
+
+按论文参考行同样采用的 64,000 步累计求解耗时比较，`6548.62 s` 比 `7027.06 s`
+低 `6.81%`，因此“完整计算耗时已经低于参考论文数据”在这个口径下成立。但是论文表中
+报告的 `786 MLUPS` 仍高于本算例最后窗口的 `672.77 MLUPS_solv`。这两个结论不矛盾：
+AMReX 与论文 octree 求解器的 active-cell 定义、AMR 覆盖历史和 MLUPS 分母并不完全相同，
+不能用累计耗时的领先直接宣称同口径 MLUPS 也已领先。
+
+本次生成的数据和图位于：
+
+- [`580715-out_mlups_solv_upto_64000.tsv`](580715-out_mlups_solv_upto_64000.tsv)：64 个窗口的 `MLUPS_solv`；
+- [`580715-out_summary_upto_64000.tsv`](580715-out_summary_upto_64000.tsv)：累计阶段耗时；
+- [`580715_performance_overview.png`](580715_performance_overview.png)：六面板性能总览。
+
+![Job 580715 performance overview](580715_performance_overview.png)
 
 ### Jaber A6 对比的适用范围
 
-Jaber et al. 的 A6 cavity 测试与这个算例在大目标上相同：都是 `Re=1000`、`64^3`、D3Q27、双精度、四层 cavity 计算，并且每 32 个 coarse 步进行一次 regridding。两者都使用线性的 coarse-to-fine 空间插值。但它们并不是直接的性能对标对象：A6 是单 GPU、固定 `4^3` block、GPU 原生 octree 求解器，使用仅界面 restriction 和原地 shared-memory streaming。BOX3D 则使用 AMReX patch、通用 `FillPatchTwoLevels()`、coarse-level 的覆盖/界面 mask，以及双 MultiFab pull streaming。当前默认的 `average_mode=3` 使用的是针对 LBM 的融合 restriction，并基于缓存的 coarse-interface parent 列表；在 regridding 之前仍会执行完整的 fine-valid restriction。这些 mask 不是 Jaber 的 fine-level `cells_ID_mask`，而历史 job `571393` 也早于当前的仅界面路径。在比较 MLUPS 之前，应先匹配网格覆盖、马赫数、细化准则和 active-node 计数。
+Jaber et al. 的 A6 cavity 测试与这个算例在大目标上相同：都是 `Re=1000`、`64^3`、D3Q27、双精度、四层 cavity 计算，并且每 32 个 coarse 步进行一次 regridding。两者都使用线性的 coarse-to-fine 空间插值。但它们并不是直接的性能对标对象：A6 是单 GPU、固定 `4^3` block、GPU 原生 octree 求解器，使用仅界面 restriction 和原地 shared-memory streaming。BOX3D 则使用 AMReX patch、缓存的 direct coarse-stencil staging、coarse-level 的覆盖/界面 mask，以及双 MultiFab pull streaming；只有 regrid 布局迁移仍使用 FPinfo temporary patch。当前默认的 `average_mode=3` 使用针对 LBM 的融合 restriction，并基于缓存的 coarse-interface parent 列表；在 regridding 之前仍会执行完整的 fine-valid restriction。这些 mask 不是 Jaber 的 fine-level `cells_ID_mask`，而历史 job `571393` 也早于当前的仅界面路径。在比较 MLUPS 之前，应先匹配网格覆盖、马赫数、细化准则和 active-node 计数。
 
 ### 专用 BGK 碰撞路径：Job 575206
 
