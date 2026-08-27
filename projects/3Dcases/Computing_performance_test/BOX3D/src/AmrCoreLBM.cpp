@@ -880,7 +880,7 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
     if (boundary_ghost_mode != 2) {
         // 同层 fine valid 覆盖 coarse 插值结果，随后施加细层物理边界条件。
         mf.FillBoundary(0, Q, fill_ng, Geom(lev).periodicity());
-        if (Gpu::inLaunchRegion()) {
+        if (Gpu::inLaunchRegion()) {// 对 mf 的非周期物理域外 ghost cell施加 fine level 的物理边界条件, 它保护的是物理边界与 coarse-fine ghost 相交处的对角 stencil，而不只是物理边界 valid cell。
             GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
             PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
                 geom[lev], bcs, gpu_bndry_func);
