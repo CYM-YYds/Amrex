@@ -183,6 +183,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 粗到细 DDF 插值：0 = ratio-2 三线性；1 = GPU 守恒线性；
     // 2 = GPU 单元二次插值。
     int interp_mode = 0;
+    // Verification only: 0 = production boundary handling; 2 = apply
+    // Boundary to in-domain Fab ghosts and skip FillDdfPatch's final fills.
+    int boundary_ghost_mode = 0;
 
     amrex::Vector<amrex::BCRec> bcs;
     amrex::Vector<amrex::Real> err;

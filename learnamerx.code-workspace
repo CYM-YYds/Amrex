@@ -10,7 +10,7 @@
         // 统一排除海量结果/输出目录以加速 IntelliSense
         "files.watcherExclude": {
             "**/.git/**": true,
-            "**/data/**": true,
+            "**/**data**/**": true,
             "**/tmp_build_dir/**": true,
             "**/case_*/**": true,
             "**/plt*/**": true,
@@ -28,7 +28,7 @@
         "search.exclude": {
             // 取消对 .git 的搜索排除，允许在全局搜索中匹配到仓库内部文件（谨慎：搜索结果可能很多）
             "**/.git": true,
-            "**/data": true,
+            "**/**data**": true,
             "**/case_*": true,
             "**/plt*": true,
             "**/Level_*": true,

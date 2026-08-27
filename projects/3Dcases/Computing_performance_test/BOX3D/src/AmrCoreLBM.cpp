@@ -280,6 +280,7 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  col_mode=" << std::setw(10) << std::right << collide_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  avg_mode=" << std::setw(10) << std::right << average_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  int_mode=" << std::setw(10) << std::right << interp_mode << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  bnd_ghost=" << std::setw(10) << std::right << boundary_ghost_mode << std::endl;
 
     for (int lev = 0; lev <= finest_level; lev++) {
         amrex::Print() << std::setw(15) << std::left << "  tau    =" << std::setw(10) << std::right << tau[lev] << std::endl;
@@ -296,6 +297,11 @@ void AmrCoreLBM::ReadParameters() {
             interp_mode >= 0 && interp_mode <= 2,
             "lbm.interp_mode must be 0 (trilinear), 1 (GPU conservative "
             "linear), or 2 (GPU cell quadratic)");
+        pp.query("boundary_ghost_mode", boundary_ghost_mode);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            boundary_ghost_mode == 0 || boundary_ghost_mode == 2,
+            "lbm.boundary_ghost_mode must be 0 (production) or 2 "
+            "(expanded Boundary without final fine fills)");
     }
     {
         ParmParse pp("amr");
@@ -871,18 +877,20 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
         }
     }
 
-    // 同层 fine valid 覆盖 coarse 插值结果，随后施加细层物理边界条件。
-    mf.FillBoundary(0, Q, fill_ng, Geom(lev).periodicity());
-    if (Gpu::inLaunchRegion()) {
-        GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
-            geom[lev], bcs, gpu_bndry_func);
-        fphysbc(mf, 0, Q, fill_ng, time, 0);
-    } else {
-        CpuBndryFuncFab bndry_func(nullptr);
-        PhysBCFunct<CpuBndryFuncFab> fphysbc(
-            geom[lev], bcs, bndry_func);
-        fphysbc(mf, 0, Q, fill_ng, time, 0);
+    if (boundary_ghost_mode != 2) {
+        // 同层 fine valid 覆盖 coarse 插值结果，随后施加细层物理边界条件。
+        mf.FillBoundary(0, Q, fill_ng, Geom(lev).periodicity());
+        if (Gpu::inLaunchRegion()) {
+            GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
+            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
+                geom[lev], bcs, gpu_bndry_func);
+            fphysbc(mf, 0, Q, fill_ng, time, 0);
+        } else {
+            CpuBndryFuncFab bndry_func(nullptr);
+            PhysBCFunct<CpuBndryFuncFab> fphysbc(
+                geom[lev], bcs, bndry_func);
+            fphysbc(mf, 0, Q, fill_ng, time, 0);
+        }
     }
 }
 
@@ -1213,6 +1221,9 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
 
         for (int ibox = 0; ibox < ba.size(); ++ibox) {
             const Box& valid_box = ba[ibox];
+            const Box boundary_source_box =
+                boundary_ghost_mode == 2 ? (amrex::grow(valid_box, nghost) & domain)
+                                         : valid_box;
             BoxList boundary_faces;
 
             for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
@@ -1223,14 +1234,14 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
                 const int lo = domain.smallEnd(dir);
                 const int hi = domain.bigEnd(dir);
                 if (valid_box.smallEnd(dir) == lo) {
-                    Box face = valid_box;
+                    Box face = boundary_source_box;
                     face.setSmall(dir, lo);
-                    face.setBig(dir, lo);
+                    face.setBig(dir, std::min(hi, lo + nghost));
                     boundary_faces.push_back(face);
                 }
                 if (hi != lo && valid_box.bigEnd(dir) == hi) {
-                    Box face = valid_box;
-                    face.setSmall(dir, hi);
+                    Box face = boundary_source_box;
+                    face.setSmall(dir, std::max(lo, hi - nghost));
                     face.setBig(dir, hi);
                     boundary_faces.push_back(face);
                 }
