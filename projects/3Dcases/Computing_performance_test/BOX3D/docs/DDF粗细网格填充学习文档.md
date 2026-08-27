@@ -33,11 +33,14 @@ scaled coarse DDF
         | interp_mode 选择的 GPU 插值
         v
 fine coarse-fine ghost
-        |
-        | FillBoundary：同层 fine valid 数据覆盖
-        | PhysBCFunct：处理细层物理边界
         v
-f_old[lev] 的 ghost 可供后续计算使用
+f_old[lev] 的 coarse-fine ghost
+        |
+        | Boundary：处理 valid 及域内 Fab ghost 中的物理边界面
+        | Collide
+        | CommunicateLevel：同层 fine valid 覆盖有 owner 的 ghost
+        v
+可供 Stream 读取的 fine DDF
 ```
 
 `FillDdfGhostFromCoarse()` **不负责**碰撞、迁移和 fine-to-coarse 平均下传。平均下传由 `AverageDownGhostLevel()` 处理。
@@ -321,23 +324,19 @@ $$
 `CellQuadratic` 的笛卡尔 ratio-2 公式。它没有限制器，规则的乘加更适合 GPU，但陡峭
 区域可能产生过冲。
 
-### 5.5 最后的覆盖与边界处理
+### 5.5 插值后的覆盖与边界处理
 
-```cpp
-mf.FillBoundary(0, Q, fill_ng, Geom(lev).periodicity());
-fphysbc(mf, 0, Q, fill_ng, time, 0);
-```
+当前 `FillDdfGhostFromCoarse()` 只负责写 coarse-fine ghost，不再在函数末尾调用
+`mf.FillBoundary()` 和 `PhysBCFunct()`。后续时间推进按以下职责处理：
 
-顺序很重要：
+1. `Boundary()` 在物理边界 valid cell 以及域内 Fab ghost 上执行 LBM 边界处理；
+2. `Collide()` 更新本层所需区域；
+3. `CommunicateLevel()` 用同层 valid owner 覆盖相邻 Fab ghost，并处理周期映射；
+4. `Stream()` 读取已经按上述所有权更新的 DDF。
 
-1. coarse 插值先写 coarse-fine ghost；
-2. `FillBoundary()` 用同层 fine valid 数据填充可覆盖 ghost；
-3. `PhysBCFunct` 完成细层物理边界处理。
-
-这个顺序同时表达了数据来源的优先级：coarse 插值是缺省来源，同层 fine valid
-具有更高优先级，非周期物理域外位置最后由物理边界条件确定。两步收尾不能由时间推进中的
-`CommunicateLevel()` 或 `Boundary()` 替代：前者发生在 Collide 之后且只复制存在同层
-valid owner 的数据，后者发生在 Stream 之后并只修正物理边界上的 valid cell。
+`BuildBoundaryWorkBoxes()` 使用 `grow(valid_box, nghost) & domain` 构造工作面，因此这里的
+Fab ghost 仍位于物理索引域内。对于同时具有同层 valid owner 的重叠位置，后续通信会用
+owner 数据覆盖；没有同层 owner 的 coarse-fine ghost 则保留插值和边界处理结果。
 
 ### 5.6 为什么物理域外 ghost 也可能影响 fine valid
 
@@ -356,10 +355,11 @@ fine fabbox:      ((62,-2,94) (129,65,129))
 
 源点的 `x=127` 位于物理边界，而 `z=95` 低于 fine Box 的 valid 下界 `z=96`，所以它是
 物理边界与 coarse-fine 边界相交处的 ghost。第一细步还可能从物理域外的
-`(128,7,94)` 更新它。只有插值尾部的 `PhysBCFunct()` 能在下一次 Collide 前给这类
-混合 ghost 施加物理边界语义；仅保留 coarse 插值或同层通信会改变后续 valid DDF。
+`(128,7,94)` 更新它。当前实现通过扩展后的 `Boundary()` 直接处理 `(127,7,95)` 这类位于
+物理域内的混合 ghost；若该位置存在同层 valid owner，之后再由 `CommunicateLevel()`
+覆盖。仅保留 coarse 插值而不扩展边界工作面会改变后续 valid DDF。
 
-### 5.7 Boundary 扩展到 Fab ghost 的验证结论
+### 5.7 Boundary 扩展到 Fab ghost 的验证与采用结论
 
 曾验证过一种替代组织：把 `Boundary()` 的工作面从 fine valid 扩展到
 `grow(validbox, nghost) & domain`，使位于物理域内、同时处于 Fab ghost 区的壁面坐标也
@@ -370,10 +370,11 @@ fine fabbox:      ((62,-2,94) (129,65,129))
 | 扩展 Boundary vs 原路径 | `1.389699149e-4` | `9.318836925e-6` | 扩展本身改变 valid DDF |
 | 扩展 Boundary 且删除尾部两步 vs 保留尾部两步 | `0` | `0` | 在该测试内尾部两步不再影响 valid DDF |
 
-第一组对比还使 level-1 的 AMR tag 数从 `69190` 变为 `69192`。因此，扩展 Boundary 后
-删除 `FillBoundary/PhysBCFunct` 在新组织内部可以得到相同结果，但新组织并不等价于当前
-格式：它用壁面非平衡外推覆盖了原本按同层 owner、coarse 插值或 `foextrap` 获得的数据。
-当前生产路径仍只对物理边界 valid cell 执行 `Boundary()`，并保留插值尾部两步。
+第一组对比还使 level-1 的 AMR tag 数从 `69190` 变为 `69192`，说明扩展工作面不是与旧
+路径逐位等价的小优化，而是一种边界数据组织选择。10000 步可视化对比未发现差异，且第二
+组范数验证表明，在扩展 Boundary 后，插值尾部的 `FillBoundary/PhysBCFunct` 对 valid DDF
+不再产生影响。当前代码据此固定采用扩展 Boundary，并删除了 `boundary_ghost_mode` 切换和
+插值尾部两步；旧 mode 0/2 结果只作为这一决策的历史验证证据。
 
 ## 6. 用一个最小数值例子理解三线性插值
 

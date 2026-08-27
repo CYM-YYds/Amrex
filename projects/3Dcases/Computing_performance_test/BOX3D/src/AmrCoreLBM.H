@@ -109,7 +109,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void RefineMesh(amrex::Real time);
     // CUDA 扩展版设备 Lambda 要求包裹它的成员函数必须是 public 公有访问权限
     void RebuildCoarseFineCaches();
-    void FillDdfGhostFromCoarse(int lev, amrex::Real time);
+    void FillDdfGhostFromCoarse(int lev);
     void RemakeDdfState(int lev, amrex::Real time,
                         amrex::MultiFab& new_old_state);
     void RebuildCoarseFineMasks();
@@ -183,9 +183,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 粗到细 DDF 插值：0 = ratio-2 三线性；1 = GPU 守恒线性；
     // 2 = GPU 单元二次插值。
     int interp_mode = 0;
-    // Verification only: 0 = production boundary handling; 2 = apply
-    // Boundary to in-domain Fab ghosts and skip FillDdfPatch's final fills.
-    int boundary_ghost_mode = 0;
 
     amrex::Vector<amrex::BCRec> bcs;
     amrex::Vector<amrex::Real> err;

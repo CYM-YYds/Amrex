@@ -892,21 +892,6 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
             }
         }
     }
-
-    // 保持与 FillPatchTwoLevels 相同的最终优先级：同层 fine valid
-    // 数据覆盖 coarse 插值结果，随后施加细层物理边界条件。
-    mf.FillBoundary(0, Q, fill_ng, Geom(lev).periodicity());
-    if (Gpu::inLaunchRegion()) { // 对 mf 的非周期物理域外 ghost cell施加 fine level 的物理边界条件
-        GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
-            geom[lev], bcs, gpu_bndry_func);
-        fphysbc(mf, 0, Q, fill_ng, time, 0);
-    } else {
-        CpuBndryFuncFab bndry_func(nullptr);
-        PhysBCFunct<CpuBndryFuncFab> fphysbc(
-            geom[lev], bcs, bndry_func);
-        fphysbc(mf, 0, Q, fill_ng, time, 0);
-    }
 }
 
 void AmrCoreLBM::RemakeDdfState(
@@ -1236,6 +1221,9 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
 
         for (int ibox = 0; ibox < ba.size(); ++ibox) {
             const Box& valid_box = ba[ibox];
+
+            // 边界条件同样会更新域内Fab对象中、紧邻非周期物理边界的ghost单元。
+            const Box boundary_source_box = amrex::grow(valid_box, nghost) & domain;
             BoxList boundary_faces;
 
             for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
@@ -1893,23 +1881,18 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
         const BoxList ghost_pieces =
             amrex::boxDiff(amrex::grow(dst_valid, ng), dst_valid);
 
-        // 对每个目标 Fab 的 ghost 区，FillBoundary() 将从哪个源 Fab 的 valid 区读取；
         // 并分别记录 Decode 应读取的源区域、Encode 应回写的目标 ghost 区域。
         for (const Box& dst_ghost : ghost_pieces) {
             for (const IntVect& shift : shifts) { // 采用这样的循环偏向通用性和实现可靠性。性能上它通常不是问题，因为这是一次性缓存构建，而且最多只检查少量周期像, 同时代码简洁.
                 const Box source_query = dst_ghost - shift;
-                for (const auto& [src, source_box] : ba.intersections(source_query)) {
-                    Box destination_box = source_box + shift;
-                    destination_box &= dst_ghost; // 求交集
-                    if (!destination_box.ok()) {
-                        continue;
-                    }
+                for (const auto& [src, exact_source] :
+                     ba.intersections(source_query)) {
+                    const Box destination_box = exact_source + shift;
 
-                    Box exact_source = destination_box - shift;
                     AMREX_ALWAYS_ASSERT(ba[src].contains(exact_source));
-                    AMREX_ALWAYS_ASSERT(
-                        amrex::grow(dst_valid, ng).contains(destination_box));
+                    AMREX_ALWAYS_ASSERT(dst_ghost.contains(destination_box));
                     AMREX_ALWAYS_ASSERT(!(destination_box & dst_valid).ok());
+
                     decode_candidates[src].push_back(exact_source);
                     encode_candidates[dst].push_back(destination_box);
                 }
@@ -1926,19 +1909,21 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     Long encode_cells = 0;
     Long decode_box_count = 0;
     Long encode_box_count = 0;
-    Long full_decode_cells = ba.numPts();
+    Long full_decode_cells = ba.numPts(); // 获取总cell数
     Long full_encode_cells = 0;
 
     for (int ibox = 0; ibox < ba.size(); ++ibox) {
         BoxList disjoint_decode = amrex::removeOverlap(decode_candidates[ibox]);
         BoxList disjoint_encode = amrex::removeOverlap(encode_candidates[ibox]);
-        disjoint_decode.simplify(true);
+        disjoint_decode.simplify(true); // 尽力合并相邻且可以合并的 Box，减少小区域数量和后续 GPU 工作项数
         disjoint_encode.simplify(true);
-        AMREX_ALWAYS_ASSERT(disjoint_decode.isDisjoint());
+        AMREX_ALWAYS_ASSERT(disjoint_decode.isDisjoint()); // 验证最终列表中的Box两两不重叠
         AMREX_ALWAYS_ASSERT(disjoint_encode.isDisjoint());
 
         decode[ibox].assign(disjoint_decode.begin(), disjoint_decode.end());
         encode[ibox].assign(disjoint_encode.begin(), disjoint_encode.end());
+
+        // 主要是做了一些统计工作
         decode_box_count += static_cast<Long>(decode[ibox].size());
         encode_box_count += static_cast<Long>(encode[ibox].size());
         full_encode_cells += amrex::grow(ba[ibox], ng).numPts();
@@ -1952,7 +1937,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
 
     Vector<box3d_osi::CommunicationTag> decode_tags;
     Vector<box3d_osi::CommunicationTag> encode_tags;
-    decode_tags.reserve(static_cast<std::size_t>(decode_box_count));
+    decode_tags.reserve(static_cast<std::size_t>(decode_box_count)); // 预留空间
     encode_tags.reserve(static_cast<std::size_t>(encode_box_count));
     MultiFab& state = osi_state.at(lev);
     MultiFab& canonical = osi_sync_buffer.at(lev);
