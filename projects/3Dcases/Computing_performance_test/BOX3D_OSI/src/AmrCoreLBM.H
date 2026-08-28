@@ -207,6 +207,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     void BuildInterpolationCache();
     void BuildRestrictionCache();
     void BuildDirectInterpolationCache(int lev);
+    void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
+                            const amrex::DistributionMapping& dm,
+                            const amrex::MultiFab& canonical);
 
     std::string plot_file{"plt"};
 

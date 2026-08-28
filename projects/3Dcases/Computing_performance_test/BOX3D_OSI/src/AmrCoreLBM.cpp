@@ -2422,6 +2422,7 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
     f_old_lev.define(ba, dm, Q, nghost);
 
     FillCoarsePatch(lev, time, f_old_lev);
+    if (stream_mode == 1) InitializeOsiLevel(lev, ba, dm, f_old_lev);
 }
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
                              const amrex::DistributionMapping& dm) { // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用
@@ -2450,9 +2451,25 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
     std::swap(force_new, force[lev]);
     std::swap(shear_new, shear[lev]);
 
+    if (stream_mode == 1) {
+        osi_state[lev].clear();
+        osi_sync_buffer[lev].clear();
+        InitializeOsiLevel(lev, ba, dm, f_old[lev]);
+    }
+
     force[lev].setVal(0.0, nghost);
     shear[lev].setVal(0.0, nghost);
     vorticity[lev].setVal(0.0, nghost);
+}
+
+void AmrCoreLBM::InitializeOsiLevel(
+    int lev, const BoxArray& ba, const DistributionMapping& dm,
+    const MultiFab& canonical) {
+    osi_state.at(lev).define(ba, dm, Q, nghost);
+    osi_sync_buffer.at(lev).define(ba, dm, osi_sync_batch_components, nghost);
+    osi_phase.at(lev) = 0;
+    MultiFab::Copy(osi_state.at(lev), canonical, 0, 0, Q, nghost);
+    BuildOsiCommunicationRegionCache(lev);
 }
 void AmrCoreLBM::ClearLevel(int lev) {
     // amrex::AllPrint()<<"ClearLevel on " << lev <<std::endl;
