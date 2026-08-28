@@ -292,7 +292,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 
         for (int q = 0; q < Q; q++) {
             fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
+                               fnew(x1, y1, z1, q) -
                                feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
         }
     }
@@ -334,7 +334,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 
         for (int q = 0; q < Q; q++) {
             fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
+                               fnew(x1, y1, z1, q) -
                                feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
         }
     }
@@ -375,7 +375,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 
         for (int q = 0; q < Q; q++) {
             fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
+                               fnew(x1, y1, z1, q) -
                                feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
         }
     }
@@ -416,7 +416,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 
         for (int q = 0; q < Q; q++) {
             fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
+                               fnew(x1, y1, z1, q) -
                                feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
         }
     }
@@ -457,7 +457,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 
         for (int q = 0; q < Q; q++) {
             fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
+                               fnew(x1, y1, z1, q) -
                                feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
         }
     }
@@ -498,7 +498,7 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 
         for (int q = 0; q < Q; q++) {
             fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
+                               fnew(x1, y1, z1, q) -
                                feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
         }
     }

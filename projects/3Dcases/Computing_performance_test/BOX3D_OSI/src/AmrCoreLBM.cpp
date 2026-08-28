@@ -2060,12 +2060,14 @@ void AmrCoreLBM::OsiAdvanceLevel(int lev) {
 
     if (!all_periodic) {
         ScopedPerfTimer timer(perf_stats.boundary);
+        ++osi_phase[lev];
+        const std::uint64_t next_phase = osi_phase[lev];
         MultiFab& scratch = osi_boundary_scratch.at(lev);
         const auto& state_index = osi_boundary_state_index.at(lev);
         const IntVect hi{
             domain.length(0) - 1, domain.length(1) - 1, domain.length(2) - 1};
 
-        // 所有读取都发生在旧 phase；结果只进入 canonical 稀疏 scratch。
+        // 从迁移后的 next phase 读取内部邻居；结果只进入 canonical 稀疏 scratch。
         for (MFIter mfi(scratch, false); mfi.isValid(); ++mfi) {
             const int state_ibox = state_index.at(mfi.index());
             const Box ring_box =
@@ -2079,12 +2081,9 @@ void AmrCoreLBM::OsiAdvanceLevel(int lev) {
             amrex::ParallelFor(
                 mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                     fill_boundary_osi_scratch(
-                        i, j, k, state, boundary, hi, is_periodic, phase, fab);
+                        i, j, k, state, boundary, hi, is_periodic, next_phase, fab);
                 });
         }
-
-        ++osi_phase[lev];
-        const std::uint64_t next_phase = osi_phase[lev];
 
         // phase 提交后只消费 scratch，不再读取任何旧 phase 槽位。
         for (MFIter mfi(scratch, false); mfi.isValid(); ++mfi) {
