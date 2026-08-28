@@ -10,7 +10,7 @@ pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_m
 多 Fab、多 MPI rank，以及三向全周期或六面非周期边界。当前采用
 `nGrow=2 + grown-Fab OSI`：
 每个 Fab 的 valid 与 ghost 组成统一保护环，通信同步当前 phase 的同坐标重叠副本。
-非周期边界使用稀疏 canonical scratch 隔离旧/新 phase。AMR 和 checkpoint 仍未实现；
+非周期边界在 phase 提交后直接从迁移后的 `osi_state` 重建并写回边界槽位。AMR 和 checkpoint 仍未实现；
 现有性能证据也只覆盖单层全周期固定网格，不能外推到动态 AMR 生产负载。
 
 复制完成后的审查基线提交为 `6578093`；开始修改代码前的文档基线提交为
@@ -57,7 +57,7 @@ pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_m
   `linf=1.498801083e-15`，逐步误差序列完全一致。64 个 `16^3` Fab 下，一份 grown
   DDF 为 13,824,000 个值，复用同步缓冲为 512,000 个值。CPU A/B 还验证了初始同步
   后连续两步不刷新 ghost 的保护区不变量。验证模式仍含 A-B oracle，因此不是性能证据。
-- 阶段 4 只为物理边界 valid cells 分配 Q 分量 scratch；所有旧 phase 内部参考值先完成
+- 阶段 4 只遍历物理边界 valid cells；边界重建直接写入新 phase 的 `osi_state`
   读取，提交 phase 后再散布边界结果。jobs `583246`/`583247` 在六面非周期、64 Fab、
   1/2 rank 下完成 32 步逐步 A-B，最大 `linf=1.443289932e-15`，误差序列完全一致；
   scratch 为 643,032 个值，约为完整 valid DDF 的 9.1%。
@@ -93,9 +93,8 @@ pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_m
     -> 当前 phase 的实际通信 source valid 分批解码到同步缓冲
     -> FillBoundary 同步同坐标 grown ghost
     -> 实际通信 destination ghost 编码回当前 phase
-    -> 旧 phase 物理边界重建到 scratch
+    -> 新 phase 物理边界重建
     -> phase 前进，隐式完成内部 streaming
-    -> scratch 散布到新 phase 边界
 
 需要 AMReX 按逻辑坐标操作时：
     twisted MultiFab

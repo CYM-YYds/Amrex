@@ -271,7 +271,7 @@ kernel，本 rank 的缓存 Box 被持久 `TagVector` 融合；布局销毁时�
 
 ## 7. 阶段 4：非周期物理边界
 
-状态：**单层六面非周期 sparse-scratch 路径已实现，并通过单/双 rank 32 步逐步
+状态：**单层六面非周期直接 state 路径已实现，并通过单/双 rank 32 步逐步
 A-B；混合周期方向、长期物理验证和性能测试尚未完成。**
 
 目标：保持当前 BOX3D 边界公式，并安全隔离旧 phase 输入与新 phase 输出。
@@ -280,15 +280,12 @@ A-B；混合周期方向、长期物理验证和性能测试尚未完成。**
 
 1. 在旧 phase `p` 对 `grown Fab & physical domain` 碰撞，再同步同层 post-collision
    ghost；物理域外 ghost 不被当作流体格点；
-2. 边界重建只读取旧 phase 的内部逻辑值，把每个边界格点的最终 Q 分量写入
-   canonical boundary scratch；
-3. 等待全部重建完成后提交 `phase=p+1`；
-4. 将 scratch 散布到新 phase 的 `A_q(boundary,p+1)`；
+2. 提交 `phase=p+1`，从新 phase 的内部逻辑值读取迁移后参考值；
+3. 将每个边界格点的最终 Q 分量直接写入新 phase 的 `A_q(boundary,p+1)`；
 5. boundary work boxes 仍是 logical Box，不缓存 raw OSI 地址。
 
-不能把第 2、4 步合并为一个原位 kernel。由 OSI 恒等式，某个新 phase 边界目标 raw
-槽可能正是另一个线程仍要读取的旧 phase 内部参考槽。scratch 保存最终重建结果，使
-提交 phase 后的 scatter 不再读取旧存储。
+边界重建必须在 phase 提交之后进行，并先读取源值再写入目标槽位，避免同一线程内的
+原地地址别名。
 
 当前 A-B `fill_boundary()` 的六个面判断不是互斥分支，边和角会按源码中的面处理顺序
 发生整体覆盖。第一版 scratch 填充必须确定性地复现该顺序，不能让多个面 kernel 对同一
@@ -299,20 +296,17 @@ A-B；混合周期方向、长期物理验证和性能测试尚未完成。**
 - 单层 lid-driven cavity 与 A-B valid DDF/速度/密度对比；
 - 六个面、十二条边、八个角分别有覆盖；
 - 构造可发生跨 phase raw 槽别名的小网格测试，并通过竞争检测或确定性重复测试；
-- scratch 结果与 A-B 的面、边、角最终覆盖优先级一致；
+- 直接 state 结果与 A-B 的面、边、角最终覆盖优先级一致；
 - boundary cache 经重新分块后仍只依赖 logical geometry；
 - 不使用 `%` 地址循环冒充物理周期边界。
 
 实际验收记录：
 
-- `osi_boundary_scratch` 由已有 disjoint `boundary_work_boxes` 构造，只保存物理边界
-  valid cells 的 Q 分量，并记录 scratch Fab 到 `osi_state` Fab 的映射；
+- `ApplyOsiBoundaryLevel()` 由已有 disjoint `boundary_work_boxes` 驱动，直接写入
+  `osi_state` 的新 phase 边界槽位；
 - 非周期碰撞 launch 限制为 `ring_box & domain`，同层通信仍在旧 phase 完成；
-- `fill_boundary_osi_scratch()` 按现有 x-low、x-high、y-low、y-high、z-low、z-high
-  顺序选择最终覆盖面，先写 scratch；phase 提交后 `scatter_boundary_osi()` 才写 state；
 - jobs `583246`（1 rank）和 `583247`（2 ranks）在六面非周期、64 Fab 下完成 32 步，
   每步比较全部 valid D3Q27，最大 `linf=1.443289932e-15`，两组序列逐行一致；
-- scratch 为 643,032 个值，完整 valid DDF 为 7,077,888 个值，占约 9.1%；
 - 回归 jobs `583248`/`583249` 重新通过全周期 1/2-rank 阶段 3 检查，最大
   `linf=1.498801083e-15`。
 

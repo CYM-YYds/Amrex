@@ -22,7 +22,7 @@
   `linf=1.498801083e-15` 且逐步序列一致；
 - CPU A/B 额外验证两层 grown 保护环在只初始同步一次后可连续推进两步而不污染 valid；
 - 正式 OSI 模式不分配完整 canonical DDF，宏观量由 OSI accessor 直接读取；六面
-  非周期边界已通过稀疏 scratch 接入，已有受限单层周期性能窗口，AMR 和 restart
+  非周期边界已接入直接 state 重建，已有受限单层周期性能窗口，AMR 和 restart
   尚无实现或验证证据。
 
 OSI 原论文和均匀网格原型位于
@@ -133,9 +133,9 @@ $$
     从 owner logical valid 的 A_q(x,p) 分批解码 post-collision DDF
     按同一逻辑坐标同步接收 Fab 的 ghost 副本，并编码到 A_q(x_ghost,p)
 
-3. Physical boundary reconstruction（尚未实现）：
+3. Physical boundary reconstruction：
     只从旧 phase 的内部逻辑地址 A_q(x_i,p) 读取参考值
-    计算完整边界格点的最终 DDF，并写入 boundary scratch
+    计算完整边界格点的最终 DDF，并写入新 phase 的 state
     不在这一阶段写 twisted storage
 
 4. phase commit：
@@ -144,7 +144,7 @@ $$
     这一步在逻辑上完成内部 streaming
 
 5. Physical boundary scatter：
-    将 scratch 的完整边界结果写入 A_q(x_b,p+1)
+    目标地址为 A_q(x_b,p+1)
 
 离开 OsiAdvanceLevel(lev)：
     storage 再次表示迁移和物理边界处理后的 incoming DDF

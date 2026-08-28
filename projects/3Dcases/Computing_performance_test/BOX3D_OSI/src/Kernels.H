@@ -251,255 +251,60 @@ void compute_shear2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fnew,
+void fill_boundary(int i, int j, int k,
+                   amrex::Array4<amrex::Real> const& fnew,
                    amrex::IntVect const& hi,
                    amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic) {
-
+    int x1 = i, y1 = j, z1 = k;
+    bool boundary = false;
     if (!is_periodic[0] && i == 0) {
-        int x = i;
-        int y = j;
-        int z = k;
-
-        int x1 = x + 1;
-        int y1 = y;
-        int z1 = z;
-
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
-
-        for (int q = 0; q < Q; q++) {
-            ft1 = fnew(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
-
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rho0;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fnew(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
+        x1 = i + 1;
+        boundary = true;
     }
-
-    if (!is_periodic[0] && i == hi[0]) // 右边界
-    {
-        int x = i;
-        int y = j;
-        int z = k;
-
-        int x1 = x - 1;
-        int y1 = y;
-        int z1 = z;
-
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
-
-        for (int q = 0; q < Q; q++) {
-            ft1 = fnew(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
-
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rhot1;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fnew(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
+    if (!is_periodic[0] && i == hi[0]) {
+        x1 = i - 1;
+        boundary = true;
     }
-
     if (!is_periodic[1] && j == 0) {
-        int x = i;
-        int y = j;
-        int z = k;
-
-        int x1 = x;
-        int y1 = y + 1;
-        int z1 = z;
-
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
-
-        for (int q = 0; q < Q; q++) {
-            ft1 = fnew(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
-
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rhot1;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fnew(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
+        y1 = j + 1;
+        boundary = true;
     }
-
     if (!is_periodic[1] && j == hi[1]) {
-        int x = i;
-        int y = j;
-        int z = k;
-
-        int x1 = x;
-        int y1 = y - 1;
-        int z1 = z;
-
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
-
-        for (int q = 0; q < Q; q++) {
-            ft1 = fnew(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
-
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rhot1;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fnew(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
+        y1 = j - 1;
+        boundary = true;
     }
-
     if (!is_periodic[2] && k == 0) {
-        int x = i;
-        int y = j;
-        int z = k;
-
-        int x1 = x;
-        int y1 = y;
-        int z1 = z + 1;
-
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
-
-        for (int q = 0; q < Q; q++) {
-            ft1 = fnew(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
-
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rhot1;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fnew(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
+        z1 = k + 1;
+        boundary = true;
     }
-
     if (!is_periodic[2] && k == hi[2]) {
-        int x = i;
-        int y = j;
-        int z = k;
+        z1 = k - 1;
+        boundary = true;
+    }
+    if (!boundary)
+        return;
 
-        int x1 = x;
-        int y1 = y;
-        int z1 = z - 1;
+    Real rho1 = 0.0, ux1 = 0.0, uy1 = 0.0, uz1 = 0.0;
+    for (int q = 0; q < Q; ++q) {
+        const Real fq = fnew(x1, y1, z1, q);
+        rho1 += fq;
+        ux1 += fq * e[q][0];
+        uy1 += fq * e[q][1];
+        uz1 += fq * e[q][2];
+    }
+    const Real invrho = 1.0 / rho1;
+    ux1 *= invrho;
+    uy1 *= invrho;
+    uz1 *= invrho;
 
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
+    Real ux = 0.0, uy = 0.0, uz = 0.0;
 
-        for (int q = 0; q < Q; q++) {
-            ft1 = fnew(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
+    if (!is_periodic[2] && k == hi[2])
+        ux = U0;
 
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = U0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rhot1;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fnew(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
+    for (int q = 0; q < Q; ++q) {
+        fnew(i, j, k, q) = feqQian(rho1, {ux, uy, uz}, q) + fnew(x1, y1, z1, q) -
+                           feqQian(rho1, {ux1, uy1, uz1}, q);
     }
 }
 
@@ -513,60 +318,36 @@ void fill_boundary_osi_state(
     amrex::IntVect const& hi,
     amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic,
     std::uint64_t phase, box3d_osi::FabGeometry const& fab) {
-    int x1 = i;
-    int y1 = j;
-    int z1 = k;
-    Real ux = 0.0;
-    Real uy = 0.0;
-    Real uz = 0.0;
-    bool is_boundary = false;
-
+    int x1 = i, y1 = j, z1 = k;
+    bool boundary = false;
     if (!is_periodic[0] && i == 0) {
         x1 = i + 1;
-        y1 = j;
-        z1 = k;
-        is_boundary = true;
+        boundary = true;
     }
     if (!is_periodic[0] && i == hi[0]) {
         x1 = i - 1;
-        y1 = j;
-        z1 = k;
-        is_boundary = true;
+        boundary = true;
     }
     if (!is_periodic[1] && j == 0) {
-        x1 = i;
         y1 = j + 1;
-        z1 = k;
-        is_boundary = true;
+        boundary = true;
     }
     if (!is_periodic[1] && j == hi[1]) {
-        x1 = i;
         y1 = j - 1;
-        z1 = k;
-        is_boundary = true;
+        boundary = true;
     }
     if (!is_periodic[2] && k == 0) {
-        x1 = i;
-        y1 = j;
         z1 = k + 1;
-        is_boundary = true;
+        boundary = true;
     }
     if (!is_periodic[2] && k == hi[2]) {
-        x1 = i;
-        y1 = j;
         z1 = k - 1;
-        ux = U0;
-        is_boundary = true;
+        boundary = true;
     }
-
-    if (!is_boundary) {
+    if (!boundary)
         return;
-    }
 
-    Real rho1 = 0.0;
-    Real ux1 = 0.0;
-    Real uy1 = 0.0;
-    Real uz1 = 0.0;
+    Real rho1 = 0.0, ux1 = 0.0, uy1 = 0.0, uz1 = 0.0;
     for (int q = 0; q < Q; ++q) {
         const auto raw = box3d_osi::osi_address(
             {x1, y1, z1}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
@@ -576,9 +357,15 @@ void fill_boundary_osi_state(
         uy1 += fq * e[q][1];
         uz1 += fq * e[q][2];
     }
-    ux1 /= rho1;
-    uy1 /= rho1;
-    uz1 /= rho1;
+    const Real invrho = 1.0 / rho1;
+    ux1 *= invrho;
+    uy1 *= invrho;
+    uz1 *= invrho;
+
+    Real ux = 0.0, uy = 0.0, uz = 0.0;
+
+    if (!is_periodic[2] && k == hi[2])
+        ux = U0;
 
     const Real rho = rho1;
     for (int q = 0; q < Q; ++q) {
