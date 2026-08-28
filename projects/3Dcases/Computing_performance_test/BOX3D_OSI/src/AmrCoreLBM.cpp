@@ -80,8 +80,6 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     osi_encode_boxes.resize(nlevs_max);
     osi_decode_tags.resize(nlevs_max);
     osi_encode_tags.resize(nlevs_max);
-    osi_boundary_scratch.resize(nlevs_max);
-    osi_boundary_state_index.resize(nlevs_max);
     average_down_buffer.resize(nlevs_max);
     average_interface_buffer.resize(nlevs_max);
     average_interface_fine_box.resize(nlevs_max);
@@ -1152,7 +1150,6 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
     BuildBoundaryWorkBoxes();
     if (stream_mode == 1) {
         for (int lev = 0; lev <= finest_level; ++lev) {
-            BuildOsiBoundaryScratch(lev);
         }
     }
 
@@ -1258,36 +1255,6 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
             level_boundary_boxes[ibox].assign(disjoint_faces.begin(), disjoint_faces.end());
         }
     }
-}
-
-void AmrCoreLBM::BuildOsiBoundaryScratch(int lev) {
-    auto& scratch = osi_boundary_scratch.at(lev);
-    auto& state_index = osi_boundary_state_index.at(lev);
-    scratch.clear();
-    state_index.clear();
-
-    BoxList scratch_boxes;
-    Vector<int> scratch_owners;
-    const DistributionMapping& state_dm = osi_state.at(lev).DistributionMap();
-    const auto& level_boundary_boxes = boundary_work_boxes.at(lev);
-
-    for (int ibox = 0; ibox < static_cast<int>(level_boundary_boxes.size()); ++ibox) {
-        for (const Box& bx : level_boundary_boxes[ibox]) {
-            scratch_boxes.push_back(bx);
-            scratch_owners.push_back(state_dm[ibox]);
-            state_index.push_back(ibox);
-        }
-    }
-
-    if (scratch_boxes.isEmpty()) {
-        return;
-    }
-
-    BoxArray scratch_ba(scratch_boxes);
-    AMREX_ALWAYS_ASSERT(
-        scratch_ba.size() == static_cast<int>(state_index.size()));
-    scratch.define(scratch_ba, DistributionMapping(scratch_owners), Q, 0);
-    scratch.setVal(std::numeric_limits<Real>::quiet_NaN());
 }
 
 void AmrCoreLBM::BuildInterpolationCache() {
@@ -1821,11 +1788,6 @@ void AmrCoreLBM::ValidateOsiConfiguration() const {
     for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
         all_periodic = all_periodic && Geom(0).isPeriodic(dir);
     }
-    if (!all_periodic) {
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-            osi_boundary_scratch[0].isDefined(),
-            "non-periodic OSI boundary scratch was not initialized");
-    }
 
     amrex::Long state_values = 0;
     const BoxArray& state_ba = osi_state[0].boxArray();
@@ -1853,10 +1815,6 @@ void AmrCoreLBM::ValidateOsiConfiguration() const {
                    << ((Q + osi_sync_batch_components - 1) /
                        osi_sync_batch_components)
                    << " ring_ngrow=" << state_ng[0]
-                   << " boundary_scratch_values="
-                   << (osi_boundary_scratch[0].isDefined()
-                           ? osi_boundary_scratch[0].boxArray().numPts() * Q
-                           : 0)
                    << " grown-fab overlap synchronization enabled\n";
 }
 
@@ -2058,56 +2016,33 @@ void AmrCoreLBM::OsiAdvanceLevel(int lev) {
         CommunicateLevel_osi(lev);
     }
 
+    ++osi_phase[lev]; // 逻辑 streaming 完成
+
     if (!all_periodic) {
         ScopedPerfTimer timer(perf_stats.boundary);
         ++osi_phase[lev];
         const std::uint64_t next_phase = osi_phase[lev];
-        MultiFab& scratch = osi_boundary_scratch.at(lev);
-        const auto& state_index = osi_boundary_state_index.at(lev);
         const IntVect hi{
             domain.length(0) - 1, domain.length(1) - 1, domain.length(2) - 1};
 
-        // 从迁移后的 next phase 读取内部邻居；结果只进入 canonical 稀疏 scratch。
-        for (MFIter mfi(scratch, false); mfi.isValid(); ++mfi) {
-            const int state_ibox = state_index.at(mfi.index());
-            const Box ring_box =
-                amrex::grow(state_lev.boxArray()[state_ibox], state_lev.nGrowVect());
+        // 从迁移后的 next phase 读取内部邻居，并直接写回同一 Fab 的边界槽位。
+        for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
+            const Box ring_box = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
             const auto fab_lo = ring_box.smallEnd();
             const box3d_osi::FabGeometry fab{
                 {fab_lo[0], fab_lo[1], fab_lo[2]},
                 {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
-            const Array4<const Real> state = state_lev.const_array(state_ibox);
-            const Array4<Real> boundary = scratch.array(mfi);
-            amrex::ParallelFor(
-                mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    fill_boundary_osi_scratch(
-                        i, j, k, state, boundary, hi, is_periodic, next_phase, fab);
-                });
-        }
-
-        // phase 提交后只消费 scratch，不再读取任何旧 phase 槽位。
-        for (MFIter mfi(scratch, false); mfi.isValid(); ++mfi) {
-            const int state_ibox = state_index.at(mfi.index());
-            const Box ring_box =
-                amrex::grow(state_lev.boxArray()[state_ibox], state_lev.nGrowVect());
-            const auto fab_lo = ring_box.smallEnd();
-            const box3d_osi::FabGeometry fab{
-                {fab_lo[0], fab_lo[1], fab_lo[2]},
-                {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
-            const Array4<const Real> boundary = scratch.const_array(mfi);
-            const Array4<Real> state = state_lev.array(state_ibox);
-            amrex::ParallelFor(
-                mfi.validbox(), Q,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                    scatter_boundary_osi(
-                        i, j, k, q, boundary, state, next_phase, fab);
-                });
+            const Array4<Real> state = state_lev.array(mfi);
+            for (const Box& bx : boundary_work_boxes[lev][mfi.index()]) {
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        fill_boundary_osi_state(
+                            i, j, k, state, hi, is_periodic, next_phase, fab);
+                    });
+            }
         }
         return;
     }
-
-    // 全周期时 streaming 完全由 grown-ring 地址解释变化完成。
-    ++osi_phase[lev];
 }
 
 void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
@@ -2177,14 +2112,13 @@ void AmrCoreLBM::Boundary(int lev) {
     amrex::MultiFab& f_new_lev = f_new[lev];
 
     for (MFIter mfi(f_old_lev, false); mfi.isValid(); ++mfi) {
-        const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& fnew = f_new_lev.array(mfi);
         perf_stats.boundary_full_cells += mfi.tilebox().numPts();
 
         for (const Box& bx : boundary_work_boxes[lev][mfi.index()]) { // 用 mfi.index() 得到该 Box 的全局编号
             perf_stats.boundary_launch_cells += bx.numPts();
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                fill_boundary(i, j, k, fold, fnew, hi, is_periodic);
+                fill_boundary(i, j, k, fnew, hi, is_periodic);
             });
         }
     }
@@ -2527,8 +2461,6 @@ void AmrCoreLBM::ClearLevel(int lev) {
     f_new[lev].clear();
     osi_state[lev].clear();
     osi_sync_buffer[lev].clear();
-    osi_boundary_scratch[lev].clear();
-    osi_boundary_state_index[lev].clear();
     osi_decode_boxes[lev].clear();
     osi_encode_boxes[lev].clear();
     osi_phase[lev] = 0;

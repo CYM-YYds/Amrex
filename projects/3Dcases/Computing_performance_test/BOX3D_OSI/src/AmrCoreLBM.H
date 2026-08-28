@@ -255,10 +255,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 因大量小 kernel 启动而得不偿失。tag 中的 Array4 指针随 level 布局重建。
     amrex::Vector<amrex::TagVector<box3d_osi::CommunicationTag>> osi_decode_tags;
     amrex::Vector<amrex::TagVector<box3d_osi::CommunicationTag>> osi_encode_tags;
-    // 非周期边界的 canonical 暂存区，只为物理边界 valid cells 分配 Q 分量。
-    // 每个 scratch Fab 映射回提供旧 phase 内部参考值的 osi_state Fab。
-    amrex::Vector<amrex::MultiFab> osi_boundary_scratch;
-    amrex::Vector<amrex::Vector<int>> osi_boundary_state_index;
     // 全区域融合平均的结果缓冲区；回写前沿用细层的网格布局与数据归属。
     amrex::Vector<amrex::MultiFab> average_down_buffer;
     // 模式 2/3 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
