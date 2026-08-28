@@ -2016,11 +2016,10 @@ void AmrCoreLBM::OsiAdvanceLevel(int lev) {
         CommunicateLevel_osi(lev);
     }
 
-    ++osi_phase[lev]; // 逻辑 streaming 完成
+    CommitOsiPhase(lev); // 逻辑 streaming 完成
 
     if (!all_periodic) {
         ScopedPerfTimer timer(perf_stats.boundary);
-        ++osi_phase[lev];
         const std::uint64_t next_phase = osi_phase[lev];
         const IntVect hi{
             domain.length(0) - 1, domain.length(1) - 1, domain.length(2) - 1};
@@ -2043,6 +2042,10 @@ void AmrCoreLBM::OsiAdvanceLevel(int lev) {
         }
         return;
     }
+}
+
+void AmrCoreLBM::CommitOsiPhase(int lev) {
+    ++osi_phase.at(lev);
 }
 
 void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {

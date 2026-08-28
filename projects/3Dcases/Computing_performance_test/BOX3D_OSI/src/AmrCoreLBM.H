@@ -169,6 +169,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void OsiAdvanceLevel(int lev);
     void AdvanceAndCheckOsiReference(int lev, int step);
     void CommunicateLevel_osi(int lev);
+    void CommitOsiPhase(int lev);
 
     void InterpScale(int lev, int n);
     void AverageScale(int lev, int n);
