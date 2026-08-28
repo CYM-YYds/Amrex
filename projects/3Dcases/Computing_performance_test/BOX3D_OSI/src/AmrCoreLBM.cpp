@@ -80,6 +80,8 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     osi_encode_boxes.resize(nlevs_max);
     osi_decode_tags.resize(nlevs_max);
     osi_encode_tags.resize(nlevs_max);
+    osi_boundary_scratch.resize(nlevs_max);
+    osi_boundary_state_index.resize(nlevs_max);
     average_down_buffer.resize(nlevs_max);
     average_interface_buffer.resize(nlevs_max);
     average_interface_fine_box.resize(nlevs_max);
@@ -1148,6 +1150,11 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
     // 预先找出各 fine Fab 位于非周期物理边界上的互不重叠工作 Box，
     // Boundary() 可直接遍历这些 Box，而不必在每个时间步重复分析几何关系。
     BuildBoundaryWorkBoxes();
+    if (stream_mode == 1) {
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            BuildOsiBoundaryScratch(lev);
+        }
+    }
 
     // 为每个 fine ghost work_box 建立所需的 coarse stencil staging Fab、
     // fine Fab 索引和 owner 映射，供 FillDdfGhostFromCoarse() 直接插值。
@@ -1251,6 +1258,36 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
             level_boundary_boxes[ibox].assign(disjoint_faces.begin(), disjoint_faces.end());
         }
     }
+}
+
+void AmrCoreLBM::BuildOsiBoundaryScratch(int lev) {
+    auto& scratch = osi_boundary_scratch.at(lev);
+    auto& state_index = osi_boundary_state_index.at(lev);
+    scratch.clear();
+    state_index.clear();
+
+    BoxList scratch_boxes;
+    Vector<int> scratch_owners;
+    const DistributionMapping& state_dm = osi_state.at(lev).DistributionMap();
+    const auto& level_boundary_boxes = boundary_work_boxes.at(lev);
+
+    for (int ibox = 0; ibox < static_cast<int>(level_boundary_boxes.size()); ++ibox) {
+        for (const Box& bx : level_boundary_boxes[ibox]) {
+            scratch_boxes.push_back(bx);
+            scratch_owners.push_back(state_dm[ibox]);
+            state_index.push_back(ibox);
+        }
+    }
+
+    if (scratch_boxes.isEmpty()) {
+        return;
+    }
+
+    BoxArray scratch_ba(scratch_boxes);
+    AMREX_ALWAYS_ASSERT(
+        scratch_ba.size() == static_cast<int>(state_index.size()));
+    scratch.define(scratch_ba, DistributionMapping(scratch_owners), Q, 0);
+    scratch.setVal(std::numeric_limits<Real>::quiet_NaN());
 }
 
 void AmrCoreLBM::BuildInterpolationCache() {
@@ -1759,31 +1796,36 @@ void AmrCoreLBM::CommunicateLevel(int lev) {
     f_old_lev.FillBoundary(geom[lev].periodicity());
 }
 
-void AmrCoreLBM::ValidateOsiPeriodicConfiguration() const {
+void AmrCoreLBM::ValidateOsiConfiguration() const {
     if (stream_mode != 1) {
         return;
     }
 
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         max_level == 0 && finest_level == 0,
-        "periodic OSI currently requires amr.max_level=0");
-    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-            Geom(0).isPeriodic(dir),
-            "periodic OSI requires periodic boundaries in every direction");
-    }
+        "OSI currently requires amr.max_level=0");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         collide_mode == 1,
-        "periodic OSI currently supports only lbm.collide_mode=1");
+        "OSI currently supports only lbm.collide_mode=1");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         params_.begin_step == 0,
-        "periodic OSI does not yet support checkpoint restart");
+        "OSI does not yet support checkpoint restart");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         params_.plot_int <= 0 && params_.chk_int <= 0,
-        "periodic OSI requires plot/checkpoint output disabled until OSI output adapters are integrated");
+        "OSI requires plot/checkpoint output disabled until OSI output adapters are integrated");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         osi_state[0].isDefined(),
-        "periodic OSI state was not initialized");
+        "OSI state was not initialized");
+
+    bool all_periodic = true;
+    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+        all_periodic = all_periodic && Geom(0).isPeriodic(dir);
+    }
+    if (!all_periodic) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            osi_boundary_scratch[0].isDefined(),
+            "non-periodic OSI boundary scratch was not initialized");
+    }
 
     amrex::Long state_values = 0;
     const BoxArray& state_ba = osi_state[0].boxArray();
@@ -1798,7 +1840,7 @@ void AmrCoreLBM::ValidateOsiPeriodicConfiguration() const {
         sync_values += amrex::grow(sync_ba[ibox], sync_ng).numPts() * osi_sync_buffer[0].nComp();
     }
 
-    amrex::Print() << "[OSI periodic] ranks="
+    amrex::Print() << (all_periodic ? "[OSI periodic] ranks=" : "[OSI boundary] ranks=")
                    << amrex::ParallelDescriptor::NProcs()
                    << " boxes=" << boxArray(0).size()
                    << " seed_pattern=" << (osi_verification_pattern ? 1 : 0)
@@ -1811,6 +1853,10 @@ void AmrCoreLBM::ValidateOsiPeriodicConfiguration() const {
                    << ((Q + osi_sync_batch_components - 1) /
                        osi_sync_batch_components)
                    << " ring_ngrow=" << state_ng[0]
+                   << " boundary_scratch_values="
+                   << (osi_boundary_scratch[0].isDefined()
+                           ? osi_boundary_scratch[0].boxArray().numPts() * Q
+                           : 0)
                    << " grown-fab overlap synchronization enabled\n";
 }
 
@@ -1971,15 +2017,21 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                    << " full_encode_cells=" << full_encode_cells << '\n';
 }
 
-void AmrCoreLBM::OsiAdvancePeriodicLevel(int lev) {
+void AmrCoreLBM::OsiAdvanceLevel(int lev) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(stream_mode == 1,
-                                     "OsiAdvancePeriodicLevel requires lbm.stream_mode=1");
+                                     "OsiAdvanceLevel requires lbm.stream_mode=1");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(lev == 0,
                                      "stage-2 OSI advances level 0 only");
 
     amrex::MultiFab& state_lev = osi_state[lev];
     const std::uint64_t phase = osi_phase[lev];
     const amrex::Real omega = 1.0 / tau[lev];
+    const Box domain = Geom(lev).Domain();
+    const auto is_periodic = Geom(lev).isPeriodicArray();
+    bool all_periodic = true;
+    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+        all_periodic = all_periodic && (is_periodic[dir] != 0);
+    }
 
     {
         ScopedPerfTimer timer(perf_stats.collide);
@@ -1991,8 +2043,9 @@ void AmrCoreLBM::OsiAdvancePeriodicLevel(int lev) {
                 {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
             const Array4<Real>& state = state_lev.array(mfi);
 
+            const Box collision_box = all_periodic ? ring_box : (ring_box & domain);
             amrex::ParallelFor(
-                ring_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                collision_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                     collide_bgk_register_osi(i, j, k, state, phase, fab, omega);
                 });
         }
@@ -2005,7 +2058,56 @@ void AmrCoreLBM::OsiAdvancePeriodicLevel(int lev) {
         CommunicateLevel_osi(lev);
     }
 
-    // streaming 完全由 grown-ring 地址解释变化完成，不再执行跨 Fab 目标写入。
+    if (!all_periodic) {
+        ScopedPerfTimer timer(perf_stats.boundary);
+        MultiFab& scratch = osi_boundary_scratch.at(lev);
+        const auto& state_index = osi_boundary_state_index.at(lev);
+        const IntVect hi{
+            domain.length(0) - 1, domain.length(1) - 1, domain.length(2) - 1};
+
+        // 所有读取都发生在旧 phase；结果只进入 canonical 稀疏 scratch。
+        for (MFIter mfi(scratch, false); mfi.isValid(); ++mfi) {
+            const int state_ibox = state_index.at(mfi.index());
+            const Box ring_box =
+                amrex::grow(state_lev.boxArray()[state_ibox], state_lev.nGrowVect());
+            const auto fab_lo = ring_box.smallEnd();
+            const box3d_osi::FabGeometry fab{
+                {fab_lo[0], fab_lo[1], fab_lo[2]},
+                {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
+            const Array4<const Real> state = state_lev.const_array(state_ibox);
+            const Array4<Real> boundary = scratch.array(mfi);
+            amrex::ParallelFor(
+                mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    fill_boundary_osi_scratch(
+                        i, j, k, state, boundary, hi, is_periodic, phase, fab);
+                });
+        }
+
+        ++osi_phase[lev];
+        const std::uint64_t next_phase = osi_phase[lev];
+
+        // phase 提交后只消费 scratch，不再读取任何旧 phase 槽位。
+        for (MFIter mfi(scratch, false); mfi.isValid(); ++mfi) {
+            const int state_ibox = state_index.at(mfi.index());
+            const Box ring_box =
+                amrex::grow(state_lev.boxArray()[state_ibox], state_lev.nGrowVect());
+            const auto fab_lo = ring_box.smallEnd();
+            const box3d_osi::FabGeometry fab{
+                {fab_lo[0], fab_lo[1], fab_lo[2]},
+                {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
+            const Array4<const Real> boundary = scratch.const_array(mfi);
+            const Array4<Real> state = state_lev.array(state_ibox);
+            amrex::ParallelFor(
+                mfi.validbox(), Q,
+                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                    scatter_boundary_osi(
+                        i, j, k, q, boundary, state, next_phase, fab);
+                });
+        }
+        return;
+    }
+
+    // 全周期时 streaming 完全由 grown-ring 地址解释变化完成。
     ++osi_phase[lev];
 }
 
@@ -2017,11 +2119,12 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
         return;
     }
 
-    // 保留的 A-B 状态作为周期 OSI 逐步 oracle：valid collision、周期 ghost、
-    // 显式 pull、swap。这里故意不调用物理边界或 AMR 路径。
+    // 保留的 A-B 状态作为 OSI 逐步 oracle：valid collision、ghost 同步、
+    // 显式 pull、物理边界和 swap。
     Collide(lev, 0);
     CommunicateLevel(lev);
     Stream(lev, 1);
+    Boundary(lev);
     SwapLevel(lev, 1);
 
     amrex::MultiFab& difference = f_new[lev];
@@ -2054,7 +2157,7 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
     constexpr Real tolerance = 1.0e-12;
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         std::isfinite(linf) && linf <= tolerance,
-        "periodic OSI differs from the A-B reference (linf > 1e-12)");
+        "OSI differs from the A-B reference (linf > 1e-12)");
     ComputeMacroLevel(lev);
     amrex::Print() << "osi_ab: step=" << step
                    << " phase=" << osi_phase[lev]
@@ -2425,6 +2528,8 @@ void AmrCoreLBM::ClearLevel(int lev) {
     f_new[lev].clear();
     osi_state[lev].clear();
     osi_sync_buffer[lev].clear();
+    osi_boundary_scratch[lev].clear();
+    osi_boundary_state_index[lev].clear();
     osi_decode_boxes[lev].clear();
     osi_encode_boxes[lev].clear();
     osi_phase[lev] = 0;

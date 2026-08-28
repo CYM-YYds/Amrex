@@ -5,12 +5,13 @@
 
 ## 当前状态
 
-截至 2026-08-25，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
-pull-streaming 实现。OSI 阶段 1--3 的周期路径已经完成：单 level、三向周期边界和
-`collide_mode=1` 下支持多 Fab 与多 MPI rank。当前采用 `nGrow=2 + grown-Fab OSI`：
+截至 2026-08-27，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
+pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_mode=1` 下支持
+多 Fab、多 MPI rank，以及三向全周期或六面非周期边界。当前采用
+`nGrow=2 + grown-Fab OSI`：
 每个 Fab 的 valid 与 ghost 组成统一保护环，通信同步当前 phase 的同坐标重叠副本。
-非周期边界、AMR 和 checkpoint 仍未实现；现有性能证据也只覆盖单层全周期固定网格，
-不能外推到这些范围或动态 AMR 生产负载。
+非周期边界使用稀疏 canonical scratch 隔离旧/新 phase。AMR 和 checkpoint 仍未实现；
+现有性能证据也只覆盖单层全周期固定网格，不能外推到动态 AMR 生产负载。
 
 复制完成后的审查基线提交为 `6578093`；开始修改代码前的文档基线提交为
 `7a929e9`；阶段 1 地址实现及测试由提交 `b0e80b9` 固定。这些提交的说明均为
@@ -27,7 +28,7 @@ pull-streaming 实现。OSI 阶段 1--3 的周期路径已经完成：单 level�
 
 不要把继承自 BOX3D 的历史 job、图表或性能数字描述为 OSI 结果。
 
-已完成的 OSI 阶段 1--3 内容：
+已完成的 OSI 阶段 1--4 内容：
 
 - `src/OsiIndex.H` 提供 host/device 共用的 `positive_mod()`、`osi_coord()` 和
   `osi_address()`；
@@ -56,6 +57,10 @@ pull-streaming 实现。OSI 阶段 1--3 的周期路径已经完成：单 level�
   `linf=1.498801083e-15`，逐步误差序列完全一致。64 个 `16^3` Fab 下，一份 grown
   DDF 为 13,824,000 个值，复用同步缓冲为 512,000 个值。CPU A/B 还验证了初始同步
   后连续两步不刷新 ghost 的保护区不变量。验证模式仍含 A-B oracle，因此不是性能证据。
+- 阶段 4 只为物理边界 valid cells 分配 Q 分量 scratch；所有旧 phase 内部参考值先完成
+  读取，提交 phase 后再散布边界结果。jobs `583246`/`583247` 在六面非周期、64 Fab、
+  1/2 rank 下完成 32 步逐步 A-B，最大 `linf=1.443289932e-15`，误差序列完全一致；
+  scratch 为 643,032 个值，约为完整 valid DDF 的 9.1%。
 
 ## 新会话的阅读顺序
 
@@ -133,7 +138,7 @@ cell 读取参考值，却要把重建结果写到新 phase 的边界地址；�
 5. 动态 regrid 的 canonicalize/reset；
 6. checkpoint/restart、完整回归与性能比较。
 
-当前已达到阶段 3：OSI 正式路径在关闭 oracle 时不分配 `f_old/f_new`，但 A-B 实现仍
+当前已达到阶段 4：OSI 正式路径在关闭 oracle 时不分配 `f_old/f_new`，但 A-B 实现仍
 保留为可选择的数值基线；OSI 尚不能设为默认路径。运行时模式为：
 
 ```text

@@ -5,7 +5,7 @@
 
 ## 1. 当前基线
 
-截至 2026-08-25，`BOX3D_OSI` 的默认推进模式仍是与 `BOX3D` 一致的 A-B 基线：
+截至 2026-08-27，`BOX3D_OSI` 的默认推进模式仍是与 `BOX3D` 一致的 A-B 基线：
 
 ```text
 f_old + f_new
@@ -271,11 +271,15 @@ kernel，本 rank 的缓存 Box 被持久 `TagVector` 融合；布局销毁时�
 
 ## 7. 阶段 4：非周期物理边界
 
+状态：**单层六面非周期 sparse-scratch 路径已实现，并通过单/双 rank 32 步逐步
+A-B；混合周期方向、长期物理验证和性能测试尚未完成。**
+
 目标：保持当前 BOX3D 边界公式，并安全隔离旧 phase 输入与新 phase 输出。
 
 步骤：
 
-1. 在旧 phase `p` 对整个 grown Fab 碰撞，再同步同层 post-collision ghost；
+1. 在旧 phase `p` 对 `grown Fab & physical domain` 碰撞，再同步同层 post-collision
+   ghost；物理域外 ghost 不被当作流体格点；
 2. 边界重建只读取旧 phase 的内部逻辑值，把每个边界格点的最终 Q 分量写入
    canonical boundary scratch；
 3. 等待全部重建完成后提交 `phase=p+1`；
@@ -298,6 +302,19 @@ kernel，本 rank 的缓存 Box 被持久 `TagVector` 融合；布局销毁时�
 - scratch 结果与 A-B 的面、边、角最终覆盖优先级一致；
 - boundary cache 经重新分块后仍只依赖 logical geometry；
 - 不使用 `%` 地址循环冒充物理周期边界。
+
+实际验收记录：
+
+- `osi_boundary_scratch` 由已有 disjoint `boundary_work_boxes` 构造，只保存物理边界
+  valid cells 的 Q 分量，并记录 scratch Fab 到 `osi_state` Fab 的映射；
+- 非周期碰撞 launch 限制为 `ring_box & domain`，同层通信仍在旧 phase 完成；
+- `fill_boundary_osi_scratch()` 按现有 x-low、x-high、y-low、y-high、z-low、z-high
+  顺序选择最终覆盖面，先写 scratch；phase 提交后 `scatter_boundary_osi()` 才写 state；
+- jobs `583246`（1 rank）和 `583247`（2 ranks）在六面非周期、64 Fab 下完成 32 步，
+  每步比较全部 valid D3Q27，最大 `linf=1.443289932e-15`，两组序列逐行一致；
+- scratch 为 643,032 个值，完整 valid DDF 为 7,077,888 个值，占约 9.1%；
+- 回归 jobs `583248`/`583249` 重新通过全周期 1/2-rank 阶段 3 检查，最大
+  `linf=1.498801083e-15`。
 
 ## 8. 阶段 5：静态多层 AMR 与子循环
 

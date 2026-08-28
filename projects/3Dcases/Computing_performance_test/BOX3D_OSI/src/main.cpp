@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
                 lid.PrintParticleParm();
             }
         }
-        lid.ValidateOsiPeriodicConfiguration();
+        lid.ValidateOsiConfiguration();
 
         float compute_time = 0.0f;
         float regrid_time = 0.0f;
@@ -130,7 +130,7 @@ int main(int argc, char* argv[]) {
             if (lid.streamMode() == 0) {
                 JaberCycle2(0, cur_time, lid);
             } else {
-                lid.OsiAdvancePeriodicLevel(0);
+                lid.OsiAdvanceLevel(0);
                 if (lid.osiReferenceEnabled()) {
                     lid.AdvanceAndCheckOsiReference(0, step);
                 }

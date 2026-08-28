@@ -513,6 +513,112 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
     }
 }
 
+// 从旧 phase 的逻辑内部格点重建一个完整边界格点，并写入 canonical scratch。
+// 面的选择顺序与 fill_boundary 中六个独立 if 完全一致；边和角最终由后出现的
+// y/z 面覆盖，因此每个边界格点只需由一个线程计算，不会产生跨 kernel 竞争。
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void fill_boundary_osi_scratch(
+    int i, int j, int k, amrex::Array4<amrex::Real const> const& state,
+    amrex::Array4<amrex::Real> const& scratch, amrex::IntVect const& hi,
+    amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic,
+    std::uint64_t phase, box3d_osi::FabGeometry const& fab) {
+    int x1 = i;
+    int y1 = j;
+    int z1 = k;
+    Real ux = 0.0;
+    Real uy = 0.0;
+    Real uz = 0.0;
+    bool fixed_rho = false;
+    bool is_boundary = false;
+
+    if (!is_periodic[0] && i == 0) {
+        x1 = i + 1;
+        y1 = j;
+        z1 = k;
+        fixed_rho = true;
+        is_boundary = true;
+    }
+    if (!is_periodic[0] && i == hi[0]) {
+        x1 = i - 1;
+        y1 = j;
+        z1 = k;
+        fixed_rho = false;
+        is_boundary = true;
+    }
+    if (!is_periodic[1] && j == 0) {
+        x1 = i;
+        y1 = j + 1;
+        z1 = k;
+        fixed_rho = false;
+        is_boundary = true;
+    }
+    if (!is_periodic[1] && j == hi[1]) {
+        x1 = i;
+        y1 = j - 1;
+        z1 = k;
+        fixed_rho = false;
+        is_boundary = true;
+    }
+    if (!is_periodic[2] && k == 0) {
+        x1 = i;
+        y1 = j;
+        z1 = k + 1;
+        fixed_rho = false;
+        is_boundary = true;
+    }
+    if (!is_periodic[2] && k == hi[2]) {
+        x1 = i;
+        y1 = j;
+        z1 = k - 1;
+        ux = U0;
+        fixed_rho = false;
+        is_boundary = true;
+    }
+
+    if (!is_boundary) {
+        return;
+    }
+
+    Real rho1 = 0.0;
+    Real ux1 = 0.0;
+    Real uy1 = 0.0;
+    Real uz1 = 0.0;
+    for (int q = 0; q < Q; ++q) {
+        const auto raw = box3d_osi::osi_address(
+            {x1, y1, z1}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
+        const Real fq = state(raw.x, raw.y, raw.z, q);
+        rho1 += fq;
+        ux1 += fq * e[q][0];
+        uy1 += fq * e[q][1];
+        uz1 += fq * e[q][2];
+    }
+    ux1 /= rho1;
+    uy1 /= rho1;
+    uz1 /= rho1;
+
+    const Real rho = fixed_rho ? rho0 : rho1;
+    for (int q = 0; q < Q; ++q) {
+        const auto raw = box3d_osi::osi_address(
+            {x1, y1, z1}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
+        scratch(i, j, k, q) =
+            feqQian(rho, {ux, uy, uz}, q) + state(raw.x, raw.y, raw.z, q) -
+            feqQian(rho1, {ux1, uy1, uz1}, q);
+    }
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void scatter_boundary_osi(
+    int i, int j, int k, int q,
+    amrex::Array4<amrex::Real const> const& scratch,
+    amrex::Array4<amrex::Real> const& state, std::uint64_t phase,
+    box3d_osi::FabGeometry const& fab) {
+    const auto raw = box3d_osi::osi_address(
+        {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
+    state(raw.x, raw.y, raw.z, q) = scratch(i, j, k, q);
+}
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void collide(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,

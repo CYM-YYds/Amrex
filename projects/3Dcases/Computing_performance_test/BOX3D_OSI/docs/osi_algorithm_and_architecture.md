@@ -5,7 +5,7 @@
 
 ## 1. 状态与边界
 
-截至 2026-08-25：
+截至 2026-08-27：
 
 - 已确定采用 one-step index（OSI）单数组方案；
 - 已确定动态 AMR 布局变化时采用 canonicalize/rebuild/reset；
@@ -21,8 +21,9 @@
 - jobs `582016`/`582017` 用非均匀初值和 64 Fab 完成单/双 rank 32 步 A/B，最大
   `linf=1.498801083e-15` 且逐步序列一致；
 - CPU A/B 额外验证两层 grown 保护环在只初始同步一次后可连续推进两步而不污染 valid；
-- 正式 OSI 模式不分配完整 canonical DDF，宏观量由 OSI accessor 直接读取；已有受限
-  单层周期性能窗口，物理边界、AMR 和 restart 尚无实现或验证证据。
+- 正式 OSI 模式不分配完整 canonical DDF，宏观量由 OSI accessor 直接读取；六面
+  非周期边界已通过稀疏 scratch 接入，已有受限单层周期性能窗口，AMR 和 restart
+  尚无实现或验证证据。
 
 OSI 原论文和均匀网格原型位于
 [`research/papers/OSI优化计划`](../../../../../research/papers/OSI优化计划/)。论文只验证了
@@ -443,6 +444,9 @@ amrex::Vector<std::uint64_t> osi_phase;
 
 // 按可配置分量批大小复用的 canonical grown 同步缓冲。
 amrex::Vector<amrex::MultiFab> osi_sync_buffer;
+
+// 仅覆盖非周期物理边界 valid cells 的 canonical Q-component scratch。
+amrex::Vector<amrex::MultiFab> osi_boundary_scratch;
 
 struct OsiFabLayout {
     amrex::Dim3 lo;
