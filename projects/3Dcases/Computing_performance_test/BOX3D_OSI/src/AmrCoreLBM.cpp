@@ -1981,33 +1981,7 @@ void AmrCoreLBM::OsiAdvanceLevel(int lev) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(lev == 0,
                                      "stage-2 OSI advances level 0 only");
 
-    amrex::MultiFab& state_lev = osi_state[lev];
-    const std::uint64_t phase = osi_phase[lev];
-    const amrex::Real omega = 1.0 / tau[lev];
-    const Box domain = Geom(lev).Domain();
-    const auto is_periodic = Geom(lev).isPeriodicArray();
-    bool all_periodic = true;
-    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-        all_periodic = all_periodic && (is_periodic[dir] != 0);
-    }
-
-    {
-        ScopedPerfTimer timer(perf_stats.collide);
-        for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
-            const Box ring_box = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
-            const auto fab_lo = ring_box.smallEnd();
-            const box3d_osi::FabGeometry fab{
-                {fab_lo[0], fab_lo[1], fab_lo[2]},
-                {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
-            const Array4<Real>& state = state_lev.array(mfi);
-
-            const Box collision_box = all_periodic ? ring_box : (ring_box & domain);
-            amrex::ParallelFor(
-                collision_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    collide_bgk_register_osi(i, j, k, state, phase, fab, omega);
-                });
-        }
-    }
+    CollideOsiLevel(lev);
 
     // 将本步碰撞后的 owner valid 值按当前 phase 同步到重叠 grown ghost。
     // phase 提交后，相邻 valid 会把这些 ghost 槽解释为新的 incoming DDF。
@@ -2018,29 +1992,54 @@ void AmrCoreLBM::OsiAdvanceLevel(int lev) {
 
     CommitOsiPhase(lev); // 逻辑 streaming 完成
 
-    if (!all_periodic) {
-        ScopedPerfTimer timer(perf_stats.boundary);
-        const std::uint64_t next_phase = osi_phase[lev];
-        const IntVect hi{
-            domain.length(0) - 1, domain.length(1) - 1, domain.length(2) - 1};
+    ApplyOsiBoundaryLevel(lev);
+}
 
-        // 从迁移后的 next phase 读取内部邻居，并直接写回同一 Fab 的边界槽位。
-        for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
-            const Box ring_box = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
-            const auto fab_lo = ring_box.smallEnd();
-            const box3d_osi::FabGeometry fab{
-                {fab_lo[0], fab_lo[1], fab_lo[2]},
-                {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
-            const Array4<Real> state = state_lev.array(mfi);
-            for (const Box& bx : boundary_work_boxes[lev][mfi.index()]) {
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        fill_boundary_osi_state(
-                            i, j, k, state, hi, is_periodic, next_phase, fab);
-                    });
-            }
+void AmrCoreLBM::CollideOsiLevel(int lev) {
+    MultiFab& state_lev = osi_state.at(lev);
+    const std::uint64_t phase = osi_phase[lev];
+    const auto periodic = Geom(lev).isPeriodicArray();
+    bool all_periodic = true;
+    for (int d = 0; d < AMREX_SPACEDIM; ++d)
+        all_periodic &= periodic[d] != 0;
+    const Box domain = Geom(lev).Domain();
+    const Real omega = 1.0 / tau.at(lev);
+
+    ScopedPerfTimer timer(perf_stats.collide);
+
+    for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
+        const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
+        const auto lo = ring.smallEnd();
+        const box3d_osi::FabGeometry fab{{lo[0], lo[1], lo[2]},
+                                         {ring.length(0), ring.length(1), ring.length(2)}};
+        const Array4<Real> state = state_lev.array(mfi);
+        amrex::ParallelFor(all_periodic ? ring : (ring & domain),
+                           [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                               collide_bgk_register_osi(i, j, k, state, phase, fab, omega);
+                           });
+    }
+}
+
+void AmrCoreLBM::ApplyOsiBoundaryLevel(int lev) {
+    MultiFab& state_lev = osi_state.at(lev);
+    const std::uint64_t phase = osi_phase[lev];
+    const Box domain = Geom(lev).Domain();
+    const auto periodic = Geom(lev).isPeriodicArray();
+    const IntVect hi{domain.length(0) - 1, domain.length(1) - 1, domain.length(2) - 1};
+    ScopedPerfTimer timer(perf_stats.boundary);
+
+    for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
+        const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
+        const auto lo = ring.smallEnd();
+        const box3d_osi::FabGeometry fab{{lo[0], lo[1], lo[2]},
+                                         {ring.length(0), ring.length(1), ring.length(2)}};
+        const Array4<Real> state = state_lev.array(mfi);
+
+        for (const Box& bx : boundary_work_boxes.at(lev).at(mfi.index())) {
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                fill_boundary_osi_state(i, j, k, state, hi, periodic, phase, fab);
+            });
         }
-        return;
     }
 }
 

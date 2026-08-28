@@ -29,8 +29,7 @@ struct CommunicationTag {
     amrex::Box region;
     FabGeometry fab;
 
-    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-    const amrex::Box& box() const noexcept {
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
         return region;
     }
 };
@@ -167,6 +166,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void SwapLevel(int lev, int n);
     void ValidateOsiConfiguration() const;
     void OsiAdvanceLevel(int lev);
+    void CollideOsiLevel(int lev);
+    void ApplyOsiBoundaryLevel(int lev);
     void AdvanceAndCheckOsiReference(int lev, int step);
     void CommunicateLevel_osi(int lev);
     void CommitOsiPhase(int lev);
@@ -276,7 +277,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Vector<int>> interp_direct_fine_index;
     amrex::Vector<amrex::Vector<unsigned char>> interp_direct_needs_physical_fill;
     amrex::Vector<unsigned char> interp_direct_cache_ready;
-    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; //boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box
+    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; // boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box
 
     amrex::Vector<amrex::Real> tau;
 

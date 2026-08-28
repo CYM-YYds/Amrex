@@ -501,7 +501,6 @@ void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fnew,
                                feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
         }
     }
-
 }
 
 // 从迁移后的 phase 逻辑内部格点重建边界格点，并直接写回 OSI state。
@@ -520,42 +519,36 @@ void fill_boundary_osi_state(
     Real ux = 0.0;
     Real uy = 0.0;
     Real uz = 0.0;
-    bool fixed_rho = false;
     bool is_boundary = false;
 
     if (!is_periodic[0] && i == 0) {
         x1 = i + 1;
         y1 = j;
         z1 = k;
-        fixed_rho = true;
         is_boundary = true;
     }
     if (!is_periodic[0] && i == hi[0]) {
         x1 = i - 1;
         y1 = j;
         z1 = k;
-        fixed_rho = false;
         is_boundary = true;
     }
     if (!is_periodic[1] && j == 0) {
         x1 = i;
         y1 = j + 1;
         z1 = k;
-        fixed_rho = false;
         is_boundary = true;
     }
     if (!is_periodic[1] && j == hi[1]) {
         x1 = i;
         y1 = j - 1;
         z1 = k;
-        fixed_rho = false;
         is_boundary = true;
     }
     if (!is_periodic[2] && k == 0) {
         x1 = i;
         y1 = j;
         z1 = k + 1;
-        fixed_rho = false;
         is_boundary = true;
     }
     if (!is_periodic[2] && k == hi[2]) {
@@ -563,7 +556,6 @@ void fill_boundary_osi_state(
         y1 = j;
         z1 = k - 1;
         ux = U0;
-        fixed_rho = false;
         is_boundary = true;
     }
 
@@ -588,15 +580,22 @@ void fill_boundary_osi_state(
     uy1 /= rho1;
     uz1 /= rho1;
 
-    const Real rho = fixed_rho ? rho0 : rho1;
+    const Real rho = rho1;
     for (int q = 0; q < Q; ++q) {
-        const auto raw = box3d_osi::osi_address(
-            {x1, y1, z1}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
-        state( box3d_osi::osi_address({i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab).x,
-              box3d_osi::osi_address({i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab).y,
-              box3d_osi::osi_address({i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab).z, q) =
-            feqQian(rho, {ux, uy, uz}, q) + state(raw.x, raw.y, raw.z, q) -
-            feqQian(rho1, {ux1, uy1, uz1}, q);
+        const auto src = box3d_osi::osi_address(
+            {x1, y1, z1},
+            {e[q][0], e[q][1], e[q][2]},
+            phase,
+            fab);
+
+        const auto dst = box3d_osi::osi_address(
+            {i, j, k},
+            {e[q][0], e[q][1], e[q][2]},
+            phase,
+            fab);
+
+        state(dst.x, dst.y, dst.z, q) =
+            feqQian(rho, {ux, uy, uz}, q) + state(src.x, src.y, src.z, q) - feqQian(rho1, {ux1, uy1, uz1}, q);
     }
 }
 
