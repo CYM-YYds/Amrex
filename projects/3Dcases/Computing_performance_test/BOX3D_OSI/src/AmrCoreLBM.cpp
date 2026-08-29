@@ -1978,8 +1978,9 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
 void AmrCoreLBM::OsiAdvanceLevel(int lev) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(stream_mode == 1,
                                      "OsiAdvanceLevel requires lbm.stream_mode=1");
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(lev == 0,
-                                     "stage-2 OSI advances level 0 only");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        lev >= 0 && lev <= finest_level && osi_state.at(lev).isDefined(),
+        "OsiAdvanceLevel requires an initialized AMR level");
 
     CollideOsiLevel(lev);
 
