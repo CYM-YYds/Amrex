@@ -14,6 +14,7 @@ using namespace amrex;
 void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);  // 好像更适配cumulant_opt
 void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);  // 更适配cumulant
 void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 更适配cumulant
+void OsiCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 
