@@ -122,6 +122,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     int streamMode() const {
         return stream_mode;
     }
+    int finestLevel() const {
+        return finest_level;
+    }
     bool osiReferenceEnabled() const {
         return osi_ab_check;
     }
@@ -155,6 +158,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void AverageDownValidLevel(int lev, bool is_scale);
     void AverageDownValid();
     void AverageDownGhostLevel(int lev, bool is_scale);
+    void FillOsiGhostFromCoarse(int lev, amrex::Real time);
+    void AverageDownOsiLevel(int lev, bool is_scale);
     void AverageDownGhost();
     void FillGhostLevel(int lev, amrex::Real time, bool is_scale);
     void FillMacroGhostLevel(int lev, amrex::Real time);
@@ -171,6 +176,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void AdvanceAndCheckOsiReference(int lev, int step);
     void CommunicateLevel_osi(int lev);
     void CommitOsiPhase(int lev);
+    void DecodeOsiToCanonical(int lev, amrex::MultiFab& canonical) const;
+    void EncodeCanonicalToOsi(int lev, const amrex::MultiFab& canonical);
 
     void InterpScale(int lev, int n);
     void AverageScale(int lev, int n);
@@ -248,6 +255,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     // osi_ab_check 显式启用。环形区间是每个 Fab 的完整 grown box。
     amrex::Vector<amrex::MultiFab> osi_state;
     amrex::Vector<std::uint64_t> osi_phase;
+    bool osi_transfer_active = false;
     // 按 osi_sync_batch_components 分批复用的 canonical 缓冲：仅通信源 valid 从
     // twisted state 解码，FillBoundary 同步 ghost，再把通信目标编码回当前 phase。
     amrex::Vector<amrex::MultiFab> osi_sync_buffer;

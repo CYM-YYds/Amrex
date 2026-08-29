@@ -1495,6 +1495,10 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     ++perf_stats.avgdown_calls;
     // amrex::AllPrint()<<"AverageDownGhostLevel from " << lev+1 << " to " << lev <<std::endl;
 
+    if (stream_mode == 1 && !osi_transfer_active) {
+        AverageDownOsiLevel(lev, is_scale);
+        return;
+    }
     if (lev >= finest_level) {
         return;
     }
@@ -1726,11 +1730,67 @@ void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
     ++perf_stats.fillghost_calls;
     amrex::MultiFab& f_old_lev = f_old[lev];
 
-    if (is_scale) {
+    if (stream_mode == 1 && is_scale) {
+        FillOsiGhostFromCoarse(lev, time);
+    } else if (is_scale) {
         FillDdfGhostFromCoarse(lev, time);
     } else {
         FillPatch(lev, time, f_old_lev);
     }
+}
+
+void AmrCoreLBM::DecodeOsiToCanonical(int lev, MultiFab& canonical) const {
+    const auto& state = osi_state.at(lev);
+    const auto phase = osi_phase.at(lev);
+    for (MFIter mfi(canonical, false); mfi.isValid(); ++mfi) {
+        const Box ring = amrex::grow(mfi.validbox(), state.nGrowVect());
+        const auto lo = ring.smallEnd();
+        const box3d_osi::FabGeometry fab{{lo[0],lo[1],lo[2]},
+            {ring.length(0),ring.length(1),ring.length(2)}};
+        const auto dst = canonical.array(mfi);
+        const auto src = state.const_array(mfi);
+        amrex::ParallelFor(ring, Q, [=] AMREX_GPU_DEVICE(int i,int j,int k,int q) {
+            const auto a = box3d_osi::osi_address({i,j,k},{e[q][0],e[q][1],e[q][2]},phase,fab);
+            dst(i,j,k,q)=src(a.x,a.y,a.z,q);
+        });
+    }
+}
+
+void AmrCoreLBM::EncodeCanonicalToOsi(int lev, const MultiFab& canonical) {
+    auto& state = osi_state.at(lev);
+    const auto phase = osi_phase.at(lev);
+    for (MFIter mfi(canonical, false); mfi.isValid(); ++mfi) {
+        const Box ring = amrex::grow(mfi.validbox(), state.nGrowVect());
+        const auto lo = ring.smallEnd();
+        const box3d_osi::FabGeometry fab{{lo[0],lo[1],lo[2]},
+            {ring.length(0),ring.length(1),ring.length(2)}};
+        const auto dst = state.array(mfi);
+        const auto src = canonical.const_array(mfi);
+        amrex::ParallelFor(ring, Q, [=] AMREX_GPU_DEVICE(int i,int j,int k,int q) {
+            const auto a = box3d_osi::osi_address({i,j,k},{e[q][0],e[q][1],e[q][2]},phase,fab);
+            dst(a.x,a.y,a.z,q)=src(i,j,k,q);
+        });
+    }
+}
+
+void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
+    if (lev <= 0 || lev > finest_level) return;
+    osi_transfer_active = true;
+    DecodeOsiToCanonical(lev-1, f_old.at(lev-1));
+    DecodeOsiToCanonical(lev, f_old.at(lev));
+    FillDdfGhostFromCoarse(lev, time);
+    EncodeCanonicalToOsi(lev, f_old.at(lev));
+    osi_transfer_active = false;
+}
+
+void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
+    if (lev < 0 || lev >= finest_level) return;
+    osi_transfer_active = true;
+    DecodeOsiToCanonical(lev, f_old.at(lev));
+    DecodeOsiToCanonical(lev+1, f_old.at(lev+1));
+    AverageDownGhostLevel(lev, is_scale);
+    EncodeCanonicalToOsi(lev, f_old.at(lev));
+    osi_transfer_active = false;
 }
 
 void AmrCoreLBM::FillMacroGhostLevel(int lev, amrex::Real time) {
@@ -1769,8 +1829,8 @@ void AmrCoreLBM::ValidateOsiConfiguration() const {
     }
 
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        max_level == 0 && finest_level == 0,
-        "OSI currently requires amr.max_level=0");
+        max_level <= 1 && finest_level <= 1,
+        "OSI stage 5 currently supports at most two AMR levels");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         collide_mode == 1,
         "OSI currently supports only lbm.collide_mode=1");
@@ -2505,7 +2565,7 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
     vort_lev.define(ba, dm, 2, nghost);
     force_lev.define(ba, dm, AMREX_SPACEDIM, nghost);
     shear_lev.define(ba, dm, 1, nghost);
-    const bool allocate_ab = stream_mode == 0 || osi_ab_check;
+    const bool allocate_ab = stream_mode == 0 || osi_ab_check || max_level > 0;
     if (allocate_ab) {
         f_new_lev.define(ba, dm, Q, nghost);
         f_old_lev.define(ba, dm, Q, nghost);

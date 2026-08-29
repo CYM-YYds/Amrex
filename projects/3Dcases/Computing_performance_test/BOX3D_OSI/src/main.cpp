@@ -130,7 +130,7 @@ int main(int argc, char* argv[]) {
             if (lid.streamMode() == 0) {
                 JaberCycle2(0, cur_time, lid);
             } else {
-                lid.OsiAdvanceLevel(0);
+                OsiCycle2(0, cur_time, lid);
                 if (lid.osiReferenceEnabled()) {
                     lid.AdvanceAndCheckOsiReference(0, step);
                 }
@@ -397,6 +397,20 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
         JaberCycle2(lev + 1, cur_time + dt / 2.0, lid);
 
         // 4. 两个细步完成后，只平均一次
+        lid.AverageDownGhostLevel(lev, 1);
+    }
+}
+
+void OsiCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+    const amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+    const int max_level = lid.finestLevel();
+    if (lev < max_level) {
+        lid.FillGhostLevel(lev + 1, cur_time, 1);
+    }
+    lid.OsiAdvanceLevel(lev);
+    if (lev < max_level) {
+        OsiCycle2(lev + 1, cur_time, lid);
+        OsiCycle2(lev + 1, cur_time + dt / 2.0, lid);
         lid.AverageDownGhostLevel(lev, 1);
     }
 }
