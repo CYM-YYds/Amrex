@@ -2374,6 +2374,39 @@ void interp_bilinear_d3q(
     }
 }
 
+// OSI 版本的双线性插值：数学权重与普通 kernel 相同，输入输出通过各自
+// grown-Fab geometry 和 phase 解码/编码，避免把逻辑坐标直接当作 raw 坐标。
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void interp_bilinear_osi_d3q(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    box3d_osi::FabGeometry fine_fab, box3d_osi::FabGeometry coarse_fab,
+    std::uint64_t fine_phase, std::uint64_t coarse_phase) noexcept {
+    const int ic = amrex::coarsen(i, 2);
+    const int jc = amrex::coarsen(j, 2);
+    const int kc = amrex::coarsen(k, 2);
+    const int sx = i - 2 * ic == 0 ? -1 : 1;
+    const int sy = j - 2 * jc == 0 ? -1 : 1;
+    const int sz = k - 2 * kc == 0 ? -1 : 1;
+    constexpr Real w000=Real(27.0/64.0), w100=Real(9.0/64.0);
+    constexpr Real w110=Real(3.0/64.0), w111=Real(1.0/64.0);
+    for (int q=0; q<Q; ++q) {
+        const auto v = [&](int x, int y, int z) {
+            const auto a = box3d_osi::osi_address(
+                {x,y,z}, {e[q][0],e[q][1],e[q][2]}, coarse_phase, coarse_fab);
+            return coarse(a.x,a.y,a.z,q);
+        };
+        const Real value = v(ic,jc,kc)*w000 + v(ic+sx,jc,kc)*w100 +
+            v(ic,jc+sy,kc)*w100 + v(ic+sx,jc+sy,kc)*w110 +
+            v(ic,jc,kc+sz)*w100 + v(ic+sx,jc,kc+sz)*w110 +
+            v(ic,jc+sy,kc+sz)*w110 + v(ic+sx,jc+sy,kc+sz)*w111;
+        const auto dst = box3d_osi::osi_address(
+            {i,j,k}, {e[q][0],e[q][1],e[q][2]}, fine_phase, fine_fab);
+        fine(dst.x,dst.y,dst.z,q) = value;
+    }
+}
+
 // AMReX 中比率为2的单元守恒线性插值的设备端实现。
 // 采用限制型单侧斜率，保证所有精细网格数值落在相邻粗网格单元取值区间内，
 // 同时维持粗网格单元平均值守恒。
@@ -2539,6 +2572,31 @@ void average_down_lbm(int i, int j, int k, amrex::Array4<amrex::Real> const& crs
             }
         }
         crse(i, j, k, q) = sum * inv_children;
+    }
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void average_down_osi_lbm(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& coarse,
+    amrex::Array4<amrex::Real const> const& fine,
+    amrex::IntVect const& ratio, box3d_osi::FabGeometry coarse_fab,
+    box3d_osi::FabGeometry fine_fab, std::uint64_t coarse_phase,
+    std::uint64_t fine_phase) noexcept {
+    const Real inv = Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
+    for (int q = 0; q < Q; ++q) {
+        Real sum = 0.0;
+        for (int kr = 0; kr < ratio[2]; ++kr)
+            for (int jr = 0; jr < ratio[1]; ++jr)
+                for (int ir = 0; ir < ratio[0]; ++ir) {
+                    const auto src = box3d_osi::osi_address(
+                        {i*ratio[0]+ir, j*ratio[1]+jr, k*ratio[2]+kr},
+                        {e[q][0], e[q][1], e[q][2]}, fine_phase, fine_fab);
+                    sum += fine(src.x, src.y, src.z, q);
+                }
+        const auto dst = box3d_osi::osi_address(
+            {i,j,k}, {e[q][0],e[q][1],e[q][2]}, coarse_phase, coarse_fab);
+        coarse(dst.x,dst.y,dst.z,q) = sum * inv;
     }
 }
 
