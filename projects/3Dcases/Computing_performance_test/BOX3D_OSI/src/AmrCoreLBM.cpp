@@ -1788,22 +1788,8 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
     osi_transfer_active = true;
     DecodeOsiToCanonical(lev, f_old.at(lev));
     DecodeOsiToCanonical(lev+1, f_old.at(lev+1));
-    const Real coarse_before = f_old.at(lev).sum(0, Q);
     AverageDownGhostLevel(lev, is_scale);
-    const Real coarse_after_average = f_old.at(lev).sum(0, Q);
     EncodeCanonicalToOsi(lev, f_old.at(lev));
-    if (osi_verification_pattern && ParallelDescriptor::IOProcessor()) {
-        amrex::Print() << "osi_average_debug: lev=" << lev
-                       << " phase=" << osi_phase.at(lev)
-                       << " before=" << coarse_before
-                       << " after_average=" << coarse_after_average;
-    }
-    if (osi_verification_pattern) {
-        DecodeOsiToCanonical(lev, f_old.at(lev));
-        if (ParallelDescriptor::IOProcessor()) {
-            amrex::Print() << " roundtrip=" << f_old.at(lev).sum(0, Q) << '\n';
-        }
-    }
     osi_transfer_active = false;
 }
 
