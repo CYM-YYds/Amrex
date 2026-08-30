@@ -2169,7 +2169,11 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
         const Real checksum = f_old.at(lev).sum(0, Q);
         if (ParallelDescriptor::IOProcessor()) {
             amrex::Print() << "ddf_checksum: step=" << step
-                           << " lev=" << lev << " sum=" << checksum << '\n';
+                           << " lev=" << lev << " sum=" << checksum;
+            for (int q = 0; q < Q; ++q) {
+                amrex::Print() << " q" << q << "=" << f_old.at(lev).sum(q, 1);
+            }
+            amrex::Print() << '\n';
         }
     }
 }
