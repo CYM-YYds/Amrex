@@ -399,6 +399,7 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Stream(lev, nghost);
     lid.Boundary(lev);
     lid.SwapLevel(lev, nghost);
+    if (lev == 0) lid.PrintDdfChecksums(1000 + static_cast<int>(cur_time));
 
     // 3. 下一层用一半时间步连续推进两次
     if (lev < lid.finestLevel()) {
@@ -417,6 +418,7 @@ void OsiCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
     lid.OsiAdvanceLevel(lev);
+    if (lev == 0) lid.PrintDdfChecksums(1000 + static_cast<int>(cur_time));
     if (lev < max_level) {
         OsiCycle2(lev + 1, cur_time, lid);
         OsiCycle2(lev + 1, cur_time + dt / 2.0, lid);
