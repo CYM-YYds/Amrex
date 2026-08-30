@@ -2548,6 +2548,7 @@ void AmrCoreLBM::InitializeOsiLevel(
     osi_phase.at(lev) = 0;
     MultiFab::Copy(osi_state.at(lev), canonical, 0, 0, Q, nghost);
     BuildOsiCommunicationRegionCache(lev);
+    CommunicateLevel_osi(lev);
 }
 void AmrCoreLBM::ClearLevel(int lev) {
     // amrex::AllPrint()<<"ClearLevel on " << lev <<std::endl;
@@ -2647,6 +2648,8 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
             amrex::MultiFab::Copy(f_old_lev, state, 0, 0, Q, 0);
             amrex::MultiFab::Copy(f_new_lev, state, 0, 0, Q, 0);
         }
+        // 首次碰撞前先建立 grown-Fab ghost；稳态步仍保持碰撞后通信顺序。
+        CommunicateLevel_osi(lev);
     }
 }
 
