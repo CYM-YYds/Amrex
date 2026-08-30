@@ -2602,9 +2602,18 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
             const Box& bx = mfi.growntilebox(nghost);
             const Array4<Real>& fold = f_old_lev.array(mfi);
             const Array4<Real>& fnew = f_new_lev.array(mfi);
+            const bool seed_pattern = osi_verification_pattern;
 
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                init_fluid(i, j, k, fold, fnew);
+            amrex::ParallelFor(bx, Q, [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                if (seed_pattern) {
+                    const int code = (13 * i + 7 * j + 3 * k + 5 * q) % 97;
+                    const Real perturbation = Real(1.0e-4) * Real(code - 48);
+                    const Real value = w[q] * (Real(1.0) + perturbation);
+                    fold(i, j, k, q) = value;
+                    fnew(i, j, k, q) = value;
+                } else if (q == 0) {
+                    init_fluid(i, j, k, fold, fnew);
+                }
             });
         }
     }
