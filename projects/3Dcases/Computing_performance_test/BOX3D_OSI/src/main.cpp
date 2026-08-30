@@ -96,6 +96,7 @@ int main(int argc, char* argv[]) {
             }
         }
         lid.ValidateOsiConfiguration();
+        lid.PrintDdfChecksums(0);
 
         float compute_time = 0.0f;
         float regrid_time = 0.0f;
