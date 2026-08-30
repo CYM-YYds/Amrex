@@ -21,4 +21,4 @@ hostfile=$(mktemp /tmp/box3d_osi_stage5.XXXXXX); trap 'rm -f "$hostfile"' EXIT
 awk '{if (length($1)>0 && length($2)>0) print $1 " slots=" $2}' "$CCS_ALLOC_FILE" > "$hostfile"
 mpirun -hostfile "$hostfile" -n 1 -x PATH -x LD_LIBRARY_PATH \
   --mca plm_rsh_agent /opt/batch/agent/tools/dstart bash -lc \
-  'export CUDA_VISIBLE_DEVICES=0; exec ./main3d.gnu.TPROF.MPI.CUDA.ex config/inputs_osi amr.max_level=1 amr.regrid_int=1 max_step=4 stop_time=4 verification.osi_ab_check=false'
+  'export CUDA_VISIBLE_DEVICES=0; exec ./main3d.gnu.TPROF.MPI.CUDA.ex config/inputs_osi amr.max_level=1 amr.regrid_int=1 max_step=4 stop_time=4 verification.osi_ab_check=false verification.osi_seed_pattern=false lbm.err=0.0'

@@ -2161,6 +2161,19 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
                    << " linf=" << linf << '\n';
 }
 
+void AmrCoreLBM::PrintDdfChecksums(int step) {
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        if (stream_mode == 1) {
+            DecodeOsiToCanonical(lev, f_old.at(lev));
+        }
+        const Real checksum = f_old.at(lev).sum(0, Q);
+        if (ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "ddf_checksum: step=" << step
+                           << " lev=" << lev << " sum=" << checksum << '\n';
+        }
+    }
+}
+
 void AmrCoreLBM::Boundary(int lev) {
     ScopedPerfTimer timer(perf_stats.boundary);
     // amrex::AllPrint()<<"Boundary on " << lev <<std::endl;

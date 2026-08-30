@@ -358,6 +358,16 @@ gather fine valid children
 -> scatter 到 coarse current phase
 ```
 
+实际验收记录（2026-08-29）：
+
+- `OsiCycle2()` 已按实际 `finest_level` 执行粗层一步、细层两个半步；
+- `FillOsiGhostFromCoarse()` 和 `AverageDownOsiLevel()` 通过 canonical bridge 复用现有
+  插值/平均实现，不对 twisted raw 地址执行 `ParallelCopy()`；
+- jobs `583680`（OSI）和 `583681`（A-B）均完成 4 步，日志明确显示
+  `finest_level=1`；两层逐步 checksum 共 8 条记录，最大绝对差为 `0`；
+- 本记录证明两层生命周期、子循环和传输路径可运行并保持总 DDF 一致；尚未构成非均匀场的
+  逐单元 `L∞` DDF 等价证明，后续应补充固定布局的逐单元对照。
+
 验收：
 
 - `osi_phase[lev]` 的增量与 `JaberCycle2()` 子循环次数一致；

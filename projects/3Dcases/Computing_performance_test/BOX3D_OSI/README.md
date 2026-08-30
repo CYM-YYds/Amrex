@@ -5,12 +5,13 @@
 
 ## 当前状态
 
-截至 2026-08-27，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
+截至 2026-08-29，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
 pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_mode=1` 下支持
 多 Fab、多 MPI rank，以及三向全周期或六面非周期边界。当前采用
 `nGrow=2 + grown-Fab OSI`：
 每个 Fab 的 valid 与 ghost 组成统一保护环，通信同步当前 phase 的同坐标重叠副本。
-非周期边界在 phase 提交后直接从迁移后的 `osi_state` 重建并写回边界槽位。AMR 和 checkpoint 仍未实现；
+非周期边界在 phase 提交后直接从迁移后的 `osi_state` 重建并写回边界槽位。阶段 5 已接入静态两层 AMR
+子循环、粗细层 canonical 传输桥和动态 regrid smoke；checkpoint 仍未实现。
 现有性能证据也只覆盖单层全周期固定网格，不能外推到动态 AMR 生产负载。
 
 复制完成后的审查基线提交为 `6578093`；开始修改代码前的文档基线提交为
@@ -61,6 +62,10 @@ pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_m
   读取，提交 phase 后再散布边界结果。jobs `583246`/`583247` 在六面非周期、64 Fab、
   1/2 rank 下完成 32 步逐步 A-B，最大 `linf=1.443289932e-15`，误差序列完全一致；
   scratch 为 643,032 个值，约为完整 valid DDF 的 9.1%。
+- 阶段 5 已支持 `amr.max_level=1` 的两层递归推进：粗层一步、细层两个半步，
+  并在 regrid 后重建 OSI 状态与粗细层缓存。jobs `583680`（OSI）和 `583681`（A-B）
+  均完成 4 步并出现 `finest_level=1`；统一初始条件下两层逐步 checksum 共 8 条记录，
+  最大绝对差为 `0`。该 checksum 是阶段 5 的回归烟测，不替代非均匀流场的逐单元 DDF 范数对比。
 
 ## 新会话的阅读顺序
 

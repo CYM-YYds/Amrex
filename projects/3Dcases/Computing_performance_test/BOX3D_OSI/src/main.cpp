@@ -66,8 +66,8 @@ int main(int argc, char* argv[]) {
 
         AmrCoreLBM lid(geom, info);
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-            lid.streamMode() == 1 || runtime_max_level == max_ref_level,
-            "amr.max_level override is currently reserved for lbm.stream_mode=1");
+            runtime_max_level >= 0 && runtime_max_level <= max_ref_level,
+            "amr.max_level must be within the compiled AMR level range");
         begin_step = lid.params().begin_step;
         chk_int = lid.params().chk_int;
         regrid_int = lid.params().regrid_int;
@@ -110,13 +110,19 @@ int main(int argc, char* argv[]) {
             auto start_time_regrid_time = std::chrono::high_resolution_clock::now();
             // regrid_time_outer(me, f_array, indices, story);
 
-            if (lid.streamMode() == 0 && step >= 0 && step % regrid_int == 0) {
+            if (step >= 0 && regrid_int > 0 && step % regrid_int == 0) {
                 // 模式 2/3 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
                 // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
-                lid.AverageDownValid();
-                lid.FindCentre();
+                if (lid.finestLevel() > 0) {
+                    lid.AverageDownValid();
+                }
+                if (lid.streamMode() == 0) {
+                    lid.FindCentre();
+                }
                 lid.RefineMesh(cur_time);
-                lid.RedistributeParticle();
+                if (lid.streamMode() == 0) {
+                    lid.RedistributeParticle();
+                }
             }
 
             auto end_time_regrid_time = std::chrono::high_resolution_clock::now();
@@ -136,6 +142,7 @@ int main(int argc, char* argv[]) {
                     lid.AdvanceAndCheckOsiReference(0, step);
                 }
             }
+            lid.PrintDdfChecksums(step);
             auto end_time_JaberCycle = std::chrono::high_resolution_clock::now();
             JaberCycle_time += std::chrono::duration<float, std::milli>(end_time_JaberCycle - start_time_JaberCycle).count();
 
@@ -321,7 +328,7 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
     const int nghost = lid.ghostCells();
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
@@ -348,7 +355,7 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     cur_time += dt;
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
@@ -381,7 +388,7 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     // }
 
     // 1. 当前层向下一层插值一次
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
@@ -393,7 +400,7 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.SwapLevel(lev, nghost);
 
     // 3. 下一层用一半时间步连续推进两次
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         JaberCycle2(lev + 1, cur_time, lid);
         JaberCycle2(lev + 1, cur_time + dt / 2.0, lid);
 

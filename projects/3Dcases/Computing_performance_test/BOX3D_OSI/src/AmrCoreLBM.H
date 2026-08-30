@@ -174,6 +174,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void CollideOsiLevel(int lev);
     void ApplyOsiBoundaryLevel(int lev);
     void AdvanceAndCheckOsiReference(int lev, int step);
+    void PrintDdfChecksums(int step);
     void CommunicateLevel_osi(int lev);
     void CommitOsiPhase(int lev);
     void DecodeOsiToCanonical(int lev, amrex::MultiFab& canonical) const;
