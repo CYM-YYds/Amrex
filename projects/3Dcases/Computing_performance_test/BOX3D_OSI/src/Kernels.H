@@ -2826,6 +2826,61 @@ Real warp_sum_32(Real value) noexcept { // 对一个 warp 内 32 个线程各自
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
+void average_down_osi_to_canonical_warp(
+    int i, int j, int k, int q,
+    amrex::Array4<amrex::Real> const& coarse,
+    amrex::Array4<amrex::Real const> const& fine,
+    amrex::IntVect const& ratio, box3d_osi::FabGeometry fine_fab,
+    std::uint64_t fine_phase, amrex::Real scale,
+    bool apply_scale) noexcept {
+    const int fi = i * ratio[0];
+    const int fj = j * ratio[1];
+    const int fk = k * ratio[2];
+    const int nchildren = ratio[0] * ratio[1] * ratio[2];
+    const Real inv_children = Real(1.0) / Real(nchildren);
+    Real restricted = 0.0;
+
+    for (int kr = 0; kr < ratio[2]; ++kr) {
+        for (int jr = 0; jr < ratio[1]; ++jr) {
+            for (int ir = 0; ir < ratio[0]; ++ir) {
+                Real fq = 0.0;
+                if (q < Q) {
+                    const auto src = box3d_osi::osi_address(
+                        {fi + ir, fj + jr, fk + kr},
+                        {e[q][0], e[q][1], e[q][2]}, fine_phase,
+                        fine_fab);
+                    fq = fine(src.x, src.y, src.z, q);
+                }
+
+                if (apply_scale) {
+                    const Real rho = warp_sum_32(fq);
+                    const Real ux =
+                        warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0)) /
+                        rho;
+                    const Real uy =
+                        warp_sum_32(q < Q ? fq * e[q][1] : Real(0.0)) /
+                        rho;
+                    const Real uz =
+                        warp_sum_32(q < Q ? fq * e[q][2] : Real(0.0)) /
+                        rho;
+                    if (q < Q) {
+                        const Real feq = feqQian(rho, {ux, uy, uz}, q);
+                        restricted += feq + (fq - feq) * scale;
+                    }
+                } else if (q < Q) {
+                    restricted += fq;
+                }
+            }
+        }
+    }
+
+    if (q < Q) {
+        coarse(i, j, k, q) = restricted * inv_children;
+    }
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
 void average_down_lbm_scaled_warp(int i, int j, int k, int q,
                                   amrex::Array4<amrex::Real> const& crse,
                                   amrex::Array4<amrex::Real const> const& fine,

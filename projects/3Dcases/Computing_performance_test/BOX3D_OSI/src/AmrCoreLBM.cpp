@@ -1844,12 +1844,49 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         const Box bx = mfi.validbox();
         const auto coarse = interface_result.array(mfi);
         const auto fine = fine_state.const_array(fine_index);
+#ifdef AMREX_USE_CUDA
+        // 与 A-B 融合 restriction 保持相同的 warp 组织：一个
+        // warp 负责一个 coarse parent，lane 0..26 分别处理一个
+        // D3Q27 分量，避免单线程保留 fq[Q] 和 restricted[Q]。
+        constexpr int threads_per_block = 256;
+        constexpr int warp_size = 32;
+        constexpr int warps_per_block = threads_per_block / warp_size;
+        static_assert(Q <= warp_size,
+                      "warp-per-parent restriction requires Q <= 32");
+        const Long ncells = bx.numPts();
+        const int nblocks = static_cast<int>(
+            (ncells + warps_per_block - 1) / warps_per_block);
+        const auto bx_lo = amrex::lbound(bx);
+        const int nx = bx.length(0);
+        const int ny = bx.length(1);
+        amrex::launch<threads_per_block>(
+            nblocks, amrex::Gpu::Device::gpuStream(),
+            [=] AMREX_GPU_DEVICE() noexcept {
+                const int lane = threadIdx.x % warp_size;
+                const int warp_in_block = threadIdx.x / warp_size;
+                const Long icell =
+                    static_cast<Long>(blockIdx.x) * warps_per_block +
+                    warp_in_block;
+                if (icell < ncells) {
+                    const int i =
+                        bx_lo.x + static_cast<int>(icell % nx);
+                    const Long yz = icell / nx;
+                    const int j =
+                        bx_lo.y + static_cast<int>(yz % ny);
+                    const int k = bx_lo.z + static_cast<int>(yz / ny);
+                    average_down_osi_to_canonical_warp(
+                        i, j, k, lane, coarse, fine, ratio, fine_fab,
+                        fine_phase, scale, is_scale);
+                }
+            });
+#else
         amrex::ParallelFor(
             bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                 average_down_osi_to_canonical(
                     i, j, k, coarse, fine, ratio, fine_fab, fine_phase,
                     scale, is_scale);
             });
+#endif
     }
 
     // interface_result 沿用 fine owner。分批 ParallelCopy 把结果送到真实
