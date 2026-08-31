@@ -1267,12 +1267,14 @@ void AmrCoreLBM::BuildInterpolationCache() {
 
 void AmrCoreLBM::BuildRestrictionCache() {
     for (int lev = 0; lev < finest_level; ++lev) {
+        const MultiFab& fine_layout =
+            stream_mode == 1 ? osi_state.at(lev + 1) : f_old.at(lev + 1);
         BoxArray coarse_from_fine =
-            amrex::coarsen(f_old[lev + 1].boxArray(), refRatio(lev));
+            amrex::coarsen(fine_layout.boxArray(), refRatio(lev));
 
         if (average_mode == 1) {
             average_down_buffer[lev].define(
-                coarse_from_fine, f_old[lev + 1].DistributionMap(), Q, 0);
+                coarse_from_fine, fine_layout.DistributionMap(), Q, 0);
         }
         if (average_mode < 2) {
             continue;
@@ -1283,7 +1285,7 @@ void AmrCoreLBM::BuildRestrictionCache() {
         Vector<int> fine_box_indices;
         const Box domain = Geom(lev).Domain();
         const auto& periodicity = Geom(lev).periodicity();
-        const auto& fine_dm = f_old[lev + 1].DistributionMap();
+        const auto& fine_dm = fine_layout.DistributionMap();
 
         for (int ibox = 0; ibox < coarse_from_fine.size(); ++ibox) {
             const Box& covered_box = coarse_from_fine[ibox];
@@ -1776,8 +1778,6 @@ void AmrCoreLBM::EncodeCanonicalToOsi(int lev, const MultiFab& canonical) {
 }
 
 void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
-    if (lev <= 0 || lev > finest_level)
-        return;
     (void)time;
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         interp_mode == 0,
@@ -1883,12 +1883,79 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
 void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
     if (lev < 0 || lev >= finest_level)
         return;
-    osi_transfer_active = true;
-    DecodeOsiToCanonical(lev, f_old.at(lev));
-    DecodeOsiToCanonical(lev + 1, f_old.at(lev + 1));
-    AverageDownGhostLevel(lev, is_scale);
-    EncodeCanonicalToOsi(lev, f_old.at(lev));
-    osi_transfer_active = false;
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        average_mode == 3,
+        "Direct OSI fine-to-coarse transfer currently supports average_mode=3");
+
+    auto& coarse_state = osi_state.at(lev);
+    const auto& fine_state = osi_state.at(lev + 1);
+    auto& interface_result = average_interface_buffer.at(lev);
+    auto& transfer_batch = osi_sync_buffer.at(lev);
+    const auto& fine_indices = average_interface_fine_box.at(lev);
+    const auto ratio = refRatio(lev);
+    const auto coarse_phase = osi_phase.at(lev);
+    const auto fine_phase = osi_phase.at(lev + 1);
+    const Real scale = Real(2.0) * tau.at(lev) / tau.at(lev + 1);
+
+    if (fine_indices.empty()) {
+        return;
+    }
+    AMREX_ALWAYS_ASSERT(interface_result.size() == fine_indices.size());
+
+    // 每个稀疏 coarse interface Box 都映射到唯一的 fine Fab；直接按细层
+    // phase 读取 2x2x2 子单元，不再解码完整细层。
+    for (MFIter mfi(interface_result, false); mfi.isValid(); ++mfi) {
+        const int fine_index = fine_indices.at(mfi.index());
+        const Box fine_ring = amrex::grow(
+            fine_state.boxArray()[fine_index], fine_state.nGrowVect());
+        const auto fine_lo = fine_ring.smallEnd();
+        const box3d_osi::FabGeometry fine_fab{
+            {fine_lo[0], fine_lo[1], fine_lo[2]},
+            {fine_ring.length(0), fine_ring.length(1), fine_ring.length(2)}};
+        const Box bx = mfi.validbox();
+        const auto coarse = interface_result.array(mfi);
+        const auto fine = fine_state.const_array(fine_index);
+        amrex::ParallelFor(
+            bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                average_down_osi_to_canonical(
+                    i, j, k, coarse, fine, ratio, fine_fab, fine_phase,
+                    scale, is_scale);
+            });
+    }
+
+    // interface_result 沿用 fine owner。分批 ParallelCopy 把结果送到真实
+    // coarse owner，再只编码 interface mask，避免陈旧缓冲覆盖其他粗单元。
+    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+        const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+        transfer_batch.ParallelCopy(
+            interface_result, q0, 0, ncomp, IntVect(0), IntVect(0));
+
+        for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
+            const Box ring =
+                amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
+            const auto lo = ring.smallEnd();
+            const box3d_osi::FabGeometry coarse_fab{
+                {lo[0], lo[1], lo[2]},
+                {ring.length(0), ring.length(1), ring.length(2)}};
+            const Box bx = mfi.validbox();
+            const auto mask = interface_mask.at(lev).const_array(mfi);
+            const auto src = transfer_batch.const_array(mfi);
+            const auto dst = coarse_state.array(mfi);
+            amrex::ParallelFor(
+                bx, ncomp,
+                [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
+                    if (mask(i, j, k) == 0) {
+                        return;
+                    }
+                    const int q = q0 + n;
+                    const auto raw = box3d_osi::osi_address(
+                        {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                        coarse_phase, coarse_fab);
+                    dst(raw.x, raw.y, raw.z, q) = src(i, j, k, n);
+                });
+        }
+        amrex::Gpu::streamSynchronize();
+    }
 }
 
 void AmrCoreLBM::FillMacroGhostLevel(int lev, amrex::Real time) {
@@ -2264,12 +2331,48 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
         if (stream_mode == 1) {
             DecodeOsiToCanonical(lev, f_old.at(lev));
         }
-        const Real checksum = f_old.at(lev).sum(0, Q);
+        const MultiFab& state = f_old.at(lev);
+        MultiFab& active_state = f_new.at(lev);
+        const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+
+        for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+            const Box bx = mfi.validbox();
+            const auto src = state.const_array(mfi);
+            const auto dst = active_state.array(mfi);
+            if (has_fine) {
+                const auto covered = covered_mask.at(lev).const_array(mfi);
+                const auto interface = interface_mask.at(lev).const_array(mfi);
+                amrex::ParallelFor(
+                    bx, Q,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                        const bool active =
+                            covered(i, j, k) == 0 || interface(i, j, k) != 0;
+                        dst(i, j, k, q) = active ? src(i, j, k, q) : Real(0.0);
+                    });
+            } else {
+                amrex::ParallelFor(
+                    bx, Q,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                        dst(i, j, k, q) = src(i, j, k, q);
+                    });
+            }
+        }
+
+        Real valid_checksum = 0.0;
+        Real active_checksum = 0.0;
+        GpuArray<Real, Q> active_q{};
+        for (int q = 0; q < Q; ++q) {
+            valid_checksum += state.sum(q, 0);
+            active_q[q] = active_state.sum(q, 0);
+            active_checksum += active_q[q];
+        }
         if (ParallelDescriptor::IOProcessor()) {
             amrex::Print() << "ddf_checksum: step=" << step
-                           << " lev=" << lev << " sum=" << checksum;
+                           << " lev=" << lev
+                           << " valid_sum=" << valid_checksum
+                           << " active_sum=" << active_checksum;
             for (int q = 0; q < Q; ++q) {
-                amrex::Print() << " q" << q << "=" << f_old.at(lev).sum(q, 1);
+                amrex::Print() << " active_q" << q << "=" << active_q[q];
             }
             amrex::Print() << '\n';
         }

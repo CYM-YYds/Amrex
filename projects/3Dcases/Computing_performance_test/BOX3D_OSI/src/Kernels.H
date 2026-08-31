@@ -2637,6 +2637,68 @@ void average_down_osi_lbm(
     }
 }
 
+// 从细层 grown-Fab OSI 状态直接读取子单元，把限制结果写入 canonical
+// staging Fab。尺度转换与 average_down_lbm_scaled() 完全相同，只改变寻址。
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void average_down_osi_to_canonical(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& coarse,
+    amrex::Array4<amrex::Real const> const& fine,
+    amrex::IntVect const& ratio, box3d_osi::FabGeometry fine_fab,
+    std::uint64_t fine_phase, amrex::Real scale,
+    bool apply_scale) noexcept {
+    Real restricted[Q]{};
+    const int fi = i * ratio[0];
+    const int fj = j * ratio[1];
+    const int fk = k * ratio[2];
+
+    for (int kr = 0; kr < ratio[2]; ++kr) {
+        for (int jr = 0; jr < ratio[1]; ++jr) {
+            for (int ir = 0; ir < ratio[0]; ++ir) {
+                const int ii = fi + ir;
+                const int jj = fj + jr;
+                const int kk = fk + kr;
+                Real fq[Q];
+                Real rho = 0.0;
+                Real ux = 0.0;
+                Real uy = 0.0;
+                Real uz = 0.0;
+
+                for (int q = 0; q < Q; ++q) {
+                    const auto src = box3d_osi::osi_address(
+                        {ii, jj, kk}, {e[q][0], e[q][1], e[q][2]},
+                        fine_phase, fine_fab);
+                    fq[q] = fine(src.x, src.y, src.z, q);
+                    rho += fq[q];
+                    ux += fq[q] * e[q][0];
+                    uy += fq[q] * e[q][1];
+                    uz += fq[q] * e[q][2];
+                }
+
+                if (apply_scale) {
+                    ux /= rho;
+                    uy /= rho;
+                    uz /= rho;
+                }
+                for (int q = 0; q < Q; ++q) {
+                    if (apply_scale) {
+                        const Real feq = feqQian(rho, {ux, uy, uz}, q);
+                        restricted[q] += feq + (fq[q] - feq) * scale;
+                    } else {
+                        restricted[q] += fq[q];
+                    }
+                }
+            }
+        }
+    }
+
+    const Real inv_children =
+        Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
+    for (int q = 0; q < Q; ++q) {
+        coarse(i, j, k, q) = restricted[q] * inv_children;
+    }
+}
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void average_down_lbm_scaled(int i, int j, int k,
