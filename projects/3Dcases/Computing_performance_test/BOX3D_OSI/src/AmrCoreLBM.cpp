@@ -719,7 +719,9 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     const double start = amrex::second();
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
-    const auto fill_ng = f_old[lev].nGrowVect(); // 获取f_old[lev] 在 x、y、z 三个方向上分配的 ghost cell 层数。
+    const MultiFab& fine_layout =
+        stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
+    const auto fill_ng = fine_layout.nGrowVect();
     Interpolater* interp_mapper = &cell_bilinear_interp;
     if (interp_mode == 1) {
         interp_mapper = &cell_cons_interp;
@@ -728,7 +730,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     }
     const auto coarsener =
         interp_mapper->BoxCoarsener(refRatio(lev - 1));
-    const BoxArray& fine_ba = f_old[lev].boxArray();
+    const BoxArray& fine_ba = fine_layout.boxArray();
     const BoxArray fine_ba_simplified = fine_ba.simplified();
     Box fine_domain = Geom(lev).Domain();
     for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
@@ -754,7 +756,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
         const BoxList leftover = fine_ba_simplified.complementIn(target); // 计算 target 中没有被 fine_ba_simplified 覆盖的区域, 并以多个互不重叠的 Box 返回
         for (const Box& work_box : leftover) {
             const Box coarse_box = coarsener.doit(work_box);
-            const int owner = f_old[lev].DistributionMap()[fine_index];
+            const int owner = fine_layout.DistributionMap()[fine_index];
             bool needs_fill = false;
             for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) { // 检查任意方向的 coarse box 是否出现越界行为
                 needs_fill =
@@ -1776,12 +1778,106 @@ void AmrCoreLBM::EncodeCanonicalToOsi(int lev, const MultiFab& canonical) {
 void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
     if (lev <= 0 || lev > finest_level)
         return;
-    osi_transfer_active = true;
-    DecodeOsiToCanonical(lev - 1, f_old.at(lev - 1));
-    DecodeOsiToCanonical(lev, f_old.at(lev));
-    FillDdfGhostFromCoarse(lev, time);
-    EncodeCanonicalToOsi(lev, f_old.at(lev));
-    osi_transfer_active = false;
+    (void)time;
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        interp_mode == 0,
+        "Direct OSI coarse-to-fine transfer currently supports interp_mode=0");
+    AMREX_ALWAYS_ASSERT(interp_direct_cache_ready.at(lev));
+
+    auto& coarse_state = osi_state.at(lev - 1);
+    auto& fine_state = osi_state.at(lev);
+    auto& decode_batch = osi_sync_buffer.at(lev - 1);
+    auto& coarse_stage = interp_direct_coarse_stage.at(lev);
+    const auto coarse_phase = osi_phase.at(lev - 1);
+    const auto fine_phase = osi_phase.at(lev);
+    const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
+
+    // 分批把粗层 valid 区从 OSI raw 地址解码到现有通信缓冲区，再只复制
+    // 实际插值 stencil 到 sparse coarse_stage。这里不再构造整层 Q 分量
+    // canonical MultiFab，也不读取 f_old。
+    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+        const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+        for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
+            const Box ring =
+                amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
+            const auto lo = ring.smallEnd();
+            const box3d_osi::FabGeometry fab{
+                {lo[0], lo[1], lo[2]},
+                {ring.length(0), ring.length(1), ring.length(2)}};
+            const Box bx = mfi.validbox();
+            const auto src = coarse_state.const_array(mfi);
+            const auto dst = decode_batch.array(mfi);
+            amrex::ParallelFor(
+                bx, ncomp,
+                [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
+                    const int q = q0 + n;
+                    const auto raw = box3d_osi::osi_address(
+                        {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                        coarse_phase, fab);
+                    dst(i, j, k, n) = src(raw.x, raw.y, raw.z, q);
+                });
+        }
+        coarse_stage.ParallelCopy(
+            decode_batch, 0, q0, ncomp, IntVect(0), IntVect(0),
+            Geom(lev - 1).periodicity());
+    }
+
+    const Box coarse_domain = Geom(lev - 1).Domain();
+    const auto coarse_lo = amrex::lbound(coarse_domain);
+    const auto coarse_hi = amrex::ubound(coarse_domain);
+    const auto coarse_periodic = Geom(lev - 1).isPeriodicArray();
+    for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+        if (!interp_direct_needs_physical_fill.at(lev).at(mfi.index())) {
+            continue;
+        }
+        const Box bx = mfi.validbox();
+        const auto coarse = coarse_stage.array(mfi);
+        amrex::ParallelFor(
+            bx, Q,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                const int src_i = coarse_periodic[0]
+                                      ? i
+                                      : amrex::max(coarse_lo.x,
+                                                   amrex::min(i, coarse_hi.x));
+                const int src_j = coarse_periodic[1]
+                                      ? j
+                                      : amrex::max(coarse_lo.y,
+                                                   amrex::min(j, coarse_hi.y));
+                const int src_k = coarse_periodic[2]
+                                      ? k
+                                      : amrex::max(coarse_lo.z,
+                                                   amrex::min(k, coarse_hi.z));
+                if (src_i != i || src_j != j || src_k != k) {
+                    coarse(i, j, k, q) = coarse(src_i, src_j, src_k, q);
+                }
+            });
+    }
+
+    for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+        const int stage_index = mfi.index();
+        const auto coarse = coarse_stage.array(mfi);
+        const Box stage_box = mfi.validbox();
+        amrex::ParallelFor(
+            stage_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                average_scale(i, j, k, coarse, scale);
+            });
+
+        const int fine_index = interp_direct_fine_index.at(lev).at(stage_index);
+        const Box fine_ring = amrex::grow(
+            fine_state.boxArray()[fine_index], fine_state.nGrowVect());
+        const auto fine_lo = fine_ring.smallEnd();
+        const box3d_osi::FabGeometry fine_fab{
+            {fine_lo[0], fine_lo[1], fine_lo[2]},
+            {fine_ring.length(0), fine_ring.length(1), fine_ring.length(2)}};
+        const auto fine = fine_state.array(fine_index);
+        const auto coarse_const = coarse_stage.const_array(mfi);
+        const Box fine_box = interp_direct_fine_boxes.at(lev).at(stage_index);
+        amrex::ParallelFor(
+            fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                interp_bilinear_canonical_to_osi_d3q(
+                    i, j, k, fine, coarse_const, fine_fab, fine_phase);
+            });
+    }
 }
 
 void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {

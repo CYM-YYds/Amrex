@@ -2407,6 +2407,43 @@ void interp_bilinear_osi_d3q(
     }
 }
 
+// 粗层 stencil 已经按逻辑坐标解码到 canonical staging Fab；细层仍保持
+// grown-Fab OSI 布局。因此这里只对输出地址应用 OSI phase 映射。
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void interp_bilinear_canonical_to_osi_d3q(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    box3d_osi::FabGeometry fine_fab,
+    std::uint64_t fine_phase) noexcept {
+    const int ic = amrex::coarsen(i, 2);
+    const int jc = amrex::coarsen(j, 2);
+    const int kc = amrex::coarsen(k, 2);
+    const int sx = i - 2 * ic == 0 ? -1 : 1;
+    const int sy = j - 2 * jc == 0 ? -1 : 1;
+    const int sz = k - 2 * kc == 0 ? -1 : 1;
+    constexpr Real w000 = Real(27.0 / 64.0);
+    constexpr Real w100 = Real(9.0 / 64.0);
+    constexpr Real w110 = Real(3.0 / 64.0);
+    constexpr Real w111 = Real(1.0 / 64.0);
+
+    for (int q = 0; q < Q; ++q) {
+        const Real value =
+            coarse(ic, jc, kc, q) * w000 +
+            coarse(ic + sx, jc, kc, q) * w100 +
+            coarse(ic, jc + sy, kc, q) * w100 +
+            coarse(ic + sx, jc + sy, kc, q) * w110 +
+            coarse(ic, jc, kc + sz, q) * w100 +
+            coarse(ic + sx, jc, kc + sz, q) * w110 +
+            coarse(ic, jc + sy, kc + sz, q) * w110 +
+            coarse(ic + sx, jc + sy, kc + sz, q) * w111;
+        const auto dst = box3d_osi::osi_address(
+            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fine_phase,
+            fine_fab);
+        fine(dst.x, dst.y, dst.z, q) = value;
+    }
+}
+
 // AMReX 中比率为2的单元守恒线性插值的设备端实现。
 // 采用限制型单侧斜率，保证所有精细网格数值落在相邻粗网格单元取值区间内，
 // 同时维持粗网格单元平均值守恒。
