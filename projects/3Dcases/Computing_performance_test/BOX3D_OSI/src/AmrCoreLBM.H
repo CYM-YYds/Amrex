@@ -146,8 +146,7 @@ class AmrCoreLBM : public amrex::AmrCore {
                         amrex::MultiFab& new_old_state);
     void RebuildCoarseFineMasks();
     void RebuildCoarseFineMasksForState(
-        const amrex::Vector<amrex::MultiFab>& state,
-        bool synchronize_periodic_ghosts);
+        const amrex::Vector<amrex::MultiFab>& state);
     void FindCentre();
     //********************************************************************//
     //                           lbm  function                            //

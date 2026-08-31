@@ -1195,14 +1195,14 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
 
 void AmrCoreLBM::RebuildCoarseFineMasks() {
     if (stream_mode == 1) {
-        RebuildCoarseFineMasksForState(osi_state, true);
+        RebuildCoarseFineMasksForState(osi_state);
     } else {
-        RebuildCoarseFineMasksForState(f_old, false);
+        RebuildCoarseFineMasksForState(f_old);
     }
 }
 
 void AmrCoreLBM::RebuildCoarseFineMasksForState(
-    const Vector<MultiFab>& state, bool synchronize_periodic_ghosts) {
+    const Vector<MultiFab>& state) {
     if (cf_mask_mode == 0) {
         return;
     }
@@ -1217,11 +1217,24 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
 
         interface_mask[lev].define(state[lev].boxArray(), state[lev].DistributionMap(), 1, cf_interface_mask_nghost);
         interface_mask[lev].setVal(0);
-        const auto domain_lo = amrex::lbound(domain);
-        const auto domain_hi = amrex::ubound(domain);
+        Box mask_domain = domain;
+        Box covered_neighbor_domain = domain;
+        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+            if (Geom(lev).isPeriodic(dir)) {
+                mask_domain.grow(dir, cf_interface_mask_nghost);
+                covered_neighbor_domain.grow(
+                    dir, cf_covered_mask_nghost);
+            }
+        }
+        const auto neighbor_lo = amrex::lbound(covered_neighbor_domain);
+        const auto neighbor_hi = amrex::ubound(covered_neighbor_domain);
 
         for (MFIter mfi(interface_mask[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            const Box bx = mfi.growntilebox(cf_interface_mask_nghost) & domain;
+            // 周期域外 ghost 与周期另一侧的域内单元是同一个逻辑单元，
+            // 因而直接在周期扩展域上构造 interface 标记；非周期方向仍
+            // 裁剪到物理 domain。
+            const Box bx =
+                mfi.growntilebox(cf_interface_mask_nghost) & mask_domain;
             const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
             const Array4<int>& interface = interface_mask[lev].array(mfi);
 
@@ -1236,11 +1249,15 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
                             const int ni = i + di;
                             const int nj = j + dj;
                             const int nk = k + dk;
-                            const bool in_domain =
-                                (ni >= domain_lo.x && ni <= domain_hi.x) &&
-                                (nj >= domain_lo.y && nj <= domain_hi.y) &&
-                                (nk >= domain_lo.z && nk <= domain_hi.z);
-                            if (in_domain && covered(ni, nj, nk) == 0) {
+                            const bool in_covered_neighbor_domain =
+                                (ni >= neighbor_lo.x &&
+                                 ni <= neighbor_hi.x) &&
+                                (nj >= neighbor_lo.y &&
+                                 nj <= neighbor_hi.y) &&
+                                (nk >= neighbor_lo.z &&
+                                 nk <= neighbor_hi.z);
+                            if (in_covered_neighbor_domain &&
+                                covered(ni, nj, nk) == 0) {
                                 interface(i, j, k) = 1;
                                 return;
                             }
@@ -1248,13 +1265,6 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
                     }
                 }
             });
-        }
-
-        if (synchronize_periodic_ghosts) {
-            // CollideOsiLevel 在全周期算例中遍历整个 grown-Fab 环。将 valid
-            // interface 标记同步到周期 ghost，使逻辑上相同的粗单元采用同一
-            // active/covered 判定；A-B Collide 只访问 domain，无需这一步。
-            interface_mask[lev].FillBoundary(Geom(lev).periodicity());
         }
 
         covered_cell_counts[lev] = covered_mask[lev].sum(0, 0);
@@ -2258,10 +2268,13 @@ void AmrCoreLBM::CollideOsiLevel(int lev) {
     MultiFab& state_lev = osi_state.at(lev);
     const std::uint64_t phase = osi_phase[lev];
     const auto periodic = Geom(lev).isPeriodicArray();
-    bool all_periodic = true;
-    for (int d = 0; d < AMREX_SPACEDIM; ++d)
-        all_periodic &= periodic[d] != 0;
     const Box domain = Geom(lev).Domain();
+    Box collision_domain = domain;
+    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+        if (periodic[dir]) {
+            collision_domain.grow(dir, state_lev.nGrowVect()[dir]);
+        }
+    }
     const Real omega = 1.0 / tau.at(lev);
     const bool has_fine_level = lev < finest_level && cf_mask_mode == 1;
 
@@ -2280,7 +2293,9 @@ void AmrCoreLBM::CollideOsiLevel(int lev) {
         const box3d_osi::FabGeometry fab{{lo[0], lo[1], lo[2]},
                                          {ring.length(0), ring.length(1), ring.length(2)}};
         const Array4<Real> state = state_lev.array(mfi);
-        const Box bx = all_periodic ? ring : (ring & domain);
+        // 周期方向的域外 ghost 是周期另一侧 valid 单元的逻辑副本，需要
+        // 与域内数据采用相同碰撞规则；只有非周期方向裁剪到物理 domain。
+        const Box bx = ring & collision_domain;
 
         if (has_fine_level) {
             const Array4<const int> covered =
@@ -2481,11 +2496,19 @@ void AmrCoreLBM::Collide(int lev, int n) {
     amrex::Real tau_lev = tau[lev];
     const amrex::Real omega_lev = 1.0 / tau_lev;
     const Box domain = Geom(lev).Domain();
+    Box collision_domain = domain;
+    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+        if (Geom(lev).isPeriodic(dir)) {
+            collision_domain.grow(dir, n);
+        }
+    }
     const bool has_fine_level = (lev < finest_level);
     AMREX_ALWAYS_ASSERT(n <= cf_interface_mask_nghost);
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const auto bx = mfi.growntilebox(n) & domain;
+        // 与 grown-Fab OSI 保持一致：周期域外 ghost 参与碰撞，非周期
+        // ghost 仍由物理边界条件负责，不进入碰撞 kernel。
+        const auto bx = mfi.growntilebox(n) & collision_domain;
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& s = shear_lev.array(mfi);
         const Array4<Real>& Ft = force_lev.array(mfi);
