@@ -517,6 +517,7 @@ void AmrCoreLBM::ReadParameters() {
         ParmParse pp_verify("verification");
         pp_verify.query("osi_seed_pattern", osi_verification_pattern);
         pp_verify.query("osi_ab_check", osi_ab_check);
+        pp_verify.query("partial_refine_box", verification_partial_refine_box);
     }
 
     {
@@ -1154,17 +1155,28 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
 }
 
 void AmrCoreLBM::RebuildCoarseFineMasks() {
+    if (stream_mode == 1) {
+        RebuildCoarseFineMasksForState(osi_state, true);
+    } else {
+        RebuildCoarseFineMasksForState(f_old, false);
+    }
+}
+
+void AmrCoreLBM::RebuildCoarseFineMasksForState(
+    const Vector<MultiFab>& state, bool synchronize_periodic_ghosts) {
     if (cf_mask_mode == 0) {
         return;
     }
 
     for (int lev = 0; lev < finest_level; ++lev) {
+        AMREX_ALWAYS_ASSERT(state.at(lev).isDefined());
+        AMREX_ALWAYS_ASSERT(state.at(lev + 1).isDefined());
         const Box domain = Geom(lev).Domain();
         covered_mask[lev] = amrex::makeFineMask(
-            f_old[lev], f_old[lev + 1], amrex::IntVect(cf_covered_mask_nghost), refRatio(lev),
+            state[lev], state[lev + 1], amrex::IntVect(cf_covered_mask_nghost), refRatio(lev),
             Geom(lev).periodicity(), 0, 1);
 
-        interface_mask[lev].define(f_old[lev].boxArray(), f_old[lev].DistributionMap(), 1,
+        interface_mask[lev].define(state[lev].boxArray(), state[lev].DistributionMap(), 1,
                                    cf_interface_mask_nghost);
         interface_mask[lev].setVal(0);
         const auto domain_lo = amrex::lbound(domain);
@@ -1198,6 +1210,13 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
                     }
                 }
             });
+        }
+
+        if (synchronize_periodic_ghosts) {
+            // CollideOsiLevel 在全周期算例中遍历整个 grown-Fab 环。将 valid
+            // interface 标记同步到周期 ghost，使逻辑上相同的粗单元采用同一
+            // active/covered 判定；A-B Collide 只访问 domain，无需这一步。
+            interface_mask[lev].FillBoundary(Geom(lev).periodicity());
         }
 
         covered_cell_counts[lev] = covered_mask[lev].sum(0, 0);
@@ -1755,26 +1774,35 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
     // 实际插值 stencil 到 sparse coarse_stage。这里不再构造整层 Q 分量
     // 后续需要优化,实现OSI适配版的ParallelCopy函数
     for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
-        const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+        const int ncomp =
+            amrex::min(osi_sync_batch_components, Q - q0);
+
         for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
+            const auto src = coarse_state.const_array(mfi);
+            const auto dst = decode_batch.array(mfi);
+
             const Box ring =
                 amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
             const auto lo = ring.smallEnd();
+
             const box3d_osi::FabGeometry fab{
                 {lo[0], lo[1], lo[2]},
                 {ring.length(0), ring.length(1), ring.length(2)}};
-            const Box bx = mfi.validbox();
-            const auto src = coarse_state.const_array(mfi);
-            const auto dst = decode_batch.array(mfi);
-            amrex::ParallelFor(
-                bx, ncomp,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
-                    const int q = q0 + n;
-                    const auto raw = box3d_osi::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                        coarse_phase, fab);
-                    dst(i, j, k, n) = src(raw.x, raw.y, raw.z, q);
-                });
+
+            for (const Box& bx :
+                 osi_interp_decode_boxes.at(lev).at(mfi.index())) {
+                amrex::ParallelFor(
+                    bx, ncomp,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
+                        const int q = q0 + n;
+                        const auto raw = box3d_osi::osi_address(
+                            {i, j, k},
+                            {e[q][0], e[q][1], e[q][2]},
+                            coarse_phase, fab);
+
+                        dst(i, j, k, n) = src(raw.x, raw.y, raw.z, q);
+                    });
+            }
         }
         coarse_stage.ParallelCopy(
             decode_batch, 0, q0, ncomp, IntVect(0), IntVect(0),
@@ -1893,6 +1921,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
     // coarse owner，再只编码 interface mask，避免陈旧缓冲覆盖其他粗单元。
     for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
         const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+
         transfer_batch.ParallelCopy(
             interface_result, q0, 0, ncomp, IntVect(0), IntVect(0));
 
@@ -2196,6 +2225,14 @@ void AmrCoreLBM::CollideOsiLevel(int lev) {
         all_periodic &= periodic[d] != 0;
     const Box domain = Geom(lev).Domain();
     const Real omega = 1.0 / tau.at(lev);
+    const bool has_fine_level = lev < finest_level && cf_mask_mode == 1;
+
+    if (has_fine_level) {
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+            AMREX_ALWAYS_ASSERT(
+                state_lev.nGrowVect()[d] <= cf_interface_mask_nghost);
+        }
+    }
 
     ScopedPerfTimer timer(perf_stats.collide);
 
@@ -2205,10 +2242,29 @@ void AmrCoreLBM::CollideOsiLevel(int lev) {
         const box3d_osi::FabGeometry fab{{lo[0], lo[1], lo[2]},
                                          {ring.length(0), ring.length(1), ring.length(2)}};
         const Array4<Real> state = state_lev.array(mfi);
-        amrex::ParallelFor(all_periodic ? ring : (ring & domain),
-                           [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                               collide_bgk_register_osi(i, j, k, state, phase, fab, omega);
-                           });
+        const Box bx = all_periodic ? ring : (ring & domain);
+
+        if (has_fine_level) {
+            const Array4<const int> covered =
+                covered_mask.at(lev).const_array(mfi);
+            const Array4<const int> interface =
+                interface_mask.at(lev).const_array(mfi);
+            amrex::ParallelFor(
+                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    if (covered(i, j, k) != 0 &&
+                        interface(i, j, k) == 0) {
+                        return;
+                    }
+                    collide_bgk_register_osi(
+                        i, j, k, state, phase, fab, omega);
+                });
+        } else {
+            amrex::ParallelFor(
+                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    collide_bgk_register_osi(
+                        i, j, k, state, phase, fab, omega);
+                });
+        }
     }
 }
 
@@ -2851,6 +2907,15 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
     amrex::IntVect hi2 = static_hi[lev + max_ref_level + 1];
 
     const auto geomdata = geom[lev].data();
+    const Box domain = geom[lev].Domain();
+    const auto domain_lo = amrex::lbound(domain);
+    const int refine_lo_x = domain_lo.x + domain.length(0) / 4;
+    const int refine_lo_y = domain_lo.y + domain.length(1) / 4;
+    const int refine_lo_z = domain_lo.z + domain.length(2) / 4;
+    const int refine_hi_x = domain_lo.x + 3 * domain.length(0) / 4 - 1;
+    const int refine_hi_y = domain_lo.y + 3 * domain.length(1) / 4 - 1;
+    const int refine_hi_z = domain_lo.z + 3 * domain.length(2) / 4 - 1;
+    const bool partial_refine_box = verification_partial_refine_box;
     amrex::Gpu::DeviceVector<amrex::RealVect> points_d = convertToDeviceVector(points);
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
@@ -2866,6 +2931,14 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
         const int points_num = particle_num;
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+            if (partial_refine_box) {
+                if (i >= refine_lo_x && i <= refine_hi_x &&
+                    j >= refine_lo_y && j <= refine_hi_y &&
+                    k >= refine_lo_z && k <= refine_hi_z) {
+                    tagfab(i, j, k) = tagval;
+                }
+                return;
+            }
             // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
             state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
             // state_error_4(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);

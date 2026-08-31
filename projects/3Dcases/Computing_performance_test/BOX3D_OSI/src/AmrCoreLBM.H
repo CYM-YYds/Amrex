@@ -145,6 +145,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     void RemakeDdfState(int lev, amrex::Real time,
                         amrex::MultiFab& new_old_state);
     void RebuildCoarseFineMasks();
+    void RebuildCoarseFineMasksForState(
+        const amrex::Vector<amrex::MultiFab>& state,
+        bool synchronize_periodic_ghosts);
     void FindCentre();
     //********************************************************************//
     //                           lbm  function                            //
@@ -234,6 +237,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool osi_verification_pattern = false;
     // 仅在显式启用时分配 A-B 两数组并逐步比较；生产 OSI 模式保持单一体积级 DDF。
     bool osi_ab_check = false;
+    // 测试专用：用确定的中央 Box 生成局部细化，覆盖 coarse/interface/uncovered。
+    bool verification_partial_refine_box = false;
     // canonical 通信缓冲一次处理的 DDF 分量数；增大它可减少 FillBoundary 调用次数，
     // 代价是按比例增加临时缓冲内存。
     int osi_sync_batch_components = 3;
