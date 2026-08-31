@@ -274,7 +274,7 @@ kernel，本 rank 的缓存 Box 被持久 `TagVector` 融合；布局销毁时�
 状态：**单层六面非周期直接 state 路径已实现，并通过单/双 rank 32 步逐步
 A-B；混合周期方向、长期物理验证和性能测试尚未完成。**
 
-目标：保持当前 BOX3D 边界公式，并安全隔离旧 phase 输入与新 phase 输出。
+目标：使用标准非平衡外推，在 phase 提交后从迁移后的内部逻辑格点重建边界。
 
 步骤：
 
@@ -287,9 +287,8 @@ A-B；混合周期方向、长期物理验证和性能测试尚未完成。**
 边界重建必须在 phase 提交之后进行，并先读取源值再写入目标槽位，避免同一线程内的
 原地地址别名。
 
-当前 A-B `fill_boundary()` 的六个面判断不是互斥分支，边和角会按源码中的面处理顺序
-发生整体覆盖。第一版 scratch 填充必须确定性地复现该顺序，不能让多个面 kernel 对同一
-边/角 scratch cell 无序竞争。
+当前 A-B 和 OSI 共用 compact 面选择语义：每个 cell 内按固定面顺序确定最终
+边界参数，不使用多个面 kernel 并行覆盖同一边/角 cell。
 
 验收：
 
@@ -358,13 +357,15 @@ gather fine valid children
 -> scatter 到 coarse current phase
 ```
 
-实际验收记录（2026-08-29）：
+实际验收记录（更新至 2026-08-31）：
 
 - `OsiCycle2()` 已按实际 `finest_level` 执行粗层一步、细层两个半步；
-- `FillOsiGhostFromCoarse()` 和 `AverageDownOsiLevel()` 通过 canonical bridge 复用现有
-  插值/平均实现，不对 twisted raw 地址执行 `ParallelCopy()`；
-- jobs `583680`（OSI）和 `583681`（A-B）均完成 4 步，日志明确显示
-  `finest_level=1`；两层逐步 checksum 共 8 条记录，最大绝对差为 `0`；
+- `FillOsiGhostFromCoarse()` 分批解码粗层 valid 到同步缓冲，只向 sparse
+  `coarse_stage` 复制插值 stencil，再由 OSI-aware kernel 直接写细层 ghost；
+- `AverageDownOsiLevel()` 直接按细层 phase 读取 2x2x2 children，对 interface parent
+  融合缩放与 restriction，分批送到粗层 owner 后编码回当前 phase；
+- jobs `584122`（OSI）和 `584123`（A-B）均完成 4 步，日志明确显示
+  `finest_level=1` 和 `average_mode=1`；两层逐步所有 D3Q27 checksum 完全一致；
 - 本记录证明两层生命周期、子循环和传输路径可运行并保持总 DDF 一致；尚未构成非均匀场的
   逐单元 `L∞` DDF 等价证明，后续应补充固定布局的逐单元对照。
 
@@ -372,7 +373,7 @@ gather fine valid children
 
 - `osi_phase[lev]` 的增量与 `JaberCycle2()` 子循环次数一致；
 - 固定 BoxArray 下 A-B/OSI 每层 valid DDF 在容差内；
-- mode 0/1/2 coarse-to-fine 和 average mode 基线至少选择一个固定模式完成对照；
+- coarse-to-fine 使用 `interp_mode=0`，fine-to-coarse 使用 `average_mode=1`完成固定模式对照；
 - coarse/fine 传输测试不依赖 raw twisted `ParallelCopy()`。
 
 ## 9. 阶段 6：动态 regrid
@@ -467,9 +468,9 @@ coarse/fine 传输和 canonicalization 都必须计入端到端性能。
 | 文件                   | 计划改动                                                               | 第一责任阶段 |
 | ---------------------- | ---------------------------------------------------------------------- | -----------: |
 | `src/OsiIndex.H`     | 无状态 host/device Fab-local 地址 helper                               |  1（已实现） |
-| `src/Kernels.H`      | fused OSI collision、边界重建与 scratch scatter kernel                 |         2--4 |
-| `src/AmrCoreLBM.H`   | stream mode、level phase/state、boundary scratch、adapter 接口         |         2--7 |
-| `src/AmrCoreLBM.cpp` | launch、通信、boundary scratch、canonicalization、AMR/restart 生命周期 |         2--7 |
+| `src/Kernels.H`      | fused OSI collision、直接 state 边界重建和粗细传输 kernel       |         2--5 |
+| `src/AmrCoreLBM.H`   | stream mode、level phase/state、通信缓冲和 adapter 接口          |         2--7 |
+| `src/AmrCoreLBM.cpp` | launch、通信、边界、粗细传输、AMR/restart 生命周期              |         2--7 |
 | `src/main.cpp`       | A-B/OSI 调度选择，regrid 前后规范化边界                                |         2、6 |
 | `config/inputs`      | `lbm.stream_mode` 及说明                                             |            2 |
 | `tests/`             | 地址置换、A/B norm、MPI/regrid/restart 检查                            |         1--7 |

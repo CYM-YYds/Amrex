@@ -1142,10 +1142,6 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
     // 预先找出各 fine Fab 位于非周期物理边界上的互不重叠工作 Box，
     // Boundary() 可直接遍历这些 Box，而不必在每个时间步重复分析几何关系。
     BuildBoundaryWorkBoxes();
-    if (stream_mode == 1) {
-        for (int lev = 0; lev <= finest_level; ++lev) {
-        }
-    }
 
     // 为每个 fine ghost work_box 建立所需的 coarse stencil staging Fab、
     // fine Fab 索引和 owner 映射，供 FillDdfGhostFromCoarse() 直接插值。
@@ -1302,7 +1298,7 @@ void AmrCoreLBM::BuildRestrictionCache() {
         if (!interface_ba.empty()) {
             DistributionMapping interface_dm(interface_owners);
             average_interface_buffer[lev].define(interface_ba, interface_dm, Q, 0);
-            average_interface_fine_box[lev] = std::move(fine_box_indices);
+            average_interface_fine_box[lev] = std::move(fine_box_indices); // “把 fine_box_indices 这份索引列表转交给 average_interface_fine_box[lev]，避免复制，直接拿走内部数据。”
         }
     }
 }
@@ -1643,8 +1639,7 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
                         [=] AMREX_GPU_DEVICE() noexcept {
                             const int lane = threadIdx.x % warp_size;          // threadIdx.x 是线程在当前 block 内的编号, lane 是线程在 warp 内的编号
                             const int warp_in_block = threadIdx.x / warp_size; // 取得 block 内 warp 编号
-                            const Long icell = static_cast<Long>(blockIdx.x) * warps_per_block +
-                                               warp_in_block;
+                            const Long icell = static_cast<Long>(blockIdx.x) * warps_per_block + warp_in_block;
                             if (icell < ncells) { // 排除了最后一个 block 中的多余 warp
                                 // GPU内部的线程编号映射到AmreX中的网格坐标
                                 const int i = lo.x + static_cast<int>(icell % nx);
@@ -1804,7 +1799,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
         const box3d_osi::FabGeometry fine_fab{
             {fine_lo[0], fine_lo[1], fine_lo[2]},
             {fine_ring.length(0), fine_ring.length(1), fine_ring.length(2)}};
-            
+
         const auto fine = fine_state.array(fine_index);
         const auto coarse_const = coarse_stage.const_array(mfi);
         const Box fine_box = fine_work_boxes.at(stage_index);
@@ -1817,8 +1812,6 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
 }
 
 void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
-    if (lev < 0 || lev >= finest_level)
-        return;
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         average_mode == 1,
         "Direct OSI fine-to-coarse transfer currently supports average_mode=1");

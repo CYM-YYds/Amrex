@@ -1,8 +1,8 @@
 # BOX3D A-B 基线：AMR 粗细网格通信
 
-> **BOX3D_OSI 继承资料。** 本文描述复制时的 A-B 双 `MultiFab` AMR 基线路径，不是
-> 当前的单层 OSI 周期路径。OSI 已通过 canonical view 支持多 Fab/MPI halo，但本文
-> 涉及的多层 AMR 通信尚未接入 OSI。twisted/canonical 布局、per-level phase 和
+> **BOX3D_OSI 继承资料。** 本文主要描述 A-B 双 `MultiFab` AMR 基线路径。
+> OSI 已另行接入最多两层的粗细传输和递归子循环；twisted/canonical 布局、
+> per-level phase 和 OSI-aware 粗细传输以
 > OSI-aware MPI 的设计以
 > [OSI 算法与 AMReX 集成架构](osi_algorithm_and_architecture.md)为准。
 

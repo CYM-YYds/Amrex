@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-截至 2026-08-29，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
+截至 2026-08-31，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
 pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_mode=1` 下支持
 多 Fab、多 MPI rank，以及三向全周期或六面非周期边界。当前采用
 `nGrow=2 + grown-Fab OSI`：
@@ -63,9 +63,11 @@ pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_m
   1/2 rank 下完成 32 步逐步 A-B，最大 `linf=1.443289932e-15`，误差序列完全一致；
   scratch 为 643,032 个值，约为完整 valid DDF 的 9.1%。
 - 阶段 5 已支持 `amr.max_level=1` 的两层递归推进：粗层一步、细层两个半步，
-  并在 regrid 后重建 OSI 状态与粗细层缓存。jobs `583680`（OSI）和 `583681`（A-B）
-  均完成 4 步并出现 `finest_level=1`；统一初始条件下两层逐步 checksum 共 8 条记录，
-  最大绝对差为 `0`。该 checksum 是阶段 5 的回归烟测，不替代非均匀流场的逐单元 DDF 范数对比。
+  并在 regrid 后重建 OSI 状态与粗细层缓存。粗到细使用分批解码的 sparse
+  coarse staging 和直接 OSI 写入，细到粗使用 interface-only 融合 restriction。
+  jobs `584122`（OSI）和 `584123`（A-B）均完成 4 步，`average_mode=1`；
+  两层每步所有 D3Q27 checksum 逐行完全一致。该 checksum 是阶段 5 的回归烟测，
+  不替代非均匀流场的逐单元 DDF 范数对比。
 
 ## 新会话的阅读顺序
 
@@ -122,11 +124,10 @@ storage(Addr(fab,q,phase,i,j,k), q)
     == 物理 cell (i,j,k) 的第 q 个 DDF
 ```
 
-非周期物理边界是原位 OSI 的一个特殊同步点。边界公式需要从旧 phase 的内部逻辑
-cell 读取参考值，却要把重建结果写到新 phase 的边界地址；两者可能映射到同一个 raw
-槽位。因此第一版不能一边读取旧 phase 一边直接原位写新 phase，而要先把完整边界
-重建结果写入 boundary scratch，待全部旧 phase 读取完成后再提交 phase，并把 scratch
-散布到新 phase。详细别名示例与边角覆盖规则见架构文档第 7 节。
+非周期物理边界在 phase 提交后处理。标准非平衡外推从新 phase 下迁移后的
+内部逻辑 cell 读取非平衡部分，并直接写入同一新 phase 的边界 OSI 槽位。
+这条数据依赖不再需要 boundary scratch；六个面在单个 cell kernel 中仍按确定顺序
+覆盖边和角。详细顺序见架构文档第 7 节。
 
 采用规范化边界不是因为 OSI 与 AMR 数学上冲突，而是因为 AMReX 的
 `FillBoundary()`、`ParallelCopy()`、插值、限制和 `VisMF` 默认不知道这层地址翻译。
@@ -142,7 +143,8 @@ cell 读取参考值，却要把重建结果写到新 phase 的边界地址；�
 5. 动态 regrid 的 canonicalize/reset；
 6. checkpoint/restart、完整回归与性能比较。
 
-当前已达到阶段 4：OSI 正式路径在关闭 oracle 时不分配 `f_old/f_new`，但 A-B 实现仍
+当前已完成阶段 5 的两层 AMR 烟测：OSI 正式路径在关闭 oracle 时不分配
+`f_old/f_new`，但 A-B 实现仍
 保留为可选择的数值基线；OSI 尚不能设为默认路径。运行时模式为：
 
 ```text
@@ -182,8 +184,8 @@ lbm.stream_mode = 1  # OSI 实验路径
 
 所有 OSI smoke/performance 作业共用 `config/inputs_osi`；不同实验只在提交脚本中覆盖
 少量参数。阶段 2 GPU smoke 由 `scripts/submit_osi_stage2_smoke.sh` 覆盖单 Fab 和 A-B
-检查参数；基础配置禁用 regrid、输出和 checkpoint，运行时断言继续检查单层和全周期
-约束。
+检查参数。当前 OSI 运行时断言允许最多两层 AMR，仍要求 `collide_mode=1`，
+且在 output/restart adapter 完成前禁用 plotfile、checkpoint 和 restart。
 
 阶段 3 使用同一份 64-Fab 输入分别验证单/双 rank：
 

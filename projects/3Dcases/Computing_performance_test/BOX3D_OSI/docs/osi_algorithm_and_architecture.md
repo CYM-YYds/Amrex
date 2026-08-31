@@ -5,13 +5,13 @@
 
 ## 1. 状态与边界
 
-截至 2026-08-27：
+截至 2026-08-31：
 
 - 已确定采用 one-step index（OSI）单数组方案；
 - 已确定动态 AMR 布局变化时采用 canonicalize/rebuild/reset；
 - `src/OsiIndex.H` 已实现无状态 Fab-local OSI 地址 helper，并有独立 CPU 测试；
-- 默认路径仍是 BOX3D 的 A-B 双 `MultiFab` 基线；`lbm.stream_mode=1` 已提供单层、
-  全周期、多 Fab/MPI 的 OSI correctness 路径；
+- 默认路径仍是 BOX3D 的 A-B 双 `MultiFab` 基线；`lbm.stream_mode=1` 已支持
+  最多两层 AMR、多 Fab/MPI、全周期或六面非周期边界；
 - 地址测试、37 步独立 CPU A/B 测试和 MPI+CUDA 构建已通过；job `581325` 在单 rank、
   单 level、单 Fab、全周期条件下完成 32 步生产 GPU A/B 逐步比较，最大 `linf` 为
   `5.551115123e-17`；
@@ -22,8 +22,8 @@
   `linf=1.498801083e-15` 且逐步序列一致；
 - CPU A/B 额外验证两层 grown 保护环在只初始同步一次后可连续推进两步而不污染 valid；
 - 正式 OSI 模式不分配完整 canonical DDF，宏观量由 OSI accessor 直接读取；六面
-  非周期边界已接入直接 state 重建，已有受限单层周期性能窗口，AMR 和 restart
-  尚无实现或验证证据。
+  非周期边界已接入直接 state 重建；阶段 5 已通过两层递归子循环和动态
+  regrid smoke，但 checkpoint/restart、两层逐单元 norm 和 AMR 受控性能 A/B 仍未完成。
 
 OSI 原论文和均匀网格原型位于
 [`research/papers/OSI优化计划`](../../../../../research/papers/OSI优化计划/)。论文只验证了
@@ -133,26 +133,21 @@ $$
     从 owner logical valid 的 A_q(x,p) 分批解码 post-collision DDF
     按同一逻辑坐标同步接收 Fab 的 ghost 副本，并编码到 A_q(x_ghost,p)
 
-3. Physical boundary reconstruction：
-    只从旧 phase 的内部逻辑地址 A_q(x_i,p) 读取参考值
-    计算完整边界格点的最终 DDF，并写入新 phase 的 state
-    不在这一阶段写 twisted storage
-
-4. phase commit：
-    确认全部旧 phase 边界读取和重建完成
+3. phase commit：
     osi_phase[lev] = p + 1
     这一步在逻辑上完成内部 streaming
 
-5. Physical boundary scatter：
-    目标地址为 A_q(x_b,p+1)
+4. Physical boundary reconstruction：
+    从新 phase 的内部逻辑地址 A_q(x_i,p+1) 读取迁移后参考值
+    按标准非平衡外推重建完整边界 DDF
+    直接写入 A_q(x_b,p+1)
 
 离开 OsiAdvanceLevel(lev)：
     storage 再次表示迁移和物理边界处理后的 incoming DDF
 ```
 
 当前每步在碰撞后同步 owner 的 post-collision 值；接收值仍写当前 phase `p`，再由 phase
-提交表达 streaming。phase 只能在整层本次碰撞、通信和旧 phase 边界重建都完成
-后提交一次。不能让不同
+提交表达 streaming。phase 只能在整层本次碰撞和通信完成后提交一次。不能让不同
 Fab、不同 MPI rank 或同一 level 的不同 kernel 各自提前增加 phase。GPU 实现还必须用
 同一 stream 的顺序或显式同步保证 scratch 已完成，不能只提前修改主机端 phase 元数据。
 
@@ -194,8 +189,8 @@ AMReX level 不是一块全局连续数组。一个全局 logical cell 可能：
 第一版建议以每个 FArrayBox 的完整分配 Box（valid + `nghost`）作为循环区域，原因是
 同层 MPI 和物理/coarse-fine ghost 都必须能按同一映射写入。
 
-该选择已在单层全周期、多 Fab/MPI 范围通过地址测试与逐步 A/B；AMR 粗细接口仍未
-接通。实现和后续扩展必须继续确认：
+该选择已在单层全周期、多 Fab/MPI 范围通过地址测试与逐步 A/B，并已接入
+两层 AMR 粗细传输烟测。实现和后续扩展必须继续确认：
 
 - 任意 `q,p` 下所有 logical cell 映射唯一；
 - 映射永不越出该 Fab 分配 Box；
@@ -248,35 +243,17 @@ D3Q27 连续推进两步后只保证 valid 仍可信，外层 wrap 污染可能�
 
 ## 7. 物理边界
 
-OSI 不改变 bounce-back、非平衡外推或当前 `fill_boundary()` 的物理公式，但单数组实现
-不只是机械替换读写地址。当前 A-B kernel 从 `fold` 的内部 cell 读取参考值，并把完整
-边界结果写入不同数组 `fnew`；两个数组天然隔离了输入和输出。
-
-若 OSI 直接从旧 phase 读取并原位写新 phase，则存在跨边界线程的 raw 槽位别名。例如
-方向 `e_q=(0,-1,0)` 满足：
+OSI 不改变非平衡外推的物理公式。当前 A-B 和 OSI 都在 streaming/phase
+提交后使用迁移后的内部分布函数：
 
 $$
-A_q((1,0,k),p+1)=A_q((1,1,k),p).
+f_q(\mathbf{x}_b)=f_q^{eq}(\rho_b,\mathbf{u}_b)
++f_q(\mathbf{x}_f)-f_q^{eq}(\rho_f,\mathbf{u}_f).
 $$
 
-因此一个线程写逻辑边界 `(1,0,k)` 的新 phase 结果时，可能覆盖另一个边界线程随后还
-要读取的旧 phase 内部参考 `(1,1,k)`。这不是逻辑 cell 冲突，而是两个 phase 对同一
-循环缓冲区的物理槽位别名；GPU 并行执行时会成为数据竞争。
-
-第一版必须把边界处理拆成两个 kernel/阶段：
-
-```text
-旧 phase p 的内部参考值
-    -> 重建完整边界格点的所有 Q 个结果
-    -> boundary scratch（canonical logical boundary）
-    -> 等待全部重建完成
-    -> phase 提交为 p+1
-    -> scatter 到 A_q(boundary,p+1)
-```
-
-scratch 应保存最终重建值，而不是只保存内部参考值。这样第二阶段不再依赖任何旧 phase
-raw 槽位。取模产生的环回值只有在所有参考值已被捕获后才可丢弃；在此之前，其中可能
-仍承载其他逻辑内部 cell 的旧 phase 数据。
+OSI kernel 从 `A_q(x_f,p+1)` 读取内部参考，直接写入
+`A_q(x_b,p+1)`。由于不再读取旧 phase，也不再使用旧公式中的 post-collision
+`fold`，因此不需要 boundary scratch 隔离跨 phase 别名。
 
 地址访问的基本形式仍是：
 
@@ -285,9 +262,8 @@ raw 槽位。取模产生的环回值只有在所有参考值已被捕获后才�
 OSI： f(A_q(i,j,k,phase),q)
 ```
 
-当前 `fill_boundary()` 对六个面使用相互独立的 `if`，边和角可能被后执行的面规则再次
-整体覆盖。boundary scratch 版本必须复现这个既有优先级，或者明确改变规则并单独做
-边/角数值验证；不能把六个面无序并行写入同一个 scratch cell。
+当前 compact boundary helper 在每个 cell 内按 x-low、x-high、y-low、y-high、
+z-low、z-high 的固定顺序选择最终面规则，使边和角的覆盖语义确定。
 
 地址取模只是循环存储机制，不会把非周期物理边界自动变成周期边界。`Geometry`、边界
 类型和 boundary work boxes 仍决定物理边界；OSI accessor 只决定写入哪个存储槽。
@@ -445,9 +421,6 @@ amrex::Vector<std::uint64_t> osi_phase;
 // 按可配置分量批大小复用的 canonical grown 同步缓冲。
 amrex::Vector<amrex::MultiFab> osi_sync_buffer;
 
-// 仅覆盖非周期物理边界 valid cells 的 canonical Q-component scratch。
-amrex::Vector<amrex::MultiFab> osi_boundary_scratch;
-
 struct OsiFabLayout {
     amrex::Dim3 lo;
     amrex::Dim3 len;
@@ -498,7 +471,7 @@ kernel 内自行修改。
 6. **restart 丢失布局语义**：只保存 raw DDF 而不保存/消除 phase，重启后无法解释。
 7. **过早删除 A-B 基线**：没有同输入对照时无法确认错误来自 OSI、AMR 还是物理模型。
 8. **把 canonicalization 成本隐藏**：性能统计必须单列 gather/scatter/regrid reset，不能归并后宣称 OSI kernel 提速。
-9. **边界跨 phase 原位覆盖**：直接读取旧 phase 内部值并写新 phase 边界槽会发生 raw 地址别名和 GPU 数据竞争；必须用 scratch 隔离。
+9. **边界时序回退**：若重新改为从旧 phase 或 post-collision `fold` 读取内部参考，将恢复跨 phase raw 槽位别名风险。
 
 ## 16. 设计完成的判据
 
@@ -507,8 +480,8 @@ kernel 内自行修改。
 - phase 状态机只有一个解释；
 - Fab 循环 Box 的范围已确定；
 - 同层 MPI 的 send/receive logical region 已明确；
-- 物理边界旧 phase 重建、phase commit 和新 phase scatter 的顺序已明确；
-- boundary scratch 的边、角覆盖优先级与 A-B 基线一致；
+- 物理边界在 phase commit 后读取迁移后内部值，并写同一新 phase；
+- compact boundary helper 的边、角覆盖优先级与 A-B 基线一致；
 - coarse/fine 各自的 phase 如何进入传输适配器已明确；
 - regrid 和 restart 均有 canonicalization 入口；
 - A-B 路径仍可在同一源码树中运行；
