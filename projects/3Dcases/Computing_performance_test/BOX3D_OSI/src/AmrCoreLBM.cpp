@@ -1745,13 +1745,13 @@ void AmrCoreLBM::DecodeOsiToCanonical(int lev, MultiFab& canonical) const {
     for (MFIter mfi(canonical, false); mfi.isValid(); ++mfi) {
         const Box ring = amrex::grow(mfi.validbox(), state.nGrowVect());
         const auto lo = ring.smallEnd();
-        const box3d_osi::FabGeometry fab{{lo[0],lo[1],lo[2]},
-            {ring.length(0),ring.length(1),ring.length(2)}};
+        const box3d_osi::FabGeometry fab{{lo[0], lo[1], lo[2]},
+                                         {ring.length(0), ring.length(1), ring.length(2)}};
         const auto dst = canonical.array(mfi);
         const auto src = state.const_array(mfi);
-        amrex::ParallelFor(ring, Q, [=] AMREX_GPU_DEVICE(int i,int j,int k,int q) {
-            const auto a = box3d_osi::osi_address({i,j,k},{e[q][0],e[q][1],e[q][2]},phase,fab);
-            dst(i,j,k,q)=src(a.x,a.y,a.z,q);
+        amrex::ParallelFor(ring, Q, [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+            const auto a = box3d_osi::osi_address({i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
+            dst(i, j, k, q) = src(a.x, a.y, a.z, q);
         });
     }
 }
@@ -1762,21 +1762,22 @@ void AmrCoreLBM::EncodeCanonicalToOsi(int lev, const MultiFab& canonical) {
     for (MFIter mfi(canonical, false); mfi.isValid(); ++mfi) {
         const Box ring = amrex::grow(mfi.validbox(), state.nGrowVect());
         const auto lo = ring.smallEnd();
-        const box3d_osi::FabGeometry fab{{lo[0],lo[1],lo[2]},
-            {ring.length(0),ring.length(1),ring.length(2)}};
+        const box3d_osi::FabGeometry fab{{lo[0], lo[1], lo[2]},
+                                         {ring.length(0), ring.length(1), ring.length(2)}};
         const auto dst = state.array(mfi);
         const auto src = canonical.const_array(mfi);
-        amrex::ParallelFor(ring, Q, [=] AMREX_GPU_DEVICE(int i,int j,int k,int q) {
-            const auto a = box3d_osi::osi_address({i,j,k},{e[q][0],e[q][1],e[q][2]},phase,fab);
-            dst(a.x,a.y,a.z,q)=src(i,j,k,q);
+        amrex::ParallelFor(ring, Q, [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+            const auto a = box3d_osi::osi_address({i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
+            dst(a.x, a.y, a.z, q) = src(i, j, k, q);
         });
     }
 }
 
 void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
-    if (lev <= 0 || lev > finest_level) return;
+    if (lev <= 0 || lev > finest_level)
+        return;
     osi_transfer_active = true;
-    DecodeOsiToCanonical(lev-1, f_old.at(lev-1));
+    DecodeOsiToCanonical(lev - 1, f_old.at(lev - 1));
     DecodeOsiToCanonical(lev, f_old.at(lev));
     FillDdfGhostFromCoarse(lev, time);
     EncodeCanonicalToOsi(lev, f_old.at(lev));
@@ -1784,10 +1785,11 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
 }
 
 void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
-    if (lev < 0 || lev >= finest_level) return;
+    if (lev < 0 || lev >= finest_level)
+        return;
     osi_transfer_active = true;
     DecodeOsiToCanonical(lev, f_old.at(lev));
-    DecodeOsiToCanonical(lev+1, f_old.at(lev+1));
+    DecodeOsiToCanonical(lev + 1, f_old.at(lev + 1));
     AverageDownGhostLevel(lev, is_scale);
     EncodeCanonicalToOsi(lev, f_old.at(lev));
     osi_transfer_active = false;
@@ -2500,7 +2502,8 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
     f_old_lev.define(ba, dm, Q, nghost);
 
     FillCoarsePatch(lev, time, f_old_lev);
-    if (stream_mode == 1) InitializeOsiLevel(lev, ba, dm, f_old_lev);
+    if (stream_mode == 1)
+        InitializeOsiLevel(lev, ba, dm, f_old_lev);
 }
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
                              const amrex::DistributionMapping& dm) { // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用
