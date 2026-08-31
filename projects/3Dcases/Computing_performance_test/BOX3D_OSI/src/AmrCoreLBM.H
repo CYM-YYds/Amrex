@@ -237,8 +237,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     // canonical 通信缓冲一次处理的 DDF 分量数；增大它可减少 FillBoundary 调用次数，
     // 代价是按比例增加临时缓冲内存。
     int osi_sync_batch_components = 3;
-    // 0：全区域分步基准；3：交界区域融合。
-    int average_mode = 3;
+    // 0：全区域分步基准；1：交界区域融合。
+    int average_mode = 1;
     // 粗到细 DDF 插值：0 = ratio-2 三线性；1 = GPU 守恒线性；
     // 2 = GPU 单元二次插值。
     int interp_mode = 0;
@@ -270,7 +270,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 因大量小 kernel 启动而得不偿失。tag 中的 Array4 指针随 level 布局重建。
     amrex::Vector<amrex::TagVector<box3d_osi::CommunicationTag>> osi_decode_tags;
     amrex::Vector<amrex::TagVector<box3d_osi::CommunicationTag>> osi_encode_tags;
-    // 模式 3 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
+    // 模式 1 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
     amrex::Vector<amrex::MultiFab> average_interface_buffer;
     // 将每个稀疏交界 Box 映射到包含其全部子单元的细层 Fab。
     amrex::Vector<amrex::Vector<int>> average_interface_fine_box;

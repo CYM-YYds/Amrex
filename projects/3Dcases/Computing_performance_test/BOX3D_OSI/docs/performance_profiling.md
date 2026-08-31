@@ -115,7 +115,7 @@ python3 scripts/plot_run_performance.py logs/submit/571393-out.log \
 
 ### Jaber A6 对比的适用范围
 
-Jaber et al. 的 A6 cavity 测试与这个算例在大目标上相同：都是 `Re=1000`、`64^3`、D3Q27、双精度、四层 cavity 计算，并且每 32 个 coarse 步进行一次 regridding。两者都使用线性的 coarse-to-fine 空间插值。但它们并不是直接的性能对标对象：A6 是单 GPU、固定 `4^3` block、GPU 原生 octree 求解器，使用仅界面 restriction 和原地 shared-memory streaming。BOX3D 则使用 AMReX patch、通用 `FillPatchTwoLevels()`、coarse-level 的覆盖/界面 mask，以及双 MultiFab pull streaming。当前默认的 `average_mode=3` 使用的是针对 LBM 的融合 restriction，并基于缓存的 coarse-interface parent 列表；在 regridding 之前仍会执行完整的 fine-valid restriction。这些 mask 不是 Jaber 的 fine-level `cells_ID_mask`，而历史 job `571393` 也早于当前的仅界面路径。在比较 MLUPS 之前，应先匹配网格覆盖、马赫数、细化准则和 active-node 计数。
+Jaber et al. 的 A6 cavity 测试与这个算例在大目标上相同：都是 `Re=1000`、`64^3`、D3Q27、双精度、四层 cavity 计算，并且每 32 个 coarse 步进行一次 regridding。两者都使用线性的 coarse-to-fine 空间插值。但它们并不是直接的性能对标对象：A6 是单 GPU、固定 `4^3` block、GPU 原生 octree 求解器，使用仅界面 restriction 和原地 shared-memory streaming。BOX3D 则使用 AMReX patch、通用 `FillPatchTwoLevels()`、coarse-level 的覆盖/界面 mask，以及双 MultiFab pull streaming。当前默认的 `average_mode=1` 使用的是针对 LBM 的融合 restriction，并基于缓存的 coarse-interface parent 列表；在 regridding 之前仍会执行完整的 fine-valid restriction。这些 mask 不是 Jaber 的 fine-level `cells_ID_mask`，而历史 job `571393` 也早于当前的仅界面路径。在比较 MLUPS 之前，应先匹配网格覆盖、马赫数、细化准则和 active-node 计数。
 
 ### 专用 BGK 碰撞路径：Job 575206
 
@@ -202,12 +202,12 @@ job `572587`，模式 1，是修改前的基线。job `572591` 使用了融合 r
 | 模式 | 区域 | 实现 |
 |---:|---|---|
 | 0 | 所有 fine valid cells | 使用 `f_new` 作为临时区的拆分 copy/scale/restrict |
-| 3 | coarse-fine interface | 融合 sparse scale/restrict |
+| 1 | coarse-fine interface | 融合 sparse scale/restrict |
 
-模式 3 使用缓存的 sparse coarse-parent Box 列表。该列表会在 regridding 后重建，并且必须与 coarse `interface_mask` 具有完全相同的单元数量。正常时间步中的 restriction 只更新这个 collar；而在每次 regrid 前的现有 `AverageDownValid()` 调用，会在覆盖的 coarse 单元暴露之前执行所需的完整同步。
+模式 1 使用缓存的 sparse coarse-parent Box 列表。该列表会在 regridding 后重建，并且必须与 coarse `interface_mask` 具有完全相同的单元数量。正常时间步中的 restriction 只更新这个 collar；而在每次 regrid 前的现有 `AverageDownValid()` 调用，会在覆盖的 coarse 单元暴露之前执行所需的完整同步。
 
-下面的 jobs `573417`/`573418` 仍作为历史优化记录；其中模式 2 已从当前代码删除，
-现在的可选值只有 0 和 3。
+下面的 jobs `573417`/`573418` 仍作为历史优化记录；当时的模式 2 已删除，
+当时的模式 3 现已重编号为模式 1。当前可选值只有 0 和 1。
 
 jobs `573417`（模式 2）和 `573418`（模式 3）都是单 GPU、1000 步运行。两者处理了 274,898,288 个 coarse parents 和 2,199,186,304 个 fine children。它们的 31 组 regrid mesh-statistics 序列完全一致。
 
@@ -218,7 +218,7 @@ jobs `573417`（模式 2）和 `573418`（模式 3）都是单 GPU、1000 步运
 | Compute total | 239.9378 s | 228.3266 s | -4.84% |
 | `MLUPS_total` | 269.75 | 283.47 | +5.09% |
 
-模式 2 用 4.5648 s 将界面子单元拷贝到 `f_new`，用 3.5150 s 对它们进行缩放，用 13.6801 s 做 restriction，并用 0.7121 s 将结果拷回。模式 3 用 4.7930 s 跑融合 kernel，并用 0.9360 s 拷回结果。Average 的大幅下降使模式 3 成为了 `config/inputs` 中的默认值。
+模式 2 用 4.5648 s 将界面子单元拷贝到 `f_new`，用 3.5150 s 对它们进行缩放，用 13.6801 s 做 restriction，并用 0.7121 s 将结果拷回。当时的模式 3 用 4.7930 s 跑融合 kernel，并用 0.9360 s 拷回结果。Average 的大幅下降使该路径成为默认值，它现已重编号为模式 1。
 
 双 GPU、64 步 smoke job `573419` 也在两个 MPI rank 下完成，并且界面工作列表/mask 计数符合预期。这验证了 sparse-buffer 回写能跨所测试的 MPI 分解正常执行；但它并不能证明与模式 0 或 1 的严格 field norm 等价。
 

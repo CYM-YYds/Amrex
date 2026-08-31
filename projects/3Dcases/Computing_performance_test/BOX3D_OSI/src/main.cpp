@@ -115,7 +115,7 @@ int main(int argc, char* argv[]) {
             // regrid_time_outer(me, f_array, indices, story);
 
             if (step >= 0 && regrid_int > 0 && step % regrid_int == 0) {
-                // mode 3 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
+                // mode 1 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
                 // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
                 if (lid.finestLevel() > 0) {
                     lid.AverageDownValid();

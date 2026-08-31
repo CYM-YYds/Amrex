@@ -48,11 +48,9 @@ lbm.osi_sync_batch_components = 3
 
 # 细网格到粗网格的 DDF 平均下传模式：
 # 0 = 全部 fine valid，复用 f_new，分步执行 Copy + Scale + Restrict
-# 1 = 全部 fine valid，融合执行非平衡缩放与 Restrict
-# 2 = 仅 coarse-fine interface，复用 f_new，分步执行 Copy + Scale + Restrict
-# 3 = 仅 coarse-fine interface，融合执行非平衡缩放与 Restrict（当前实测默认）
-# 注：regrid 前仍通过 AverageDownValid() 执行完整 fine-to-coarse 同步
-lbm.average_mode = 3
+# 1 = 仅 coarse-fine interface，融合执行非平衡缩放与 Restrict（默认）
+# regrid 前两种模式都会通过 AverageDownValid() 完整同步 fine-to-coarse
+lbm.average_mode = 1
 
 # 粗到细 DDF 插值：
 # 0 = ratio-2 三线性（现有快速基线）

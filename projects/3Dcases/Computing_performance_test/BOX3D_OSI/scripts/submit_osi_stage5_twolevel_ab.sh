@@ -16,9 +16,9 @@ module load mpi/hmpi/1.2.0_bs2.4.0_sp1
 module load compilers/cuda/12.8.0
 module load compilers/gcc/11.3.0
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export AVERAGE_MODE="${AVERAGE_MODE:-3}"
-if [[ "${AVERAGE_MODE}" != "0" && "${AVERAGE_MODE}" != "3" ]]; then
-  echo "AVERAGE_MODE must be 0 or 3" >&2
+export AVERAGE_MODE="${AVERAGE_MODE:-1}"
+if [[ "${AVERAGE_MODE}" != "0" && "${AVERAGE_MODE}" != "1" ]]; then
+  echo "AVERAGE_MODE must be 0 or 1" >&2
   exit 2
 fi
 if [[ -z "${CCS_ALLOC_FILE:-}" || ! -r "${CCS_ALLOC_FILE}" ]]; then exit 1; fi

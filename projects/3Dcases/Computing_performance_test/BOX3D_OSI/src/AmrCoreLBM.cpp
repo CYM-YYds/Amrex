@@ -504,8 +504,8 @@ void AmrCoreLBM::ReadParameters() {
             amrex::Abort("lbm.osi_sync_batch_components must be in [1,Q]");
         }
         pp.query("average_mode", average_mode);
-        if (average_mode != 0 && average_mode != 3) {
-            amrex::Abort("lbm.average_mode must be 0 or 3");
+        if (average_mode != 0 && average_mode != 1) {
+            amrex::Abort("lbm.average_mode must be 0 or 1");
         }
         int n = pp.countval("err");
         if (n > 0) {
@@ -1267,7 +1267,7 @@ void AmrCoreLBM::BuildRestrictionCache() {
         if (average_mode == 0) {
             continue;
         }
-        AMREX_ALWAYS_ASSERT(average_mode == 3);
+        AMREX_ALWAYS_ASSERT(average_mode == 1);
 
         BoxList interface_boxes;
         Vector<int> interface_owners;
@@ -1604,7 +1604,7 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
         return;
     }
 
-    if (average_mode == 3) {
+    if (average_mode == 1) {
         const Long children_per_parent = ratio[0] * ratio[1] * ratio[2];
         // 交界区域融合路径只处理缓存的 coarse-interface 父单元。
         MultiFab& interface_result = average_interface_buffer[lev];
@@ -1820,8 +1820,8 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
     if (lev < 0 || lev >= finest_level)
         return;
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        average_mode == 3,
-        "Direct OSI fine-to-coarse transfer currently supports average_mode=3");
+        average_mode == 1,
+        "Direct OSI fine-to-coarse transfer currently supports average_mode=1");
 
     auto& coarse_state = osi_state.at(lev);
     const auto& fine_state = osi_state.at(lev + 1);

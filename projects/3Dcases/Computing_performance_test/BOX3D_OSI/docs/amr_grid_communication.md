@@ -74,8 +74,8 @@ stencil 到 `coarse_stage` 并写入 fine work box，随后以 fine `FillBoundar
 ## 细到粗平均
 
 `AverageDownGhostLevel()` 仅保留两条用途明确的路径：`average_mode=0` 是全 fine-valid
-区域的分步语义基线，`average_mode=3` 是普通时间步使用的交界区域融合路径。
-当前默认 `average_mode=3`：每次 regrid 后把 fine BoxArray
+区域的分步语义基线，`average_mode=1` 是普通时间步使用的交界区域融合路径。
+当前默认 `average_mode=1`：每次 regrid 后把 fine BoxArray
 粗化，并与 coarse `interface_mask` 相交，缓存稀疏且互不重叠的 coarse-parent 工作箱。
 工作箱的格点总数必须与 `interface_mask` 的计数完全一致，否则程序立即中止。
 
@@ -92,8 +92,8 @@ restriction 源仍然只有 `f_old[lev+1]` 的 valid cells，fine ghost cells �
 普通时间步只回写 coarse-fine interface collar。为了避免 regrid/coarsen 后重新暴露的
 深层 covered coarse cell 陈旧，`main.cpp` 在每次 regrid 前调用 `AverageDownValid()`，
 执行一次完整 fine-valid 到 coarse 的同步。两条路径的 restriction 源都只取
-fine valid cells，不读取 fine ghost cells。`average_mode=1/2` 已从配置校验、缓冲区
-和执行分支中删除。
+fine valid cells，不读取 fine ghost cells。旧的全区域融合和交界区域分步
+实验路径已从配置校验、缓冲区和执行分支中删除。
 
 ## 两层 ghost 与推进范围
 
