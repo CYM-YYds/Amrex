@@ -197,16 +197,17 @@ job `572587`，模式 1，是修改前的基线。job `572591` 使用了融合 r
 
 ## 仅界面 restriction：Jobs 573417 和 573418
 
-`lbm.average_mode` 用于选择 restriction 实现：
+`lbm.average_mode` 当前只保留两种 restriction 实现：
 
 | 模式 | 区域 | 实现 |
 |---:|---|---|
 | 0 | 所有 fine valid cells | 使用 `f_new` 作为临时区的拆分 copy/scale/restrict |
-| 1 | 所有 fine valid cells | 使用变粗后的 fine 缓冲区进行融合 scale/restrict |
-| 2 | coarse-fine interface | 使用 `f_new` 作为临时区的拆分 sparse copy/scale/restrict |
 | 3 | coarse-fine interface | 融合 sparse scale/restrict |
 
-模式 2 和 3 使用同一个缓存的 sparse coarse-parent Box 列表。该列表会在 regridding 后重建，并且必须与 coarse `interface_mask` 具有完全相同的单元数量。正常时间步中的 restriction 只更新这个 collar；而在每次 regrid 前的现有 `AverageDownValid()` 调用，会在覆盖的 coarse 单元暴露之前执行所需的完整同步。
+模式 3 使用缓存的 sparse coarse-parent Box 列表。该列表会在 regridding 后重建，并且必须与 coarse `interface_mask` 具有完全相同的单元数量。正常时间步中的 restriction 只更新这个 collar；而在每次 regrid 前的现有 `AverageDownValid()` 调用，会在覆盖的 coarse 单元暴露之前执行所需的完整同步。
+
+下面的 jobs `573417`/`573418` 仍作为历史优化记录；其中模式 2 已从当前代码删除，
+现在的可选值只有 0 和 3。
 
 jobs `573417`（模式 2）和 `573418`（模式 3）都是单 GPU、1000 步运行。两者处理了 274,898,288 个 coarse parents 和 2,199,186,304 个 fine children。它们的 31 组 regrid mesh-statistics 序列完全一致。
 

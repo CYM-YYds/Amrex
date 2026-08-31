@@ -37,7 +37,6 @@ PHASE_COLORS = {
 DETAILS = (
     "interp_fillpatch",
     "interp_scale",
-    "average_alloc",
     "average_copy",
     "average_scale",
     "average_down",
@@ -45,12 +44,11 @@ DETAILS = (
 DETAIL_LABELS = {
     "interp_fillpatch": "Interp: FillPatch",
     "interp_scale": "Interp: scale",
-    "average_alloc": "Average: alloc",
     "average_copy": "Average: copy",
     "average_scale": "Average: scale",
     "average_down": "Average: down",
 }
-DETAIL_COLORS = ["#4C78A8", "#76A5D2", "#BAB0AC", "#F2B880", "#F58518", "#54A24B"]
+DETAIL_COLORS = ["#4C78A8", "#76A5D2", "#F2B880", "#F58518", "#54A24B"]
 CJK_FONT_PATH = Path("/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc")
 CJK_FONT = FontProperties(fname=str(CJK_FONT_PATH)) if CJK_FONT_PATH.exists() else FontProperties()
 STEP_RE = re.compile(r"step(\d+)")

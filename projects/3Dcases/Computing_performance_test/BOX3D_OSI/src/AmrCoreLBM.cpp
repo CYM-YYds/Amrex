@@ -80,7 +80,6 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     osi_encode_boxes.resize(nlevs_max);
     osi_decode_tags.resize(nlevs_max);
     osi_encode_tags.resize(nlevs_max);
-    average_down_buffer.resize(nlevs_max);
     average_interface_buffer.resize(nlevs_max);
     average_interface_fine_box.resize(nlevs_max);
     covered_mask.resize(nlevs_max);
@@ -505,8 +504,8 @@ void AmrCoreLBM::ReadParameters() {
             amrex::Abort("lbm.osi_sync_batch_components must be in [1,Q]");
         }
         pp.query("average_mode", average_mode);
-        if (average_mode < 0 || average_mode > 3) {
-            amrex::Abort("lbm.average_mode must be 0, 1, 2, or 3");
+        if (average_mode != 0 && average_mode != 3) {
+            amrex::Abort("lbm.average_mode must be 0 or 3");
         }
         int n = pp.countval("err");
         if (n > 0) {
@@ -1055,9 +1054,6 @@ void AmrCoreLBM::FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf) 
 
 void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新生成 AMR 网格,并把所有依赖旧网格拓扑的缓存同步重建。
     regrid_tag_counts.assign(max_level + 1, -1);
-    for (auto& buffer : average_down_buffer) {
-        buffer.clear();
-    }
     for (auto& buffer : average_interface_buffer) {
         buffer.clear();
     }
@@ -1135,7 +1131,6 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
         interp_direct_fine_index[lev].clear();
         interp_direct_cache_ready[lev] = 0;
         boundary_work_boxes[lev].clear();
-        average_down_buffer[lev].clear();
         average_interface_buffer[lev].clear();
         average_interface_fine_box[lev].clear();
     }
@@ -1269,13 +1264,10 @@ void AmrCoreLBM::BuildRestrictionCache() {
         BoxArray coarse_from_fine =
             amrex::coarsen(fine_layout.boxArray(), refRatio(lev));
 
-        if (average_mode == 1) {
-            average_down_buffer[lev].define(
-                coarse_from_fine, fine_layout.DistributionMap(), Q, 0);
-        }
-        if (average_mode < 2) {
+        if (average_mode == 0) {
             continue;
         }
+        AMREX_ALWAYS_ASSERT(average_mode == 3);
 
         BoxList interface_boxes;
         Vector<int> interface_owners;
@@ -1579,17 +1571,15 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     }
 
     amrex::MultiFab& fine_mf = f_old[lev + 1];
-    amrex::MultiFab& fine_scratch = f_new[lev + 1];
     amrex::MultiFab& crse_mf = f_old[lev];
 
     const IntVect ratio = refRatio(lev);
     // 平均前先将细层非平衡分布函数转换到粗层松弛时间对应的尺度。
     const Real scale = 2.0 * tau[lev] / tau[lev + 1];
-    const Long children_per_parent = ratio[0] * ratio[1] * ratio[2];
-
     ScopedPerfTimer avgdown_timer(perf_stats.average_down);
 
     if (average_mode == 0) {
+        amrex::MultiFab& fine_scratch = f_new[lev + 1];
         // 全区域分步基准路径：复制 -> 可选的原位缩放 -> AMReX 通用平均。
         // 当前层已完成 SwapLevel，因此此处可以安全地复用 f_new 作为临时缓冲区。
         {
@@ -1614,9 +1604,9 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
         return;
     }
 
-    if (average_mode >= 2) {
-        // 模式 2/3 使用完全相同的缓存父单元区域，因此二者的耗时对比只改变算法组织，
-        // 不会改变实际处理的交界单元数量。
+    if (average_mode == 3) {
+        const Long children_per_parent = ratio[0] * ratio[1] * ratio[2];
+        // 交界区域融合路径只处理缓存的 coarse-interface 父单元。
         MultiFab& interface_result = average_interface_buffer[lev];
         const Vector<int>& fine_box_indices = average_interface_fine_box[lev];
         if (fine_box_indices.empty()) {
@@ -1625,54 +1615,8 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
 
         AMREX_ALWAYS_ASSERT(interface_result.size() == fine_box_indices.size());
 
-        if (average_mode == 2) {
-            // 交界区域分步基准路径。细化稀疏父 Box 后，恰好得到参与这些粗父单元
-            // 平均计算的 2x2x2 个细层子单元。
-            {
-                ScopedPerfTimer copy_timer(perf_stats.average_copy);
-                for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-                    const int fine_index = fine_box_indices[mfi.index()];
-                    const Box fine_box = amrex::refine(mfi.tilebox(), ratio); // 将当前粗层 interface Box 映射到对应的细层索引区域
-                    const Array4<const Real>& fine = fine_mf.const_array(fine_index);
-                    const Array4<Real>& scratch = fine_scratch.array(fine_index);
-                    amrex::ParallelFor(
-                        fine_box, Q,
-                        [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) noexcept {
-                            scratch(i, j, k, q) = fine(i, j, k, q);
-                        });
-                }
-            }
-
-            if (is_scale) {
-                ScopedPerfTimer scale_timer(perf_stats.average_scale);
-                for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-                    const int fine_index = fine_box_indices[mfi.index()];
-                    const Box fine_box = amrex::refine(mfi.tilebox(), ratio);
-                    const Array4<Real>& scratch = fine_scratch.array(fine_index);
-                    perf_stats.average_scale_cells += fine_box.numPts();
-                    amrex::ParallelFor(
-                        fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                            average_scale(i, j, k, scratch, scale);
-                        });
-                }
-            }
-
-            {
-                ScopedPerfTimer restrict_timer(perf_stats.average_restrict);
-                for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-                    const int fine_index = fine_box_indices[mfi.index()];
-                    const Box bx = mfi.tilebox();
-                    const Array4<const Real>& scratch = fine_scratch.const_array(fine_index);
-                    const Array4<Real>& coarse = interface_result.array(mfi);
-                    perf_stats.average_parent_cells += bx.numPts();
-                    amrex::ParallelFor(
-                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                            average_down_lbm(i, j, k, coarse, scratch, ratio);
-                        });
-                }
-            }
-        } else {
-            // 交界区域融合路径：不再于多个 kernel 之间写回完整的缩放后 DDF 中间数据。
+        {
+            // 缩放与限制融合，不写回完整的缩放后 DDF 中间数据。
             ScopedPerfTimer fused_timer(perf_stats.average_fused);
             for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
                 const int fine_index = fine_box_indices[mfi.index()];
@@ -1735,66 +1679,7 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
         return;
     }
 
-    // 模式 1 是全区域融合基准，用于核对 interface-only 模式的数值结果。
-    MultiFab& coarse_from_fine = average_down_buffer[lev];
-
-    AMREX_ALWAYS_ASSERT(coarse_from_fine.boxArray() == amrex::coarsen(fine_mf.boxArray(), ratio));
-    AMREX_ALWAYS_ASSERT(coarse_from_fine.DistributionMap() == fine_mf.DistributionMap());
-
-    {
-        ScopedPerfTimer fused_timer(perf_stats.average_fused);
-        for (MFIter mfi(coarse_from_fine, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            const Box bx = mfi.tilebox();
-            const Array4<const Real>& fine = fine_mf.const_array(mfi);
-            const Array4<Real>& coarse = coarse_from_fine.array(mfi);
-            perf_stats.average_parent_cells += bx.numPts();
-
-            if (is_scale) {
-                perf_stats.average_scale_cells += bx.numPts() * ratio[0] * ratio[1] * ratio[2];
-#ifdef AMREX_USE_CUDA
-                // 全区域与稀疏区域的融合模式采用相同的 q-lane warp 映射。
-                constexpr int threads_per_block = 256;
-                constexpr int warp_size = 32;
-                constexpr int warps_per_block = threads_per_block / warp_size;
-                const Long ncells = bx.numPts();
-                const int nblocks = static_cast<int>((ncells + warps_per_block - 1) /
-                                                     warps_per_block);
-                const auto lo = amrex::lbound(bx);
-                const int nx = bx.length(0);
-                const int ny = bx.length(1);
-
-                amrex::launch<threads_per_block>(
-                    nblocks, amrex::Gpu::Device::gpuStream(),
-                    [=] AMREX_GPU_DEVICE() noexcept {
-                        const int lane = threadIdx.x % warp_size;
-                        const int warp_in_block = threadIdx.x / warp_size;
-                        const Long icell = static_cast<Long>(blockIdx.x) * warps_per_block +
-                                           warp_in_block;
-                        if (icell < ncells) {
-                            const int i = lo.x + static_cast<int>(icell % nx);
-                            const Long yz = icell / nx;
-                            const int j = lo.y + static_cast<int>(yz % ny);
-                            const int k = lo.z + static_cast<int>(yz / ny);
-                            average_down_lbm_scaled_warp(i, j, k, lane, coarse, fine, ratio,
-                                                         scale);
-                        }
-                    });
-#else
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                    average_down_lbm_scaled(i, j, k, coarse, fine, ratio, scale);
-                });
-#endif
-            } else {
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                    average_down_lbm(i, j, k, coarse, fine, ratio);
-                });
-            }
-        }
-    }
-    {
-        ScopedPerfTimer copyback_timer(perf_stats.average_copyback);
-        crse_mf.ParallelCopy(coarse_from_fine, 0, 0, Q);
-    }
+    amrex::Abort("unreachable lbm.average_mode");
 }
 
 void AmrCoreLBM::AverageDownGhost() {

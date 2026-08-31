@@ -16,9 +16,14 @@ module load mpi/hmpi/1.2.0_bs2.4.0_sp1
 module load compilers/cuda/12.8.0
 module load compilers/gcc/11.3.0
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export AVERAGE_MODE="${AVERAGE_MODE:-3}"
+if [[ "${AVERAGE_MODE}" != "0" && "${AVERAGE_MODE}" != "3" ]]; then
+  echo "AVERAGE_MODE must be 0 or 3" >&2
+  exit 2
+fi
 if [[ -z "${CCS_ALLOC_FILE:-}" || ! -r "${CCS_ALLOC_FILE}" ]]; then exit 1; fi
 hostfile=$(mktemp /tmp/box3d_osi_stage5_ab.XXXXXX); trap 'rm -f "$hostfile"' EXIT
 awk '{if (length($1)>0 && length($2)>0) print $1 " slots=" $2}' "$CCS_ALLOC_FILE" > "$hostfile"
-mpirun -hostfile "$hostfile" -n 1 -x PATH -x LD_LIBRARY_PATH \
+mpirun -hostfile "$hostfile" -n 1 -x PATH -x LD_LIBRARY_PATH -x AVERAGE_MODE \
   --mca plm_rsh_agent /opt/batch/agent/tools/dstart bash -lc \
-  'export CUDA_VISIBLE_DEVICES=0; exec ./main3d.gnu.TPROF.MPI.CUDA.ex config/inputs_osi amr.max_level=1 amr.regrid_int=1 max_step=4 stop_time=4 lbm.stream_mode=0 verification.osi_seed_pattern=true lbm.err=0.0 amr.plot_int=-1 checkpoint.chk_int=-1'
+  'export CUDA_VISIBLE_DEVICES=0; exec ./main3d.gnu.TPROF.MPI.CUDA.ex config/inputs_osi amr.max_level=1 amr.regrid_int=1 max_step=4 stop_time=4 lbm.stream_mode=0 lbm.average_mode=${AVERAGE_MODE} verification.osi_seed_pattern=true lbm.err=0.0 amr.plot_int=-1 checkpoint.chk_int=-1'

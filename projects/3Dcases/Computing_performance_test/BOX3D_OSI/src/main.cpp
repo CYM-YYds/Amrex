@@ -115,7 +115,7 @@ int main(int argc, char* argv[]) {
             // regrid_time_outer(me, f_array, indices, story);
 
             if (step >= 0 && regrid_int > 0 && step % regrid_int == 0) {
-                // 模式 2/3 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
+                // mode 3 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
                 // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
                 if (lid.finestLevel() > 0) {
                     lid.AverageDownValid();
@@ -209,7 +209,6 @@ int main(int argc, char* argv[]) {
                           << " perf_detail(s): interp_cache_build=" << perf.interp_cache_build
                           << " interp_regrid_fill=" << perf.interp_regrid_fill
                           << " interp_fillpatch=" << perf.interp_fillpatch
-                          << " average_alloc=" << perf.average_alloc
                           << " average_copy=" << perf.average_copy
                           << " average_scale=" << perf.average_scale
                           << " average_down=" << perf.average_down
