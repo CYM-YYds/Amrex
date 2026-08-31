@@ -90,6 +90,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     interp_direct_fine_boxes.resize(nlevs_max);
     interp_direct_fine_index.resize(nlevs_max);
     interp_direct_needs_physical_fill.resize(nlevs_max);
+    osi_interp_decode_boxes.resize(nlevs_max);
     interp_direct_cache_ready.resize(nlevs_max, 0);
     boundary_work_boxes.resize(nlevs_max);
 
@@ -745,10 +746,12 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     auto& fine_work_boxes = interp_direct_fine_boxes[lev];
     auto& fine_indices = interp_direct_fine_index[lev];
     auto& needs_physical_fill = interp_direct_needs_physical_fill[lev];
+    auto& osi_decode_regions = osi_interp_decode_boxes[lev];
     coarse_stage.clear();
     fine_work_boxes.clear();
     fine_indices.clear();
     needs_physical_fill.clear();
+    osi_decode_regions.clear();
 
     for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
         const Box target =
@@ -786,6 +789,37 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
         DistributionMapping coarse_stage_dm(std::move(coarse_owners));
         coarse_stage.define(coarse_stage_ba, coarse_stage_dm, Q, 0);
     }
+
+    // ParallelCopy 只会从 coarse valid 读取与 coarse_stage 相交的区域。
+    // 在这里一次性反查这些 source boxes，避免每个时间步解码整层 valid。
+    if (stream_mode == 1) {
+        const BoxArray& source_ba = osi_state.at(lev - 1).boxArray();
+        const auto shifts =
+            Geom(lev - 1).periodicity().shiftIntVect();
+        Vector<BoxList> decode_candidates(source_ba.size());
+
+        for (const Box& destination : coarse_boxes) {
+            for (const IntVect& shift : shifts) {
+                const Box source_query = destination - shift;
+                for (const auto& [source_index, source_box] :
+                     source_ba.intersections(source_query)) {
+                    decode_candidates[source_index].push_back(source_box);
+                }
+            }
+        }
+
+        osi_decode_regions.resize(source_ba.size());
+        for (int source_index = 0; source_index < source_ba.size();
+             ++source_index) {
+            BoxList disjoint =
+                amrex::removeOverlap(decode_candidates[source_index]);
+            disjoint.simplify(true);
+            AMREX_ALWAYS_ASSERT(disjoint.isDisjoint());
+            osi_decode_regions[source_index].assign(
+                disjoint.begin(), disjoint.end());
+        }
+    }
+    
     interp_direct_cache_ready[lev] = 1;
     ++perf_stats.interp_cache_builds;
     perf_stats.interp_cache_build += amrex::second() - start;
@@ -1070,6 +1104,9 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
     for (auto& flags : interp_direct_needs_physical_fill) {
         flags.clear();
     }
+    for (auto& boxes : osi_interp_decode_boxes) {
+        boxes.clear();
+    }
     std::fill(
         interp_direct_cache_ready.begin(),
         interp_direct_cache_ready.end(), 0);
@@ -1130,6 +1167,8 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
         interp_direct_coarse_stage[lev].clear();
         interp_direct_fine_boxes[lev].clear();
         interp_direct_fine_index[lev].clear();
+        interp_direct_needs_physical_fill[lev].clear();
+        osi_interp_decode_boxes[lev].clear();
         interp_direct_cache_ready[lev] = 0;
         boundary_work_boxes[lev].clear();
         average_interface_buffer[lev].clear();
@@ -1176,8 +1215,7 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
             state[lev], state[lev + 1], amrex::IntVect(cf_covered_mask_nghost), refRatio(lev),
             Geom(lev).periodicity(), 0, 1);
 
-        interface_mask[lev].define(state[lev].boxArray(), state[lev].DistributionMap(), 1,
-                                   cf_interface_mask_nghost);
+        interface_mask[lev].define(state[lev].boxArray(), state[lev].DistributionMap(), 1, cf_interface_mask_nghost);
         interface_mask[lev].setVal(0);
         const auto domain_lo = amrex::lbound(domain);
         const auto domain_hi = amrex::ubound(domain);

@@ -292,6 +292,10 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Vector<amrex::Box>> interp_direct_fine_boxes;
     amrex::Vector<amrex::Vector<int>> interp_direct_fine_index;
     amrex::Vector<amrex::Vector<unsigned char>> interp_direct_needs_physical_fill;
+    // OSI 粗到细插值中，coarse_stage::ParallelCopy 实际读取的粗层
+    // canonical source 区域，按 [fine level][coarse Fab index][Box] 缓存。
+    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>>
+        osi_interp_decode_boxes;
     amrex::Vector<unsigned char> interp_direct_cache_ready;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; // boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box
 
