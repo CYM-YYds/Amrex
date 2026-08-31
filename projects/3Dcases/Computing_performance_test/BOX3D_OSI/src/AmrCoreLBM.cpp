@@ -811,8 +811,6 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
             f_old_lev_c, 0, 0, Q, amrex::IntVect(0),
             amrex::IntVect(0), Geom(lev - 1).periodicity());
 
-        // AmrCoreFill 不施加额外 ext_dir 数值；通用 PhysBCFunct 在这里
-        // 等价于把非周期域外 stencil 复制为最近的域内 coarse 值。
         // 只为真正越过物理边界的 staging Box 启动复制 kernel，避免
         // 每次插值对全部离散 Fab 执行通用边界管理。
         const Box coarse_domain = Geom(lev - 1).Domain();
@@ -830,27 +828,20 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
             amrex::ParallelFor(
                 bx, Q,
                 [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                    const int src_i =
-                        coarse_periodic[0]
-                            ? i
-                            : (i < coarse_lo.x
-                                   ? coarse_lo.x
-                                   : (i > coarse_hi.x ? coarse_hi.x : i));
-                    const int src_j =
-                        coarse_periodic[1]
-                            ? j
-                            : (j < coarse_lo.y
-                                   ? coarse_lo.y
-                                   : (j > coarse_hi.y ? coarse_hi.y : j));
-                    const int src_k =
-                        coarse_periodic[2]
-                            ? k
-                            : (k < coarse_lo.z
-                                   ? coarse_lo.z
-                                   : (k > coarse_hi.z ? coarse_hi.z : k));
+                    const int src_i = coarse_periodic[0]
+                                          ? i
+                                          : amrex::max(coarse_lo.x,
+                                                       amrex::min(i, coarse_hi.x));
+                    const int src_j = coarse_periodic[1]
+                                          ? j
+                                          : amrex::max(coarse_lo.y,
+                                                       amrex::min(j, coarse_hi.y));
+                    const int src_k = coarse_periodic[2]
+                                          ? k
+                                          : amrex::max(coarse_lo.z,
+                                                       amrex::min(k, coarse_hi.z));
                     if (src_i != i || src_j != j || src_k != k) {
-                        coarse(i, j, k, q) =
-                            coarse(src_i, src_j, src_k, q);
+                        coarse(i, j, k, q) = coarse(src_i, src_j, src_k, q);
                     }
                 });
         }
@@ -862,34 +853,31 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
                 bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                     average_scale(i, j, k, coarse, scale);
                 });
-        }
 
-        for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
             const int stage_index = mfi.index();
-            const auto coarse = coarse_stage.const_array(mfi);
             const int fine_index = fine_indices[stage_index];
             const auto fine = mf.array(fine_index);
-            const Box& bx = fine_work_boxes[stage_index];
+            const Box& fine_box = fine_work_boxes[stage_index];
             if (interp_mode_local == 0) {
                 amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                         interp_bilinear_d3q(i, j, k, fine, coarse);
                     });
             } else if (interp_mode_local == 1) {
-                const Box coarse_parent_box = amrex::coarsen(bx, 2);
+                const Box coarse_parent_box = amrex::coarsen(fine_box, 2);
                 amrex::ParallelFor(
                     coarse_parent_box,
                     [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
                         interp_cell_cons_linear_children_d3q(
-                            ic, jc, kc, fine, coarse, bx);
+                            ic, jc, kc, fine, coarse, fine_box);
                     });
             } else {
-                const Box coarse_parent_box = amrex::coarsen(bx, 2);
+                const Box coarse_parent_box = amrex::coarsen(fine_box, 2);
                 amrex::ParallelFor(
                     coarse_parent_box,
                     [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
                         interp_cell_quadratic_children_d3q(
-                            ic, jc, kc, fine, coarse, bx);
+                            ic, jc, kc, fine, coarse, fine_box);
                     });
             }
         }
@@ -1459,11 +1447,85 @@ void AmrCoreLBM::AverageDownValidLevel(int lev, bool is_scale) {
     amrex::average_down(fine_boundary_data, crse_mf, 0, Q, refRatio(lev));
 }
 
+void AmrCoreLBM::AverageDownOsiValidLevel(int lev, bool is_scale) {
+    AMREX_ALWAYS_ASSERT(lev >= 0 && lev < finest_level);
+    auto& coarse_state = osi_state.at(lev);
+    const auto& fine_state = osi_state.at(lev + 1);
+    auto& coarse_transfer = osi_sync_buffer.at(lev);
+    const IntVect ratio = refRatio(lev);
+    const BoxArray restricted_ba =
+        amrex::coarsen(fine_state.boxArray(), ratio);
+    MultiFab restricted_batch(
+        restricted_ba, fine_state.DistributionMap(),
+        osi_sync_batch_components, 0);
+    const auto fine_phase = osi_phase.at(lev + 1);
+    const auto coarse_phase = osi_phase.at(lev);
+    const Real scale = Real(2.0) * tau.at(lev) / tau.at(lev + 1);
+
+    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+        const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+        for (MFIter mfi(restricted_batch, false); mfi.isValid(); ++mfi) {
+            const int fine_index = mfi.index();
+            const Box fine_ring = amrex::grow(
+                fine_state.boxArray()[fine_index], fine_state.nGrowVect());
+            const auto fine_lo = fine_ring.smallEnd();
+            const box3d_osi::FabGeometry fine_fab{
+                {fine_lo[0], fine_lo[1], fine_lo[2]},
+                {fine_ring.length(0), fine_ring.length(1),
+                 fine_ring.length(2)}};
+            const Box bx = mfi.validbox();
+            const auto dst = restricted_batch.array(mfi);
+            const auto src = fine_state.const_array(fine_index);
+            amrex::ParallelFor(
+                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    average_down_osi_batch_to_canonical(
+                        i, j, k, dst, src, ratio, fine_fab, fine_phase,
+                        scale, is_scale, q0, ncomp);
+                });
+        }
+
+        coarse_transfer.ParallelCopy(
+            restricted_batch, 0, 0, ncomp, IntVect(0), IntVect(0));
+
+        // 只编码 coarsened-fine Box 覆盖的粗层 valid 区。BoxArray 保持不重叠，
+        // 因而每个粗单元在一个批次内只会被写一次。
+        for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
+            const int coarse_index = mfi.index();
+            const Box ring =
+                amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
+            const auto lo = ring.smallEnd();
+            const box3d_osi::FabGeometry coarse_fab{
+                {lo[0], lo[1], lo[2]},
+                {ring.length(0), ring.length(1), ring.length(2)}};
+            const auto src = coarse_transfer.const_array(mfi);
+            const auto dst = coarse_state.array(mfi);
+            for (const auto& intersection :
+                 restricted_ba.intersections(mfi.validbox())) {
+                const Box bx = intersection.second;
+                amrex::ParallelFor(
+                    bx, ncomp,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
+                        const int q = q0 + n;
+                        const auto raw = box3d_osi::osi_address(
+                            {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                            coarse_phase, coarse_fab);
+                        dst(raw.x, raw.y, raw.z, q) = src(i, j, k, n);
+                    });
+            }
+        }
+        amrex::Gpu::streamSynchronize();
+    }
+}
+
 void AmrCoreLBM::AverageDownValid() {
     // interface-only 时间推进不会更新深层 covered 粗单元；regrid 可能重新暴露这些单元，
     // 因此重网格前必须先将全部细层 valid 数据完整同步到粗层父单元。
     for (int lev = finest_level - 1; lev >= 0; --lev) {
-        AverageDownValidLevel(lev, 1);
+        if (stream_mode == 1) {
+            AverageDownOsiValidLevel(lev, true);
+        } else {
+            AverageDownValidLevel(lev, true);
+        }
     }
 }
 
@@ -1794,7 +1856,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
 
     // 分批把粗层 valid 区从 OSI raw 地址解码到现有通信缓冲区，再只复制
     // 实际插值 stencil 到 sparse coarse_stage。这里不再构造整层 Q 分量
-    // canonical MultiFab，也不读取 f_old。
+    // 后续需要优化,实现OSI适配版的ParallelCopy函数
     for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
         const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
         for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {

@@ -2699,6 +2699,68 @@ void average_down_osi_to_canonical(
     }
 }
 
+// Regrid 前的完整限制按 q 批次输出，避免为 coarsened-fine 布局保留 Q 分量
+// 临时 MultiFab。每个批次会重新读取子单元宏观量；这是低频 regrid 路径的
+// 明确时间/内存折中。
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void average_down_osi_batch_to_canonical(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& coarse_batch,
+    amrex::Array4<amrex::Real const> const& fine,
+    amrex::IntVect const& ratio, box3d_osi::FabGeometry fine_fab,
+    std::uint64_t fine_phase, amrex::Real scale, bool apply_scale,
+    int q0, int ncomp) noexcept {
+    Real restricted[Q]{};
+    const int fi = i * ratio[0];
+    const int fj = j * ratio[1];
+    const int fk = k * ratio[2];
+
+    for (int kr = 0; kr < ratio[2]; ++kr) {
+        for (int jr = 0; jr < ratio[1]; ++jr) {
+            for (int ir = 0; ir < ratio[0]; ++ir) {
+                const int ii = fi + ir;
+                const int jj = fj + jr;
+                const int kk = fk + kr;
+                Real fq[Q];
+                Real rho = 0.0;
+                Real ux = 0.0;
+                Real uy = 0.0;
+                Real uz = 0.0;
+                for (int q = 0; q < Q; ++q) {
+                    const auto src = box3d_osi::osi_address(
+                        {ii, jj, kk}, {e[q][0], e[q][1], e[q][2]},
+                        fine_phase, fine_fab);
+                    fq[q] = fine(src.x, src.y, src.z, q);
+                    rho += fq[q];
+                    ux += fq[q] * e[q][0];
+                    uy += fq[q] * e[q][1];
+                    uz += fq[q] * e[q][2];
+                }
+                if (apply_scale) {
+                    ux /= rho;
+                    uy /= rho;
+                    uz /= rho;
+                }
+                for (int n = 0; n < ncomp; ++n) {
+                    const int q = q0 + n;
+                    if (apply_scale) {
+                        const Real feq = feqQian(rho, {ux, uy, uz}, q);
+                        restricted[n] += feq + (fq[q] - feq) * scale;
+                    } else {
+                        restricted[n] += fq[q];
+                    }
+                }
+            }
+        }
+    }
+
+    const Real inv_children =
+        Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
+    for (int n = 0; n < ncomp; ++n) {
+        coarse_batch(i, j, k, n) = restricted[n] * inv_children;
+    }
+}
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void average_down_lbm_scaled(int i, int j, int k,
