@@ -142,6 +142,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     // CUDA 扩展版设备 Lambda 要求包裹它的成员函数必须是 public 公有访问权限
     void RebuildCoarseFineCaches();
     void FillDdfGhostFromCoarse(int lev, amrex::Real time);
+    void FillCoarseInterpolationStagePhysicalBoundary(int lev);
     void RemakeDdfState(int lev, amrex::Real time,
                         amrex::MultiFab& new_old_state);
     void RebuildCoarseFineMasks();
