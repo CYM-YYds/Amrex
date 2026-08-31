@@ -819,7 +819,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
                 disjoint.begin(), disjoint.end());
         }
     }
-    
+
     interp_direct_cache_ready[lev] = 1;
     ++perf_stats.interp_cache_builds;
     perf_stats.interp_cache_build += amrex::second() - start;
@@ -1217,15 +1217,10 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
 
         interface_mask[lev].define(state[lev].boxArray(), state[lev].DistributionMap(), 1, cf_interface_mask_nghost);
         interface_mask[lev].setVal(0);
-        Box mask_domain = domain;
-        Box covered_neighbor_domain = domain;
-        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-            if (Geom(lev).isPeriodic(dir)) {
-                mask_domain.grow(dir, cf_interface_mask_nghost);
-                covered_neighbor_domain.grow(
-                    dir, cf_covered_mask_nghost);
-            }
-        }
+        const Box mask_domain =
+            Geom(lev).growPeriodicDomain(cf_interface_mask_nghost);
+        const Box covered_neighbor_domain =
+            Geom(lev).growPeriodicDomain(cf_covered_mask_nghost);
         const auto neighbor_lo = amrex::lbound(covered_neighbor_domain);
         const auto neighbor_hi = amrex::ubound(covered_neighbor_domain);
 
@@ -2267,14 +2262,8 @@ void AmrCoreLBM::OsiAdvanceLevel(int lev) {
 void AmrCoreLBM::CollideOsiLevel(int lev) {
     MultiFab& state_lev = osi_state.at(lev);
     const std::uint64_t phase = osi_phase[lev];
-    const auto periodic = Geom(lev).isPeriodicArray();
-    const Box domain = Geom(lev).Domain();
-    Box collision_domain = domain;
-    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-        if (periodic[dir]) {
-            collision_domain.grow(dir, state_lev.nGrowVect()[dir]);
-        }
-    }
+    const Box collision_domain =
+        Geom(lev).growPeriodicDomain(state_lev.nGrowVect());
     const Real omega = 1.0 / tau.at(lev);
     const bool has_fine_level = lev < finest_level && cf_mask_mode == 1;
 
@@ -2495,13 +2484,7 @@ void AmrCoreLBM::Collide(int lev, int n) {
     amrex::Real dt = Geom(lev).CellSizeArray()[0];
     amrex::Real tau_lev = tau[lev];
     const amrex::Real omega_lev = 1.0 / tau_lev;
-    const Box domain = Geom(lev).Domain();
-    Box collision_domain = domain;
-    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-        if (Geom(lev).isPeriodic(dir)) {
-            collision_domain.grow(dir, n);
-        }
-    }
+    const Box collision_domain = Geom(lev).growPeriodicDomain(n);
     const bool has_fine_level = (lev < finest_level);
     AMREX_ALWAYS_ASSERT(n <= cf_interface_mask_nghost);
 

@@ -414,12 +414,14 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
 void OsiCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     const amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
-    const int max_level = lid.finestLevel();
-    if (lev < max_level) {
+
+    if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
+
     lid.OsiAdvanceLevel(lev);
-    if (lev < max_level) {
+
+    if (lev < lid.finestLevel()) {
         OsiCycle2(lev + 1, cur_time, lid);
         OsiCycle2(lev + 1, cur_time + dt / 2.0, lid);
         lid.AverageDownGhostLevel(lev, 1);

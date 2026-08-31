@@ -2389,21 +2389,21 @@ void interp_bilinear_osi_d3q(
     const int sx = i - 2 * ic == 0 ? -1 : 1;
     const int sy = j - 2 * jc == 0 ? -1 : 1;
     const int sz = k - 2 * kc == 0 ? -1 : 1;
-    constexpr Real w000=Real(27.0/64.0), w100=Real(9.0/64.0);
-    constexpr Real w110=Real(3.0/64.0), w111=Real(1.0/64.0);
-    for (int q=0; q<Q; ++q) {
+    constexpr Real w000 = Real(27.0 / 64.0), w100 = Real(9.0 / 64.0);
+    constexpr Real w110 = Real(3.0 / 64.0), w111 = Real(1.0 / 64.0);
+    for (int q = 0; q < Q; ++q) {
         const auto v = [&](int x, int y, int z) {
             const auto a = box3d_osi::osi_address(
-                {x,y,z}, {e[q][0],e[q][1],e[q][2]}, coarse_phase, coarse_fab);
-            return coarse(a.x,a.y,a.z,q);
+                {x, y, z}, {e[q][0], e[q][1], e[q][2]}, coarse_phase, coarse_fab);
+            return coarse(a.x, a.y, a.z, q);
         };
-        const Real value = v(ic,jc,kc)*w000 + v(ic+sx,jc,kc)*w100 +
-            v(ic,jc+sy,kc)*w100 + v(ic+sx,jc+sy,kc)*w110 +
-            v(ic,jc,kc+sz)*w100 + v(ic+sx,jc,kc+sz)*w110 +
-            v(ic,jc+sy,kc+sz)*w110 + v(ic+sx,jc+sy,kc+sz)*w111;
+        const Real value = v(ic, jc, kc) * w000 + v(ic + sx, jc, kc) * w100 +
+                           v(ic, jc + sy, kc) * w100 + v(ic + sx, jc + sy, kc) * w110 +
+                           v(ic, jc, kc + sz) * w100 + v(ic + sx, jc, kc + sz) * w110 +
+                           v(ic, jc + sy, kc + sz) * w110 + v(ic + sx, jc + sy, kc + sz) * w111;
         const auto dst = box3d_osi::osi_address(
-            {i,j,k}, {e[q][0],e[q][1],e[q][2]}, fine_phase, fine_fab);
-        fine(dst.x,dst.y,dst.z,q) = value;
+            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fine_phase, fine_fab);
+        fine(dst.x, dst.y, dst.z, q) = value;
     }
 }
 
@@ -2627,13 +2627,13 @@ void average_down_osi_lbm(
             for (int jr = 0; jr < ratio[1]; ++jr)
                 for (int ir = 0; ir < ratio[0]; ++ir) {
                     const auto src = box3d_osi::osi_address(
-                        {i*ratio[0]+ir, j*ratio[1]+jr, k*ratio[2]+kr},
+                        {i * ratio[0] + ir, j * ratio[1] + jr, k * ratio[2] + kr},
                         {e[q][0], e[q][1], e[q][2]}, fine_phase, fine_fab);
                     sum += fine(src.x, src.y, src.z, q);
                 }
         const auto dst = box3d_osi::osi_address(
-            {i,j,k}, {e[q][0],e[q][1],e[q][2]}, coarse_phase, coarse_fab);
-        coarse(dst.x,dst.y,dst.z,q) = sum * inv;
+            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, coarse_phase, coarse_fab);
+        coarse(dst.x, dst.y, dst.z, q) = sum * inv;
     }
 }
 
@@ -2854,15 +2854,9 @@ void average_down_osi_to_canonical_warp(
 
                 if (apply_scale) {
                     const Real rho = warp_sum_32(fq);
-                    const Real ux =
-                        warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0)) /
-                        rho;
-                    const Real uy =
-                        warp_sum_32(q < Q ? fq * e[q][1] : Real(0.0)) /
-                        rho;
-                    const Real uz =
-                        warp_sum_32(q < Q ? fq * e[q][2] : Real(0.0)) /
-                        rho;
+                    const Real ux = warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0)) / rho;
+                    const Real uy = warp_sum_32(q < Q ? fq * e[q][1] : Real(0.0)) / rho;
+                    const Real uz = warp_sum_32(q < Q ? fq * e[q][2] : Real(0.0)) / rho;
                     if (q < Q) {
                         const Real feq = feqQian(rho, {ux, uy, uz}, q);
                         restricted += feq + (fq - feq) * scale;
