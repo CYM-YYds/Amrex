@@ -92,9 +92,10 @@ A-B checksum 回归；checkpoint/restart 和输出适配仍未实现。
 - 新建 fine level 的 A-B 与 OSI 路径统一为“coarse 非平衡 DDF 按
   `tau_fine/(2*tau_coarse)` 缩放，再执行空间插值”。当前 OSI 在插值前显式刷新并复用
   常驻 `density/velocity` 和既有 DDF batch，不分配临时 4 分量宏观量容器，也不构造
-  完整 canonical D3Q27。最终验证 job `584616` 还将 regrid 回调收敛为只初始化
-  valid：`FillOsiFinePatchFromCoarse()` 始终构造 sparse fine patch，level 0 ghost 在
-  regrid 后由推进层显式填充，fine ghost 由 `OsiCycle2()` 的 `FillGhostLevel()` 填充。
+  完整 canonical D3Q27。最终验证 job `584617` 还将 regrid 回调收敛为只初始化
+  valid：`FillOsiFinePatchFromCoarse()` 始终构造 sparse fine patch；碰撞前不填 level 0
+  同层 ghost，fine 的 `FillGhostLevel()` 只准备两步子循环需要的 coarse-fine ghost；
+  所有同层/周期 ghost 均由 `OsiAdvanceLevel()` 在碰撞后、phase 提交前同步。
   该作业覆盖
   `Remake/Clear/MakeNew/Remake`，54 项逐单元验收全部通过，最大 active
   `Linf=1.054711873e-15`、mean-L1 `=1.492743922e-16`、relative-L2

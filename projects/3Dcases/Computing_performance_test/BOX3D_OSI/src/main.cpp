@@ -98,9 +98,6 @@ int main(int argc, char* argv[]) {
         if (lid.streamMode() == 0) {
             // 与 OSI 初始化路径一致：首次碰撞前先建立 coarse grown ghost。
             lid.CommunicateLevel(0);
-        } else {
-            // 网格构造回调只初始化 valid；推进层在首次碰撞前建立 ghost。
-            lid.FillGhostLevel(0, cur_time, false);
         }
         lid.ValidateOsiConfiguration();
 
@@ -129,11 +126,6 @@ int main(int argc, char* argv[]) {
                 lid.RefineMesh(cur_time);
                 if (lid.streamMode() == 0) {
                     lid.RedistributeParticle();
-                } else {
-                    // Remake/MakeNew 只负责 valid。level 0 没有 coarse-fine
-                    // fill 入口，因此在 regrid 后显式重建其同层/周期 ghost；
-                    // fine ghost 随后由 OsiCycle2 的 FillGhostLevel 填充。
-                    lid.FillGhostLevel(0, cur_time, false);
                 }
             }
 

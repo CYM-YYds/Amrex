@@ -1412,10 +1412,6 @@ void AmrCoreLBM::ComputeMacroLevel(int lev) {
                 compute_macro_osi(i, j, k, ddf, rho, u, phase, fab);
             });
         }
-
-        // 宏观场保持 canonical 坐标语义，自己的 ghost 可直接交给 AMReX 填充。
-        rho_lev.FillBoundary(geom[lev].periodicity());
-        u_lev.FillBoundary(geom[lev].periodicity());
         return;
     }
 
@@ -1765,9 +1761,6 @@ void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
         if (is_scale) {
             FillOsiGhostFromCoarse(lev, time);
         }
-        // FillGhostLevel 对外提供完整 ghost 语义：粗细层插值之后，再用
-        // 当前 level 的 owner valid 覆盖同层/周期重叠 ghost。
-        CommunicateLevel_osi(lev);
     } else if (is_scale) {
         FillDdfGhostFromCoarse(lev, time);
     } else {
