@@ -220,6 +220,23 @@ class AmrCoreLBM : public amrex::AmrCore {
     void BuildDirectInterpolationCache(int lev);
     void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
                             const amrex::DistributionMapping& dm);
+    void FillNewOsiLevelFromCoarse(int lev, amrex::Real time);
+
+  public:
+    // nvcc extended device lambdas require their enclosing member functions to
+    // be publicly accessible. These are implementation helpers, not user APIs.
+    void DecodeOsiValidBatch(const amrex::MultiFab& state,
+                             std::uint64_t phase,
+                             amrex::MultiFab& batch, int q0,
+                             int ncomp) const;
+    void FillOsiFinePatchFromCoarse(
+        int lev, amrex::Real time,
+        const amrex::BoxArray& fine_patch_ba,
+        const amrex::DistributionMapping& patch_dm,
+        amrex::MultiFab& destination,
+        bool destination_matches_patch);
+
+  private:
 
     std::string plot_file{"plt"};
 
@@ -237,6 +254,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool osi_ab_check = false;
     // 测试专用：用确定的中央 Box 生成局部细化，覆盖 coarse/interface/uncovered。
     bool verification_partial_refine_box = false;
+    // 测试专用：每次运行时 regrid 依次触发布局改变、删层和重新建层。
+    bool verification_dynamic_refine_box = false;
+    int verification_regrid_generation = 0;
     // canonical 通信缓冲一次处理的 DDF 分量数；增大它可减少 FillBoundary 调用次数，
     // 代价是按比例增加临时缓冲内存。
     int osi_sync_batch_components = 3;

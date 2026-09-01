@@ -5,15 +5,16 @@
 
 ## 当前状态
 
-截至 2026-08-31，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
+截至 2026-09-01，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
 pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_mode=1` 下支持
 多 Fab、多 MPI rank，以及三向全周期或六面非周期边界。当前采用
 `nGrow=2 + grown-Fab OSI`：
 每个 Fab 的 valid 与 ghost 组成统一保护环，通信同步当前 phase 的同坐标重叠副本。
-非周期边界在 phase 提交后直接从迁移后的 `osi_state` 重建并写回边界槽位。阶段 5 已接入静态两层 AMR
-子循环和 OSI-aware 粗细层传输，并完成 1/2 MPI rank 的严格静态回归。旧的动态
-regrid smoke 依赖 `f_old` canonical 中转，现已禁用；direct OSI remap 与 checkpoint
-仍未实现。
+非周期边界在 phase 提交后直接从迁移后的 `osi_state` 重建并写回边界槽位。阶段 5 已接入
+两层 AMR 子循环和 OSI-aware 粗细层传输。阶段 6 已实现不经过 `f_old/f_new` 的 direct
+OSI regrid：旧/新 fine 重叠区按旧 phase 分批解码并 remap，新增 fine patch 从 coarse
+OSI 状态插值，改变布局的 level 重置到 phase 0。静态与动态路径均已完成双 MPI rank
+A-B checksum 回归；checkpoint/restart 和输出适配仍未实现。
 现有性能证据也只覆盖单层全周期固定网格，不能外推到动态 AMR 生产负载。
 
 复制完成后的审查基线提交为 `6578093`；开始修改代码前的文档基线提交为
@@ -76,6 +77,12 @@ regrid smoke 依赖 `f_old` canonical 中转，现已禁用；direct OSI remap �
   常驻中转：64 条 level 0/1 checksum 的 `active_sum` 与全部 `active_q0...26`
   完全一致；Arena 峰值分别约 204 MB 与 303--310 MB。该内存数字来自不同执行路径，
   只作为分配模式证据，不是受控性能结论。
+- 阶段 6 动态验证使用 `verification.dynamic_refine_box=true`，每两步依次触发布局改变、
+  删除细层、重新创建细层和再次布局改变。jobs `584483`（OSI）与 `584484`（A-B）以
+  2 MPI ranks 完成 10 个 coarse steps；日志中的 finest level 为 `1 -> 0 -> 1`，共
+  18 条 `(step,level)` 记录的 `active_sum` 和 `active_q0...active_q26` 逐字符一致。
+  OSI 日志保持 `full_ddf_arrays=1`，Arena 峰值约 278--309 MB；该动态峰值包含 regrid
+  期间的稀疏 patch staging，不代表常驻第二套完整 DDF。
 
 ## 新会话的阅读顺序
 
@@ -148,10 +155,10 @@ storage(Addr(fab,q,phase,i,j,k), q)
 2. 多 Fab/多 MPI、单层固定网格；
 3. 非周期物理边界；
 4. 静态多层 AMR 与 2:1 子循环；
-5. 动态 regrid 的 canonicalize/reset；
+5. 动态 regrid 的 direct OSI remap/reset；
 6. checkpoint/restart、完整回归与性能比较。
 
-当前已完成阶段 5 的两层静态 AMR 1/2-rank 回归：OSI 正式路径在关闭 oracle 时不分配
+当前已完成阶段 6 的两层动态 AMR 双-rank 回归：OSI 正式路径在关闭 oracle 时不分配
 `f_old/f_new`，但 A-B 实现仍
 保留为可选择的数值基线；OSI 尚不能设为默认路径。运行时模式为：
 
@@ -223,6 +230,16 @@ dsub -s ./scripts/submit_osi_stage5_twolevel_ab.sh
 可用 `MPI_RANKS=1` 运行单 rank 对照。两份日志应各有 32 组 level 0/1 checksum，
 并逐项比较 `active_sum` 与 `active_q0...active_q26`；两 rank 默认共享一块 GPU，不能据此
 声称完成 multi-GPU 性能验证。
+
+阶段 6 动态重构回归默认运行 10 个 coarse steps、每 2 步 regrid、2 MPI ranks：
+
+```bash
+dsub -s ./scripts/submit_osi_stage6_regrid.sh
+dsub -s ./scripts/submit_osi_stage6_regrid_ab.sh
+```
+
+验收时既要检查 `regrid_observe` 确实出现 `finest_level=1 -> 0 -> 1`，也要逐项比较
+两份日志的 `active_sum` 与 `active_q0...active_q26`；仅检查作业退出码不够。
 
 `lbm.osi_sync_batch_components` 默认为 1；允许范围为 1--27。jobs `582514`（1 rank）
 和 `582515`（2 ranks）在同一作业内顺序比较 `B=1/3/9`：三种批大小的32步 A-B

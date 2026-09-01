@@ -519,6 +519,13 @@ void AmrCoreLBM::ReadParameters() {
         pp_verify.query("osi_seed_pattern", osi_verification_pattern);
         pp_verify.query("osi_ab_check", osi_ab_check);
         pp_verify.query("partial_refine_box", verification_partial_refine_box);
+        pp_verify.query("dynamic_refine_box", verification_dynamic_refine_box);
+        if (verification_partial_refine_box &&
+            verification_dynamic_refine_box) {
+            amrex::Abort(
+                "verification.partial_refine_box and "
+                "verification.dynamic_refine_box are mutually exclusive");
+        }
     }
 
     {
@@ -1088,6 +1095,9 @@ void AmrCoreLBM::FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf) 
 }
 
 void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新生成 AMR 网格,并把所有依赖旧网格拓扑的缓存同步重建。
+    if (verification_dynamic_refine_box) {
+        ++verification_regrid_generation;
+    }
     regrid_tag_counts.assign(max_level + 1, -1);
     for (auto& buffer : average_interface_buffer) {
         buffer.clear();
@@ -1114,7 +1124,9 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
     RebuildCoarseFineCaches();
 
     if (ParallelDescriptor::IOProcessor()) {
-        amrex::Print() << "regrid_observe: finest_level=" << finest_level << '\n';
+        amrex::Print() << "regrid_observe: generation="
+                       << verification_regrid_generation
+                       << " finest_level=" << finest_level << '\n';
         for (int lev = 0; lev <= finest_level; ++lev) {
             const auto& ba = boxArray(lev);
             amrex::Print() << "regrid_observe: lev=" << lev
@@ -2813,6 +2825,10 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
                                         const amrex::DistributionMapping& dm) // 给新建的细网格层 lev 分配数据，并从紧邻的粗层插值出初始 DDF 状态, 只在 regrid() 新增一个此前不存在的细层时调用，RefineMesh() 会调用。
 {
     // amrex::AllPrint()<<"MakeNewLevelFromCoarse on " << lev <<std::endl;
+    if (verification_dynamic_refine_box) {
+        amrex::Print() << "regrid_callback: make_new_from_coarse lev="
+                       << lev << '\n';
+    }
 
     if (lev == 0) {
         amrex::Abort("Cannot construct level 0 from a coarser level.");
@@ -2829,9 +2845,14 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
     force_lev.define(ba, dm, AMREX_SPACEDIM, nghost);
     shear_lev.define(ba, dm, 1, nghost);
     if (stream_mode == 1) {
-        amrex::Abort(
-            "Dynamic creation of a new OSI level requires the direct OSI "
-            "regrid adapter; f_old canonical staging is intentionally disabled.");
+        InitializeOsiLevel(lev, ba, dm);
+        auto& state = osi_state.at(lev);
+        state.setVal(std::numeric_limits<Real>::quiet_NaN());
+        FillNewOsiLevelFromCoarse(lev, time);
+        force_lev.setVal(0.0, nghost);
+        shear_lev.setVal(0.0, nghost);
+        vort_lev.setVal(0.0, nghost);
+        return;
     }
 
     auto& f_new_lev = f_new.at(lev);
@@ -2843,20 +2864,71 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
                              const amrex::DistributionMapping& dm) { // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用
     // amrex::AllPrint()<<"ReMakeLevel on " << lev <<std::endl;
-
-    if (stream_mode == 1) {
-        amrex::Abort(
-            "Dynamic remake of an OSI level requires the direct OSI regrid "
-            "adapter; f_old canonical staging is intentionally disabled.");
+    if (verification_dynamic_refine_box) {
+        amrex::Print() << "regrid_callback: remake lev=" << lev << '\n';
     }
 
-    amrex::MultiFab new_state(ba, dm, Q, nghost);
-    amrex::MultiFab old_state(ba, dm, Q, nghost);
     amrex::MultiFab u_new(ba, dm, AMREX_SPACEDIM, nghost); // 什么用,要初始化吗
     amrex::MultiFab rho_new(ba, dm, 1, nghost);
     amrex::MultiFab vort_new(ba, dm, 2, nghost);
     amrex::MultiFab force_new(ba, dm, AMREX_SPACEDIM, nghost);
     amrex::MultiFab shear_new(ba, dm, 1, nghost);
+
+    if (stream_mode == 1) {
+        ++perf_stats.interp_regrid_fill_calls;
+        ScopedPerfTimer timer(perf_stats.interp_regrid_fill);
+
+        osi_decode_tags.at(lev).undefine();
+        osi_encode_tags.at(lev).undefine();
+        MultiFab old_state;
+        MultiFab old_decode_batch;
+        std::swap(old_state, osi_state.at(lev));
+        std::swap(old_decode_batch, osi_sync_buffer.at(lev));
+        const auto old_phase = osi_phase.at(lev);
+
+        InitializeOsiLevel(lev, ba, dm);
+        MultiFab& new_osi_state = osi_state.at(lev);
+        new_osi_state.setVal(std::numeric_limits<Real>::quiet_NaN());
+
+        // 旧、新 fine 布局重叠区：按旧 phase 分批解码，再由 ParallelCopy
+        // 完成本地或跨 rank remap。新布局 phase=0，目标地址即逻辑坐标。
+        for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+            const int ncomp =
+                amrex::min(osi_sync_batch_components, Q - q0);
+            DecodeOsiValidBatch(
+                old_state, old_phase, old_decode_batch, q0, ncomp);
+            new_osi_state.ParallelCopy(
+                old_decode_batch, 0, q0, ncomp, IntVect(0), IntVect(0),
+                Geom(lev).periodicity());
+        }
+
+        if (lev > 0) {
+            const IntVect fill_ng(0);
+            const auto ratio = refRatio(lev - 1);
+            const auto coarsener =
+                cell_bilinear_interp.BoxCoarsener(ratio);
+            const auto& fpc = FabArrayBase::TheFPinfo(
+                old_state, new_osi_state, fill_ng, coarsener,
+                Geom(lev), Geom(lev - 1), nullptr);
+            FillOsiFinePatchFromCoarse(
+                lev, time, fpc.ba_fine_patch, fpc.dm_patch,
+                new_osi_state, false);
+        }
+
+        CommunicateLevel_osi(lev);
+        std::swap(u_new, velocity[lev]);
+        std::swap(rho_new, density[lev]);
+        std::swap(vort_new, vorticity[lev]);
+        std::swap(force_new, force[lev]);
+        std::swap(shear_new, shear[lev]);
+        force[lev].setVal(0.0, nghost);
+        shear[lev].setVal(0.0, nghost);
+        vorticity[lev].setVal(0.0, nghost);
+        return;
+    }
+
+    amrex::MultiFab new_state(ba, dm, Q, nghost);
+    amrex::MultiFab old_state(ba, dm, Q, nghost);
 
     {
         ScopedPerfTimer timer(perf_stats.interp_regrid_fill);
@@ -2885,8 +2957,171 @@ void AmrCoreLBM::InitializeOsiLevel(
     osi_phase.at(lev) = 0;
     BuildOsiCommunicationRegionCache(lev);
 }
+
+void AmrCoreLBM::FillNewOsiLevelFromCoarse(int lev, Real time) {
+    AMREX_ALWAYS_ASSERT(lev > 0);
+    AMREX_ALWAYS_ASSERT(osi_phase.at(lev) == 0);
+
+    MultiFab& fine_state = osi_state.at(lev);
+    const MultiFab& coarse_state = osi_state.at(lev - 1);
+    MultiFab& decode_batch = osi_sync_buffer.at(lev - 1);
+    const auto coarse_phase = osi_phase.at(lev - 1);
+
+    // MakeNewLevelFromCoarse 的 A-B 基线使用 CellConservativeLinear，且不做
+    // 非平衡缩放。这里按分量批次解码 coarse OSI valid 值，再调用同一个
+    // AMReX 插值器；fine 新层的 phase=0，故 canonical 目标坐标就是 raw
+    // 目标地址，不需要完整 Q 分量 coarse staging MultiFab。
+    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+        const int ncomp =
+            amrex::min(osi_sync_batch_components, Q - q0);
+        DecodeOsiValidBatch(
+            coarse_state, coarse_phase, decode_batch, q0, ncomp);
+
+        if (Gpu::inLaunchRegion()) {
+            GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
+            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(
+                geom[lev - 1], bcs, gpu_bndry_func);
+            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
+                geom[lev], bcs, gpu_bndry_func);
+            amrex::InterpFromCoarseLevel(
+                fine_state, time, decode_batch, 0, q0, ncomp,
+                geom[lev - 1], geom[lev], cphysbc, q0, fphysbc, q0,
+                refRatio(lev - 1), &cell_cons_interp, bcs, q0);
+        } else {
+            CpuBndryFuncFab bndry_func(nullptr);
+            PhysBCFunct<CpuBndryFuncFab> cphysbc(
+                geom[lev - 1], bcs, bndry_func);
+            PhysBCFunct<CpuBndryFuncFab> fphysbc(
+                geom[lev], bcs, bndry_func);
+            amrex::InterpFromCoarseLevel(
+                fine_state, time, decode_batch, 0, q0, ncomp,
+                geom[lev - 1], geom[lev], cphysbc, q0, fphysbc, q0,
+                refRatio(lev - 1), &cell_cons_interp, bcs, q0);
+        }
+    }
+}
+
+void AmrCoreLBM::DecodeOsiValidBatch(
+    const MultiFab& state, std::uint64_t phase, MultiFab& batch,
+    int q0, int ncomp) const {
+    AMREX_ALWAYS_ASSERT(state.boxArray() == batch.boxArray());
+    AMREX_ALWAYS_ASSERT(state.DistributionMap() == batch.DistributionMap());
+    AMREX_ALWAYS_ASSERT(q0 >= 0 && q0 + ncomp <= Q);
+    AMREX_ALWAYS_ASSERT(ncomp <= batch.nComp());
+
+    for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+        const Box bx = mfi.validbox();
+        const Box ring = amrex::grow(bx, state.nGrowVect());
+        const auto lo = ring.smallEnd();
+        const box3d_osi::FabGeometry fab{
+            {lo[0], lo[1], lo[2]},
+            {ring.length(0), ring.length(1), ring.length(2)}};
+        const auto src = state.const_array(mfi);
+        const auto dst = batch.array(mfi);
+        amrex::ParallelFor(
+            bx, ncomp,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
+                const int q = q0 + n;
+                const auto raw = box3d_osi::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase,
+                    fab);
+                dst(i, j, k, n) = src(raw.x, raw.y, raw.z, q);
+            });
+    }
+}
+
+void AmrCoreLBM::FillOsiFinePatchFromCoarse(
+    int lev, Real time, const BoxArray& fine_patch_ba,
+    const DistributionMapping& patch_dm, MultiFab& destination,
+    bool destination_matches_patch) {
+    if (fine_patch_ba.empty()) {
+        return;
+    }
+    AMREX_ALWAYS_ASSERT(lev > 0);
+    AMREX_ALWAYS_ASSERT(refRatio(lev - 1) == IntVect(2));
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        interp_mode == 0,
+        "Direct OSI regrid currently supports interp_mode=0");
+
+    const IntVect ratio = refRatio(lev - 1);
+    const auto coarsener =
+        cell_bilinear_interp.BoxCoarsener(ratio);
+    Vector<Box> coarse_boxes;
+    coarse_boxes.reserve(fine_patch_ba.size());
+    for (int ibox = 0; ibox < fine_patch_ba.size(); ++ibox) {
+        coarse_boxes.push_back(coarsener.doit(fine_patch_ba[ibox]));
+    }
+
+    BoxArray coarse_ba(
+        coarse_boxes.data(), static_cast<int>(coarse_boxes.size()));
+    MultiFab coarse_patch(coarse_ba, patch_dm, Q, 0);
+    coarse_patch.setDomainBndry(
+        std::numeric_limits<Real>::quiet_NaN(), Geom(lev - 1));
+
+    const MultiFab& coarse_state = osi_state.at(lev - 1);
+    MultiFab& decode_batch = osi_sync_buffer.at(lev - 1);
+    const auto coarse_phase = osi_phase.at(lev - 1);
+    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+        const int ncomp =
+            amrex::min(osi_sync_batch_components, Q - q0);
+        DecodeOsiValidBatch(
+            coarse_state, coarse_phase, decode_batch, q0, ncomp);
+        coarse_patch.ParallelCopy(
+            decode_batch, 0, q0, ncomp, IntVect(0), IntVect(0),
+            Geom(lev - 1).periodicity());
+    }
+
+    if (Gpu::inLaunchRegion()) {
+        GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
+        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(
+            geom[lev - 1], bcs, gpu_bndry_func);
+        cphysbc(coarse_patch, 0, Q, coarse_patch.nGrowVect(), time, 0);
+    } else {
+        CpuBndryFuncFab bndry_func(nullptr);
+        PhysBCFunct<CpuBndryFuncFab> cphysbc(
+            geom[lev - 1], bcs, bndry_func);
+        cphysbc(coarse_patch, 0, Q, coarse_patch.nGrowVect(), time, 0);
+    }
+
+    const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
+    for (MFIter mfi(coarse_patch, false); mfi.isValid(); ++mfi) {
+        const Box bx = mfi.validbox();
+        const auto coarse = coarse_patch.array(mfi);
+        amrex::ParallelFor(
+            bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                average_scale(i, j, k, coarse, scale);
+            });
+    }
+
+    std::unique_ptr<MultiFab> patch_storage;
+    MultiFab* fine_patch = &destination;
+    if (!destination_matches_patch) {
+        patch_storage = std::make_unique<MultiFab>(
+            fine_patch_ba, patch_dm, Q, 0);
+        fine_patch = patch_storage.get();
+    }
+
+    for (MFIter mfi(*fine_patch, false); mfi.isValid(); ++mfi) {
+        const Box bx = mfi.validbox();
+        const auto fine = fine_patch->array(mfi);
+        const auto coarse = coarse_patch.const_array(mfi);
+        amrex::ParallelFor(
+            bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                interp_bilinear_d3q(i, j, k, fine, coarse);
+            });
+    }
+
+    if (!destination_matches_patch) {
+        destination.ParallelCopy(
+            *fine_patch, 0, 0, Q, IntVect(0), IntVect(0),
+            Geom(lev).periodicity());
+    }
+}
 void AmrCoreLBM::ClearLevel(int lev) {
     // amrex::AllPrint()<<"ClearLevel on " << lev <<std::endl;
+    if (verification_dynamic_refine_box) {
+        amrex::Print() << "regrid_callback: clear lev=" << lev << '\n';
+    }
 
     osi_decode_tags[lev].undefine();
     osi_encode_tags[lev].undefine();
@@ -3025,6 +3260,11 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
     const int refine_hi_y = domain_lo.y + 3 * domain.length(1) / 4 - 1;
     const int refine_hi_z = domain_lo.z + 3 * domain.length(2) / 4 - 1;
     const bool partial_refine_box = verification_partial_refine_box;
+    const bool dynamic_refine_box = verification_dynamic_refine_box;
+    const int dynamic_phase = verification_regrid_generation % 4;
+    const int dynamic_lo_x =
+        domain_lo.x + (dynamic_phase == 1 ? 3 : 1) * domain.length(0) / 8;
+    const int dynamic_hi_x = dynamic_lo_x + domain.length(0) / 2 - 1;
     amrex::Gpu::DeviceVector<amrex::RealVect> points_d = convertToDeviceVector(points);
 
     for (MFIter mfi(level_layout, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
@@ -3040,6 +3280,18 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
         const int points_num = particle_num;
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+            if (dynamic_refine_box) {
+                // phase 0/3: 左侧局部细化；phase 1: 右移后的局部细化，
+                // phase 2: 清空标签并删除细层。连续 regrid 因而覆盖
+                // RemakeLevel、ClearLevel 和 MakeNewLevelFromCoarse。
+                const bool inside =
+                    dynamic_phase != 2 && i >= dynamic_lo_x &&
+                    i <= dynamic_hi_x && j >= refine_lo_y &&
+                    j <= refine_hi_y && k >= refine_lo_z &&
+                    k <= refine_hi_z;
+                tagfab(i, j, k) = inside ? tagval : clearval;
+                return;
+            }
             if (partial_refine_box) {
                 if (i >= refine_lo_x && i <= refine_hi_x &&
                     j >= refine_lo_y && j <= refine_hi_y &&

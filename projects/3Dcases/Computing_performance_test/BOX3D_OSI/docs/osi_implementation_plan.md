@@ -5,7 +5,7 @@
 
 ## 1. 当前基线
 
-截至 2026-08-27，`BOX3D_OSI` 的默认推进模式仍是与 `BOX3D` 一致的 A-B 基线：
+截至 2026-09-01，`BOX3D_OSI` 的默认推进模式仍是与 `BOX3D` 一致的 A-B 基线：
 
 ```text
 f_old + f_new
@@ -39,11 +39,11 @@ Collide -> Communicate -> Stream -> Boundary -> Swap
 - `verification.osi_ab_check` 条件化 A-B oracle；关闭时只分配一份完整 DDF；
 - 非均匀 DDF 验证初值和单/双 rank 同序列日志检查。
 
-当前仍没有：
+阶段 4--6 还已完成非周期边界、静态两层子循环和 direct OSI 动态 regrid。当前仍没有：
 
-- OSI checkpoint 或 regrid 适配；
-- 非周期物理边界或 AMR OSI 时间推进；
-- 非周期、AMR 和动态 regrid 条件下的 OSI 性能结果。
+- OSI checkpoint/restart 和 plotfile 适配；
+- 两层逐单元 DDF norm 与 multi-GPU/multi-node 回归；
+- 非周期、AMR 和动态 regrid 条件下的受控性能结果。
 
 ## 2. 总体开发策略
 
@@ -381,33 +381,23 @@ gather fine valid children
 
 ## 9. 阶段 6：动态 regrid
 
-目标：在同步点执行 canonicalize/rebuild/reset。
+目标：在同步点执行 direct OSI remap/rebuild/reset。
 
-状态：**旧 smoke 使用 `f_old` 作为完整 canonical 中转，已因违背单数组内存契约而
-禁用。当前 OSI 在 `MakeNewLevelFromCoarse()`/`RemakeLevel()` fail-fast；必须完成
-direct OSI remap 后才能重新宣称支持动态 regrid。**
-
-建议调用链：
+状态：**已完成。动态回调不再读取或写入 `f_old/f_new`，也不构造整层 canonical
+中转。** 当前调用链：
 
 ```text
-BeforeRegridCanonicalize()
-    -> gather every active level valid DDF
-    -> establish canonical state/view
-
 AverageDownValid()
 RefineMesh()
-    -> existing RemakeLevel/RemakeDdfState on canonical data
-
-AfterRegridInitializeOsi()
-    -> allocate new osi_state on new BoxArray/DM
-    -> scatter canonical new state at phase 0
-    -> fill required logical ghost
-    -> phase[changed levels] = 0
-    -> rebuild layout-dependent caches
+    -> RemakeLevel: old phase 分批解码重叠 valid，并插值新增 fine patch
+    -> ClearLevel: 删除消失层的 OSI 数据与 tags
+    -> MakeNewLevelFromCoarse: coarse phase 分批解码并初始化新 fine
+    -> changed level phase = 0
+    -> RebuildCoarseFineCaches()
 ```
 
-必须明确未变化 level 是否也统一重置。第一版建议在同步点把所有 active levels 都规范化
-并重置，减少 coarse/fine phase 组合；优化阶段再缩小范围。
+未改变布局的 level 保持原 phase；只有新建或 Remake 的 level 重置为 0。跨层操作始终
+分别使用 coarse/fine 当前 phase，因此无需把所有 active levels 强制规范化。
 
 验收：
 
@@ -416,6 +406,12 @@ AfterRegridInitializeOsi()
 - 删除/合并/拆分 Fab 后无旧 layout 元数据残留；
 - 至少跨越两次 regrid 的单 GPU和多 MPI smoke；
 - 再进行逐层 valid DDF norm，而不是只观察作业未崩溃。
+
+验证记录：`verification.dynamic_refine_box=true` 按四相循环触发布局 A、布局 B、无细层、
+布局 A。jobs `584483`（OSI）和 `584484`（A-B）在 2 MPI ranks 下完成 10 个 coarse
+steps，finest level 实际经历 `1 -> 0 -> 1`；18 条 `(step,level)` 的 `active_sum` 与
+全部 `active_q0...active_q26` 逐项一致。两 rank 共享单 GPU，因此 multi-GPU/node、
+逐单元 norm 和动态 AMR 性能仍不在此验收范围内。
 
 ## 10. 阶段 7：checkpoint、restart 与输出
 
