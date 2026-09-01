@@ -77,8 +77,8 @@ A-B checksum 回归；checkpoint/restart 和输出适配仍未实现。
   常驻中转：64 条 level 0/1 checksum 的 `active_sum` 与全部 `active_q0...26`
   完全一致；Arena 峰值分别约 204 MB 与 303--310 MB。该内存数字来自不同执行路径，
   只作为分配模式证据，不是受控性能结论。
-- 阶段 6 动态验证使用 `verification.dynamic_refine_box=true`，每两步依次触发布局改变、
-  删除细层、重新创建细层和再次布局改变。jobs `584483`（OSI）与 `584484`（A-B）以
+- 阶段 6 曾用现已删除的确定性动态打标测试钩子，每两步依次触发布局改变、删除细层、
+  重新创建细层和再次布局改变。jobs `584483`（OSI）与 `584484`（A-B）以
   2 MPI ranks 完成 10 个 coarse steps；日志中的 finest level 为 `1 -> 0 -> 1`，共
   18 条 `(step,level)` 记录的 `active_sum` 和 `active_q0...active_q26` 逐字符一致。
   OSI 日志保持 `full_ddf_arrays=1`，Arena 峰值约 278--309 MB；该动态峰值包含 regrid
@@ -237,27 +237,9 @@ dsub -s ./scripts/submit_osi_stage3_mpi.sh
 该配置完成 32 步，Arena 峰值 used 为 189 MB；同配置但启用两数组 oracle 的 job
 `582016` 为 401 MB。这是分配模式证据，不是受控性能结论。
 
-阶段 5 的严格静态两层回归默认运行 32 个 coarse steps、2 MPI ranks，并显式设置
-`amr.regrid_int=-1`：
-
-```bash
-dsub -s ./scripts/submit_osi_stage5_twolevel.sh
-dsub -s ./scripts/submit_osi_stage5_twolevel_ab.sh
-```
-
-可用 `MPI_RANKS=1` 运行单 rank 对照。两份日志应各有 32 组 level 0/1 checksum，
-并逐项比较 `active_sum` 与 `active_q0...active_q26`；两 rank 默认共享一块 GPU，不能据此
-声称完成 multi-GPU 性能验证。
-
-阶段 6 动态重构回归默认运行 10 个 coarse steps、每 2 步 regrid、2 MPI ranks：
-
-```bash
-dsub -s ./scripts/submit_osi_stage6_regrid.sh
-dsub -s ./scripts/submit_osi_stage6_regrid_ab.sh
-```
-
-验收时既要检查 `regrid_observe` 确实出现 `finest_level=1 -> 0 -> 1`，也要逐项比较
-两份日志的 `active_sum` 与 `active_q0...active_q26`；仅检查作业退出码不够。
+阶段 5/6 使用的确定性静态/动态打标参数及其专用提交、日志检查脚本已经删除。
+上述 jobs 保留为历史数值证据，但当前 `ErrorEst()` 只使用真实涡量阈值。后续 AMR
+回归需要基于物理判据重新设计可复现输入，不能继续调用已经移除的测试参数。
 
 `lbm.osi_sync_batch_components` 默认为 1；允许范围为 1--27。jobs `582514`（1 rank）
 和 `582515`（2 ranks）在同一作业内顺序比较 `B=1/3/9`：三种批大小的32步 A-B

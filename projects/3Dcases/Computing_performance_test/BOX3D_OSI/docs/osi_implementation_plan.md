@@ -413,7 +413,7 @@ RefineMesh()
 - 至少跨越两次 regrid 的单 GPU和多 MPI smoke；
 - 再进行逐层 valid DDF norm，而不是只观察作业未崩溃。
 
-验证记录：`verification.dynamic_refine_box=true` 按四相循环触发布局 A、布局 B、无细层、
+历史验证使用现已删除的确定性动态打标钩子，按四相循环触发布局 A、布局 B、无细层、
 布局 A。jobs `584483`（OSI）和 `584484`（A-B）在 2 MPI ranks 下完成 10 个 coarse
 steps，finest level 实际经历 `1 -> 0 -> 1`；18 条 `(step,level)` 的 `active_sum` 与
 全部 `active_q0...active_q26` 逐项一致。最终 job `584617` 以相同动态序列和 A-B
@@ -424,6 +424,8 @@ checkpoint 对两个 level 的 D3Q27 做逐单元比较，并覆盖新建 fine l
 relative-L2 `=2.417721326e-15`。粗层统计必须排除被 fine 完全覆盖、按设计不演化的
 coarse cells。
 两 rank 共享单 GPU，因此 multi-GPU/node 和动态 AMR 性能仍不在此验收范围内。
+当前 `ErrorEst()` 只保留涡量物理判据；原静态/动态几何打标参数及专用提交、检查脚本
+均已删除，后续动态回归需建立新的物理判据可复现输入。
 
 ## 10. 阶段 7：checkpoint、restart 与输出
 

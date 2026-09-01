@@ -518,14 +518,6 @@ void AmrCoreLBM::ReadParameters() {
         ParmParse pp_verify("verification");
         pp_verify.query("osi_seed_pattern", osi_verification_pattern);
         pp_verify.query("osi_ab_check", osi_ab_check);
-        pp_verify.query("partial_refine_box", verification_partial_refine_box);
-        pp_verify.query("dynamic_refine_box", verification_dynamic_refine_box);
-        if (verification_partial_refine_box &&
-            verification_dynamic_refine_box) {
-            amrex::Abort(
-                "verification.partial_refine_box and "
-                "verification.dynamic_refine_box are mutually exclusive");
-        }
     }
 
     {
@@ -1095,9 +1087,6 @@ void AmrCoreLBM::FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf) 
 }
 
 void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新生成 AMR 网格,并把所有依赖旧网格拓扑的缓存同步重建。
-    if (verification_dynamic_refine_box) {
-        ++verification_regrid_generation;
-    }
     regrid_tag_counts.assign(max_level + 1, -1);
     for (auto& buffer : average_interface_buffer) {
         buffer.clear();
@@ -1124,9 +1113,8 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
     RebuildCoarseFineCaches();
 
     if (ParallelDescriptor::IOProcessor()) {
-        amrex::Print() << "regrid_observe: generation="
-                       << verification_regrid_generation
-                       << " finest_level=" << finest_level << '\n';
+        amrex::Print() << "regrid_observe: finest_level="
+                       << finest_level << '\n';
         for (int lev = 0; lev <= finest_level; ++lev) {
             const auto& ba = boxArray(lev);
             amrex::Print() << "regrid_observe: lev=" << lev
@@ -2819,11 +2807,6 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
                                         const amrex::DistributionMapping& dm) {
     // 给新建的细网格层 lev 分配数据，并从紧邻的粗层插值出初始 DDF 状态, 只在 regrid() 新增一个此前不存在的细层时调用，RefineMesh() 会调用。
     // amrex::AllPrint()<<"MakeNewLevelFromCoarse on " << lev <<std::endl;
-    if (verification_dynamic_refine_box) {
-        amrex::Print() << "regrid_callback: make_new_from_coarse lev="
-                       << lev << '\n';
-    }
-
     if (lev == 0) {
         amrex::Abort("Cannot construct level 0 from a coarser level.");
     }
@@ -2858,10 +2841,6 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
                              const amrex::DistributionMapping& dm) { // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用
     // amrex::AllPrint()<<"ReMakeLevel on " << lev <<std::endl;
-    if (verification_dynamic_refine_box) {
-        amrex::Print() << "regrid_callback: remake lev=" << lev << '\n';
-    }
-
     amrex::MultiFab u_new(ba, dm, AMREX_SPACEDIM, nghost); // 按新 ba/dm 重建派生宏观场；density/velocity 后续由 DDF 重新计算。
     amrex::MultiFab rho_new(ba, dm, 1, nghost);
     amrex::MultiFab vort_new(ba, dm, 2, nghost);
@@ -3171,10 +3150,6 @@ void AmrCoreLBM::FillOsiFinePatchFromCoarse(
 }
 void AmrCoreLBM::ClearLevel(int lev) {
     // amrex::AllPrint()<<"ClearLevel on " << lev <<std::endl;
-    if (verification_dynamic_refine_box) {
-        amrex::Print() << "regrid_callback: clear lev=" << lev << '\n';
-    }
-
     osi_decode_tags[lev].undefine();
     osi_encode_tags[lev].undefine();
     f_old[lev].clear();
@@ -3309,27 +3284,10 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
         stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
     const MultiFab& vort_lev = vorticity[lev];
 
-    amrex::IntVect lo1 = static_lo[lev];
-    amrex::IntVect hi1 = static_hi[lev];
-
     amrex::IntVect lo2 = static_lo[lev + max_ref_level + 1];
     amrex::IntVect hi2 = static_hi[lev + max_ref_level + 1];
 
     const auto geomdata = geom[lev].data();
-    const Box domain = geom[lev].Domain();
-    const auto domain_lo = amrex::lbound(domain);
-    const int refine_lo_x = domain_lo.x + domain.length(0) / 4;
-    const int refine_lo_y = domain_lo.y + domain.length(1) / 4;
-    const int refine_lo_z = domain_lo.z + domain.length(2) / 4;
-    const int refine_hi_x = domain_lo.x + 3 * domain.length(0) / 4 - 1;
-    const int refine_hi_y = domain_lo.y + 3 * domain.length(1) / 4 - 1;
-    const int refine_hi_z = domain_lo.z + 3 * domain.length(2) / 4 - 1;
-    const bool partial_refine_box = verification_partial_refine_box;
-    const bool dynamic_refine_box = verification_dynamic_refine_box;
-    const int dynamic_phase = verification_regrid_generation % 4;
-    const int dynamic_lo_x =
-        domain_lo.x + (dynamic_phase == 1 ? 3 : 1) * domain.length(0) / 8;
-    const int dynamic_hi_x = dynamic_lo_x + domain.length(0) / 2 - 1;
     amrex::Gpu::DeviceVector<amrex::RealVect> points_d = convertToDeviceVector(points);
 
     for (MFIter mfi(level_layout, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
@@ -3345,26 +3303,6 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
         const int points_num = particle_num;
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            if (dynamic_refine_box) {
-                // phase 0/3: 左侧局部细化；phase 1: 右移后的局部细化，
-                // phase 2: 清空标签并删除细层。连续 regrid 因而覆盖
-                // RemakeLevel、ClearLevel 和 MakeNewLevelFromCoarse。
-                const bool inside =
-                    dynamic_phase != 2 && i >= dynamic_lo_x &&
-                    i <= dynamic_hi_x && j >= refine_lo_y &&
-                    j <= refine_hi_y && k >= refine_lo_z &&
-                    k <= refine_hi_z;
-                tagfab(i, j, k) = inside ? tagval : clearval;
-                return;
-            }
-            if (partial_refine_box) {
-                if (i >= refine_lo_x && i <= refine_hi_x &&
-                    j >= refine_lo_y && j <= refine_hi_y &&
-                    k >= refine_lo_z && k <= refine_hi_z) {
-                    tagfab(i, j, k) = tagval;
-                }
-                return;
-            }
             // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
             state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
             // state_error_4(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
