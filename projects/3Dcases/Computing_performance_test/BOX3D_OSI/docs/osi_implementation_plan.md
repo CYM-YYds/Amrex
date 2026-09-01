@@ -369,8 +369,8 @@ gather fine valid children
   coarse steps，日志显示 `finest_level=1` 和 `average_mode=1`；
 - level 0/1 每步全部 D3Q27 `active_sum` 与 `active_q0...active_q26` 在 OSI/A-B 间
   逐项一致。两 rank 作业覆盖跨 rank Fab 数据路径，但共享一块 GPU；
-- 本记录证明静态两层生命周期、2:1 子循环和传输路径可运行并保持聚合 DDF 一致；尚未
-  构成逐单元 `L∞` 等价、multi-GPU/multi-node 或性能证明。
+- 本记录证明静态两层生命周期、2:1 子循环和传输路径可运行并保持聚合 DDF 一致；
+  随后的 job `584549` 已补充动态两层逐单元范数，multi-GPU/multi-node 与性能证明仍未完成。
 
 验收：
 
@@ -410,8 +410,11 @@ RefineMesh()
 验证记录：`verification.dynamic_refine_box=true` 按四相循环触发布局 A、布局 B、无细层、
 布局 A。jobs `584483`（OSI）和 `584484`（A-B）在 2 MPI ranks 下完成 10 个 coarse
 steps，finest level 实际经历 `1 -> 0 -> 1`；18 条 `(step,level)` 的 `active_sum` 与
-全部 `active_q0...active_q26` 逐项一致。两 rank 共享单 GPU，因此 multi-GPU/node、
-逐单元 norm 和动态 AMR 性能仍不在此验收范围内。
+全部 `active_q0...active_q26` 逐项一致。job `584549` 又以相同动态序列和 A-B
+checkpoint 对两个 level 的 D3Q27 做逐单元比较，最大 active `Linf=1.054711873e-15`、
+最大 active mean-L1 `=1.509245425e-16`、最大 active relative-L2
+`=2.446320295e-15`。粗层统计必须排除被 fine 完全覆盖、按设计不演化的 coarse cells。
+两 rank 共享单 GPU，因此 multi-GPU/node 和动态 AMR 性能仍不在此验收范围内。
 
 ## 10. 阶段 7：checkpoint、restart 与输出
 

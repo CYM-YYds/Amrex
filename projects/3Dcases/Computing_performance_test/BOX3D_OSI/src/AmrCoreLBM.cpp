@@ -2822,8 +2822,8 @@ void AmrCoreLBM::MoveParticle(int lev, amrex::Real cur_time) {
 //                     Pure virtual function                          //
 //********************************************************************//
 void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::BoxArray& ba,
-                                        const amrex::DistributionMapping& dm) // 给新建的细网格层 lev 分配数据，并从紧邻的粗层插值出初始 DDF 状态, 只在 regrid() 新增一个此前不存在的细层时调用，RefineMesh() 会调用。
-{
+                                        const amrex::DistributionMapping& dm) {
+    // 给新建的细网格层 lev 分配数据，并从紧邻的粗层插值出初始 DDF 状态, 只在 regrid() 新增一个此前不存在的细层时调用，RefineMesh() 会调用。
     // amrex::AllPrint()<<"MakeNewLevelFromCoarse on " << lev <<std::endl;
     if (verification_dynamic_refine_box) {
         amrex::Print() << "regrid_callback: make_new_from_coarse lev="
@@ -2844,6 +2844,7 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
     vort_lev.define(ba, dm, 2, nghost); // 改成两个，分别存vort和q
     force_lev.define(ba, dm, AMREX_SPACEDIM, nghost);
     shear_lev.define(ba, dm, 1, nghost);
+
     if (stream_mode == 1) {
         InitializeOsiLevel(lev, ba, dm);
         auto& state = osi_state.at(lev);
@@ -2852,14 +2853,13 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
         force_lev.setVal(0.0, nghost);
         shear_lev.setVal(0.0, nghost);
         vort_lev.setVal(0.0, nghost);
-        return;
+    } else {
+        auto& f_new_lev = f_new.at(lev);
+        auto& f_old_lev = f_old.at(lev);
+        f_new_lev.define(ba, dm, Q, nghost);
+        f_old_lev.define(ba, dm, Q, nghost);
+        FillCoarsePatch(lev, time, f_old_lev);
     }
-
-    auto& f_new_lev = f_new.at(lev);
-    auto& f_old_lev = f_old.at(lev);
-    f_new_lev.define(ba, dm, Q, nghost);
-    f_old_lev.define(ba, dm, Q, nghost);
-    FillCoarsePatch(lev, time, f_old_lev);
 }
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
                              const amrex::DistributionMapping& dm) { // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用
@@ -3138,8 +3138,21 @@ void AmrCoreLBM::ClearLevel(int lev) {
     shear[lev].clear();
     force[lev].clear();
 }
+
 void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex::BoxArray& ba,
-                                         const amrex::DistributionMapping& dm) { // 作用“拿到已经规划好的某层网格后，给它开数据并写初值”,InitMesh()会调用到它
+                                         const amrex::DistributionMapping& dm) {
+    // 作用“拿到已经规划好的某层网格后，，并从“初始物理条件”生成数据”,InitMesh()会调用到它
+    /* main.cpp
+  └─ lid.InitMesh(cur_time)
+       └─ AmrCoreLBM::InitMesh()
+            └─ AMReX::InitFromScratch()
+                 └─ AMReX::MakeNewGrids()
+                      ├─ 生成 level 0 的 BoxArray/DistributionMapping
+                      ├─ MakeNewLevelFromScratch(0, ...)
+                      ├─ ErrorEst() 标记加密区域
+                      ├─ 生成 level 1 的网格
+                      └─ MakeNewLevelFromScratch(1, ...) */
+
     amrex::MultiFab& u_lev = velocity.at(lev);
     amrex::MultiFab& rho_lev = density.at(lev);
     amrex::MultiFab& vort_lev = vorticity.at(lev);
@@ -3163,7 +3176,7 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
         InitializeOsiLevel(lev, ba, dm);
     }
 
-    force_lev.setVal(0.0, nghost); // 在这里归零会不会好一点
+    force_lev.setVal(0.0, nghost);
     shear_lev.setVal(0.0, nghost);
     vort_lev.setVal(0.0, nghost);
 
@@ -3459,6 +3472,7 @@ void AmrCoreLBM::CompareDdfCheckpoint(
 
     constexpr const char* level_prefix = "Level_";
     Real global_linf = 0.0;
+    Real global_l1 = 0.0;
     Real global_diff_l2_sq = 0.0;
     Real global_ref_l2_sq = 0.0;
 
@@ -3473,18 +3487,218 @@ void AmrCoreLBM::CompareDdfCheckpoint(
         MultiFab reference;
         VisMF::Read(reference, reference_name);
 
-        const MultiFab& current = f_old[lev];
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
             reference.nComp() == Q,
             "DDF comparison found a reference component-count mismatch");
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-            reference.boxArray() == current.boxArray(),
+            reference.boxArray() == boxArray(lev),
             "DDF comparison requires identical BoxArrays at every level");
 
         MultiFab reference_on_current(
-            current.boxArray(), current.DistributionMap(), Q, 0);
+            boxArray(lev), DistributionMap(lev), Q, 0);
         reference_on_current.ParallelCopy(
             reference, 0, 0, Q, IntVect(0), IntVect(0));
+
+        if (stream_mode == 1) {
+            const MultiFab& state = osi_state.at(lev);
+            MultiFab difference_batch(
+                state.boxArray(), state.DistributionMap(),
+                osi_sync_batch_components, 0);
+            const bool has_fine =
+                lev < finest_level && cf_mask_mode == 1;
+            const Long valid_cells = state.boxArray().numPts();
+            const Long active_cells =
+                has_fine
+                    ? valid_cells - covered_cell_counts.at(lev) +
+                          interface_cell_counts.at(lev)
+                    : valid_cells;
+            Real level_valid_linf = 0.0;
+            Real level_valid_l1 = 0.0;
+            Real level_valid_l2_sq = 0.0;
+            Real level_active_linf = 0.0;
+            Real level_active_l1 = 0.0;
+            Real level_active_l2_sq = 0.0;
+            Real level_active_ref_l2_sq = 0.0;
+
+            for (int q0 = 0; q0 < Q;
+                 q0 += osi_sync_batch_components) {
+                const int ncomp = amrex::min(
+                    osi_sync_batch_components, Q - q0);
+                DecodeOsiValidBatch(
+                    state, osi_phase.at(lev), difference_batch, q0,
+                    ncomp);
+
+                for (MFIter mfi(difference_batch, false);
+                     mfi.isValid(); ++mfi) {
+                    const Box bx = mfi.validbox();
+                    const auto diff = difference_batch.array(mfi);
+                    const auto ref = reference_on_current.const_array(mfi);
+                    amrex::ParallelFor(
+                        bx, ncomp,
+                        [=] AMREX_GPU_DEVICE(
+                            int i, int j, int k, int n) noexcept {
+                            diff(i, j, k, n) -=
+                                ref(i, j, k, q0 + n);
+                        });
+                }
+
+                for (int n = 0; n < ncomp; ++n) {
+                    const int q = q0 + n;
+                    const Real valid_linf =
+                        difference_batch.norminf(n);
+                    const Real valid_l1 =
+                        difference_batch.norm1(n);
+                    const Real valid_l2 =
+                        difference_batch.norm2(n);
+
+                    if (has_fine) {
+                        for (MFIter mfi(difference_batch, false);
+                             mfi.isValid(); ++mfi) {
+                            const Box bx = mfi.validbox();
+                            const auto diff =
+                                difference_batch.array(mfi);
+                            const auto covered =
+                                covered_mask.at(lev).const_array(mfi);
+                            const auto interface =
+                                interface_mask.at(lev).const_array(mfi);
+                            amrex::ParallelFor(
+                                bx,
+                                [=] AMREX_GPU_DEVICE(
+                                    int i, int j, int k) noexcept {
+                                    const bool active =
+                                        covered(i, j, k) == 0 ||
+                                        interface(i, j, k) != 0;
+                                    if (!active) {
+                                        diff(i, j, k, n) = Real(0.0);
+                                    }
+                                });
+                        }
+                    }
+
+                    const Real active_linf =
+                        difference_batch.norminf(n);
+                    const Real active_l1 =
+                        difference_batch.norm1(n);
+                    const Real active_l2 =
+                        difference_batch.norm2(n);
+
+                    for (MFIter mfi(difference_batch, false);
+                         mfi.isValid(); ++mfi) {
+                        const Box bx = mfi.validbox();
+                        const auto values =
+                            difference_batch.array(mfi);
+                        const auto ref =
+                            reference_on_current.const_array(mfi);
+                        if (has_fine) {
+                            const auto covered =
+                                covered_mask.at(lev).const_array(mfi);
+                            const auto interface =
+                                interface_mask.at(lev).const_array(mfi);
+                            amrex::ParallelFor(
+                                bx,
+                                [=] AMREX_GPU_DEVICE(
+                                    int i, int j, int k) noexcept {
+                                    const bool active =
+                                        covered(i, j, k) == 0 ||
+                                        interface(i, j, k) != 0;
+                                    values(i, j, k, n) =
+                                        active ? ref(i, j, k, q)
+                                               : Real(0.0);
+                                });
+                        } else {
+                            amrex::ParallelFor(
+                                bx,
+                                [=] AMREX_GPU_DEVICE(
+                                    int i, int j, int k) noexcept {
+                                    values(i, j, k, n) =
+                                        ref(i, j, k, q);
+                                });
+                        }
+                    }
+                    const Real active_ref_l2 =
+                        difference_batch.norm2(n);
+                    const Real active_rel_l2 =
+                        active_ref_l2 > 0.0
+                            ? active_l2 / active_ref_l2
+                            : 0.0;
+                    const Real valid_l1_mean =
+                        valid_cells > 0
+                            ? valid_l1 / Real(valid_cells)
+                            : 0.0;
+                    const Real active_l1_mean =
+                        active_cells > 0
+                            ? active_l1 / Real(active_cells)
+                            : 0.0;
+                    level_valid_linf =
+                        std::max(level_valid_linf, valid_linf);
+                    level_valid_l1 += valid_l1;
+                    level_valid_l2_sq += valid_l2 * valid_l2;
+                    level_active_linf =
+                        std::max(level_active_linf, active_linf);
+                    level_active_l1 += active_l1;
+                    level_active_l2_sq += active_l2 * active_l2;
+                    level_active_ref_l2_sq +=
+                        active_ref_l2 * active_ref_l2;
+
+                    amrex::Print()
+                        << "ddf_cell_norm_component: lev=" << lev
+                        << " q=" << q
+                        << " valid_linf=" << valid_linf
+                        << " valid_l1=" << valid_l1
+                        << " valid_l1_mean=" << valid_l1_mean
+                        << " valid_l2=" << valid_l2
+                        << " active_linf=" << active_linf
+                        << " active_l1=" << active_l1
+                        << " active_l1_mean=" << active_l1_mean
+                        << " active_l2=" << active_l2
+                        << " active_ref_l2=" << active_ref_l2
+                        << " active_rel_l2=" << active_rel_l2
+                        << '\n';
+                }
+            }
+
+            const Real level_valid_l2 =
+                std::sqrt(level_valid_l2_sq);
+            const Real level_active_l2 =
+                std::sqrt(level_active_l2_sq);
+            const Real level_active_ref_l2 =
+                std::sqrt(level_active_ref_l2_sq);
+            const Real level_active_rel_l2 =
+                level_active_ref_l2 > 0.0
+                    ? level_active_l2 / level_active_ref_l2
+                    : 0.0;
+            const Real level_valid_l1_mean =
+                valid_cells > 0
+                    ? level_valid_l1 / Real(valid_cells * Q)
+                    : 0.0;
+            const Real level_active_l1_mean =
+                active_cells > 0
+                    ? level_active_l1 / Real(active_cells * Q)
+                    : 0.0;
+            global_linf = std::max(global_linf, level_active_linf);
+            global_l1 += level_active_l1;
+            global_diff_l2_sq +=
+                level_active_l2 * level_active_l2;
+            global_ref_l2_sq +=
+                level_active_ref_l2 * level_active_ref_l2;
+            amrex::Print()
+                << "ddf_cell_norm_level: lev=" << lev
+                << " valid_cells=" << state.boxArray().numPts()
+                << " valid_linf=" << level_valid_linf
+                << " valid_l1=" << level_valid_l1
+                << " valid_l1_mean=" << level_valid_l1_mean
+                << " valid_l2=" << level_valid_l2
+                << " active_linf=" << level_active_linf
+                << " active_l1=" << level_active_l1
+                << " active_l1_mean=" << level_active_l1_mean
+                << " active_l2=" << level_active_l2
+                << " active_ref_l2=" << level_active_ref_l2
+                << " active_rel_l2=" << level_active_rel_l2
+                << '\n';
+            continue;
+        }
+
+        const MultiFab& current = f_old[lev];
 
         MultiFab difference(
             current.boxArray(), current.DistributionMap(), Q, 0);
@@ -3495,17 +3709,23 @@ void AmrCoreLBM::CompareDdfCheckpoint(
         const Real level_linf =
             difference.norm0(0, Q, IntVect(0));
         const Real level_diff_l2 = difference.norm2(0, Q);
+        Real level_diff_l1 = 0.0;
+        for (int q = 0; q < Q; ++q) {
+            level_diff_l1 += difference.norm1(q);
+        }
         const Real level_ref_l2 = reference_on_current.norm2(0, Q);
         const Real level_rel_l2 =
             level_ref_l2 > 0.0 ? level_diff_l2 / level_ref_l2 : 0.0;
 
         global_linf = std::max(global_linf, level_linf);
+        global_l1 += level_diff_l1;
         global_diff_l2_sq += level_diff_l2 * level_diff_l2;
         global_ref_l2_sq += level_ref_l2 * level_ref_l2;
 
         amrex::Print() << "ddf_norm_level: lev=" << lev
                        << " valid_cells=" << current.boxArray().numPts()
                        << " linf=" << level_linf
+                       << " l1=" << level_diff_l1
                        << " l2=" << level_diff_l2
                        << " ref_l2=" << level_ref_l2
                        << " rel_l2=" << level_rel_l2 << '\n';
@@ -3530,6 +3750,7 @@ void AmrCoreLBM::CompareDdfCheckpoint(
     const Real global_rel_l2 =
         global_ref_l2 > 0.0 ? global_diff_l2 / global_ref_l2 : 0.0;
     amrex::Print() << "ddf_norm_global: linf=" << global_linf
+                   << " l1=" << global_l1
                    << " l2=" << global_diff_l2
                    << " ref_l2=" << global_ref_l2
                    << " rel_l2=" << global_rel_l2 << '\n'

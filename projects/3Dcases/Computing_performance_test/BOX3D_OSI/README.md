@@ -71,8 +71,8 @@ A-B checksum 回归；checkpoint/restart 和输出适配仍未实现。
   早期 jobs `584122`/`584123` 完成 4 步；严格静态 jobs `584361`/`584362`
   （1 rank）和 `584363`/`584364`（2 ranks）均以 `amr.regrid_int=-1` 完成 32 个
   coarse steps。level 0/1 每步全部 D3Q27 active checksum 在 OSI 与 A-B 间逐项一致。
-  两 rank 作业覆盖跨 rank Fab 通信，但共享一块 GPU；这些 checksum 仍不替代逐单元
-  DDF 范数、multi-GPU/multi-node 或性能验证。
+  两 rank 作业覆盖跨 rank Fab 通信，但共享一块 GPU；这些 checksum 仍不替代
+  multi-GPU/multi-node 或性能验证。
 - jobs `584471`（OSI）和 `584472`（A-B）进一步验证静态两层无 `f_old/f_new`
   常驻中转：64 条 level 0/1 checksum 的 `active_sum` 与全部 `active_q0...26`
   完全一致；Arena 峰值分别约 204 MB 与 303--310 MB。该内存数字来自不同执行路径，
@@ -83,6 +83,12 @@ A-B checksum 回归；checkpoint/restart 和输出适配仍未实现。
   18 条 `(step,level)` 记录的 `active_sum` 和 `active_q0...active_q26` 逐字符一致。
   OSI 日志保持 `full_ddf_arrays=1`，Arena 峰值约 278--309 MB；该动态峰值包含 regrid
   期间的稀疏 patch staging，不代表常驻第二套完整 DDF。
+- job `584549` 在相同的 10-step、2-rank 动态 regrid 序列上，用 A-B 最终 checkpoint
+  作为 canonical reference，对两个 level 的 D3Q27 逐单元比较。54 条 level/component
+  记录全部通过：最大 active `Linf=1.054711873e-15`、最大 active mean-L1
+  `=1.509245425e-16`、最大 active relative-L2 `=2.446320295e-15`。粗层 full-valid
+  `Linf=1.61384318e-3` 来自被细层完全覆盖且按设计不再演化的 coarse cells；按求解所有权
+  排除这些 deep-covered cells 后，level 0 active `Linf=8.881784197e-16`。
 
 ## 新会话的阅读顺序
 

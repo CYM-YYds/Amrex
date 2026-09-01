@@ -24,8 +24,10 @@
 - 正式 OSI 模式不分配完整 canonical DDF，宏观量由 OSI accessor 直接读取；六面
   非周期边界已接入直接 state 重建；阶段 5 已通过两层递归子循环以及静态布局下的
   1/2-rank 32-step checksum 回归。阶段 6 已实现不使用 `f_old/f_new` 的 direct OSI
-  regrid，并通过双 rank 的 Remake/删层/新建层动态 checksum 回归；checkpoint/restart、
-  两层逐单元 norm、multi-GPU/multi-node 和 AMR 受控性能 A/B 仍未完成。
+  regrid，并通过双 rank 的 Remake/删层/新建层动态 checksum 回归；job `584549` 进一步
+  完成两层 D3Q27 逐单元 active 范数比较，最大 `Linf=1.054711873e-15`、mean-L1
+  `=1.509245425e-16`、relative-L2 `=2.446320295e-15`。checkpoint/restart、
+  multi-GPU/multi-node 和 AMR 受控性能 A/B 仍未完成。
 
 OSI 原论文和均匀网格原型位于
 [`research/papers/OSI优化计划`](../../../../../research/papers/OSI优化计划/)。论文只验证了
