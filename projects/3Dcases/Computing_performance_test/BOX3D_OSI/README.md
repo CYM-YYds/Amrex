@@ -89,6 +89,12 @@ A-B checksum 回归；checkpoint/restart 和输出适配仍未实现。
   `=1.509245425e-16`、最大 active relative-L2 `=2.446320295e-15`。粗层 full-valid
   `Linf=1.61384318e-3` 来自被细层完全覆盖且按设计不再演化的 coarse cells；按求解所有权
   排除这些 deep-covered cells 后，level 0 active `Linf=8.881784197e-16`。
+- 新建 fine level 的 A-B 与 OSI 路径现已统一为“coarse 非平衡 DDF 按
+  `tau_fine/(2*tau_coarse)` 缩放，再执行空间插值”。OSI 只增加 4 分量 coarse
+  `rho/u` 临时量并复用既有 DDF batch，不构造完整 canonical D3Q27。job `584562`
+  再次覆盖 `Remake/Clear/MakeNew/Remake`，54 条逐单元记录全部通过，最大 active
+  `Linf=1.054711873e-15`、mean-L1 `=1.493081506e-16`、relative-L2
+  `=2.418053215e-15`。
 
 ## 新会话的阅读顺序
 

@@ -332,7 +332,8 @@ twisted(Addr(fab,q,target_phase,i,j,k),q) =
 regrid 前完整 AverageDownValid
         -> Remake: 旧 fine valid 按 q 批次解码并 ParallelCopy 到新布局 phase 0
         -> Remake 新增区: coarse OSI -> 稀疏 coarse/fine patch -> 新 fine phase 0
-        -> MakeNew: coarse OSI 按 q 批次解码 -> CellConservativeLinear -> 新 fine phase 0
+        -> MakeNew: coarse OSI 计算 4 分量 rho/u，按 q 批次解码并缩放非平衡 DDF
+                    -> CellConservativeLinear -> 新 fine phase 0
         -> Clear: 释放该层 OSI state、同步缓冲和地址 tags
         -> 重建通信、插值、restriction 和 coarse-fine mask 缓存
 ```

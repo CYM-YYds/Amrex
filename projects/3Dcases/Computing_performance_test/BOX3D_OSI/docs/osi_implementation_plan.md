@@ -391,7 +391,8 @@ AverageDownValid()
 RefineMesh()
     -> RemakeLevel: old phase 分批解码重叠 valid，并插值新增 fine patch
     -> ClearLevel: 删除消失层的 OSI 数据与 tags
-    -> MakeNewLevelFromCoarse: coarse phase 分批解码并初始化新 fine
+    -> MakeNewLevelFromCoarse: coarse phase 分批解码，按 tau 与 2:1 时间步缩放
+                               非平衡 DDF，再初始化新 fine phase 0
     -> changed level phase = 0
     -> RebuildCoarseFineCaches()
 ```

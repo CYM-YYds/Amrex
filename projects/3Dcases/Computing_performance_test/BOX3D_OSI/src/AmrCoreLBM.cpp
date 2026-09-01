@@ -2858,7 +2858,7 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
         auto& f_old_lev = f_old.at(lev);
         f_new_lev.define(ba, dm, Q, nghost);
         f_old_lev.define(ba, dm, Q, nghost);
-        FillCoarsePatch(lev, time, f_old_lev);
+        FillNewAbLevelFromCoarse(lev, time);
     }
 }
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
@@ -2966,38 +2966,164 @@ void AmrCoreLBM::FillNewOsiLevelFromCoarse(int lev, Real time) {
     const MultiFab& coarse_state = osi_state.at(lev - 1);
     MultiFab& decode_batch = osi_sync_buffer.at(lev - 1);
     const auto coarse_phase = osi_phase.at(lev - 1);
+    MultiFab coarse_macro(coarse_state.boxArray(), coarse_state.DistributionMap(), 4, 0);
+    ComputeOsiMacro(coarse_state, coarse_phase, coarse_macro);
+    const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
 
-    // MakeNewLevelFromCoarse 的 A-B 基线使用 CellConservativeLinear，且不做
-    // 非平衡缩放。这里按分量批次解码 coarse OSI valid 值，再调用同一个
-    // AMReX 插值器；fine 新层的 phase=0，故 canonical 目标坐标就是 raw
-    // 目标地址，不需要完整 Q 分量 coarse staging MultiFab。
+    // 先缩放 coarse 非平衡 DDF，再进行空间插值。4 分量 macro 保存
+    // rho/u，使每批 DDF 使用完整 D3Q27 宏观量，而无需构造完整 canonical
+    // Q 分量 MultiFab。新 fine phase=0，canonical 目标坐标就是 raw 地址。
+    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+        const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+        DecodeOsiValidBatch(coarse_state, coarse_phase, decode_batch, q0, ncomp);
+        ScaleCanonicalBatch(coarse_macro, decode_batch, q0, ncomp, scale);
+        InterpolateNewFineBatch(lev, time, fine_state, decode_batch, q0, ncomp);
+    }
+}
+
+void AmrCoreLBM::FillNewAbLevelFromCoarse(int lev, Real time) {
+    AMREX_ALWAYS_ASSERT(lev > 0);
+    MultiFab& fine_state = f_old.at(lev);
+    const MultiFab& coarse_state = f_old.at(lev - 1);
+    MultiFab coarse_macro(coarse_state.boxArray(),
+                          coarse_state.DistributionMap(), 4, 0);
+    MultiFab coarse_batch(coarse_state.boxArray(),
+                          coarse_state.DistributionMap(),
+                          osi_sync_batch_components, nghost);
+    ComputeCanonicalMacro(coarse_state, coarse_macro);
+    const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
+
     for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
         const int ncomp =
             amrex::min(osi_sync_batch_components, Q - q0);
-        DecodeOsiValidBatch(
-            coarse_state, coarse_phase, decode_batch, q0, ncomp);
+        MultiFab::Copy(coarse_batch, coarse_state, q0, 0, ncomp, 0);
+        ScaleCanonicalBatch(
+            coarse_macro, coarse_batch, q0, ncomp, scale);
+        InterpolateNewFineBatch(
+            lev, time, fine_state, coarse_batch, q0, ncomp);
+    }
+}
 
-        if (Gpu::inLaunchRegion()) {
-            GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(
-                geom[lev - 1], bcs, gpu_bndry_func);
-            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
-                geom[lev], bcs, gpu_bndry_func);
-            amrex::InterpFromCoarseLevel(
-                fine_state, time, decode_batch, 0, q0, ncomp,
-                geom[lev - 1], geom[lev], cphysbc, q0, fphysbc, q0,
-                refRatio(lev - 1), &cell_cons_interp, bcs, q0);
-        } else {
-            CpuBndryFuncFab bndry_func(nullptr);
-            PhysBCFunct<CpuBndryFuncFab> cphysbc(
-                geom[lev - 1], bcs, bndry_func);
-            PhysBCFunct<CpuBndryFuncFab> fphysbc(
-                geom[lev], bcs, bndry_func);
-            amrex::InterpFromCoarseLevel(
-                fine_state, time, decode_batch, 0, q0, ncomp,
-                geom[lev - 1], geom[lev], cphysbc, q0, fphysbc, q0,
-                refRatio(lev - 1), &cell_cons_interp, bcs, q0);
-        }
+void AmrCoreLBM::InterpolateNewFineBatch(
+    int lev, Real time, MultiFab& fine, MultiFab& coarse_batch,
+    int q0, int ncomp) {
+    if (Gpu::inLaunchRegion()) {
+        GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
+        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(
+            geom[lev - 1], bcs, gpu_bndry_func);
+        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
+            geom[lev], bcs, gpu_bndry_func);
+        amrex::InterpFromCoarseLevel(
+            fine, time, coarse_batch, 0, q0, ncomp,
+            geom[lev - 1], geom[lev], cphysbc, q0, fphysbc, q0,
+            refRatio(lev - 1), &cell_cons_interp, bcs, q0);
+    } else {
+        CpuBndryFuncFab bndry_func(nullptr);
+        PhysBCFunct<CpuBndryFuncFab> cphysbc(
+            geom[lev - 1], bcs, bndry_func);
+        PhysBCFunct<CpuBndryFuncFab> fphysbc(
+            geom[lev], bcs, bndry_func);
+        amrex::InterpFromCoarseLevel(
+            fine, time, coarse_batch, 0, q0, ncomp,
+            geom[lev - 1], geom[lev], cphysbc, q0, fphysbc, q0,
+            refRatio(lev - 1), &cell_cons_interp, bcs, q0);
+    }
+}
+
+void AmrCoreLBM::ComputeOsiMacro(
+    const MultiFab& state, std::uint64_t phase, MultiFab& macro) const {
+    AMREX_ALWAYS_ASSERT(state.boxArray() == macro.boxArray());
+    AMREX_ALWAYS_ASSERT(state.DistributionMap() == macro.DistributionMap());
+    AMREX_ALWAYS_ASSERT(macro.nComp() == 4);
+
+    for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+        const Box bx = mfi.validbox();
+        const Box ring = amrex::grow(bx, state.nGrowVect());
+        const auto lo = ring.smallEnd();
+        const box3d_osi::FabGeometry fab{
+            {lo[0], lo[1], lo[2]},
+            {ring.length(0), ring.length(1), ring.length(2)}};
+        const auto src = state.const_array(mfi);
+        const auto dst = macro.array(mfi);
+        amrex::ParallelFor(
+            bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                Real rho = 0.0;
+                Real mx = 0.0;
+                Real my = 0.0;
+                Real mz = 0.0;
+                for (int q = 0; q < Q; ++q) {
+                    const auto raw = box3d_osi::osi_address(
+                        {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                        phase, fab);
+                    const Real fq = src(raw.x, raw.y, raw.z, q);
+                    rho += fq;
+                    mx += fq * e[q][0];
+                    my += fq * e[q][1];
+                    mz += fq * e[q][2];
+                }
+                dst(i, j, k, 0) = rho;
+                dst(i, j, k, 1) = mx / rho;
+                dst(i, j, k, 2) = my / rho;
+                dst(i, j, k, 3) = mz / rho;
+            });
+    }
+}
+
+void AmrCoreLBM::ComputeCanonicalMacro(
+    const MultiFab& state, MultiFab& macro) const {
+    AMREX_ALWAYS_ASSERT(state.boxArray() == macro.boxArray());
+    AMREX_ALWAYS_ASSERT(state.DistributionMap() == macro.DistributionMap());
+    AMREX_ALWAYS_ASSERT(state.nComp() == Q && macro.nComp() == 4);
+
+    for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+        const Box bx = mfi.validbox();
+        const auto src = state.const_array(mfi);
+        const auto dst = macro.array(mfi);
+        amrex::ParallelFor(
+            bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                Real rho = 0.0;
+                Real mx = 0.0;
+                Real my = 0.0;
+                Real mz = 0.0;
+                for (int q = 0; q < Q; ++q) {
+                    const Real fq = src(i, j, k, q);
+                    rho += fq;
+                    mx += fq * e[q][0];
+                    my += fq * e[q][1];
+                    mz += fq * e[q][2];
+                }
+                dst(i, j, k, 0) = rho;
+                dst(i, j, k, 1) = mx / rho;
+                dst(i, j, k, 2) = my / rho;
+                dst(i, j, k, 3) = mz / rho;
+            });
+    }
+}
+
+void AmrCoreLBM::ScaleCanonicalBatch(
+    const MultiFab& macro, MultiFab& batch, int q0, int ncomp,
+    Real scale) const {
+    AMREX_ALWAYS_ASSERT(macro.boxArray() == batch.boxArray());
+    AMREX_ALWAYS_ASSERT(macro.DistributionMap() == batch.DistributionMap());
+    AMREX_ALWAYS_ASSERT(q0 >= 0 && q0 + ncomp <= Q);
+    AMREX_ALWAYS_ASSERT(ncomp <= batch.nComp());
+
+    for (MFIter mfi(batch, false); mfi.isValid(); ++mfi) {
+        const Box bx = mfi.validbox();
+        const auto moments = macro.const_array(mfi);
+        const auto ddf = batch.array(mfi);
+        amrex::ParallelFor(
+            bx, ncomp,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
+                const int q = q0 + n;
+                const Real rho = moments(i, j, k, 0);
+                const Real ux = moments(i, j, k, 1);
+                const Real uy = moments(i, j, k, 2);
+                const Real uz = moments(i, j, k, 3);
+                const Real feq = feqQian(rho, {ux, uy, uz}, q);
+                ddf(i, j, k, n) =
+                    feq + (ddf(i, j, k, n) - feq) * scale;
+            });
     }
 }
 

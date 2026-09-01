@@ -221,6 +221,11 @@ class AmrCoreLBM : public amrex::AmrCore {
     void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
                             const amrex::DistributionMapping& dm);
     void FillNewOsiLevelFromCoarse(int lev, amrex::Real time);
+    void FillNewAbLevelFromCoarse(int lev, amrex::Real time);
+    void InterpolateNewFineBatch(int lev, amrex::Real time,
+                                 amrex::MultiFab& fine,
+                                 amrex::MultiFab& coarse_batch,
+                                 int q0, int ncomp);
 
   public:
     // nvcc extended device lambdas require their enclosing member functions to
@@ -229,6 +234,14 @@ class AmrCoreLBM : public amrex::AmrCore {
                              std::uint64_t phase,
                              amrex::MultiFab& batch, int q0,
                              int ncomp) const;
+    void ComputeOsiMacro(const amrex::MultiFab& state,
+                         std::uint64_t phase,
+                         amrex::MultiFab& macro) const;
+    void ComputeCanonicalMacro(const amrex::MultiFab& state,
+                               amrex::MultiFab& macro) const;
+    void ScaleCanonicalBatch(const amrex::MultiFab& macro,
+                             amrex::MultiFab& batch, int q0,
+                             int ncomp, amrex::Real scale) const;
     void FillOsiFinePatchFromCoarse(
         int lev, amrex::Real time,
         const amrex::BoxArray& fine_patch_ba,
