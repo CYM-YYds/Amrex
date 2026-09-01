@@ -242,8 +242,7 @@ class AmrCoreLBM : public amrex::AmrCore {
         int lev, amrex::Real time,
         const amrex::BoxArray& fine_patch_ba,
         const amrex::DistributionMapping& patch_dm,
-        amrex::MultiFab& destination,
-        bool destination_matches_patch);
+        amrex::MultiFab& destination);
 
   private:
 

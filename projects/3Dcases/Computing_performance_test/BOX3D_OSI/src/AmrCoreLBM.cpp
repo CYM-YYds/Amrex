@@ -1764,9 +1764,10 @@ void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
     if (stream_mode == 1) {
         if (is_scale) {
             FillOsiGhostFromCoarse(lev, time);
-        } else {
-            CommunicateLevel_osi(lev);
         }
+        // FillGhostLevel 对外提供完整 ghost 语义：粗细层插值之后，再用
+        // 当前 level 的 owner valid 覆盖同层/周期重叠 ghost。
+        CommunicateLevel_osi(lev);
     } else if (is_scale) {
         FillDdfGhostFromCoarse(lev, time);
     } else {
@@ -2916,14 +2917,13 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
                 Geom(lev), Geom(lev - 1), nullptr); // 得到新 fine 中不被旧 fine 覆盖的区域以及为了插值这些 fine 区域需要读取的粗层 stencil
             FillOsiFinePatchFromCoarse(
                 lev, time, fpc.ba_fine_patch, fpc.dm_patch,
-                new_osi_state, false);
+                new_osi_state);
         }
 
         force_new.setVal(0.0, nghost);
         shear_new.setVal(0.0, nghost);
         vort_new.setVal(0.0, nghost);
 
-        CommunicateLevel_osi(lev);
         std::swap(u_new, velocity[lev]);
         std::swap(rho_new, density[lev]);
         std::swap(vort_new, vorticity[lev]);
@@ -3098,8 +3098,7 @@ void AmrCoreLBM::DecodeOsiValidBatch(
 
 void AmrCoreLBM::FillOsiFinePatchFromCoarse(
     int lev, Real time, const BoxArray& fine_patch_ba,
-    const DistributionMapping& patch_dm, MultiFab& destination,
-    bool destination_matches_patch) {
+    const DistributionMapping& patch_dm, MultiFab& destination) {
     if (fine_patch_ba.empty()) {
         return;
     }
@@ -3159,18 +3158,13 @@ void AmrCoreLBM::FillOsiFinePatchFromCoarse(
             });
     }
 
-    // 决定是否需要临时 fine patch
-    std::unique_ptr<MultiFab> patch_storage;
-    MultiFab* fine_patch = &destination;
-    if (!destination_matches_patch) {
-        patch_storage = std::make_unique<MultiFab>(
-            fine_patch_ba, patch_dm, Q, 0);
-        fine_patch = patch_storage.get();
-    }
+    // regrid 只为新增 fine valid 区构造稀疏 patch。destination 是完整
+    // phase-0 level，二者布局不同，因此始终通过 sparse patch 中转。
+    MultiFab fine_patch(fine_patch_ba, patch_dm, Q, 0);
 
-    for (MFIter mfi(*fine_patch, false); mfi.isValid(); ++mfi) {
+    for (MFIter mfi(fine_patch, false); mfi.isValid(); ++mfi) {
         const Box bx = mfi.validbox();
-        const auto fine = fine_patch->array(mfi);
+        const auto fine = fine_patch.array(mfi);
         const auto coarse = coarse_patch.const_array(mfi);
         amrex::ParallelFor(
             bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
@@ -3178,11 +3172,9 @@ void AmrCoreLBM::FillOsiFinePatchFromCoarse(
             });
     }
 
-    if (!destination_matches_patch) {
-        destination.ParallelCopy(
-            *fine_patch, 0, 0, Q, IntVect(0), IntVect(0),
-            Geom(lev).periodicity());
-    }
+    destination.ParallelCopy(
+        fine_patch, 0, 0, Q, IntVect(0), IntVect(0),
+        Geom(lev).periodicity());
 }
 void AmrCoreLBM::ClearLevel(int lev) {
     // amrex::AllPrint()<<"ClearLevel on " << lev <<std::endl;
@@ -3295,8 +3287,8 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
             amrex::MultiFab::Copy(f_old.at(lev), state, 0, 0, Q, 0);
             amrex::MultiFab::Copy(f_new.at(lev), state, 0, 0, Q, 0);
         }
-        // 首次碰撞前先建立 grown-Fab ghost；稳态步仍保持碰撞后通信顺序。
-        CommunicateLevel_osi(lev);
+        // 这里只初始化 valid。首次碰撞所需 ghost 由 main/OsiCycle2 通过
+        // FillGhostLevel 建立，避免把 ghost 生命周期混入网格构造回调。
     }
 }
 

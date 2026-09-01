@@ -24,8 +24,9 @@
 - 正式 OSI 模式不分配完整 canonical DDF，宏观量由 OSI accessor 直接读取；六面
   非周期边界已接入直接 state 重建；阶段 5 已通过两层递归子循环以及静态布局下的
   1/2-rank 32-step checksum 回归。阶段 6 已实现不使用 `f_old/f_new` 的 direct OSI
-  regrid，并通过双 rank 的 Remake/删层/新建层动态 checksum 回归；最终 job `584613`
-  还覆盖新建 fine level 的非平衡缩放以及常驻宏观量复用，完成两层 D3Q27 逐单元
+  regrid，并通过双 rank 的 Remake/删层/新建层动态 checksum 回归；最终 job `584616`
+  还覆盖新建 fine level 的非平衡缩放、常驻宏观量复用以及“regrid 只写 valid、推进层
+  再填 ghost”的生命周期，完成两层 D3Q27 逐单元
   active 范数比较，最大 `Linf=1.054711873e-15`、mean-L1
   `=1.492743922e-16`、relative-L2 `=2.417721326e-15`。checkpoint/restart、
   multi-GPU/multi-node 和 AMR 受控性能 A/B 仍未完成。
@@ -337,6 +338,7 @@ regrid 前完整 AverageDownValid
                     -> CellConservativeLinear -> 新 fine phase 0
         -> Clear: 释放该层 OSI state、同步缓冲和地址 tags
         -> 重建通信、插值、restriction 和 coarse-fine mask 缓存
+        -> 推进层 FillGhostLevel: level 0 同层/周期同步；fine 先粗细插值再同层同步
 ```
 
 重置 phase 不会改变物理解。若重构前有：
@@ -348,10 +350,14 @@ $$
 gather 后 `C(x,q)=f_q(x)`；新布局以 phase 0 写入时
 `A_new(x,q,0)=x`，所以新状态仍表示同一个 `f_q(x)`。
 
-旧/新重叠区只复用每层的分量批次通信缓冲；新增区会建立实际 interpolation patch 所需的
-稀疏 Q 分量 staging，但不会分配 `f_old/f_new` 或整层 canonical DDF。jobs `584483`
+旧/新重叠区只复用每层的分量批次通信缓冲；新增区始终建立实际 interpolation patch
+所需的稀疏 coarse/fine Q 分量 staging，但不会分配 `f_old/f_new` 或整层 canonical
+DDF。Remake/MakeNew/MakeNewFromScratch 均只保证 valid，避免在 AMR 回调中混入 ghost
+生命周期；首次碰撞前由 `FillGhostLevel()` 和 `CommunicateLevel_osi()` 统一建立 ghost。
+jobs `584483`
 （OSI）和 `584484`（A-B）在 2 ranks、10 coarse steps、每 2 步 regrid 下覆盖
-Remake、Clear 和 MakeNew；18 条 active D3Q27 checksum 逐项一致。
+Remake、Clear 和 MakeNew；18 条 active D3Q27 checksum 逐项一致。job `584616` 对上述
+最终生命周期执行 54 项逐单元 active D3Q27 检查，最大 `Linf=1.054711873e-15`。
 
 ## 11. 静态 coarse-fine 传输
 

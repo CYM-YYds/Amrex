@@ -395,10 +395,14 @@ RefineMesh()
                                非平衡 DDF，再初始化新 fine phase 0
     -> changed level phase = 0
     -> RebuildCoarseFineCaches()
+推进层
+    -> FillGhostLevel(0): 重建 level 0 同层/周期 ghost
+    -> OsiCycle2 的 FillGhostLevel(fine): coarse-fine 插值后重建同层/周期 ghost
 ```
 
 未改变布局的 level 保持原 phase；只有新建或 Remake 的 level 重置为 0。跨层操作始终
-分别使用 coarse/fine 当前 phase，因此无需把所有 active levels 强制规范化。
+分别使用 coarse/fine 当前 phase，因此无需把所有 active levels 强制规范化。AMR 回调
+只初始化 valid；ghost 不参与布局 remap，由推进层的填充/通信入口统一管理。
 
 验收：
 
@@ -411,9 +415,10 @@ RefineMesh()
 验证记录：`verification.dynamic_refine_box=true` 按四相循环触发布局 A、布局 B、无细层、
 布局 A。jobs `584483`（OSI）和 `584484`（A-B）在 2 MPI ranks 下完成 10 个 coarse
 steps，finest level 实际经历 `1 -> 0 -> 1`；18 条 `(step,level)` 的 `active_sum` 与
-全部 `active_q0...active_q26` 逐项一致。最终 job `584613` 以相同动态序列和 A-B
+全部 `active_q0...active_q26` 逐项一致。最终 job `584616` 以相同动态序列和 A-B
 checkpoint 对两个 level 的 D3Q27 做逐单元比较，并覆盖新建 fine level 的非平衡缩放
-与常驻 `density/velocity` 复用；54 项记录全部通过，最大 active
+、常驻 `density/velocity` 复用、始终使用 sparse fine patch，以及重构后延迟 ghost
+填充；54 项记录全部通过，最大 active
 `Linf=1.054711873e-15`、最大 active mean-L1 `=1.492743922e-16`、最大 active
 relative-L2 `=2.417721326e-15`。粗层统计必须排除被 fine 完全覆盖、按设计不演化的
 coarse cells。
@@ -535,7 +540,7 @@ faster            必须给出受控 A/B 配置和测量值
 4. A-B reference 仅由 `verification.osi_ab_check=true` 条件化分配。
 
 阶段 6 又收敛了两项选择：只有新建或布局改变的 level 重置 phase；动态两层逐单元
-DDF norm 已由 job `584613` 完成。仍待后续阶段收敛：
+DDF norm 已由 job `584616` 完成。仍待后续阶段收敛：
 
 1. checkpoint 使用分块 canonical 输出还是保存 raw state、phase 与布局元数据；
 2. IBM 所需 Euler/Lagrange stencil 的可信 ghost 范围与同步时机；
