@@ -23,7 +23,8 @@
 - CPU A/B 额外验证两层 grown 保护环在只初始同步一次后可连续推进两步而不污染 valid；
 - 正式 OSI 模式不分配完整 canonical DDF，宏观量由 OSI accessor 直接读取；六面
   非周期边界已接入直接 state 重建；阶段 5 已通过两层递归子循环以及静态布局下的
-  1/2-rank 32-step checksum 回归。动态 regrid 仅有 smoke 证据；checkpoint/restart、
+  1/2-rank 32-step checksum 回归。旧动态 regrid smoke 依赖 `f_old` canonical 中转，
+  该路径现已 fail-fast，等待 direct OSI remap；checkpoint/restart、
   两层逐单元 norm、multi-GPU/multi-node 和 AMR 受控性能 A/B 仍未完成。
 
 OSI 原论文和均匀网格原型位于
@@ -324,6 +325,9 @@ twisted(Addr(fab,q,target_phase,i,j,k),q) =
 ## 10. 动态 regrid：canonicalize/rebuild/reset
 
 动态重构采用已经确定的第三种方案：把 regrid 视为 OSI phase 断点。
+
+当前 `MakeNewLevelFromCoarse()` 和 `RemakeLevel()` 的 OSI 分支会显式终止，而不会退回
+`f_old` canonical 中转。以下内容仍是 direct OSI remap 的待实现设计，不是当前可运行路径。
 
 ```text
 所有相关 level 到达同步点

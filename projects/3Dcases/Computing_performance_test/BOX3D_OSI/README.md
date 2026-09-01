@@ -11,8 +11,9 @@ pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_m
 `nGrow=2 + grown-Fab OSI`：
 每个 Fab 的 valid 与 ghost 组成统一保护环，通信同步当前 phase 的同坐标重叠副本。
 非周期边界在 phase 提交后直接从迁移后的 `osi_state` 重建并写回边界槽位。阶段 5 已接入静态两层 AMR
-子循环和 OSI-aware 粗细层传输，并完成 1/2 MPI rank 的严格静态回归；动态 regrid
-目前只有既有 smoke 证据，checkpoint 仍未实现。
+子循环和 OSI-aware 粗细层传输，并完成 1/2 MPI rank 的严格静态回归。旧的动态
+regrid smoke 依赖 `f_old` canonical 中转，现已禁用；direct OSI remap 与 checkpoint
+仍未实现。
 现有性能证据也只覆盖单层全周期固定网格，不能外推到动态 AMR 生产负载。
 
 复制完成后的审查基线提交为 `6578093`；开始修改代码前的文档基线提交为
@@ -71,6 +72,10 @@ pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_m
   coarse steps。level 0/1 每步全部 D3Q27 active checksum 在 OSI 与 A-B 间逐项一致。
   两 rank 作业覆盖跨 rank Fab 通信，但共享一块 GPU；这些 checksum 仍不替代逐单元
   DDF 范数、multi-GPU/multi-node 或性能验证。
+- jobs `584471`（OSI）和 `584472`（A-B）进一步验证静态两层无 `f_old/f_new`
+  常驻中转：64 条 level 0/1 checksum 的 `active_sum` 与全部 `active_q0...26`
+  完全一致；Arena 峰值分别约 204 MB 与 303--310 MB。该内存数字来自不同执行路径，
+  只作为分配模式证据，不是受控性能结论。
 
 ## 新会话的阅读顺序
 

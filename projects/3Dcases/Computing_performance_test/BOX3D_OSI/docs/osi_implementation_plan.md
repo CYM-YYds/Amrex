@@ -383,6 +383,10 @@ gather fine valid children
 
 目标：在同步点执行 canonicalize/rebuild/reset。
 
+状态：**旧 smoke 使用 `f_old` 作为完整 canonical 中转，已因违背单数组内存契约而
+禁用。当前 OSI 在 `MakeNewLevelFromCoarse()`/`RemakeLevel()` fail-fast；必须完成
+direct OSI remap 后才能重新宣称支持动态 regrid。**
+
 建议调用链：
 
 ```text
