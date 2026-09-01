@@ -116,8 +116,9 @@ valid-cell Box；时间推进时只对这些工作箱启动边界 kernel，不�
 构造工作箱和 kernel 都依据 `Geom(lev).isPeriodicArray()` 跳过周期方向，周期 ghost 则由
 `CommunicateLevel()` 的 `FillBoundary(periodicity)` 提供。原 BOX3D A-B 基线曾在
 `main.cpp` 中硬编码三个非周期方向；BOX3D_OSI 当前会读取 `geometry.is_periodic`。
-不过 OSI 路径目前会断言三向全周期，A-B 动态 AMR 与非周期边界语义仍应按实际运行模式
-分别验证。
+OSI 路径现已分别支持三向全周期和六面非周期边界；混合周期方向尚未完成验证。
+A-B 与 OSI 的动态 AMR、物理边界语义仍应按实际运行模式分别验证，不能把全周期回归
+外推到非周期或混合周期算例。
 
 两层 ghost 的修改已通过 64-step 单 GPU smoke 作业，并完成了 job `571393` 的
 64,000-step 单 GPU 方腔流运行；用户检查 plotfile 后未发现可视化异常。该结果排除了

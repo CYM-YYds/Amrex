@@ -234,12 +234,8 @@ class AmrCoreLBM : public amrex::AmrCore {
                              std::uint64_t phase,
                              amrex::MultiFab& batch, int q0,
                              int ncomp) const;
-    void ComputeOsiMacro(const amrex::MultiFab& state,
-                         std::uint64_t phase,
-                         amrex::MultiFab& macro) const;
-    void ComputeCanonicalMacro(const amrex::MultiFab& state,
-                               amrex::MultiFab& macro) const;
-    void ScaleCanonicalBatch(const amrex::MultiFab& macro,
+    void ScaleCanonicalBatch(const amrex::MultiFab& density,
+                             const amrex::MultiFab& velocity,
                              amrex::MultiFab& batch, int q0,
                              int ncomp, amrex::Real scale) const;
     void FillOsiFinePatchFromCoarse(

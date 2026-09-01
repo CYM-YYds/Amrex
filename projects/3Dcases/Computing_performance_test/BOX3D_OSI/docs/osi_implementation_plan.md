@@ -411,10 +411,12 @@ RefineMesh()
 验证记录：`verification.dynamic_refine_box=true` 按四相循环触发布局 A、布局 B、无细层、
 布局 A。jobs `584483`（OSI）和 `584484`（A-B）在 2 MPI ranks 下完成 10 个 coarse
 steps，finest level 实际经历 `1 -> 0 -> 1`；18 条 `(step,level)` 的 `active_sum` 与
-全部 `active_q0...active_q26` 逐项一致。job `584549` 又以相同动态序列和 A-B
-checkpoint 对两个 level 的 D3Q27 做逐单元比较，最大 active `Linf=1.054711873e-15`、
-最大 active mean-L1 `=1.509245425e-16`、最大 active relative-L2
-`=2.446320295e-15`。粗层统计必须排除被 fine 完全覆盖、按设计不演化的 coarse cells。
+全部 `active_q0...active_q26` 逐项一致。最终 job `584613` 以相同动态序列和 A-B
+checkpoint 对两个 level 的 D3Q27 做逐单元比较，并覆盖新建 fine level 的非平衡缩放
+与常驻 `density/velocity` 复用；54 项记录全部通过，最大 active
+`Linf=1.054711873e-15`、最大 active mean-L1 `=1.492743922e-16`、最大 active
+relative-L2 `=2.417721326e-15`。粗层统计必须排除被 fine 完全覆盖、按设计不演化的
+coarse cells。
 两 rank 共享单 GPU，因此 multi-GPU/node 和动态 AMR 性能仍不在此验收范围内。
 
 ## 10. 阶段 7：checkpoint、restart 与输出
@@ -532,11 +534,11 @@ faster            必须给出受控 A/B 配置和测量值
    Q-component canonical DDF；
 4. A-B reference 仅由 `verification.osi_ab_check=true` 条件化分配。
 
-仍待后续阶段收敛：
+阶段 6 又收敛了两项选择：只有新建或布局改变的 level 重置 phase；动态两层逐单元
+DDF norm 已由 job `584613` 完成。仍待后续阶段收敛：
 
-1. regrid 时重置所有 active levels，还是只重置布局发生变化的 level；
-2. checkpoint 使用分块 canonical 输出还是保存 raw state、phase 与布局元数据；
-3. AMR 两步以后 `AverageDownGhostLevel` 和 IBM 实际需要的可信 ghost 范围；
-4. 静态两层逐单元 DDF norm，以及 multi-GPU/multi-node 回归。
+1. checkpoint 使用分块 canonical 输出还是保存 raw state、phase 与布局元数据；
+2. IBM 所需 Euler/Lagrange stencil 的可信 ghost 范围与同步时机；
+3. multi-GPU/multi-node 回归和受控动态 AMR 性能 A/B。
 
 在这些事项有实现证据前，应继续标记为“待验证设计选择”，不能写成当前行为。
