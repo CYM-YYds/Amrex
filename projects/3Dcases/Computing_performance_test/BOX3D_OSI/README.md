@@ -11,7 +11,8 @@ pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_m
 `nGrow=2 + grown-Fab OSI`：
 每个 Fab 的 valid 与 ghost 组成统一保护环，通信同步当前 phase 的同坐标重叠副本。
 非周期边界在 phase 提交后直接从迁移后的 `osi_state` 重建并写回边界槽位。阶段 5 已接入静态两层 AMR
-子循环、粗细层 canonical 传输桥和动态 regrid smoke；checkpoint 仍未实现。
+子循环和 OSI-aware 粗细层传输，并完成 1/2 MPI rank 的严格静态回归；动态 regrid
+目前只有既有 smoke 证据，checkpoint 仍未实现。
 现有性能证据也只覆盖单层全周期固定网格，不能外推到动态 AMR 生产负载。
 
 复制完成后的审查基线提交为 `6578093`；开始修改代码前的文档基线提交为
@@ -58,16 +59,18 @@ pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_m
   `linf=1.498801083e-15`，逐步误差序列完全一致。64 个 `16^3` Fab 下，一份 grown
   DDF 为 13,824,000 个值，复用同步缓冲为 512,000 个值。CPU A/B 还验证了初始同步
   后连续两步不刷新 ghost 的保护区不变量。验证模式仍含 A-B oracle，因此不是性能证据。
-- 阶段 4 只遍历物理边界 valid cells；边界重建直接写入新 phase 的 `osi_state`
-  读取，提交 phase 后再散布边界结果。jobs `583246`/`583247` 在六面非周期、64 Fab、
-  1/2 rank 下完成 32 步逐步 A-B，最大 `linf=1.443289932e-15`，误差序列完全一致；
-  scratch 为 643,032 个值，约为完整 valid DDF 的 9.1%。
+- 阶段 4 只遍历物理边界 valid cells；提交 phase 后，边界重建从新 phase 的内部
+  `osi_state` 读取并直接写回同一 phase 的边界槽位，不再分配 boundary scratch。
+  jobs `583246`/`583247` 在六面非周期、64 Fab、1/2 rank 下完成 32 步逐步 A-B，
+  最大 `linf=1.443289932e-15`，误差序列完全一致。
 - 阶段 5 已支持 `amr.max_level=1` 的两层递归推进：粗层一步、细层两个半步，
   并在 regrid 后重建 OSI 状态与粗细层缓存。粗到细使用分批解码的 sparse
   coarse staging 和直接 OSI 写入，细到粗使用 interface-only 融合 restriction。
-  jobs `584122`（OSI）和 `584123`（A-B）均完成 4 步，`average_mode=1`；
-  两层每步所有 D3Q27 checksum 逐行完全一致。该 checksum 是阶段 5 的回归烟测，
-  不替代非均匀流场的逐单元 DDF 范数对比。
+  早期 jobs `584122`/`584123` 完成 4 步；严格静态 jobs `584361`/`584362`
+  （1 rank）和 `584363`/`584364`（2 ranks）均以 `amr.regrid_int=-1` 完成 32 个
+  coarse steps。level 0/1 每步全部 D3Q27 active checksum 在 OSI 与 A-B 间逐项一致。
+  两 rank 作业覆盖跨 rank Fab 通信，但共享一块 GPU；这些 checksum 仍不替代逐单元
+  DDF 范数、multi-GPU/multi-node 或性能验证。
 
 ## 新会话的阅读顺序
 
@@ -143,7 +146,7 @@ storage(Addr(fab,q,phase,i,j,k), q)
 5. 动态 regrid 的 canonicalize/reset；
 6. checkpoint/restart、完整回归与性能比较。
 
-当前已完成阶段 5 的两层 AMR 烟测：OSI 正式路径在关闭 oracle 时不分配
+当前已完成阶段 5 的两层静态 AMR 1/2-rank 回归：OSI 正式路径在关闭 oracle 时不分配
 `f_old/f_new`，但 A-B 实现仍
 保留为可选择的数值基线；OSI 尚不能设为默认路径。运行时模式为：
 
@@ -203,6 +206,18 @@ dsub -s ./scripts/submit_osi_stage3_mpi.sh
 `ab_check=0 full_ddf_arrays=1 ring_ngrow=2`，且不得出现 `osi_ab:`。job `582018` 已按
 该配置完成 32 步，Arena 峰值 used 为 189 MB；同配置但启用两数组 oracle 的 job
 `582016` 为 401 MB。这是分配模式证据，不是受控性能结论。
+
+阶段 5 的严格静态两层回归默认运行 32 个 coarse steps、2 MPI ranks，并显式设置
+`amr.regrid_int=-1`：
+
+```bash
+dsub -s ./scripts/submit_osi_stage5_twolevel.sh
+dsub -s ./scripts/submit_osi_stage5_twolevel_ab.sh
+```
+
+可用 `MPI_RANKS=1` 运行单 rank 对照。两份日志应各有 32 组 level 0/1 checksum，
+并逐项比较 `active_sum` 与 `active_q0...active_q26`；两 rank 默认共享一块 GPU，不能据此
+声称完成 multi-GPU 性能验证。
 
 `lbm.osi_sync_batch_components` 默认为 1；允许范围为 1--27。jobs `582514`（1 rank）
 和 `582515`（2 ranks）在同一作业内顺序比较 `B=1/3/9`：三种批大小的32步 A-B

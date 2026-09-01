@@ -22,8 +22,9 @@
   `linf=1.498801083e-15` 且逐步序列一致；
 - CPU A/B 额外验证两层 grown 保护环在只初始同步一次后可连续推进两步而不污染 valid；
 - 正式 OSI 模式不分配完整 canonical DDF，宏观量由 OSI accessor 直接读取；六面
-  非周期边界已接入直接 state 重建；阶段 5 已通过两层递归子循环和动态
-  regrid smoke，但 checkpoint/restart、两层逐单元 norm 和 AMR 受控性能 A/B 仍未完成。
+  非周期边界已接入直接 state 重建；阶段 5 已通过两层递归子循环以及静态布局下的
+  1/2-rank 32-step checksum 回归。动态 regrid 仅有 smoke 证据；checkpoint/restart、
+  两层逐单元 norm、multi-GPU/multi-node 和 AMR 受控性能 A/B 仍未完成。
 
 OSI 原论文和均匀网格原型位于
 [`research/papers/OSI优化计划`](../../../../../research/papers/OSI优化计划/)。论文只验证了
@@ -149,7 +150,7 @@ $$
 当前每步在碰撞后同步 owner 的 post-collision 值；接收值仍写当前 phase `p`，再由 phase
 提交表达 streaming。phase 只能在整层本次碰撞和通信完成后提交一次。不能让不同
 Fab、不同 MPI rank 或同一 level 的不同 kernel 各自提前增加 phase。GPU 实现还必须用
-同一 stream 的顺序或显式同步保证 scratch 已完成，不能只提前修改主机端 phase 元数据。
+同一 stream 的顺序或显式同步保证碰撞和通信已完成，不能只提前修改主机端 phase 元数据。
 
 如果后续边界模型要求在其他时点施加，应先重新证明进入和离开推进函数时的存储不变量，
 而不是只移动一行调用顺序。
@@ -365,7 +366,7 @@ gather 后 `C(x,q)=f_q(x)`；新布局以 phase 0 写入时
 ## 11. 静态 coarse-fine 传输
 
 即使 BoxArray 不变，细层 ghost 填充和 fine-to-coarse restriction 也跨越两个具有不同
-phase 的 level。第一版正确性路径可以使用 canonical staging：
+phase 的 level。当前实现使用稀疏 canonical staging 隔离跨层数据布局：
 
 ```text
 coarse twisted -> coarse canonical staging
@@ -383,13 +384,17 @@ fine twisted valid -> fine canonical staging
 -> scatter 到 coarse logical valid 的当前 phase
 ```
 
-这会增加内存和搬运，不代表最终性能方案。它的用途是先隔离两个问题：
+该 staging 只覆盖实际插值或限制需要的区域，并按分量分批复用；它仍会增加内存和搬运，
+不代表最终性能方案。它的用途是隔离两个问题：
 
 1. OSI 单层推进是否数值正确；
 2. AMR coarse/fine 数值转换是否在 twisted/canonical 边界上正确。
 
-只有 correctness 路径通过后，才应将 direct interpolation cache、fused restriction 等
-逐步改造成 OSI-aware kernel。
+当前 coarse-to-fine 已通过 direct interpolation cache 直接写 OSI ghost，fine-to-coarse
+已使用 fused restriction。jobs `584361`/`584362`（1 rank）和 `584363`/`584364`
+（2 ranks）在 `amr.regrid_int=-1` 下完成 32 个 coarse steps，level 0/1 的 active
+D3Q27 checksum 在 OSI 与 A-B 间逐项一致。两 rank 作业共享一块 GPU，因此只证明
+静态两层跨 rank 数据路径，不构成 multi-GPU/multi-node 或性能证据。
 
 ## 12. Checkpoint、输出与 restart
 

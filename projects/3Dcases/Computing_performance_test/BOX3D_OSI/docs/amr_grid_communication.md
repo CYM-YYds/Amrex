@@ -2,8 +2,7 @@
 
 > **BOX3D_OSI 继承资料。** 本文主要描述 A-B 双 `MultiFab` AMR 基线路径。
 > OSI 已另行接入最多两层的粗细传输和递归子循环；twisted/canonical 布局、
-> per-level phase 和 OSI-aware 粗细传输以
-> OSI-aware MPI 的设计以
+> per-level phase、OSI-aware 粗细传输和 MPI 的设计以
 > [OSI 算法与 AMReX 集成架构](osi_algorithm_and_architecture.md)为准。
 
 本文档说明复制基线中分布函数（DDF）的粗细网格传输路径。它描述的是

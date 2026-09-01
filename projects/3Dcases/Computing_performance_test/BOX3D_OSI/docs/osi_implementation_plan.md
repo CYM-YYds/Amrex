@@ -364,10 +364,13 @@ gather fine valid children
   `coarse_stage` 复制插值 stencil，再由 OSI-aware kernel 直接写细层 ghost；
 - `AverageDownOsiLevel()` 直接按细层 phase 读取 2x2x2 children，对 interface parent
   融合缩放与 restriction，分批送到粗层 owner 后编码回当前 phase；
-- jobs `584122`（OSI）和 `584123`（A-B）均完成 4 步，日志明确显示
-  `finest_level=1` 和 `average_mode=1`；两层逐步所有 D3Q27 checksum 完全一致；
-- 本记录证明两层生命周期、子循环和传输路径可运行并保持总 DDF 一致；尚未构成非均匀场的
-  逐单元 `L∞` DDF 等价证明，后续应补充固定布局的逐单元对照。
+- 早期 jobs `584122`/`584123` 完成 4 步；严格静态 jobs `584361`/`584362`
+  （1 rank）和 `584363`/`584364`（2 ranks）在 `amr.regrid_int=-1` 下完成 32 个
+  coarse steps，日志显示 `finest_level=1` 和 `average_mode=1`；
+- level 0/1 每步全部 D3Q27 `active_sum` 与 `active_q0...active_q26` 在 OSI/A-B 间
+  逐项一致。两 rank 作业覆盖跨 rank Fab 数据路径，但共享一块 GPU；
+- 本记录证明静态两层生命周期、2:1 子循环和传输路径可运行并保持聚合 DDF 一致；尚未
+  构成逐单元 `L∞` 等价、multi-GPU/multi-node 或性能证明。
 
 验收：
 
@@ -485,7 +488,7 @@ coarse/fine 传输和 canonicalization 都必须计入端到端性能。
 | 同层     | 多 Fab，1 GPU        | 周期   | Fab seam                   |
 | MPI      | 多 Fab，2+ rank      | 周期   | face/edge/corner halo      |
 | 物理边界 | 单层，1 GPU          | cavity | 边界 DDF/宏观量            |
-| 静态 AMR | level 0--2           | 非周期 | per-level phase、插值/限制 |
+| 静态 AMR | level 0--1，1/2 rank | 周期   | per-level phase、插值/限制 |
 | 动态 AMR | 至少两次 regrid      | 非周期 | canonicalize/reset         |
 | restart  | regrid 后 checkpoint | 非周期 | 连续/重启等价              |
 | 性能     | 固定 checkpoint A/B  | 相同   | 内存、kernel、端到端 MLUPS |
@@ -529,7 +532,7 @@ faster            必须给出受控 A/B 配置和测量值
 
 1. regrid 时重置所有 active levels，还是只重置布局发生变化的 level；
 2. checkpoint 使用分块 canonical 输出还是保存 raw state、phase 与布局元数据；
-3. 非周期边界 scratch 的稀疏数据结构及边角确定性覆盖实现。
-4. AMR 两步以后 `AverageDownGhostLevel` 和 IBM 实际需要的可信 ghost 范围。
+3. AMR 两步以后 `AverageDownGhostLevel` 和 IBM 实际需要的可信 ghost 范围；
+4. 静态两层逐单元 DDF norm，以及 multi-GPU/multi-node 回归。
 
 在这些事项有实现证据前，应继续标记为“待验证设计选择”，不能写成当前行为。

@@ -1487,8 +1487,9 @@ void AmrCoreLBM::AverageDownValidLevel(int lev, bool is_scale) {
     amrex::MultiFab& fine_mf = f_old[lev + 1];
     amrex::MultiFab& crse_mf = f_old[lev];
 
-    MultiFab fine_boundary_data(fine_mf.boxArray(), fine_mf.DistributionMap(), Q, 0); // 能不能用f_new减少内存消耗
-    MultiFab::Copy(fine_boundary_data, fine_mf, 0, 0, Q, 0);
+    amrex::MultiFab& fine_boundary_data = f_new.at(lev + 1);
+
+    amrex::MultiFab::Copy(fine_boundary_data, fine_mf, 0, 0, Q, 0);
 
     if (is_scale) {
         amrex::Real scale = 2.0 * tau[lev] / tau[lev + 1];
@@ -1514,7 +1515,7 @@ void AmrCoreLBM::AverageDownOsiValidLevel(int lev, bool is_scale) {
     const IntVect ratio = refRatio(lev);
     const BoxArray restricted_ba =
         amrex::coarsen(fine_state.boxArray(), ratio);
-    MultiFab restricted_batch(
+    amrex::MultiFab restricted_batch(
         restricted_ba, fine_state.DistributionMap(),
         osi_sync_batch_components, 0);
     const auto fine_phase = osi_phase.at(lev + 1);
