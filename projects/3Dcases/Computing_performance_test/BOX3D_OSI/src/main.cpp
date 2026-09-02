@@ -13,8 +13,7 @@ using namespace amrex;
 
 void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);  // 好像更适配cumulant_opt
 void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);  // 更适配cumulant
-void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 更适配cumulant
-void OsiCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
+void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 
@@ -96,7 +95,7 @@ int main(int argc, char* argv[]) {
             // 与 OSI 初始化路径一致：首次碰撞前先建立 coarse grown ghost。
             lid.CommunicateLevel(0);
         }
-        lid.ValidateOsiConfiguration();
+        lid.ValidateConfiguration();
 
         float compute_time = 0.0f;
         float regrid_time = 0.0f;
@@ -135,13 +134,9 @@ int main(int argc, char* argv[]) {
             // RohdeCycle(0, cur_time, lid);
 
             auto start_time_JaberCycle = std::chrono::high_resolution_clock::now();
-            if (lid.streamMode() == 0) {
-                JaberCycle2(0, cur_time, lid);
-            } else {
-                OsiCycle2(0, cur_time, lid);
-                if (lid.osiReferenceEnabled()) {
-                    lid.AdvanceAndCheckOsiReference(0, step);
-                }
+            Cycle2(0, cur_time, lid);
+            if (lid.osiReferenceEnabled()) {
+                lid.AdvanceAndCheckOsiReference(0, step);
             }
             lid.PrintDdfChecksums(step);
             lid.PrintParticleChecksums(step);
@@ -378,9 +373,8 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 }
 
-void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
-    const int nghost = lid.ghostCells();
 
     // if(lev == max_ref_level)
     // {
@@ -394,34 +388,14 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 
     // 2. 当前层推进一个时间步
-    lid.Collide(lev, nghost);
-    lid.CommunicateLevel(lev);
-    lid.Stream(lev, nghost);
-    lid.Boundary(lev);
-    lid.SwapLevel(lev, nghost);
+    lid.AdvanceLevel(lev);
 
     // 3. 下一层用一半时间步连续推进两次
     if (lev < lid.finestLevel()) {
-        JaberCycle2(lev + 1, cur_time, lid);
-        JaberCycle2(lev + 1, cur_time + dt / 2.0, lid);
+        Cycle2(lev + 1, cur_time, lid);
+        Cycle2(lev + 1, cur_time + dt / 2.0, lid);
 
         // 4. 两个细步完成后，只平均一次
-        lid.AverageDownGhostLevel(lev, 1);
-    }
-}
-
-void OsiCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
-    const amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
-
-    if (lev < lid.finestLevel()) {
-        lid.FillGhostLevel(lev + 1, cur_time, 1);
-    }
-
-    lid.OsiAdvanceLevel(lev);
-
-    if (lev < lid.finestLevel()) {
-        OsiCycle2(lev + 1, cur_time, lid);
-        OsiCycle2(lev + 1, cur_time + dt / 2.0, lid);
         lid.AverageDownGhostLevel(lev, 1);
     }
 }

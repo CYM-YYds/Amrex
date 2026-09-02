@@ -240,7 +240,7 @@ kernel，本 rank 的缓存 Box 被持久 `TagVector` 融合；布局销毁时�
 
    - 原型先验证任意 phase 下 Decode/Encode 后与 A-B valid DDF 一致；
    - 当前源码没有保留全量 `GatherOsiToCanonical`/`ScatterCanonicalToOsi` 接口，
-     而是由 `CommunicateLevel_osi()` 分批处理实际通信区域；
+     而是由 `CommunicateOsiLevel()` 分批处理实际通信区域；
    - 宏观量计算直接通过 OSI accessor 读取 twisted state。
 2. 阶段 3.1：单 rank、多 Fab
 
@@ -360,7 +360,7 @@ gather fine valid children
 
 实际验收记录（更新至 2026-08-31）：
 
-- `OsiCycle2()` 已按实际 `finest_level` 执行粗层一步、细层两个半步；
+- 统一 `Cycle2()` 已按实际 `finest_level` 执行粗层一步、细层两个半步；
 - `FillOsiGhostFromCoarse()` 分批解码粗层 valid 到同步缓冲，只向 sparse
   `coarse_stage` 复制插值 stencil，再由 OSI-aware kernel 直接写细层 ghost；
 - `AverageDownOsiLevel()` 直接按细层 phase 读取 2x2x2 children，对 interface parent
@@ -375,7 +375,7 @@ gather fine valid children
 
 验收：
 
-- `osi_phase[lev]` 的增量与 `JaberCycle2()` 子循环次数一致；
+- `osi_phase[lev]` 的增量与统一 `Cycle2()` 子循环次数一致；
 - 固定 BoxArray 下 A-B/OSI 每层 valid DDF 在容差内；
 - coarse-to-fine 使用 `interp_mode=0`，fine-to-coarse 使用 `average_mode=1`完成固定模式对照；
 - coarse/fine 传输测试不依赖 raw twisted `ParallelCopy()`。
@@ -397,8 +397,8 @@ RefineMesh()
     -> changed level phase = 0
     -> RebuildCoarseFineCaches()
 推进层
-    -> OsiCycle2 的 FillGhostLevel(fine): 只插值两步子循环需要的 coarse-fine ghost
-    -> OsiAdvanceLevel: 碰撞后、phase 提交前同步每层同层/周期 ghost
+    -> Cycle2 的 FillGhostLevel(fine): 只插值两步子循环需要的 coarse-fine ghost
+    -> AdvanceOsiLevelImpl: 碰撞后、phase 提交前同步每层同层/周期 ghost
 ```
 
 未改变布局的 level 保持原 phase；只有新建或 Remake 的 level 重置为 0。跨层操作始终

@@ -128,7 +128,7 @@ $$
 必须明确 phase 表示哪个时间状态。第一版采用以下约定：
 
 ```text
-进入 OsiAdvanceLevel(lev)：
+进入 AdvanceOsiLevelImpl(lev)：
     osi_phase[lev] = p
     storage 表示 t 时刻迁移后的 incoming DDF
 
@@ -148,7 +148,7 @@ $$
     按标准非平衡外推重建完整边界 DDF
     直接写入 A_q(x_b,p+1)
 
-离开 OsiAdvanceLevel(lev)：
+离开 AdvanceOsiLevelImpl(lev)：
     storage 再次表示迁移和物理边界处理后的 incoming DDF
 ```
 
@@ -276,14 +276,14 @@ z-low、z-high 的固定顺序选择最终面规则，使边和角的覆盖语�
 
 ## 8. AMR level phase 与时间子循环
 
-`JaberCycle2()` 中 fine level 每个 coarse step 推进两次，因此不能使用唯一全局 `step`
+统一 `Cycle2()` 中 fine level 每个 coarse step 推进两次，因此不能使用唯一全局 `step`
 作为所有层的 OSI phase。至少需要：
 
 ```cpp
 amrex::Vector<std::uint64_t> osi_phase;
 ```
 
-每次 `OsiAdvanceLevel(lev)` 成功完成后只增加 `osi_phase[lev]`。在一个粗步内可能出现：
+每次 `AdvanceOsiLevelImpl(lev)` 成功完成后只增加 `osi_phase[lev]`。在一个粗步内可能出现：
 
 ```text
 level 0 phase += 1
@@ -338,8 +338,8 @@ regrid 前完整 AverageDownValid
                     -> CellConservativeLinear -> 新 fine phase 0
         -> Clear: 释放该层 OSI state、同步缓冲和地址 tags
         -> 重建通信、插值、restriction 和 coarse-fine mask 缓存
-        -> OsiCycle2 FillGhostLevel(fine): 只建立两步细层子循环需要的 coarse-fine ghost
-        -> OsiAdvanceLevel: 每层碰撞后、phase 提交前同步同层/周期 ghost
+        -> Cycle2 FillGhostLevel(fine): 只建立两步细层子循环需要的 coarse-fine ghost
+        -> AdvanceOsiLevelImpl: 每层碰撞后、phase 提交前同步同层/周期 ghost
 ```
 
 重置 phase 不会改变物理解。若重构前有：
@@ -356,7 +356,7 @@ gather 后 `C(x,q)=f_q(x)`；新布局以 phase 0 写入时
 DDF。Remake/MakeNew/MakeNewFromScratch 均只保证 valid，避免在 AMR 回调中混入 ghost
 生命周期。碰撞是逐格点局部操作，因此 level 0 和同层重叠 ghost 不需要预填；fine
 碰撞前只插值 coarse-fine 保护区，同层/周期副本随后由 post-collision
-`CommunicateLevel_osi()` 覆盖。
+`CommunicateOsiLevel()` 覆盖。
 jobs `584483`
 （OSI）和 `584484`（A-B）在 2 ranks、10 coarse steps、每 2 步 regrid 下覆盖
 Remake、Clear 和 MakeNew；18 条 active D3Q27 checksum 逐项一致。job `584617` 对上述

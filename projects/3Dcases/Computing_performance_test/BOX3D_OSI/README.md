@@ -31,7 +31,7 @@ checkpoint 不持久化 raw twisted 地址，restart 统一恢复为 phase 0 并
 - `CommunicateLevel()` 填充 `f_old` 的同层 ghost；
 - `Stream()` 从 `f_old(i-e_q)` 显式 pull 到 `f_new(i)`；
 - `Boundary()` 修正迁移后的物理边界，随后 `SwapLevel()` 交换两套 `MultiFab`；
-- `JaberCycle2()` 对细层做 2:1 时间子循环，并在运行中执行动态 regrid。
+- `Cycle2()` 对两种存储模式统一执行细层 2:1 时间子循环，并在运行中执行动态 regrid。
 
 不要把继承自 BOX3D 的历史 job、图表或性能数字描述为 OSI 结果。
 
@@ -111,7 +111,7 @@ checkpoint 不持久化 raw twisted 地址，restart 统一恢复为 phase 0 并
   完整 canonical D3Q27。最终验证 job `584617` 还将 regrid 回调收敛为只初始化
   valid：`FillOsiFinePatchFromCoarse()` 始终构造 sparse fine patch；碰撞前不填 level 0
   同层 ghost，fine 的 `FillGhostLevel()` 只准备两步子循环需要的 coarse-fine ghost；
-  所有同层/周期 ghost 均由 `OsiAdvanceLevel()` 在碰撞后、phase 提交前同步。
+  所有同层/周期 ghost 均由 `AdvanceOsiLevelImpl()` 在碰撞后、phase 提交前同步。
   该作业覆盖
   `Remake/Clear/MakeNew/Remake`，54 项逐单元验收全部通过，最大 active
   `Linf=1.054711873e-15`、mean-L1 `=1.492743922e-16`、relative-L2
@@ -124,7 +124,7 @@ checkpoint 不持久化 raw twisted 地址，restart 统一恢复为 phase 0 并
 
 1. [OSI 算法与 AMReX 集成架构](docs/osi_algorithm_and_architecture.md)：权威设计、术语、状态不变量和 AMR 兼容策略；
 2. [OSI 实施与验证计划](docs/osi_implementation_plan.md)：分阶段改动范围、接口草图和验收门槛；
-3. `src/main.cpp`：当前 `JaberCycle2()` 的递归推进与 regrid 时机；
+3. `src/main.cpp`：当前 `Cycle2()` 的统一递归推进与 regrid 时机；
 4. `src/OsiIndex.H` 与 `tests/osi_index_test.cpp`：已实现的 OSI 地址层及其不变量；
 5. `src/AmrCoreLBM.H/.cpp`：DDF 所有权、通信、粗细层传输、重构和 checkpoint；
 6. `src/Kernels.H`：当前 collision、pull-streaming 和 boundary kernel；
