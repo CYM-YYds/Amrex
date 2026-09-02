@@ -40,7 +40,8 @@ lbm.collide_mode = 1
 # 0 = 现有的 A-B 基准模式（默认及生产模式）
 # 1 = grown-Fab OSI 实验模式；当前支持最多两层 AMR、多 Fab/MPI，以及全周期或六面
 #     非周期边界，要求 collide_mode=1；checkpoint 以 canonical DDF 写出，restart
-#     统一重置为 phase=0；OSI 粒子 checkpoint 尚未适配
+#     统一重置为 phase=0。ParticleContainer 的 AoS/SoA 可随 checkpoint 重启；
+#     运动刚体的 host 侧质心、速度、角速度和力/力矩尚未持久化
 lbm.stream_mode = 0
 
 # OSI canonical 通信缓冲一次处理的 DDF 分量数，范围 1..27。

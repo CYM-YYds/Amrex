@@ -2345,11 +2345,29 @@ void compute_macro_osi(
     rho(i, j, k, 0) = rhot;
 }
 
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void interp_bilinear_d3q(
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void store_interpolated_d3q(
+    int i, int j, int k, int q, amrex::Real value,
+    amrex::Array4<amrex::Real> const& fine,
+    box3d_osi::FabGeometry fine_fab,
+    std::uint64_t fine_phase) noexcept {
+    if constexpr (UseOsiAddress) {
+        const auto dst = box3d_osi::osi_address(
+            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fine_phase, fine_fab);
+        fine(dst.x, dst.y, dst.z, q) = value;
+    } else {
+        fine(i, j, k, q) = value;
+    }
+}
+
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void interp_bilinear_d3q_impl(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
-    amrex::Array4<amrex::Real const> const& coarse) noexcept {
+    amrex::Array4<amrex::Real const> const& coarse,
+    box3d_osi::FabGeometry fine_fab,
+    std::uint64_t fine_phase) noexcept {
     const int ic = amrex::coarsen(i, 2);
     const int jc = amrex::coarsen(j, 2);
     const int kc = amrex::coarsen(k, 2);
@@ -2362,7 +2380,7 @@ void interp_bilinear_d3q(
     constexpr Real w111 = Real(1.0 / 64.0);
 
     for (int q = 0; q < Q; ++q) {
-        fine(i, j, k, q) =
+        const Real value =
             coarse(ic, jc, kc, q) * w000 +
             coarse(ic + sx, jc, kc, q) * w100 +
             coarse(ic, jc + sy, kc, q) * w100 +
@@ -2371,7 +2389,26 @@ void interp_bilinear_d3q(
             coarse(ic + sx, jc, kc + sz, q) * w110 +
             coarse(ic, jc + sy, kc + sz, q) * w110 +
             coarse(ic + sx, jc + sy, kc + sz, q) * w111;
+        store_interpolated_d3q<UseOsiAddress>(
+            i, j, k, q, value, fine, fine_fab, fine_phase);
     }
+}
+
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void interp_bilinear_d3q(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse) noexcept {
+    interp_bilinear_d3q_impl<false>(i, j, k, fine, coarse, {}, 0);
+}
+
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void interp_bilinear_d3q(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    box3d_osi::FabGeometry fine_fab,
+    std::uint64_t fine_phase) noexcept {
+    interp_bilinear_d3q_impl<true>(
+        i, j, k, fine, coarse, fine_fab, fine_phase);
 }
 
 // OSI 版本的双线性插值：数学权重与普通 kernel 相同，输入输出通过各自
@@ -2407,52 +2444,17 @@ void interp_bilinear_osi_d3q(
     }
 }
 
-// 粗层 stencil 已经按逻辑坐标解码到 canonical staging Fab；细层仍保持
-// grown-Fab OSI 布局。因此这里只对输出地址应用 OSI phase 映射。
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void interp_bilinear_canonical_to_osi_d3q(
-    int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
-    amrex::Array4<amrex::Real const> const& coarse,
-    box3d_osi::FabGeometry fine_fab,
-    std::uint64_t fine_phase) noexcept {
-    const int ic = amrex::coarsen(i, 2);
-    const int jc = amrex::coarsen(j, 2);
-    const int kc = amrex::coarsen(k, 2);
-    const int sx = i - 2 * ic == 0 ? -1 : 1;
-    const int sy = j - 2 * jc == 0 ? -1 : 1;
-    const int sz = k - 2 * kc == 0 ? -1 : 1;
-    constexpr Real w000 = Real(27.0 / 64.0);
-    constexpr Real w100 = Real(9.0 / 64.0);
-    constexpr Real w110 = Real(3.0 / 64.0);
-    constexpr Real w111 = Real(1.0 / 64.0);
-
-    for (int q = 0; q < Q; ++q) {
-        const Real value =
-            coarse(ic, jc, kc, q) * w000 +
-            coarse(ic + sx, jc, kc, q) * w100 +
-            coarse(ic, jc + sy, kc, q) * w100 +
-            coarse(ic + sx, jc + sy, kc, q) * w110 +
-            coarse(ic, jc, kc + sz, q) * w100 +
-            coarse(ic + sx, jc, kc + sz, q) * w110 +
-            coarse(ic, jc + sy, kc + sz, q) * w110 +
-            coarse(ic + sx, jc + sy, kc + sz, q) * w111;
-        const auto dst = box3d_osi::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fine_phase,
-            fine_fab);
-        fine(dst.x, dst.y, dst.z, q) = value;
-    }
-}
-
 // AMReX 中比率为2的单元守恒线性插值的设备端实现。
 // 采用限制型单侧斜率，保证所有精细网格数值落在相邻粗网格单元取值区间内，
 // 同时维持粗网格单元平均值守恒。
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void interp_cell_cons_linear_children_d3q(
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void interp_cell_cons_linear_children_d3q_impl(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
-    amrex::Box const& fine_work_box) noexcept {
+    amrex::Box const& fine_work_box,
+    box3d_osi::FabGeometry fine_fab,
+    std::uint64_t fine_phase) noexcept {
     for (int q = 0; q < Q; ++q) {
         const Real center = coarse(ic, jc, kc, q);
         const Real dxp = coarse(ic + 1, jc, kc, q) - center;
@@ -2487,8 +2489,9 @@ void interp_cell_cons_linear_children_d3q(
                             joff == 0 ? Real(-0.25) : Real(0.25);
                         const Real oz =
                             koff == 0 ? Real(-0.25) : Real(0.25);
-                        fine(i, j, k, q) =
-                            center + ox * sx + oy * sy + oz * sz;
+                        const Real value = center + ox * sx + oy * sy + oz * sz;
+                        store_interpolated_d3q<UseOsiAddress>(
+                            i, j, k, q, value, fine, fine_fab, fine_phase);
                     }
                 }
             }
@@ -2496,15 +2499,37 @@ void interp_cell_cons_linear_children_d3q(
     }
 }
 
-// AMReX CellQuadratic 在 ratio=2、笛卡尔网格和当前 foextrap 边界下的
-// 融合设备实现。每个 coarse cell 只计算一次一阶、纯二阶和混合斜率，
-// 随后直接写入 fine_work_box 内的最多八个子单元。
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void interp_cell_quadratic_children_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void interp_cell_cons_linear_children_d3q(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box) noexcept {
+    interp_cell_cons_linear_children_d3q_impl<false>(
+        ic, jc, kc, fine, coarse, fine_work_box, {}, 0);
+}
+
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void interp_cell_cons_linear_children_d3q(
+    int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    amrex::Box const& fine_work_box,
+    box3d_osi::FabGeometry fine_fab,
+    std::uint64_t fine_phase) noexcept {
+    interp_cell_cons_linear_children_d3q_impl<true>(
+        ic, jc, kc, fine, coarse, fine_work_box, fine_fab, fine_phase);
+}
+
+// AMReX CellQuadratic 在 ratio=2、笛卡尔网格和当前 foextrap 边界下的
+// 融合设备实现。每个 coarse cell 只计算一次一阶、纯二阶和混合斜率，
+// 随后直接写入 fine_work_box 内的最多八个子单元。
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void interp_cell_quadratic_children_d3q_impl(
+    int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    amrex::Box const& fine_work_box,
+    box3d_osi::FabGeometry fine_fab,
+    std::uint64_t fine_phase) noexcept {
     constexpr Real quarter = Real(0.25);
     constexpr Real half = Real(0.5);
 
@@ -2551,17 +2576,39 @@ void interp_cell_quadratic_children_d3q(
                         const Real ox = ioff == 0 ? -quarter : quarter;
                         const Real oy = joff == 0 ? -quarter : quarter;
                         const Real oz = koff == 0 ? -quarter : quarter;
-                        fine(i, j, k, q) =
+                        const Real value =
                             center + ox * sx + oy * sy + oz * sz +
                             half * ox * ox * sxx +
                             half * oy * oy * syy +
                             half * oz * oz * szz +
                             ox * oy * sxy + ox * oz * sxz + oy * oz * syz;
+                        store_interpolated_d3q<UseOsiAddress>(
+                            i, j, k, q, value, fine, fine_fab, fine_phase);
                     }
                 }
             }
         }
     }
+}
+
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void interp_cell_quadratic_children_d3q(
+    int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    amrex::Box const& fine_work_box) noexcept {
+    interp_cell_quadratic_children_d3q_impl<false>(
+        ic, jc, kc, fine, coarse, fine_work_box, {}, 0);
+}
+
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void interp_cell_quadratic_children_d3q(
+    int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
+    amrex::Array4<amrex::Real const> const& coarse,
+    amrex::Box const& fine_work_box,
+    box3d_osi::FabGeometry fine_fab,
+    std::uint64_t fine_phase) noexcept {
+    interp_cell_quadratic_children_d3q_impl<true>(
+        ic, jc, kc, fine, coarse, fine_work_box, fine_fab, fine_phase);
 }
 
 AMREX_GPU_DEVICE

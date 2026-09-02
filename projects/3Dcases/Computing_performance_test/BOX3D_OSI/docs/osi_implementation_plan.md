@@ -5,7 +5,7 @@
 
 ## 1. 当前基线
 
-截至 2026-09-01，`BOX3D_OSI` 的默认推进模式仍是与 `BOX3D` 一致的 A-B 基线：
+截至 2026-09-02，`BOX3D_OSI` 的默认推进模式仍是与 `BOX3D` 一致的 A-B 基线：
 
 ```text
 f_old + f_new
@@ -217,7 +217,8 @@ kernel，本 rank 的缓存 Box 被持久 `TagVector` 融合；布局销毁时�
   每步比较全部 valid-cell D3Q27 分量；
 - 两个 job 的逐步 `linf` 序列完全一致，最大值为 `1.498801083e-15`；
 - `ComputeMacroLevel()` 在 OSI 模式下通过 accessor 直接读取 twisted state，并在逐步
-  A/B 验证中实际执行；checkpoint/restart 仍未接入；
+  A/B 验证中实际执行；该阶段当时尚未接入 checkpoint/restart，
+  现行实现与验收见阶段 7；
 - `tests/check_osi_stage3_logs.sh` 验证 rank/Box/seed 标记、32 步数量、`1e-12` 容差、
   正常 finalize 和单/双 rank 序列一致性；
 - 验证路径包含 A-B oracle 和逐步 norm，不能用于性能结论；`osi_ab_check=false` 时不
@@ -429,8 +430,9 @@ coarse cells。
 
 ## 10. 阶段 7：checkpoint、restart 与输出
 
-状态：**已完成第一版实现及静态两层跨 MPI 分解 restart 验收。动态 regrid 后 restart、
-粒子 checkpoint 和 multi-node 尚未覆盖。**
+状态：**已完成第一版实现及静态两层跨 MPI 分解 restart 验收，
+并覆盖静态 `ParticleContainer` AoS/SoA checkpoint。动态 regrid 后 restart、
+运动刚体 host 状态、完整 IBM 耦合和 multi-node 尚未覆盖。**
 
 目标：持久化可移植的 canonical DDF。
 
@@ -477,6 +479,11 @@ layout 标记的 checkpoint 当成 twisted 数据。
   0/1 和全局 `Linf` 全部为 0，并成功生成 `plt000016`；
 - 综合 job `584621` 重复上述两层 OSI 验证，并追加 A-B V2 checkpoint 的 1-rank
   写出与 2-rank restart；OSI 与 A-B 两条 restart 路径的全局 DDF `Linf` 均为 0；
+- 增强 job `584839` 在 OSI checkpoint/restart 中加入 50,444 个静态拉格朗日点：
+  1-rank 写出、2-rank 重启后，粒子数、坐标和 10 个 SoA 属性校验和在
+  `1e-9 + 1e-13*scale` 并行归约容差内一致，两层 D3Q27 的全局 `Linf=0`。
+  AMReX 粒子 checkpoint 不会自动序列化 `LagrangeParticleContainer` 的 host 侧
+  `centre` / 速度 / 角速度 / 力与力矩，因此本项不构成运动粒子或 IBM 验收；
 - `scripts/submit_osi_stage7_restart.sh` 和
   `tests/check_osi_stage7_restart_log.sh` 固化该验证。
 

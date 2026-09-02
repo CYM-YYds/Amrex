@@ -5,7 +5,7 @@
 
 ## 1. 状态与边界
 
-截至 2026-09-01：
+截至 2026-09-02：
 
 - 已确定采用 one-step index（OSI）单数组方案；
 - 已确定动态 AMR 布局变化时采用 canonicalize/rebuild/reset；
@@ -397,17 +397,20 @@ D3Q27 checksum 在 OSI 与 A-B 间逐项一致。两 rank 作业共享一块 GPU
 
 ## 12. Checkpoint、输出与 restart
 
-推荐 checkpoint 持久化 canonical DDF，而不是依赖旧 Fab 的 twisted 地址。这样重启时
-可以按新/旧相同的 BoxArray 读入，并统一建立 phase 0 的 OSI 状态。
+当前 checkpoint 持久化 canonical DDF，而不依赖旧 Fab 的 twisted 地址。
+header 使用 `LBMCheckpointV2` 并显式记录
+`canonical_osi_single_array_v1` 或 `canonical_ab_two_array_v1`。restart 可按当前
+DistributionMapping 重分布 valid DDF，将 OSI level 恢复为 phase 0，再重建同层、
+粗细 ghost 和布局缓存。plotfile、宏观量计算和 DDF reference comparison
+也从 canonical view 或 OSI-aware accessor 读取，不会直接解释 raw twisted MultiFab。
 
-checkpoint header 至少应增加：
-
-- DDF layout/version 标记；
-- 写出的是 canonical 还是 twisted；
-- 若允许 twisted checkpoint，则必须保存每层 phase 和完整映射版本。
-
-第一版只支持 canonical checkpoint。plotfile、宏观量计算和 DDF reference comparison 也
-应从 canonical view 或 OSI-aware accessor 读取，不能直接解释 raw twisted MultiFab。
+`checkpoint.write_particles=true` 时，粒子容器在新算例中初始化，并通过
+AMReX `ParticleContainer::Checkpoint/Restart` 持久化 AoS/SoA 数据。该接口不会
+自动序列化 `LagrangeParticleContainer` 中的 host 侧刚体状态，包括质心、
+平动/角速度、力和力矩。因此当前只宣称静态粒子容器的 restart 能力，
+不宣称运动粒子或完整 IBM 耦合已经通过验收。job `584839` 以 50,444 个
+拉格朗日点验证了 1-rank 写出、2-rank 重启：粒子数、坐标和 10 个
+SoA 属性校验和在并行归约容差内一致，两层 D3Q27 全局 `Linf=0`。
 
 ## 13. 建议的数据结构边界
 

@@ -86,7 +86,7 @@ int main(int argc, char* argv[]) {
             lid.InitMesh(cur_time);
             lid.PrintMeshInfo();
             lid.PrintLbmParm();
-            if (lid.streamMode() == 0) {
+            if (lid.params().write_particles) {
                 lid.InitParticle(max_ref_level);
                 lid.InitCpPoint(max_ref_level);
                 lid.PrintParticleParm();
@@ -121,7 +121,7 @@ int main(int argc, char* argv[]) {
                     lid.FindCentre();
                 }
                 lid.RefineMesh(cur_time);
-                if (lid.streamMode() == 0) {
+                if (lid.params().write_particles) {
                     lid.RedistributeParticle();
                 }
             }
@@ -144,6 +144,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             lid.PrintDdfChecksums(step);
+            lid.PrintParticleChecksums(step);
             auto end_time_JaberCycle = std::chrono::high_resolution_clock::now();
             JaberCycle_time += std::chrono::duration<float, std::milli>(end_time_JaberCycle - start_time_JaberCycle).count();
 

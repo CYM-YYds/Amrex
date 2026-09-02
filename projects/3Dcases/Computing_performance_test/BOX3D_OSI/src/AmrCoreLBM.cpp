@@ -522,6 +522,7 @@ void AmrCoreLBM::ReadParameters() {
         ParmParse pp_verify("verification");
         pp_verify.query("osi_seed_pattern", osi_verification_pattern);
         pp_verify.query("osi_ab_check", osi_ab_check);
+        pp_verify.query("particle_checksum", particle_checksum);
     }
 
     {
@@ -719,6 +720,16 @@ void AmrCoreLBM::FillPatch(int lev, amrex::Real time, amrex::MultiFab& mf) {
     }
 }
 
+amrex::Interpolater* AmrCoreLBM::DdfInterpolater() const {
+    if (interp_mode == 1) {
+        return &cell_cons_interp;
+    }
+    if (interp_mode == 2) {
+        return &quadratic_interp;
+    }
+    return &cell_bilinear_interp;
+}
+
 void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     const double start = amrex::second();
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
@@ -726,12 +737,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     const MultiFab& fine_layout =
         stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
     const auto fill_ng = fine_layout.nGrowVect();
-    Interpolater* interp_mapper = &cell_bilinear_interp;
-    if (interp_mode == 1) {
-        interp_mapper = &cell_cons_interp;
-    } else if (interp_mode == 2) {
-        interp_mapper = &quadratic_interp;
-    }
+    Interpolater* interp_mapper = DdfInterpolater();
     const auto coarsener =
         interp_mapper->BoxCoarsener(refRatio(lev - 1));
     const BoxArray& fine_ba = fine_layout.boxArray();
@@ -940,12 +946,7 @@ void AmrCoreLBM::RemakeDdfState(
     const auto ratio = refRatio(lev - 1);
     AMREX_ALWAYS_ASSERT(ratio == amrex::IntVect(2));
     const int interp_mode_local = interp_mode;
-    Interpolater* interp_mapper = &cell_bilinear_interp;
-    if (interp_mode == 1) {
-        interp_mapper = &cell_cons_interp;
-    } else if (interp_mode == 2) {
-        interp_mapper = &quadratic_interp;
-    }
+    Interpolater* interp_mapper = DdfInterpolater();
     const auto coarsener = interp_mapper->BoxCoarsener(ratio);
 
     // Regrid 时目标 old_state 的布局不同于 f_old[lev]。此处按 FPinfo
@@ -1798,9 +1799,6 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
     (void)time;
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= finest_level);
     AMREX_ALWAYS_ASSERT(refRatio(lev - 1) == IntVect(2));
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        interp_mode == 0,
-        "Direct OSI coarse-to-fine transfer currently supports interp_mode=0");
     AMREX_ALWAYS_ASSERT(interp_direct_cache_ready.at(lev));
 
     auto& coarse_state = osi_state.at(lev - 1);
@@ -1878,11 +1876,32 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
         const auto fine = fine_state.array(fine_index);
         const auto coarse_const = coarse_stage.const_array(mfi);
         const Box fine_box = fine_work_boxes.at(stage_index);
-        amrex::ParallelFor(
-            fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                interp_bilinear_canonical_to_osi_d3q(
-                    i, j, k, fine, coarse_const, fine_fab, fine_phase);
-            });
+        if (interp_mode == 0) {
+            amrex::ParallelFor(
+                fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    interp_bilinear_d3q(
+                        i, j, k, fine, coarse_const, fine_fab, fine_phase);
+                });
+        } else {
+            const Box coarse_parent_box = amrex::coarsen(fine_box, 2);
+            if (interp_mode == 1) {
+                amrex::ParallelFor(
+                    coarse_parent_box,
+                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
+                        interp_cell_cons_linear_children_d3q(
+                            ic, jc, kc, fine, coarse_const, fine_box,
+                            fine_fab, fine_phase);
+                    });
+            } else {
+                amrex::ParallelFor(
+                    coarse_parent_box,
+                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
+                        interp_cell_quadratic_children_d3q(
+                            ic, jc, kc, fine, coarse_const, fine_box,
+                            fine_fab, fine_phase);
+                    });
+            }
+        }
     }
 }
 
@@ -2041,10 +2060,6 @@ void AmrCoreLBM::ValidateOsiConfiguration() const {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         collide_mode == 1,
         "OSI currently supports only lbm.collide_mode=1");
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        (params_.begin_step <= 0 && params_.chk_int <= 0) ||
-            !params_.write_particles,
-        "OSI checkpoint/restart currently requires checkpoint.write_particles=0");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         osi_state[0].isDefined(),
         "OSI state was not initialized");
@@ -2507,6 +2522,56 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
     }
 }
 
+void AmrCoreLBM::PrintParticleChecksums(int step) const {
+    if (!particle_checksum) {
+        return;
+    }
+
+    for (int iparticle = 0; iparticle < particle_num; ++iparticle) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            particles[iparticle] != nullptr,
+            "verification.particle_checksum requires initialized particles");
+        const auto& container = *particles[iparticle];
+        using ConstPTDType = LagrangeParticleContainer::ConstPTDType;
+
+        const Long count = container.TotalNumberOfParticles();
+        GpuArray<Real, AMREX_SPACEDIM> position_sum{};
+        GpuArray<Real, PIdx::nattribs> attribute_sum{};
+        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+            Real value = amrex::ReduceSum(
+                container,
+                [=] AMREX_GPU_HOST_DEVICE(
+                    const ConstPTDType& ptd, int i) noexcept -> Real {
+                    return ptd.pos(dir, i);
+                });
+            ParallelDescriptor::ReduceRealSum(value);
+            position_sum[dir] = value;
+        }
+        for (int n = 0; n < PIdx::nattribs; ++n) {
+            Real value = amrex::ReduceSum(
+                container,
+                [=] AMREX_GPU_HOST_DEVICE(
+                    const ConstPTDType& ptd, int i) noexcept -> Real {
+                    return ptd.rdata(n)[i];
+                });
+            ParallelDescriptor::ReduceRealSum(value);
+            attribute_sum[n] = value;
+        }
+
+        amrex::Print() << std::setprecision(17)
+                       << "particle_checksum: step=" << step
+                       << " particle=" << iparticle
+                       << " count=" << count;
+        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+            amrex::Print() << " pos" << dir << "=" << position_sum[dir];
+        }
+        for (int n = 0; n < PIdx::nattribs; ++n) {
+            amrex::Print() << " attr" << n << "=" << attribute_sum[n];
+        }
+        amrex::Print() << '\n';
+    }
+}
+
 void AmrCoreLBM::Boundary(int lev) {
     ScopedPerfTimer timer(perf_stats.boundary);
     // amrex::AllPrint()<<"Boundary on " << lev <<std::endl;
@@ -2884,8 +2949,7 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
         if (lev > 0) {
             const IntVect fill_ng(0);
             const auto ratio = refRatio(lev - 1);
-            const auto coarsener =
-                cell_bilinear_interp.BoxCoarsener(ratio);
+            const auto coarsener = DdfInterpolater()->BoxCoarsener(ratio);
             const auto& fpc = FabArrayBase::TheFPinfo(
                 old_state, new_osi_state, fill_ng, coarsener,
                 Geom(lev), Geom(lev - 1), nullptr); // 得到新 fine 中不被旧 fine 覆盖的区域以及为了插值这些 fine 区域需要读取的粗层 stencil
@@ -2997,7 +3061,7 @@ void AmrCoreLBM::InterpolateNewFineBatch(
         amrex::InterpFromCoarseLevel(
             fine, time, coarse_batch, 0, q0, ncomp,
             geom[lev - 1], geom[lev], cphysbc, q0, fphysbc, q0,
-            refRatio(lev - 1), &cell_cons_interp, bcs, q0);
+            refRatio(lev - 1), DdfInterpolater(), bcs, q0);
     } else {
         CpuBndryFuncFab bndry_func(nullptr);
         PhysBCFunct<CpuBndryFuncFab> cphysbc(
@@ -3007,7 +3071,7 @@ void AmrCoreLBM::InterpolateNewFineBatch(
         amrex::InterpFromCoarseLevel(
             fine, time, coarse_batch, 0, q0, ncomp,
             geom[lev - 1], geom[lev], cphysbc, q0, fphysbc, q0,
-            refRatio(lev - 1), &cell_cons_interp, bcs, q0);
+            refRatio(lev - 1), DdfInterpolater(), bcs, q0);
     }
 }
 
@@ -3078,13 +3142,8 @@ void AmrCoreLBM::FillOsiFinePatchFromCoarse(
     }
     AMREX_ALWAYS_ASSERT(lev > 0);
     AMREX_ALWAYS_ASSERT(refRatio(lev - 1) == IntVect(2));
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        interp_mode == 0,
-        "Direct OSI regrid currently supports interp_mode=0");
-
     const IntVect ratio = refRatio(lev - 1);
-    const auto coarsener =
-        cell_bilinear_interp.BoxCoarsener(ratio);
+    const auto coarsener = DdfInterpolater()->BoxCoarsener(ratio);
     Vector<Box> coarse_boxes;
     coarse_boxes.reserve(fine_patch_ba.size());
     for (int ibox = 0; ibox < fine_patch_ba.size(); ++ibox) {
@@ -3140,10 +3199,29 @@ void AmrCoreLBM::FillOsiFinePatchFromCoarse(
         const Box bx = mfi.validbox();
         const auto fine = fine_patch.array(mfi);
         const auto coarse = coarse_patch.const_array(mfi);
-        amrex::ParallelFor(
-            bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                interp_bilinear_d3q(i, j, k, fine, coarse);
-            });
+        if (interp_mode == 0) {
+            amrex::ParallelFor(
+                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                    interp_bilinear_d3q(i, j, k, fine, coarse);
+                });
+        } else {
+            const Box coarse_parent_box = amrex::coarsen(bx, 2);
+            if (interp_mode == 1) {
+                amrex::ParallelFor(
+                    coarse_parent_box,
+                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) noexcept {
+                        interp_cell_cons_linear_children_d3q(
+                            ic, jc, kc, fine, coarse, bx);
+                    });
+            } else {
+                amrex::ParallelFor(
+                    coarse_parent_box,
+                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) noexcept {
+                        interp_cell_quadratic_children_d3q(
+                            ic, jc, kc, fine, coarse, bx);
+                    });
+            }
+        }
     }
 
     destination.ParallelCopy(
@@ -3938,7 +4016,7 @@ void AmrCoreLBM::ReadCheckpoint() {
         force[lev].setVal(0.0, nghost);
     }
 
-    if (stream_mode == 0 && params_.write_particles) {
+    if (params_.write_particles) {
         for (int i = 0; i < particle_num; ++i) {
             const std::string pname = "particles_" + std::to_string(i);
             particles[i].reset();

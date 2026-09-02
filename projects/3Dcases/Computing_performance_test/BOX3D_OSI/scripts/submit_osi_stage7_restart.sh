@@ -59,31 +59,34 @@ run_case 1 \
     max_step=16 \
     amr.max_level=1 \
     'lbm.err=1.0e-12 1.0e-12' \
+    verification.particle_checksum=true \
     amr.plot_int=8 \
     checkpoint.chk_int=16 \
     checkpoint.chk_prefix=reference/chk \
     checkpoint.keep_latest_only=false \
-    checkpoint.write_particles=false
+    checkpoint.write_particles=true
 
 echo "stage7_case: checkpoint_source ranks=1 steps=8 checkpoint=restart/chk00000008"
 run_case 1 \
     max_step=8 \
     amr.max_level=1 \
     'lbm.err=1.0e-12 1.0e-12' \
+    verification.particle_checksum=true \
     checkpoint.chk_int=8 \
     checkpoint.chk_prefix=restart/chk \
     checkpoint.keep_latest_only=false \
-    checkpoint.write_particles=false
+    checkpoint.write_particles=true
 
 echo "stage7_case: restarted ranks=2 begin_step=8 final_step=16"
 run_case 2 \
     max_step=16 \
     amr.max_level=1 \
     'lbm.err=1.0e-12 1.0e-12' \
+    verification.particle_checksum=true \
     checkpoint.begin_step=8 \
     checkpoint.chk_int=-1 \
     checkpoint.chk_prefix=restart/chk \
-    checkpoint.write_particles=false \
+    checkpoint.write_particles=true \
     verification.ddf_reference_checkpoint=reference/chk00000016
 
 echo "stage7_case: ab_uninterrupted ranks=1 steps=8 checkpoint=ab_reference/chk00000008"
@@ -116,6 +119,8 @@ run_case 2 \
 
 test -f reference/chk00000016/Header
 test -f restart/chk00000008/Header
+test -f reference/chk00000016/particles_0/Header
+test -f restart/chk00000008/particles_0/Header
 test -f plt000016/Header
 grep -qx 'LBMCheckpointV2' reference/chk00000016/Header
 grep -qx 'canonical_osi_single_array_v1' reference/chk00000016/Header

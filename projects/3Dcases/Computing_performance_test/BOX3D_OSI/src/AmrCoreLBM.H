@@ -112,6 +112,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void WriteCheckpoint(int step, amrex::Real time) const;
     void ReadCheckpoint();
     void CompareDdfCheckpoint(const std::string& checkpoint_path) const;
+    void PrintParticleChecksums(int step) const;
     const RuntimeParams& params() const {
         return params_;
     }
@@ -218,6 +219,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void BuildInterpolationCache();
     void BuildRestrictionCache();
     void BuildDirectInterpolationCache(int lev);
+    amrex::Interpolater* DdfInterpolater() const;
     void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
                             const amrex::DistributionMapping& dm);
     void FillNewOsiLevelFromCoarse(int lev, amrex::Real time);
@@ -260,6 +262,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool osi_verification_pattern = false;
     // 仅在显式启用时分配 A-B 两数组并逐步比较；生产 OSI 模式保持单一体积级 DDF。
     bool osi_ab_check = false;
+    // 验证粒子 checkpoint/restart 时输出全局粒子数、坐标与 SoA 属性和。
+    bool particle_checksum = false;
     // canonical 通信缓冲一次处理的 DDF 分量数；增大它可减少 FillBoundary 调用次数，
     // 代价是按比例增加临时缓冲内存。
     int osi_sync_batch_components = 3;
