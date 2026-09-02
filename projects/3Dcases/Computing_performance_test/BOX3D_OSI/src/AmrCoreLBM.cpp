@@ -33,6 +33,10 @@ using namespace amrex;
 namespace {
 constexpr int cf_interface_mask_nghost = 2;
 constexpr int cf_covered_mask_nghost = cf_interface_mask_nghost + 1;
+constexpr char checkpoint_label_v1[] = "LBMCheckpoint";
+constexpr char checkpoint_label_v2[] = "LBMCheckpointV2";
+constexpr char checkpoint_layout_ab[] = "canonical_ab_two_array_v1";
+constexpr char checkpoint_layout_osi[] = "canonical_osi_single_array_v1";
 class ScopedPerfTimer {
   public:
     explicit ScopedPerfTimer(double& accum)
@@ -2038,11 +2042,9 @@ void AmrCoreLBM::ValidateOsiConfiguration() const {
         collide_mode == 1,
         "OSI currently supports only lbm.collide_mode=1");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        params_.begin_step == 0,
-        "OSI does not yet support checkpoint restart");
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        params_.plot_int <= 0 && params_.chk_int <= 0,
-        "OSI requires plot/checkpoint output disabled until OSI output adapters are integrated");
+        (params_.begin_step <= 0 && params_.chk_int <= 0) ||
+            !params_.write_particles,
+        "OSI checkpoint/restart currently requires checkpoint.write_particles=0");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         osi_state[0].isDefined(),
         "OSI state was not initialized");
@@ -3361,7 +3363,10 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             return;
         }
         header.precision(17);
-        header << "LBMCheckpoint" << '\n';
+        header << checkpoint_label_v2 << '\n';
+        header << (stream_mode == 1 ? checkpoint_layout_osi
+                                    : checkpoint_layout_ab)
+               << '\n';
         header << step << '\n';
         header << time << '\n';
         header << finest_level << '\n';
@@ -3375,8 +3380,43 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
     }
 
     for (int lev = 0; lev <= finest_level; ++lev) {
-        VisMF::Write(f_old[lev], MultiFabFileFullPrefix(lev, out_chkname, level_prefix, "f_old"));
-        VisMF::Write(f_new[lev], MultiFabFileFullPrefix(lev, out_chkname, level_prefix, "f_new"));
+        const std::string old_name = MultiFabFileFullPrefix(
+            lev, out_chkname, level_prefix, "f_old");
+        if (stream_mode == 0) {
+            VisMF::Write(f_old[lev], old_name);
+            VisMF::Write(
+                f_new[lev], MultiFabFileFullPrefix(
+                                lev, out_chkname, level_prefix, "f_new"));
+            continue;
+        }
+
+        // Checkpoint only persists logical valid DDF. Raw OSI coordinates and
+        // Fab-local phase are deliberately not part of the file format, so the
+        // checkpoint can be restarted with another DistributionMapping.
+        const MultiFab& state = osi_state.at(lev);
+        MultiFab canonical(
+            state.boxArray(), state.DistributionMap(), Q, 0);
+        const std::uint64_t phase = osi_phase.at(lev);
+        for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+            const Box bx = mfi.validbox();
+            const Box ring = amrex::grow(bx, state.nGrowVect());
+            const auto lo = ring.smallEnd();
+            const box3d_osi::FabGeometry fab{
+                {lo[0], lo[1], lo[2]},
+                {ring.length(0), ring.length(1), ring.length(2)}};
+            const auto src = state.const_array(mfi);
+            const auto dst = canonical.array(mfi);
+            amrex::ParallelFor(
+                bx, Q,
+                [=] AMREX_GPU_DEVICE(
+                    int i, int j, int k, int q) noexcept {
+                    const auto raw = box3d_osi::osi_address(
+                        {i, j, k},
+                        {e[q][0], e[q][1], e[q][2]}, phase, fab);
+                    dst(i, j, k, q) = src(raw.x, raw.y, raw.z, q);
+                });
+        }
+        VisMF::Write(canonical, old_name);
     }
 
     if (!write_particles) {
@@ -3448,10 +3488,16 @@ void AmrCoreLBM::CompareDdfCheckpoint(
     std::string label;
     std::getline(header, label);
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        label == "LBMCheckpoint",
+        label == checkpoint_label_v1 || label == checkpoint_label_v2,
         "Invalid DDF reference checkpoint: " + checkpoint_path);
 
     std::string line;
+    if (label == checkpoint_label_v2) {
+        std::getline(header, line); // canonical layout identifier
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            line == checkpoint_layout_ab || line == checkpoint_layout_osi,
+            "Unknown DDF checkpoint layout: " + line);
+    }
     std::getline(header, line); // step
     std::getline(header, line); // time
     int reference_finest = -1;
@@ -3769,7 +3815,21 @@ void AmrCoreLBM::ReadCheckpoint() {
 
     std::string label;
     std::getline(is, label);
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(label == "LBMCheckpoint", "Invalid checkpoint header");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        label == checkpoint_label_v1 || label == checkpoint_label_v2,
+        "Invalid checkpoint header");
+
+    // Version 1 is the historical A-B format. Its DDF arrays were already
+    // canonical, so it is safe to load explicitly as canonical input. Version
+    // 2 names the layout and never treats an unidentified array as OSI raw.
+    std::string stored_layout = checkpoint_layout_ab;
+    if (label == checkpoint_label_v2) {
+        std::getline(is, stored_layout);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            stored_layout == checkpoint_layout_ab ||
+                stored_layout == checkpoint_layout_osi,
+            "Unsupported checkpoint DDF layout: " + stored_layout);
+    }
 
     {
         std::string tmp;
@@ -3805,22 +3865,71 @@ void AmrCoreLBM::ReadCheckpoint() {
     SetFinestLevel(finest_in_file);
     for (int lev = 0; lev <= finest_level; ++lev) {
         SetBoxArray(lev, ba_file[lev]);
-        SetDistributionMap(lev, dm_file[lev]);
+        // Rebuild ownership for the current MPI size. VisMF reads the stored
+        // layout independently; ParallelCopy below redistributes canonical
+        // valid data onto this DistributionMapping.
+        SetDistributionMap(lev, DistributionMapping(ba_file[lev]));
     }
 
     const std::string level_prefix = "Level_";
     for (int lev = 0; lev <= finest_level; ++lev) {
         ClearLevel(lev);
-        f_old[lev].define(boxArray(lev), DistributionMap(lev), Q, nghost);
-        f_new[lev].define(boxArray(lev), DistributionMap(lev), Q, nghost);
         velocity[lev].define(boxArray(lev), DistributionMap(lev), AMREX_SPACEDIM, nghost);
         density[lev].define(boxArray(lev), DistributionMap(lev), 1, nghost);
         vorticity[lev].define(boxArray(lev), DistributionMap(lev), 2, nghost);
         shear[lev].define(boxArray(lev), DistributionMap(lev), 1, nghost);
         force[lev].define(boxArray(lev), DistributionMap(lev), AMREX_SPACEDIM, nghost);
 
-        VisMF::Read(f_old[lev], MultiFabFileFullPrefix(lev, chkname, level_prefix, "f_old"));
-        VisMF::Read(f_new[lev], MultiFabFileFullPrefix(lev, chkname, level_prefix, "f_new"));
+        const std::string old_name = MultiFabFileFullPrefix(
+            lev, chkname, level_prefix, "f_old");
+        MultiFab stored_old;
+        VisMF::Read(stored_old, old_name);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            stored_old.nComp() == Q &&
+                stored_old.boxArray() == boxArray(lev),
+            "Checkpoint canonical DDF does not match the level BoxArray");
+        MultiFab canonical(
+            boxArray(lev), DistributionMap(lev), Q, 0);
+        canonical.ParallelCopy(
+            stored_old, 0, 0, Q, IntVect(0), IntVect(0),
+            Geom(lev).periodicity());
+
+        if (stream_mode == 1) {
+            InitializeOsiLevel(
+                lev, boxArray(lev), DistributionMap(lev));
+            osi_state[lev].setVal(
+                std::numeric_limits<Real>::quiet_NaN());
+            MultiFab::Copy(osi_state[lev], canonical, 0, 0, Q, 0);
+            osi_phase[lev] = 0;
+
+            if (osi_ab_check) {
+                f_old[lev].define(
+                    boxArray(lev), DistributionMap(lev), Q, nghost);
+                f_new[lev].define(
+                    boxArray(lev), DistributionMap(lev), Q, nghost);
+                MultiFab::Copy(f_old[lev], canonical, 0, 0, Q, 0);
+                MultiFab::Copy(f_new[lev], canonical, 0, 0, Q, 0);
+            }
+        } else {
+            f_old[lev].define(
+                boxArray(lev), DistributionMap(lev), Q, nghost);
+            f_new[lev].define(
+                boxArray(lev), DistributionMap(lev), Q, nghost);
+            MultiFab::Copy(f_old[lev], canonical, 0, 0, Q, 0);
+
+            const std::string new_name = MultiFabFileFullPrefix(
+                lev, chkname, level_prefix, "f_new");
+            if (stored_layout == checkpoint_layout_ab &&
+                amrex::FileExists(new_name + "_H")) {
+                MultiFab stored_new;
+                VisMF::Read(stored_new, new_name);
+                f_new[lev].ParallelCopy(
+                    stored_new, 0, 0, Q, IntVect(0), IntVect(0),
+                    Geom(lev).periodicity());
+            } else {
+                MultiFab::Copy(f_new[lev], canonical, 0, 0, Q, 0);
+            }
+        }
 
         velocity[lev].setVal(0.0, nghost);
         density[lev].setVal(0.0, nghost);
@@ -3829,12 +3938,24 @@ void AmrCoreLBM::ReadCheckpoint() {
         force[lev].setVal(0.0, nghost);
     }
 
-    for (int i = 0; i < particle_num; ++i) {
-        const std::string pname = "particles_" + std::to_string(i);
-        particles[i].reset();
-        particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
-        particles[i]->Restart(chkname, pname);
+    if (stream_mode == 0 && params_.write_particles) {
+        for (int i = 0; i < particle_num; ++i) {
+            const std::string pname = "particles_" + std::to_string(i);
+            particles[i].reset();
+            particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
+            particles[i]->Restart(chkname, pname);
+        }
     }
 
     RebuildCoarseFineCaches();
+    if (stream_mode == 1) {
+        // A canonical checkpoint contains valid cells only. Reconstruct the
+        // runtime replica ghosts after all topology-dependent caches exist.
+        CommunicateLevel_osi(0);
+        const Real restart_time = params_.begin_step * dt_0;
+        for (int lev = 1; lev <= finest_level; ++lev) {
+            FillOsiGhostFromCoarse(lev, restart_time);
+            CommunicateLevel_osi(lev);
+        }
+    }
 }

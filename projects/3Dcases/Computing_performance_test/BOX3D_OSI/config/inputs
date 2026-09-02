@@ -39,7 +39,8 @@ lbm.collide_mode = 1
 # DDF 碰撞分布函数的流动/存储模式：
 # 0 = 现有的 A-B 基准模式（默认及生产模式）
 # 1 = grown-Fab OSI 实验模式；当前支持最多两层 AMR、多 Fab/MPI，以及全周期或六面
-#     非周期边界，要求 collide_mode=1；plot/checkpoint/restart 尚未适配
+#     非周期边界，要求 collide_mode=1；checkpoint 以 canonical DDF 写出，restart
+#     统一重置为 phase=0；OSI 粒子 checkpoint 尚未适配
 lbm.stream_mode = 0
 
 # OSI canonical 通信缓冲一次处理的 DDF 分量数，范围 1..27。

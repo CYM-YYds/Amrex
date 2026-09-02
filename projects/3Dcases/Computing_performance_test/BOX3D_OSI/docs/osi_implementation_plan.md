@@ -39,10 +39,10 @@ Collide -> Communicate -> Stream -> Boundary -> Swap
 - `verification.osi_ab_check` 条件化 A-B oracle；关闭时只分配一份完整 DDF；
 - 非均匀 DDF 验证初值和单/双 rank 同序列日志检查。
 
-阶段 4--6 还已完成非周期边界、静态两层子循环和 direct OSI 动态 regrid。当前仍没有：
+阶段 4--7 还已完成非周期边界、静态两层子循环、direct OSI 动态 regrid，以及
+canonical checkpoint/restart/宏观量 plotfile。当前仍没有：
 
-- OSI checkpoint/restart 和 plotfile 适配；
-- 两层逐单元 DDF norm 与 multi-GPU/multi-node 回归；
+- dynamic-regrid restart 与 multi-GPU/multi-node 回归；
 - 非周期、AMR 和动态 regrid 条件下的受控性能结果。
 
 ## 2. 总体开发策略
@@ -429,6 +429,9 @@ coarse cells。
 
 ## 10. 阶段 7：checkpoint、restart 与输出
 
+状态：**已完成第一版实现及静态两层跨 MPI 分解 restart 验收。动态 regrid 后 restart、
+粒子 checkpoint 和 multi-node 尚未覆盖。**
+
 目标：持久化可移植的 canonical DDF。
 
 第一版 checkpoint：
@@ -459,6 +462,24 @@ layout 标记的 checkpoint 当成 twisted 数据。
 - plotfile 和 ComputeMacro 不读取 raw twisted 坐标；
 - checkpoint 文件可明确辨认布局版本。
 
+实际实现与验收记录：
+
+- 新 checkpoint header 使用 `LBMCheckpointV2`，下一行明确写入
+  `canonical_osi_single_array_v1` 或 `canonical_ab_two_array_v1`；历史
+  `LBMCheckpoint` 只按明确的旧 A-B canonical 格式读取，不会被解释为 raw OSI；
+- OSI 写出只为每层构造一份 `nGrow=0` canonical valid DDF，不写 raw phase；restart
+  根据当前 MPI 数重建 DistributionMapping，经 `ParallelCopy` 重分布后写入 phase-0
+  `osi_state`，最后重建同层和粗细 ghost/cache；
+- velocity plotfile 继续由 OSI-aware `ComputeMacro()` 生成普通 canonical 宏观量后写出；
+- job `584619` 完成单层 1-rank checkpoint 到 2-rank restart，逐单元 D3Q27
+  `Linf=0`；增强 job `584620` 使用真实涡量判据建立两层全覆盖 AMR，同样按 1-rank
+  连续 16 步、1-rank 第 8 步 checkpoint、2-rank restart 至第 16 步进行比较，level
+  0/1 和全局 `Linf` 全部为 0，并成功生成 `plt000016`；
+- 综合 job `584621` 重复上述两层 OSI 验证，并追加 A-B V2 checkpoint 的 1-rank
+  写出与 2-rank restart；OSI 与 A-B 两条 restart 路径的全局 DDF `Linf` 均为 0；
+- `scripts/submit_osi_stage7_restart.sh` 和
+  `tests/check_osi_stage7_restart_log.sh` 固化该验证。
+
 ## 11. 阶段 8：端到端内存与性能优化
 
 阶段 3 已对同层通信做了为控制同步缓冲和 Decode/Encode 成本所必需的局部优化，包括
@@ -471,7 +492,8 @@ layout 标记的 checkpoint 当成 twisted 数据。
 1. 保持当前条件分配：生产 OSI 路径不分配 `f_old/f_new`，同时保留可构建的 A-B
    对照模式；
 2. 评估是否将当前分批 canonical same-level communication 替换为 OSI-aware
-   pack/unpack，并用同一作业内的配对 A/B 验证收益；
+   pack/unpack，并用同一作业内的配对 A/B 验证收益；其范围包括 OSI-aware
+   `FillBoundary` 和 `ParallelCopy`，目标是同时减少 canonical 临时内存与通信转换；
 3. 将 coarse/fine gather/scatter 融合进现有 direct interpolation/restriction kernel；
 4. 用 per-direction head/offset 替代热路径中的整数 `%`；
 5. 检查 AMReX component layout、warp 合并访问、寄存器和 local-memory spill；

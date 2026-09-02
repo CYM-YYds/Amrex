@@ -14,7 +14,8 @@ pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_m
 两层 AMR 子循环和 OSI-aware 粗细层传输。阶段 6 已实现不经过 `f_old/f_new` 的 direct
 OSI regrid：旧/新 fine 重叠区按旧 phase 分批解码并 remap，新增 fine patch 从 coarse
 OSI 状态插值，改变布局的 level 重置到 phase 0。静态与动态路径均已完成双 MPI rank
-A-B checksum 回归；checkpoint/restart 和输出适配仍未实现。
+A-B checksum 回归。阶段 7 已接入 canonical checkpoint/restart 和宏观量 plotfile：
+checkpoint 不持久化 raw twisted 地址，restart 统一恢复为 phase 0 并重建通信及粗细缓存。
 现有性能证据也只覆盖单层全周期固定网格，不能外推到动态 AMR 生产负载。
 
 复制完成后的审查基线提交为 `6578093`；开始修改代码前的文档基线提交为
@@ -83,6 +84,13 @@ A-B checksum 回归；checkpoint/restart 和输出适配仍未实现。
   18 条 `(step,level)` 记录的 `active_sum` 和 `active_q0...active_q26` 逐字符一致。
   OSI 日志保持 `full_ddf_arrays=1`，Arena 峰值约 278--309 MB；该动态峰值包含 regrid
   期间的稀疏 patch staging，不代表常驻第二套完整 DDF。
+- 阶段 7 job `584620` 使用真实涡量 `ErrorEst` 判据生成两层全覆盖 AMR：1 rank 连续
+  运行至第 16 步并写出 canonical checkpoint/plotfile，另一路在第 8 步 checkpoint 后
+  改用 2 ranks 重启至第 16 步。level 0/1 的逐单元 D3Q27 比较均为 `Linf=0`，header
+  明确记录 `LBMCheckpointV2` 和 `canonical_osi_single_array_v1`。该作业验证了静态两层、
+  跨 MPI 分解 restart 与宏观量输出；动态 regrid 后 restart、粒子 checkpoint 及
+  multi-node 仍未覆盖。综合 job `584621` 还追加了 A-B V2 checkpoint 的 1-rank 写出、
+  2-rank restart，对连续运行的全局 DDF 比较同样为 `Linf=0`。
 - job `584549` 在相同的 10-step、2-rank 动态 regrid 序列上，用 A-B 最终 checkpoint
   作为 canonical reference，对两个 level 的 D3Q27 逐单元比较。54 条 level/component
   记录全部通过：最大 active `Linf=1.054711873e-15`、最大 active mean-L1
@@ -174,7 +182,8 @@ storage(Addr(fab,q,phase,i,j,k), q)
 3. 非周期物理边界；
 4. 静态多层 AMR 与 2:1 子循环；
 5. 动态 regrid 的 direct OSI remap/reset；
-6. checkpoint/restart、完整回归与性能比较。
+6. checkpoint/restart 与 canonical 输出；
+7. OSI 原生通信及端到端内存/性能优化。
 
 当前已完成阶段 6 的两层动态 AMR 双-rank 回归：OSI 正式路径在关闭 oracle 时不分配
 `f_old/f_new`，但 A-B 实现仍

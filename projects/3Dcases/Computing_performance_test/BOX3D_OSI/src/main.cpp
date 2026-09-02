@@ -77,9 +77,6 @@ int main(int argc, char* argv[]) {
         amrex::Real cur_time = begin_step * dt_0;
 
         if (begin_step > 0) {
-            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-                lid.streamMode() == 0,
-                "periodic OSI does not yet support checkpoint restart");
             lid.ReadCheckpoint();
             lid.PrintMeshInfo();
             lid.PrintLbmParm();
