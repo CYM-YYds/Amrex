@@ -168,6 +168,11 @@ class AmrCoreLBM : public amrex::AmrCore {
     void Stream(int lev, int n);
     void SwapLevel(int lev, int n);
     void ValidateConfiguration() const;
+    void ValidateInitializedState(const char* context = "Initialization");
+    void PrepareStateForAdvance();
+    [[nodiscard]] bool checkStateEachSubstep() const noexcept {
+        return check_state_each_substep;
+    }
     void AdvanceLevel(int lev);
     void AdvanceAndCheckOsiReference(int lev, int step);
     void PrintDdfChecksums(int step);
@@ -255,6 +260,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool osi_verification_pattern = false;
     // 仅在显式启用时分配 A-B 两数组并逐步比较；生产 OSI 模式保持单一体积级 DDF。
     bool osi_ab_check = false;
+    // 正确性运行可在每次 regrid 后重新检查所有 active level 的 valid DDF/宏观量。
+    bool check_state_after_regrid = false;
+    bool check_state_each_substep = false;
     // 验证粒子 checkpoint/restart 时输出全局粒子数、坐标与 SoA 属性和。
     bool particle_checksum = false;
     // canonical 通信缓冲一次处理的 DDF 分量数；增大它可减少 FillBoundary 调用次数，

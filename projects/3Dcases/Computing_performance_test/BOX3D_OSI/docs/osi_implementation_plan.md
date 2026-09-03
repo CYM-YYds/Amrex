@@ -5,7 +5,8 @@
 
 ## 1. 当前基线
 
-截至 2026-09-02，`BOX3D_OSI` 的默认推进模式仍是与 `BOX3D` 一致的 A-B 基线：
+截至 2026-09-02，`BOX3D_OSI` 默认使用 OSI；A-B 基线仍可用
+`lbm.stream_mode=0` 选择：
 
 ```text
 f_old + f_new
@@ -45,13 +46,21 @@ canonical checkpoint/restart/宏观量 plotfile。当前仍没有：
 - dynamic-regrid restart 与 multi-GPU/multi-node 回归；
 - 非周期、AMR 和动态 regrid 条件下的受控性能结果。
 
+四层扩展 job `585083` 在实际 level 0--3 的每个递归子阶段检查 D3Q27、密度和速度
+有限性，但在第 128 个 coarse step 的动态 regrid 后捕获 NaN，未通过验收。分层 job
+`585078` 中两层 active `Linf=4.996003611e-16`，三层中间层则为
+`7.530773731e-5`。因此默认输入保持 `amr.max_level=1`；三层以上仅保留为显式诊断路径。
+独立 A-B job `585096` 以 `stream_mode=0,max_level=3` 运行，在 coarse step 64 regrid
+建立 level 0--2 后，也于第一次递归推进的 level 1 有限性检查中捕获 NaN/Inf。因此
+当前证据不能支持“A-B 四层正常”，多层递归/传输问题也不能归因于 OSI 单数组布局。
+
 ## 2. 总体开发策略
 
 必须保留 A-B 基线，通过运行时参数做同代码树 A/B：
 
 ```text
-lbm.stream_mode = 0  # A-B，初始默认
-lbm.stream_mode = 1  # OSI，实验路径
+lbm.stream_mode = 0  # A-B 数值基线
+lbm.stream_mode = 1  # OSI，当前默认；已验证范围为两层
 ```
 
 开发顺序遵循：

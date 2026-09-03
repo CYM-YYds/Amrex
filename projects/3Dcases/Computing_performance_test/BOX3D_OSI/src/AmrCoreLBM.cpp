@@ -523,6 +523,8 @@ void AmrCoreLBM::ReadParameters() {
         pp_verify.query("osi_seed_pattern", osi_verification_pattern);
         pp_verify.query("osi_ab_check", osi_ab_check);
         pp_verify.query("particle_checksum", particle_checksum);
+        pp_verify.query("check_state_after_regrid", check_state_after_regrid);
+        pp_verify.query("check_state_each_substep", check_state_each_substep);
     }
 
     {
@@ -1116,6 +1118,9 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
         interp_direct_cache_ready.end(), 0);
     regrid(0, cur_time);
     RebuildCoarseFineCaches();
+    if (check_state_after_regrid) {
+        ValidateInitializedState();
+    }
 
     if (ParallelDescriptor::IOProcessor()) {
         amrex::Print() << "regrid_observe: finest_level="
@@ -1514,70 +1519,65 @@ void AmrCoreLBM::AverageDownOsiValidLevel(int lev, bool is_scale) {
     AMREX_ALWAYS_ASSERT(lev >= 0 && lev < finest_level);
     auto& coarse_state = osi_state.at(lev);
     const auto& fine_state = osi_state.at(lev + 1);
-    auto& coarse_transfer = osi_sync_buffer.at(lev);
     const IntVect ratio = refRatio(lev);
-    const BoxArray restricted_ba =
-        amrex::coarsen(fine_state.boxArray(), ratio);
-    amrex::MultiFab restricted_batch(
-        restricted_ba, fine_state.DistributionMap(),
-        osi_sync_batch_components, 0);
     const auto fine_phase = osi_phase.at(lev + 1);
     const auto coarse_phase = osi_phase.at(lev);
     const Real scale = Real(2.0) * tau.at(lev) / tau.at(lev + 1);
 
+    // This path is used only for an intermediate AMR level.  Decode complete
+    // canonical valid arrays and deliberately reuse the exact A-B scaling and
+    // AMReX average_down operation.  The temporary storage is more expensive
+    // than the interface-only OSI path, but avoids a different restriction
+    // implementation becoming part of the four-level correctness result.
+    MultiFab fine_canonical(
+        fine_state.boxArray(), fine_state.DistributionMap(), Q, 0);
+    MultiFab coarse_canonical(
+        coarse_state.boxArray(), coarse_state.DistributionMap(), Q, 0);
+
     for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
         const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
-        for (MFIter mfi(restricted_batch, false); mfi.isValid(); ++mfi) {
-            const int fine_index = mfi.index();
-            const Box fine_ring = amrex::grow(
-                fine_state.boxArray()[fine_index], fine_state.nGrowVect());
-            const auto fine_lo = fine_ring.smallEnd();
-            const box3d_osi::FabGeometry fine_fab{
-                {fine_lo[0], fine_lo[1], fine_lo[2]},
-                {fine_ring.length(0), fine_ring.length(1),
-                 fine_ring.length(2)}};
-            const Box bx = mfi.validbox();
-            const auto dst = restricted_batch.array(mfi);
-            const auto src = fine_state.const_array(fine_index);
+        MultiFab& fine_batch = osi_sync_buffer.at(lev + 1);
+        MultiFab& coarse_batch = osi_sync_buffer.at(lev);
+        DecodeOsiValidBatch(
+            fine_state, fine_phase, fine_batch, q0, ncomp);
+        DecodeOsiValidBatch(
+            coarse_state, coarse_phase, coarse_batch, q0, ncomp);
+        MultiFab::Copy(fine_canonical, fine_batch, 0, q0, ncomp, 0);
+        MultiFab::Copy(coarse_canonical, coarse_batch, 0, q0, ncomp, 0);
+    }
+
+    if (is_scale) {
+        for (MFIter mfi(fine_canonical, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const Box bx = mfi.tilebox();
+            const auto fine = fine_canonical.array(mfi);
             amrex::ParallelFor(
                 bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    average_down_osi_batch_to_canonical(
-                        i, j, k, dst, src, ratio, fine_fab, fine_phase,
-                        scale, is_scale, q0, ncomp);
+                    average_scale(i, j, k, fine, scale);
                 });
         }
-
-        coarse_transfer.ParallelCopy(
-            restricted_batch, 0, 0, ncomp, IntVect(0), IntVect(0));
-
-        // 只编码 coarsened-fine Box 覆盖的粗层 valid 区。BoxArray 保持不重叠，
-        // 因而每个粗单元在一个批次内只会被写一次。
-        for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
-            const int coarse_index = mfi.index();
-            const Box ring =
-                amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
-            const auto lo = ring.smallEnd();
-            const box3d_osi::FabGeometry coarse_fab{
-                {lo[0], lo[1], lo[2]},
-                {ring.length(0), ring.length(1), ring.length(2)}};
-            const auto src = coarse_transfer.const_array(mfi);
-            const auto dst = coarse_state.array(mfi);
-            for (const auto& intersection :
-                 restricted_ba.intersections(mfi.validbox())) {
-                const Box bx = intersection.second;
-                amrex::ParallelFor(
-                    bx, ncomp,
-                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
-                        const int q = q0 + n;
-                        const auto raw = box3d_osi::osi_address(
-                            {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                            coarse_phase, coarse_fab);
-                        dst(raw.x, raw.y, raw.z, q) = src(i, j, k, n);
-                    });
-            }
-        }
-        amrex::Gpu::streamSynchronize();
     }
+    amrex::average_down(
+        fine_canonical, coarse_canonical, 0, Q, ratio);
+
+    for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
+        const Box bx = mfi.validbox();
+        const Box ring = amrex::grow(bx, coarse_state.nGrowVect());
+        const auto lo = ring.smallEnd();
+        const box3d_osi::FabGeometry coarse_fab{
+            {lo[0], lo[1], lo[2]},
+            {ring.length(0), ring.length(1), ring.length(2)}};
+        const auto src = coarse_canonical.const_array(mfi);
+        const auto dst = coarse_state.array(mfi);
+        amrex::ParallelFor(
+            bx, Q,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                const auto raw = box3d_osi::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                    coarse_phase, coarse_fab);
+                dst(raw.x, raw.y, raw.z, q) = src(i, j, k, q);
+            });
+    }
+    amrex::Gpu::streamSynchronize();
 }
 
 void AmrCoreLBM::AverageDownValid() {
@@ -1625,10 +1625,24 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     // amrex::AllPrint()<<"AverageDownGhostLevel from " << lev+1 << " to " << lev <<std::endl;
 
     if (stream_mode == 1) {
-        AverageDownOsiLevel(lev, is_scale);
+        if (lev > 0) {
+            // An intermediate level is both a fine solution and the parent of
+            // another level.  Refresh its complete covered region so its next
+            // substep cannot consume stale deep-covered directional values.
+            AverageDownOsiValidLevel(lev, is_scale);
+            CommunicateOsiLevel(lev);
+        } else {
+            AverageDownOsiLevel(lev, is_scale);
+        }
         return;
     }
     if (lev >= finest_level) {
+        return;
+    }
+
+    if (lev > 0) {
+        AverageDownValidLevel(lev, is_scale);
+        CommunicateLevel(lev);
         return;
     }
 
@@ -2021,47 +2035,130 @@ void AmrCoreLBM::ValidateConfiguration() const {
     }
 
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        max_level <= 1 && finest_level <= 1,
-        "OSI stage 5 currently supports at most two AMR levels");
+        max_level <= max_ref_level && finest_level <= max_ref_level,
+        "OSI AMR level exceeds the number of levels compiled into the LBM model");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         collide_mode == 1,
         "OSI currently supports only lbm.collide_mode=1");
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        osi_state[0].isDefined(),
-        "OSI state was not initialized");
+    if (max_level > 1) {
+        amrex::Print()
+            << "[OSI validation warning] More than two AMR levels are enabled. "
+               "Finite-state/output checks are active, but four-level OSI/A-B "
+               "cellwise equivalence has not yet met the 1e-12 criterion.\n";
+    }
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            osi_state.at(lev).isDefined() &&
+                osi_sync_buffer.at(lev).isDefined(),
+            "OSI state or synchronization buffer was not initialized for an active AMR level");
+    }
 
     bool all_periodic = true;
     for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
         all_periodic = all_periodic && Geom(0).isPeriodic(dir);
     }
 
-    amrex::Long state_values = 0;
-    const BoxArray& state_ba = osi_state[0].boxArray();
-    const IntVect state_ng = osi_state[0].nGrowVect();
-    for (int ibox = 0; ibox < state_ba.size(); ++ibox) {
-        state_values += amrex::grow(state_ba[ibox], state_ng).numPts() * Q;
-    }
-    amrex::Long sync_values = 0;
-    const BoxArray& sync_ba = osi_sync_buffer[0].boxArray();
-    const IntVect sync_ng = osi_sync_buffer[0].nGrowVect();
-    for (int ibox = 0; ibox < sync_ba.size(); ++ibox) {
-        sync_values += amrex::grow(sync_ba[ibox], sync_ng).numPts() * osi_sync_buffer[0].nComp();
-    }
-
     amrex::Print() << (all_periodic ? "[OSI periodic] ranks=" : "[OSI boundary] ranks=")
                    << amrex::ParallelDescriptor::NProcs()
-                   << " boxes=" << boxArray(0).size()
+                   << " active_levels=" << finest_level + 1
                    << " seed_pattern=" << (osi_verification_pattern ? 1 : 0)
                    << " ab_check=" << (osi_ab_check ? 1 : 0)
                    << " full_ddf_arrays=" << (osi_ab_check ? 3 : 1)
-                   << " state_values=" << state_values
-                   << " sync_values=" << sync_values
                    << " sync_batch_components=" << osi_sync_batch_components
                    << " sync_batches="
                    << ((Q + osi_sync_batch_components - 1) /
                        osi_sync_batch_components)
-                   << " ring_ngrow=" << state_ng[0]
                    << " grown-fab overlap synchronization enabled\n";
+
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        amrex::Long state_values = 0;
+        const BoxArray& state_ba = osi_state[lev].boxArray();
+        const IntVect state_ng = osi_state[lev].nGrowVect();
+        for (int ibox = 0; ibox < state_ba.size(); ++ibox) {
+            state_values +=
+                amrex::grow(state_ba[ibox], state_ng).numPts() * Q;
+        }
+        amrex::Long sync_values = 0;
+        const BoxArray& sync_ba = osi_sync_buffer[lev].boxArray();
+        const IntVect sync_ng = osi_sync_buffer[lev].nGrowVect();
+        for (int ibox = 0; ibox < sync_ba.size(); ++ibox) {
+            sync_values += amrex::grow(sync_ba[ibox], sync_ng).numPts() *
+                            osi_sync_buffer[lev].nComp();
+        }
+        amrex::Print() << "[OSI level] level=" << lev
+                       << " boxes=" << state_ba.size()
+                       << " state_values=" << state_values
+                       << " sync_values=" << sync_values
+                       << " ring_ngrow=" << state_ng[0]
+                       << " phase=" << osi_phase[lev] << '\n';
+    }
+}
+
+void AmrCoreLBM::ValidateInitializedState(const char* context) {
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        const MultiFab& state =
+            stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
+        MultiFab* decoded =
+            stream_mode == 1 ? &osi_sync_buffer.at(lev) : nullptr;
+        Real ddf_min = std::numeric_limits<Real>::max();
+        Real ddf_max = std::numeric_limits<Real>::lowest();
+
+        for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+            const int ncomp =
+                amrex::min(osi_sync_batch_components, Q - q0);
+            const MultiFab* canonical = &state;
+            if (stream_mode == 1) {
+                DecodeOsiValidBatch(state, osi_phase.at(lev), *decoded,
+                                    q0, ncomp);
+                canonical = decoded;
+            }
+            for (int n = 0; n < ncomp; ++n) {
+                const int comp = stream_mode == 1 ? n : q0 + n;
+                const Real q_min = canonical->min(comp, 0);
+                const Real q_max = canonical->max(comp, 0);
+                const Real q_sum = canonical->sum(comp, 0);
+                AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                    std::isfinite(q_min) && std::isfinite(q_max) &&
+                        std::isfinite(q_sum) && q_min <= q_max,
+                    "Initialized valid DDF contains a NaN or infinity");
+                ddf_min = amrex::min(ddf_min, q_min);
+                ddf_max = amrex::max(ddf_max, q_max);
+            }
+        }
+
+        ComputeMacroLevel(lev);
+        const Real rho_min = density.at(lev).min(0, 0);
+        const Real rho_max = density.at(lev).max(0, 0);
+        const Real rho_sum = density.at(lev).sum(0, 0);
+        Real velocity_linf = 0.0;
+        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+            velocity_linf = amrex::max(
+                velocity_linf, velocity.at(lev).norm0(dir, 0));
+        }
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            std::isfinite(rho_min) && std::isfinite(rho_max) &&
+                std::isfinite(rho_sum) && rho_min <= rho_max &&
+                std::isfinite(velocity_linf) && rho_min > 0.0,
+            "Initialized macroscopic state is invalid");
+        amrex::Print() << '[' << context << "] level=" << lev
+                       << " phase="
+                       << (stream_mode == 1 ? osi_phase.at(lev) : 0)
+                       << " ddf_min=" << ddf_min
+                       << " ddf_max=" << ddf_max
+                       << " rho_min=" << rho_min
+                       << " rho_max=" << rho_max
+                       << " velocity_linf=" << velocity_linf << '\n';
+    }
+}
+
+void AmrCoreLBM::PrepareStateForAdvance() {
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        if (stream_mode == 1) {
+            CommunicateOsiLevel(lev);
+        } else {
+            CommunicateLevel(lev);
+        }
+    }
 }
 
 void AmrCoreLBM::CommunicateOsiLevel(int lev) {

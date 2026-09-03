@@ -91,11 +91,11 @@ int main(int argc, char* argv[]) {
                 lid.PrintParticleParm();
             }
         }
-        if (lid.streamMode() == 0) {
-            // 与 OSI 初始化路径一致：首次碰撞前先建立 coarse grown ghost。
-            lid.CommunicateLevel(0);
-        }
         lid.ValidateConfiguration();
+        lid.ValidateInitializedState();
+        // Init/restart guarantees canonical valid data; prepare every active
+        // level's same-level/periodic ghosts before the first collision.
+        lid.PrepareStateForAdvance();
 
         float compute_time = 0.0f;
         float regrid_time = 0.0f;
@@ -116,7 +116,7 @@ int main(int argc, char* argv[]) {
                 if (lid.finestLevel() > 0) {
                     lid.AverageDownValid();
                 }
-                if (lid.streamMode() == 0) {
+                if (lid.streamMode() == 0 && lid.params().write_particles) {
                     lid.FindCentre();
                 }
                 lid.RefineMesh(cur_time);
@@ -233,10 +233,13 @@ int main(int argc, char* argv[]) {
 
             if (plot_int > 0 && step >= begin_plot && step % plot_int == 0) {
                 lid.PrintMeshInfo();
-                lid.ComputeMacro();
+                // Decode canonical macros and reject invalid DDF/rho before
+                // committing any validation plotfiles.
+                lid.ValidateInitializedState("Output validation");
                 lid.ComputeVorticity(cur_time);
                 lid.WriteVelocityFile(step, cur_time);
-                // lid.WriteDensityFile(step, cur_time);
+                lid.WriteDensityFile(step, cur_time);
+                lid.WriteVorticityFile(step, cur_time);
                 // lid.ComputeCp(max_ref_level, step);
                 // lid.WriteMultiParticleFile(step, cur_time);
                 // lid.WriteVelocityFile(step, cur_time, max_ref_level);
@@ -382,13 +385,20 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
     // }
 
-    // 1. 当前层向下一层插值一次
+    // 1. 父层在本 coarse step 开始时为下一层填充一次 ghost；两个
+    //    fine substeps 共享这次时间插值，与既有两层 Jaber 调度一致。
     if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
+        if (lid.checkStateEachSubstep()) {
+            lid.ValidateInitializedState("After coarse-fine fill");
+        }
     }
 
     // 2. 当前层推进一个时间步
     lid.AdvanceLevel(lev);
+    if (lid.checkStateEachSubstep()) {
+        lid.ValidateInitializedState("After advance");
+    }
 
     // 3. 下一层用一半时间步连续推进两次
     if (lev < lid.finestLevel()) {
@@ -397,6 +407,14 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
         // 4. 两个细步完成后，只平均一次
         lid.AverageDownGhostLevel(lev, 1);
+        // 中间层刚被其子层覆盖区回填；返回父递归前恢复它自身的
+        // coarse-fine ghost，供父层安排的下一次中间层子步使用。
+        if (lev > 0) {
+            lid.FillGhostLevel(lev, cur_time + dt, 1);
+        }
+        if (lid.checkStateEachSubstep()) {
+            lid.ValidateInitializedState("After average-down");
+        }
     }
 }
 

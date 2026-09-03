@@ -1,7 +1,7 @@
 # BOX3D A-B 基线：AMR 粗细网格通信
 
 > **BOX3D_OSI 继承资料。** 本文主要描述 A-B 双 `MultiFab` AMR 基线路径。
-> OSI 已另行接入最多两层的粗细传输和递归子循环；twisted/canonical 布局、
+> OSI 已另行接入编译上限内的多层粗细传输和递归子循环；twisted/canonical 布局、
 > per-level phase、OSI-aware 粗细传输和 MPI 的设计以
 > [OSI 算法与 AMReX 集成架构](osi_algorithm_and_architecture.md)为准。
 
@@ -11,7 +11,7 @@ AMReX 的 patch-based AMR 实现；不要把它与 Jaber 论文中 GPU-native �
 
 ## 运行时路径
 
-当前方腔流算例由 `JaberCycle2()` 驱动。对每一对相邻层，它的传输顺序是：
+当前方腔流算例由 `Cycle2()` 驱动。对每一对相邻层，它的传输顺序是：
 
 ```text
 粗层 -> 细层：FillGhostLevel(lev + 1, time, true)
@@ -96,7 +96,7 @@ fine valid cells，不读取 fine ghost cells。旧的全区域融合和交界�
 
 ## 两层 ghost 与推进范围
 
-当前主状态 `f_old` / `f_new` 使用 `nghost=2`。`JaberCycle2()` 的单层顺序为：
+当前主状态 `f_old` / `f_new` 使用 `nghost=2`。`Cycle2()` 的单层顺序为：
 
 ```text
 Collide -> CommunicateLevel -> Stream -> Boundary -> Swap
@@ -162,7 +162,7 @@ direct cache 在初始建网、每次 regrid 和 restart 后由 `RebuildCoarseFi
 
 相关源码入口：
 
-- `src/main.cpp`: `JaberCycle2()`
+- `src/main.cpp`: `Cycle2()`
 - `src/AmrCoreLBM.cpp`: `FillDdfGhostFromCoarse()`、`RemakeDdfState()`、`FillGhostLevel()`、`AverageDownGhostLevel()`
 - `amrex-26.06/Src/AmrCore/AMReX_FillPatchUtil_I.H`: `FillPatchTwoLevels_doit()`
 - `amrex-26.06/Src/Base/AMReX_FabArrayBase.cpp`: `FabArrayBase::FPinfo`

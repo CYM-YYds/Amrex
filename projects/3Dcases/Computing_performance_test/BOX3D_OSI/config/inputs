@@ -6,6 +6,7 @@ max_step  = 64000
 stop_time = 2500000.0
 
 amr.regrid_int  = 32
+amr.max_level   = 1
 
 amr.grid_eff          = 0.7
 amr.n_error_buf       = 0 0 0 0
@@ -14,15 +15,17 @@ amr.blocking_factor_x = 32 32 32 32
 amr.blocking_factor_y = 32 32 32 32
 amr.blocking_factor_z = 32 32 32 32
 
-amr.plot_file  = data32to64/case_Re1_4p_
-amr.plot_int   = 10000
+amr.plot_file  = data32to64_osi_validation/case_Re1000_
+amr.plot_int   = 8000
 amr.begin_plot = 0
+# 每 8000 个 coarse 步分别输出：速度 ux/uy/uz、密度 rho、Q/Vorticity。
+# 可用于中心线速度、质量守恒和涡结构随时间的正确性/收敛验证。
 
 checkpoint.begin_step = 0
-checkpoint.chk_int = 100000
-checkpoint.chk_prefix = chk
+checkpoint.chk_int = 16000
+checkpoint.chk_prefix = chk_osi_validation
 checkpoint.keep_latest_only = true
-checkpoint.write_particles = true
+checkpoint.write_particles = false
 
 lbm.err = 0.005 0.010 0.020 0.040
 
@@ -37,12 +40,15 @@ lbm.cf_mask_mode = 1
 lbm.collide_mode = 1
 
 # DDF 碰撞分布函数的流动/存储模式：
-# 0 = 现有的 A-B 基准模式（默认及生产模式）
-# 1 = grown-Fab OSI 实验模式；当前支持最多两层 AMR、多 Fab/MPI，以及全周期或六面
+# 0 = 保留的 A-B 数值基准模式
+# 1 = grown-Fab OSI 模式；支持编译配置内的多层 AMR、多 Fab/MPI，以及全周期或六面
 #     非周期边界，要求 collide_mode=1；checkpoint 以 canonical DDF 写出，restart
 #     统一重置为 phase=0。ParticleContainer 的 AoS/SoA 可随 checkpoint 重启；
 #     运动刚体的 host 侧质心、速度、角速度和力/力矩尚未持久化
-lbm.stream_mode = 0
+# 默认保持在已经通过逐单元 A/B 的两层范围。三层以上已解除编译硬限制，但当前
+# 四层 OSI/A-B 逐单元误差仍约 1e-4，且动态 regrid 冒烟在第 128 步捕获 NaN；
+# 仅通过诊断脚本显式覆盖 amr.max_level=3，不作为已确认的生产数值结果。
+lbm.stream_mode = 1
 
 # OSI canonical 通信缓冲一次处理的 DDF 分量数，范围 1..27。
 # 1 最省临时内存；3/9 可分别把每步 FillBoundary 次数降为 9/3。
@@ -59,6 +65,11 @@ lbm.average_mode = 1
 # 1 = GPU 守恒线性（CellConservativeLinear 风格的受限斜率）
 # 2 = GPU 单元二次插值（CellQuadratic 的笛卡尔 ratio-2 路径）
 lbm.interp_mode = 0
+
+# 启动时总会检查一次全部 active level；正确性运行还在每次动态 regrid 后检查，
+# 以便新建/重构 fine level 出现 NaN、Inf 或非正密度时立即停止。
+verification.check_state_after_regrid = true
+verification.check_state_each_substep = false
 
 # *****************************************************************
 # mesh setting

@@ -5,13 +5,17 @@
 
 ## 当前状态
 
-截至 2026-09-02，默认生产时间推进仍是从 `BOX3D` 复制得到的 A-B 双 `MultiFab`
-pull-streaming 实现。OSI 阶段 1--4 的单层路径已经完成：`collide_mode=1` 下支持
+截至 2026-09-02，默认时间推进为 `lbm.stream_mode=1` 的 OSI 单数组路径；A-B 双
+`MultiFab` pull-streaming 仍由 `stream_mode=0` 保留作数值基线。OSI 阶段 1--4
+的单层路径已经完成：`collide_mode=1` 下支持
 多 Fab、多 MPI rank，以及三向全周期或六面非周期边界。当前采用
 `nGrow=2 + grown-Fab OSI`：
 每个 Fab 的 valid 与 ghost 组成统一保护环，通信同步当前 phase 的同坐标重叠副本。
 非周期边界在 phase 提交后直接从迁移后的 `osi_state` 重建并写回边界槽位。阶段 5 已接入
-两层 AMR 子循环和 OSI-aware 粗细层传输。阶段 6 已实现不经过 `f_old/f_new` 的 direct
+编译上限内的四层 AMR 子循环和 OSI-aware 粗细层传输。父层每步为下一层填充一次
+coarse-fine ghost，两个细子步共享该值；同时作为细层和父层的中间层会完整回填其
+covered region，并在返回父递归前恢复自身 coarse-fine ghost。level 0 保留界面回填。
+阶段 6 已实现不经过 `f_old/f_new` 的 direct
 OSI regrid：旧/新 fine 重叠区按旧 phase 分批解码并 remap，新增 fine patch 从 coarse
 OSI 状态插值，改变布局的 level 重置到 phase 0。静态与动态路径均已完成双 MPI rank
 A-B checksum 回归。阶段 7 已接入 canonical checkpoint/restart 和宏观量 plotfile：
@@ -32,6 +36,20 @@ checkpoint 不持久化 raw twisted 地址，restart 统一恢复为 phase 0 并
 - `Stream()` 从 `f_old(i-e_q)` 显式 pull 到 `f_new(i)`；
 - `Boundary()` 修正迁移后的物理边界，随后 `SwapLevel()` 交换两套 `MultiFab`；
 - `Cycle2()` 对两种存储模式统一执行细层 2:1 时间子循环，并在运行中执行动态 regrid。
+
+四层诊断会对每次递归填充、推进和平均下传后的全部活动层执行 D3Q27 有限性、正密度
+与速度检查。job `585083` 在第 128 个 coarse step 的动态 regrid 后捕获 NaN，因此四层
+动态路径尚未通过。默认 `config/inputs` 明确使用 `amr.max_level=1`；四层只能通过
+`scripts/submit_osi_four_level_smoke.sh` 显式覆盖并继续定位，不能作为生产结果。
+分层分叉 job `585078` 表明两层 active DDF 的最大 `Linf=4.996003611e-16`，但三层
+中间层为 `7.530773731e-5`；因此当前只解除编译/运行硬限制，尚未宣称三层以上与
+A-B 基线逐单元等价。`scripts/submit_osi_multilevel_ab.sh` 会以 `1e-12` 为门槛，
+超差即返回失败。
+
+独立 canonical A-B 四层配置 job `585096`（`stream_mode=0`、`max_level=3`）也未
+通过：运行到 coarse step 64 的 regrid 后实际建立 level 0--2，随后第一次递归推进在
+level 1 的“After advance”有限性检查中捕获 NaN/Inf。该结果说明当前多层失败并非只有
+OSI 存储路径才会出现；脚本 `scripts/submit_ab_four_level_smoke.sh` 保留为复现入口。
 
 不要把继承自 BOX3D 的历史 job、图表或性能数字描述为 OSI 结果。
 
@@ -232,10 +250,10 @@ lbm.stream_mode = 1  # OSI 实验路径
 ./tests/run_osi_stage2_test.sh
 ```
 
-所有 OSI smoke/performance 作业共用 `config/inputs_osi`；不同实验只在提交脚本中覆盖
+早期 OSI smoke/performance 作业共用 `config/inputs_osi`；不同实验只在提交脚本中覆盖
 少量参数。阶段 2 GPU smoke 由 `scripts/submit_osi_stage2_smoke.sh` 覆盖单 Fab 和 A-B
-检查参数。当前 OSI 运行时断言允许最多两层 AMR，仍要求 `collide_mode=1`，
-且在 output/restart adapter 完成前禁用 plotfile、checkpoint 和 restart。
+检查参数。当前 OSI 仍要求 `collide_mode=1`。plotfile 与 canonical checkpoint/restart
+adapter 已完成；默认输入限于验证通过的两层（`amr.max_level=1`），三层以上仅供诊断。
 
 阶段 3 使用同一份 64-Fab 输入分别验证单/双 rank：
 
@@ -258,7 +276,7 @@ dsub -s ./scripts/submit_osi_stage3_mpi.sh
 上述 jobs 保留为历史数值证据，但当前 `ErrorEst()` 只使用真实涡量阈值。后续 AMR
 回归需要基于物理判据重新设计可复现输入，不能继续调用已经移除的测试参数。
 
-`lbm.osi_sync_batch_components` 默认为 1；允许范围为 1--27。jobs `582514`（1 rank）
+`lbm.osi_sync_batch_components` 当前默认为 3；允许范围为 1--27。jobs `582514`（1 rank）
 和 `582515`（2 ranks）在同一作业内顺序比较 `B=1/3/9`：三种批大小的32步 A-B
 最大 `linf` 均为 `1.498801083e-15`。无 oracle 的第二个1000步窗口中，`B=9` 相对
 `B=1` 将单 rank `comm` 从 8.2607 s 降至 1.8910 s、双 rank最大 `comm` 从

@@ -10,8 +10,9 @@
 - 已确定采用 one-step index（OSI）单数组方案；
 - 已确定动态 AMR 布局变化时采用 canonicalize/rebuild/reset；
 - `src/OsiIndex.H` 已实现无状态 Fab-local OSI 地址 helper，并有独立 CPU 测试；
-- 默认路径仍是 BOX3D 的 A-B 双 `MultiFab` 基线；`lbm.stream_mode=1` 已支持
-  最多两层 AMR、多 Fab/MPI、全周期或六面非周期边界；
+- 默认路径是 `lbm.stream_mode=1` 的 OSI 单数组实现；BOX3D 的 A-B 双 `MultiFab`
+  路径由 `stream_mode=0` 保留为数值基线。OSI 已接入编译上限内的多层 AMR、
+  多 Fab/MPI、全周期或六面非周期边界；当前确认通过的范围仍是两层，三层以上为诊断路径；
 - 地址测试、37 步独立 CPU A/B 测试和 MPI+CUDA 构建已通过；job `581325` 在单 rank、
   单 level、单 Fab、全周期条件下完成 32 步生产 GPU A/B 逐步比较，最大 `linf` 为
   `5.551115123e-17`；
@@ -28,8 +29,10 @@
   还覆盖新建 fine level 的非平衡缩放、常驻宏观量复用以及“regrid 只写 valid、推进层
   再填 ghost”的生命周期，完成两层 D3Q27 逐单元
   active 范数比较，最大 `Linf=1.054711873e-15`、mean-L1
-  `=1.492743922e-16`、relative-L2 `=2.417721326e-15`。checkpoint/restart、
-  multi-GPU/multi-node 和 AMR 受控性能 A/B 仍未完成。
+  `=1.492743922e-16`、relative-L2 `=2.417721326e-15`。canonical
+  checkpoint/restart 与宏观量 plotfile 已完成静态两层验证；dynamic-regrid restart、
+  multi-GPU/multi-node 和 AMR 受控性能 A/B 仍未完成。四层 OSI job `585083` 在第
+  128 个 coarse step 的 regrid 后捕获 NaN，因此不能外推两层结论。
 
 OSI 原论文和均匀网格原型位于
 [`research/papers/OSI优化计划`](../../../../../research/papers/OSI优化计划/)。论文只验证了

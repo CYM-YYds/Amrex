@@ -48,12 +48,14 @@ f_old[lev] 的 ghost 可供后续计算使用
 
 ```text
 main()
-  -> JaberCycle2(0, cur_time, lid)
+  -> Cycle2(0, cur_time, lid)
       -> FillGhostLevel(lev + 1, cur_time, true)
           -> FillDdfGhostFromCoarse(lev + 1, cur_time)
 ```
 
-`JaberCycle2()` 对每个非最细层先填充下一层 ghost，再推进当前层。下一层以一半时间步连续推进两次，最后才平均回粗层。
+`Cycle2()` 对每个非最细层先填充下一层 ghost，再推进当前层。下一层以一半时间步
+连续推进两次，最后才平均回粗层。三层以上时，中间层在接受子层的完整回填后，还会
+恢复一次自身 coarse-fine ghost，避免下一次中间层子步读取被回填过程扰动的 ghost。
 
 ### 1.3 当前三种插值模式
 
@@ -72,7 +74,7 @@ valid 数据并初始化新增 valid 区域。两条路径采用相同的 coarse
 
 | 文件                                | 重点内容                                                      |
 | ----------------------------------- | ------------------------------------------------------------- |
-| [`main.cpp`](../src/main.cpp)             | `JaberCycle2()` 何时请求 ghost 填充                         |
+| [`main.cpp`](../src/main.cpp)             | `Cycle2()` 何时请求 ghost 填充                              |
 | [`AmrCoreLBM.H`](../src/AmrCoreLBM.H)     | DDF`MultiFab`、运行模式和 direct cache 的所有权             |
 | [`AmrCoreLBM.cpp`](../src/AmrCoreLBM.cpp) | `BuildDirectInterpolationCache()`、ghost 填充和重构迁移逻辑 |
 | [`Kernels.H`](../src/Kernels.H)           | `average_scale()` 和 `interp_bilinear_d3q()` 的数值公式   |
@@ -80,7 +82,7 @@ valid 数据并初始化新增 valid 区域。两条路径采用相同的 coarse
 推荐在编辑器中按以下顺序跳转：
 
 ```text
-JaberCycle2
+Cycle2
   -> FillGhostLevel
   -> FillDdfGhostFromCoarse
   -> BuildDirectInterpolationCache
