@@ -5,6 +5,10 @@
 
 ## 当前状态
 
+### 对照基线（2026-09-03）
+
+BOX3D 的 `fill_boundary()` 已同步为本算例当前的边界处理方式。同步后的 BOX3D 在 `max_level=3`、`regrid_int=32` 下完成 300 步测试（job `585201`），通过 step 288；后续应将其作为 A-B 对照基线，重点比较 level 2/3 的粗细层传递和 ghost 时序，不再修改物理边界。
+
 截至 2026-09-02，默认时间推进为 `lbm.stream_mode=1` 的 OSI 单数组路径；A-B 双
 `MultiFab` pull-streaming 仍由 `stream_mode=0` 保留作数值基线。OSI 阶段 1--4
 的单层路径已经完成：`collide_mode=1` 下支持

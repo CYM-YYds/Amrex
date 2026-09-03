@@ -11,6 +11,10 @@
 
 set -euo pipefail
 
+MAX_STEP="${AB_MAX_STEP:-256}"
+PLOT_INT="${AB_PLOT_INT:-128}"
+CHK_INT="${AB_CHK_INT:-${MAX_STEP}}"
+
 source /home/HPCBase/tools/module-5.2.0/init/profile.sh
 module use /home/HPCBase/modulefiles/
 module purge
@@ -48,12 +52,12 @@ mpirun \
     --mca plm_rsh_agent /opt/batch/agent/tools/dstart \
     bash -lc 'export CUDA_VISIBLE_DEVICES=0; exec "$@"' bash \
     "${APP_EXE}" "${INPUTS}" \
-    max_step=256 \
+    max_step="${MAX_STEP}" \
     amr.max_level=3 \
     amr.regrid_int=32 \
-    amr.plot_int=128 \
+    amr.plot_int="${PLOT_INT}" \
     amr.plot_file=plt \
-    checkpoint.chk_int=256 \
+    checkpoint.chk_int="${CHK_INT}" \
     checkpoint.chk_prefix=chk \
     checkpoint.keep_latest_only=false \
     checkpoint.write_particles=false \
@@ -61,12 +65,17 @@ mpirun \
     verification.check_state_after_regrid=true \
     verification.check_state_each_substep=true
 
-for step in 000128 000256; do
-    test -f "plt${step}/Header"
-    test -f "pltdensity_${step}/Header"
-    test -f "pltvort_${step}/Header"
-done
-test -f chk00000256/Header
-grep -qx 'LBMCheckpointV2' chk00000256/Header
-grep -qx 'canonical_ab_two_array_v1' chk00000256/Header
-echo "ab_four_level_smoke_pass: run_dir=${RUN_DIR} plots=128,256 checkpoint=256"
+if (( PLOT_INT > 0 )); then
+    for step in $(seq "${PLOT_INT}" "${PLOT_INT}" "${MAX_STEP}" | awk '{printf "%08d\n", $1}'); do
+        test -f "plt${step}/Header"
+        test -f "pltdensity_${step}/Header"
+        test -f "pltvort_${step}/Header"
+    done
+fi
+if (( CHK_INT > 0 )); then
+    CHK_TAG=$(printf '%08d' "${CHK_INT}")
+    test -f "chk${CHK_TAG}/Header"
+    grep -qx 'LBMCheckpointV2' "chk${CHK_TAG}/Header"
+    grep -qx 'canonical_ab_two_array_v1' "chk${CHK_TAG}/Header"
+fi
+echo "ab_four_level_smoke_pass: run_dir=${RUN_DIR} plots=${PLOT_INT}..${MAX_STEP} checkpoint=${CHK_INT}"

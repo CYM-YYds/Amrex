@@ -1730,7 +1730,7 @@ void AmrCoreLBM::Boundary(int lev) {
         for (const Box& bx : boundary_work_boxes[lev][mfi.index()]) { // 用 mfi.index() 得到该 Box 的全局编号
             perf_stats.boundary_launch_cells += bx.numPts();
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                fill_boundary(i, j, k, fold, fnew, hi, is_periodic);
+                fill_boundary(i, j, k, fnew, hi, is_periodic);
             });
         }
     }

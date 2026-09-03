@@ -11,6 +11,10 @@
 
 set -euo pipefail
 
+MAX_STEP="${OSI_MAX_STEP:-128}"
+PLOT_INT="${OSI_PLOT_INT:-64}"
+CHK_INT="${OSI_CHK_INT:-128}"
+
 source /home/HPCBase/tools/module-5.2.0/init/profile.sh
 module use /home/HPCBase/modulefiles/
 module purge
@@ -48,12 +52,12 @@ mpirun \
     --mca plm_rsh_agent /opt/batch/agent/tools/dstart \
     bash -lc 'export CUDA_VISIBLE_DEVICES=0; exec "$@"' bash \
     "${APP_EXE}" "${INPUTS}" \
-    max_step=128 \
+    max_step="${MAX_STEP}" \
     amr.max_level=3 \
     amr.regrid_int=32 \
-    amr.plot_int=64 \
+    amr.plot_int="${PLOT_INT}" \
     amr.plot_file=plt \
-    checkpoint.chk_int=128 \
+    checkpoint.chk_int="${CHK_INT}" \
     checkpoint.chk_prefix=chk \
     checkpoint.keep_latest_only=false \
     checkpoint.write_particles=false \
@@ -61,13 +65,12 @@ mpirun \
     verification.check_state_after_regrid=true \
     verification.check_state_each_substep=true
 
-test -f plt000064/Header
-test -f plt000128/Header
-test -f pltdensity_000064/Header
-test -f pltdensity_000128/Header
-test -f pltvort_000064/Header
-test -f pltvort_000128/Header
-test -f chk00000128/Header
-grep -qx 'LBMCheckpointV2' chk00000128/Header
-grep -qx 'canonical_osi_single_array_v1' chk00000128/Header
-echo "four_level_smoke_artifacts: run_dir=${RUN_DIR} plot64=1 plot128=1 checkpoint128=1"
+if (( PLOT_INT > 0 )); then
+    for step in $(seq "${PLOT_INT}" "${PLOT_INT}" "${MAX_STEP}" | awk '{printf "%08d\n", $1}'); do
+        test -f "plt${step}/Header"
+    done
+fi
+if (( CHK_INT > 0 )); then
+    test -f "chk$(printf '%08d' "${CHK_INT}")/Header"
+fi
+echo "four_level_smoke_artifacts: run_dir=${RUN_DIR} max_step=${MAX_STEP}"

@@ -250,268 +250,33 @@ void compute_shear2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void fill_boundary(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
+void fill_boundary(int i, int j, int k,
                    amrex::Array4<amrex::Real> const& fnew,
                    amrex::IntVect const& hi,
                    amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic) {
-
-    if (!is_periodic[0] && i == 0) {
-        int x = i;
-        int y = j;
-        int z = k;
-
-        int x1 = x + 1;
-        int y1 = y;
-        int z1 = z;
-
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
-
-        for (int q = 0; q < Q; q++) {
-            ft1 = fold(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
-
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rho0;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
+    int x1 = i, y1 = j, z1 = k;
+    bool boundary = false;
+    if (!is_periodic[0] && i == 0) { x1 = i + 1; boundary = true; }
+    if (!is_periodic[0] && i == hi[0]) { x1 = i - 1; boundary = true; }
+    if (!is_periodic[1] && j == 0) { y1 = j + 1; boundary = true; }
+    if (!is_periodic[1] && j == hi[1]) { y1 = j - 1; boundary = true; }
+    if (!is_periodic[2] && k == 0) { z1 = k + 1; boundary = true; }
+    if (!is_periodic[2] && k == hi[2]) { z1 = k - 1; boundary = true; }
+    if (!boundary) return;
+    Real rho1 = 0.0, ux1 = 0.0, uy1 = 0.0, uz1 = 0.0;
+    for (int q = 0; q < Q; ++q) {
+        const Real fq = fnew(x1, y1, z1, q);
+        rho1 += fq; ux1 += fq * e[q][0]; uy1 += fq * e[q][1]; uz1 += fq * e[q][2];
     }
-
-    if (!is_periodic[0] && i == hi[0]) // 右边界
-    {
-        int x = i;
-        int y = j;
-        int z = k;
-
-        int x1 = x - 1;
-        int y1 = y;
-        int z1 = z;
-
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
-
-        for (int q = 0; q < Q; q++) {
-            ft1 = fold(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
-
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rhot1;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
-    }
-
-    if (!is_periodic[1] && j == 0) {
-        int x = i;
-        int y = j;
-        int z = k;
-
-        int x1 = x;
-        int y1 = y + 1;
-        int z1 = z;
-
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
-
-        for (int q = 0; q < Q; q++) {
-            ft1 = fold(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
-
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rhot1;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
-    }
-
-    if (!is_periodic[1] && j == hi[1]) {
-        int x = i;
-        int y = j;
-        int z = k;
-
-        int x1 = x;
-        int y1 = y - 1;
-        int z1 = z;
-
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
-
-        for (int q = 0; q < Q; q++) {
-            ft1 = fold(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
-
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rhot1;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
-    }
-
-    if (!is_periodic[2] && k == 0) {
-        int x = i;
-        int y = j;
-        int z = k;
-
-        int x1 = x;
-        int y1 = y;
-        int z1 = z + 1;
-
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
-
-        for (int q = 0; q < Q; q++) {
-            ft1 = fold(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
-
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = 0.0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rhot1;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
-    }
-
-    if (!is_periodic[2] && k == hi[2]) {
-        int x = i;
-        int y = j;
-        int z = k;
-
-        int x1 = x;
-        int y1 = y;
-        int z1 = z - 1;
-
-        Real uxt1 = 0.0, uyt1 = 0.0, uzt1 = 0.0, rhot1 = 0.0, ft1 = 0.0;
-        Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0;
-
-        for (int q = 0; q < Q; q++) {
-            ft1 = fold(x1, y1, z1, q);
-            rhot1 += ft1;
-            uxt1 += ft1 * e[q][0];
-            uyt1 += ft1 * e[q][1];
-            uzt1 += ft1 * e[q][2];
-        }
-
-        uxt1 /= rhot1;
-        uyt1 /= rhot1;
-        uzt1 /= rhot1;
-
-        uxt = U0;
-        uyt = 0.0;
-        uzt = 0.0;
-
-        // uxt = uxt1;
-        // uyt = uyt1;
-        // uzt = uzt1;
-
-        rhot = rhot1;
-
-        for (int q = 0; q < Q; q++) {
-            fnew(x, y, z, q) = feqQian(rhot, {uxt, uyt, uzt}, q) +
-                               fold(x1, y1, z1, q) -
-                               feqQian(rhot1, {uxt1, uyt1, uzt1}, q);
-        }
-    }
-
-    if ((!is_periodic[0] && (i < 0 || i > hi[0])) ||
-        (!is_periodic[1] && (j < 0 || j > hi[1])) ||
-        (!is_periodic[2] && (k < 0 || k > hi[2]))) {
-        for (int q = 0; q < Q; q++) {
-            fnew(i, j, k, q) = 0.0;
-            fold(i, j, k, q) = 0.0;
-        }
+    const Real invrho = 1.0 / rho1;
+    ux1 *= invrho; uy1 *= invrho; uz1 *= invrho;
+    Real ux = 0.0, uy = 0.0, uz = 0.0;
+    if (!is_periodic[2] && k == hi[2]) ux = U0;
+    for (int q = 0; q < Q; ++q) {
+        fnew(i, j, k, q) = feqQian(rho1, {ux, uy, uz}, q) + fnew(x1, y1, z1, q) -
+                           feqQian(rho1, {ux1, uy1, uz1}, q);
     }
 }
-
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void collide(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
