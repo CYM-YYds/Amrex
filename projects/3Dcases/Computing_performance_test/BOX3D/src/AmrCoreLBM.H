@@ -135,6 +135,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void Collide(int lev, int n);
     void Stream(int lev, int n);
     void SwapLevel(int lev, int n);
+    void PrintDdfChecksums(int step) const;
 
     void InterpScale(int lev, int n);
     void AverageScale(int lev, int n);

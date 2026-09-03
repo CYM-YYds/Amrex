@@ -124,6 +124,7 @@ int main(int argc, char* argv[]) {
             auto end_time_compute_time = std::chrono::high_resolution_clock::now();
             compute_time += std::chrono::duration<float, std::milli>(end_time_compute_time - start_time_compute_time).count();
             cur_time += dt_0;
+            lid.PrintDdfChecksums(step);
 
             // if(step >= 98000 && step <= 100000 && step % 100 == 0)
             // {

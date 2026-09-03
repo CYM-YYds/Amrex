@@ -3005,12 +3005,8 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
         auto& f_old_lev = f_old.at(lev);
         f_new_lev.define(ba, dm, Q, nghost);
         f_old_lev.define(ba, dm, Q, nghost);
-        // Preserve the canonical BOX3D A-B construction path exactly.
-        // The batched non-equilibrium-scaled adapter below exists for OSI's
-        // twisted single-array state and must not replace the A-B baseline.
+
         FillCoarsePatch(lev, time, f_old_lev);
-        MultiFab::Copy(f_new_lev, f_old_lev, 0, 0, Q, nghost);
-        return;
     }
 
     InitializeOsiLevel(lev, ba, dm);

@@ -1288,6 +1288,49 @@ void AmrCoreLBM::BuildRestrictionCache() {
     }
 }
 
+void AmrCoreLBM::PrintDdfChecksums(int step) const {
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        const MultiFab& state = f_old.at(lev);
+        const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+        Real valid_checksum = 0.0;
+        Real active_checksum = 0.0;
+        GpuArray<Real, Q> active_q{};
+        MultiFab active(state.boxArray(), state.DistributionMap(), 1, 0);
+        for (int q = 0; q < Q; ++q) {
+            for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+                const Box bx = mfi.validbox();
+                const auto src = state.const_array(mfi);
+                const auto dst = active.array(mfi);
+                if (!has_fine) {
+                    ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        dst(i, j, k) = src(i, j, k, q);
+                    });
+                } else {
+                    const auto covered = covered_mask.at(lev).const_array(mfi);
+                    const auto interface = interface_mask.at(lev).const_array(mfi);
+                    ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        dst(i, j, k) = (covered(i, j, k) == 0 ||
+                                        interface(i, j, k) != 0)
+                                           ? src(i, j, k, q) : Real(0.0);
+                    });
+                }
+            }
+            valid_checksum += state.sum(q, 0);
+            active_q[q] = active.sum(0, 0);
+            active_checksum += active_q[q];
+        }
+        if (ParallelDescriptor::IOProcessor()) {
+            amrex::Print() << "ddf_checksum: step=" << step << " lev=" << lev
+                           << " valid_sum=" << valid_checksum
+                           << " active_sum=" << active_checksum;
+            for (int q = 0; q < Q; ++q) {
+                amrex::Print() << " active_q" << q << "=" << active_q[q];
+            }
+            amrex::Print() << '\n';
+        }
+    }
+}
+
 void AmrCoreLBM::FindCentre() {
     // amrex::AllPrint()<<"FindCentre "<<std::endl;
 
