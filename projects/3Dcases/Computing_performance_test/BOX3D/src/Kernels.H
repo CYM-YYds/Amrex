@@ -256,22 +256,50 @@ void fill_boundary(int i, int j, int k,
                    amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic) {
     int x1 = i, y1 = j, z1 = k;
     bool boundary = false;
-    if (!is_periodic[0] && i == 0) { x1 = i + 1; boundary = true; }
-    if (!is_periodic[0] && i == hi[0]) { x1 = i - 1; boundary = true; }
-    if (!is_periodic[1] && j == 0) { y1 = j + 1; boundary = true; }
-    if (!is_periodic[1] && j == hi[1]) { y1 = j - 1; boundary = true; }
-    if (!is_periodic[2] && k == 0) { z1 = k + 1; boundary = true; }
-    if (!is_periodic[2] && k == hi[2]) { z1 = k - 1; boundary = true; }
-    if (!boundary) return;
+    if (!is_periodic[0] && i == 0) {
+        x1 = i + 1;
+        boundary = true;
+    }
+    if (!is_periodic[0] && i == hi[0]) {
+        x1 = i - 1;
+        boundary = true;
+    }
+    if (!is_periodic[1] && j == 0) {
+        y1 = j + 1;
+        boundary = true;
+    }
+    if (!is_periodic[1] && j == hi[1]) {
+        y1 = j - 1;
+        boundary = true;
+    }
+    if (!is_periodic[2] && k == 0) {
+        z1 = k + 1;
+        boundary = true;
+    }
+    if (!is_periodic[2] && k == hi[2]) {
+        z1 = k - 1;
+        boundary = true;
+    }
+    if (!boundary)
+        return;
+
     Real rho1 = 0.0, ux1 = 0.0, uy1 = 0.0, uz1 = 0.0;
     for (int q = 0; q < Q; ++q) {
         const Real fq = fnew(x1, y1, z1, q);
-        rho1 += fq; ux1 += fq * e[q][0]; uy1 += fq * e[q][1]; uz1 += fq * e[q][2];
+        rho1 += fq;
+        ux1 += fq * e[q][0];
+        uy1 += fq * e[q][1];
+        uz1 += fq * e[q][2];
     }
     const Real invrho = 1.0 / rho1;
-    ux1 *= invrho; uy1 *= invrho; uz1 *= invrho;
+    ux1 *= invrho;
+    uy1 *= invrho;
+    uz1 *= invrho;
+
     Real ux = 0.0, uy = 0.0, uz = 0.0;
-    if (!is_periodic[2] && k == hi[2]) ux = U0;
+
+    if (!is_periodic[2] && k == hi[2])
+        ux = U0;
     for (int q = 0; q < Q; ++q) {
         fnew(i, j, k, q) = feqQian(rho1, {ux, uy, uz}, q) + fnew(x1, y1, z1, q) -
                            feqQian(rho1, {ux1, uy1, uz1}, q);
@@ -2206,14 +2234,14 @@ void interp_cell_cons_linear_children_d3q(
         const Real dzp = coarse(ic, jc, kc + 1, q) - center;
         const Real dzm = center - coarse(ic, jc, kc - 1, q);
         const Real sx = (dxp * dxm > Real(0))
-            ? std::copysign(amrex::min(std::abs(dxp), std::abs(dxm)), dxp)
-            : Real(0);
+                            ? std::copysign(amrex::min(std::abs(dxp), std::abs(dxm)), dxp)
+                            : Real(0);
         const Real sy = (dyp * dym > Real(0))
-            ? std::copysign(amrex::min(std::abs(dyp), std::abs(dym)), dyp)
-            : Real(0);
+                            ? std::copysign(amrex::min(std::abs(dyp), std::abs(dym)), dyp)
+                            : Real(0);
         const Real sz = (dzp * dzm > Real(0))
-            ? std::copysign(amrex::min(std::abs(dzp), std::abs(dzm)), dzp)
-            : Real(0);
+                            ? std::copysign(amrex::min(std::abs(dzp), std::abs(dzm)), dzp)
+                            : Real(0);
 
 #pragma unroll
         for (int koff = 0; koff < 2; ++koff) {
@@ -2255,11 +2283,11 @@ void interp_cell_quadratic_children_d3q(
     for (int q = 0; q < Q; ++q) {
         const Real center = coarse(ic, jc, kc, q);
         const Real sx = half *
-            (coarse(ic + 1, jc, kc, q) - coarse(ic - 1, jc, kc, q));
+                        (coarse(ic + 1, jc, kc, q) - coarse(ic - 1, jc, kc, q));
         const Real sy = half *
-            (coarse(ic, jc + 1, kc, q) - coarse(ic, jc - 1, kc, q));
+                        (coarse(ic, jc + 1, kc, q) - coarse(ic, jc - 1, kc, q));
         const Real sz = half *
-            (coarse(ic, jc, kc + 1, q) - coarse(ic, jc, kc - 1, q));
+                        (coarse(ic, jc, kc + 1, q) - coarse(ic, jc, kc - 1, q));
         const Real sxx = coarse(ic - 1, jc, kc, q) - Real(2) * center +
                          coarse(ic + 1, jc, kc, q);
         const Real syy = coarse(ic, jc - 1, kc, q) - Real(2) * center +
@@ -2267,20 +2295,20 @@ void interp_cell_quadratic_children_d3q(
         const Real szz = coarse(ic, jc, kc - 1, q) - Real(2) * center +
                          coarse(ic, jc, kc + 1, q);
         const Real sxy = quarter *
-            (coarse(ic - 1, jc - 1, kc, q) -
-             coarse(ic + 1, jc - 1, kc, q) -
-             coarse(ic - 1, jc + 1, kc, q) +
-             coarse(ic + 1, jc + 1, kc, q));
+                         (coarse(ic - 1, jc - 1, kc, q) -
+                          coarse(ic + 1, jc - 1, kc, q) -
+                          coarse(ic - 1, jc + 1, kc, q) +
+                          coarse(ic + 1, jc + 1, kc, q));
         const Real sxz = quarter *
-            (coarse(ic - 1, jc, kc - 1, q) -
-             coarse(ic + 1, jc, kc - 1, q) -
-             coarse(ic - 1, jc, kc + 1, q) +
-             coarse(ic + 1, jc, kc + 1, q));
+                         (coarse(ic - 1, jc, kc - 1, q) -
+                          coarse(ic + 1, jc, kc - 1, q) -
+                          coarse(ic - 1, jc, kc + 1, q) +
+                          coarse(ic + 1, jc, kc + 1, q));
         const Real syz = quarter *
-            (coarse(ic, jc - 1, kc - 1, q) -
-             coarse(ic, jc - 1, kc + 1, q) -
-             coarse(ic, jc + 1, kc - 1, q) +
-             coarse(ic, jc + 1, kc + 1, q));
+                         (coarse(ic, jc - 1, kc - 1, q) -
+                          coarse(ic, jc - 1, kc + 1, q) -
+                          coarse(ic, jc + 1, kc - 1, q) +
+                          coarse(ic, jc + 1, kc + 1, q));
 
 #pragma unroll
         for (int koff = 0; koff < 2; ++koff) {

@@ -412,11 +412,6 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
         // 4. 两个细步完成后，只平均一次
         lid.AverageDownGhostLevel(lev, 1);
-        // 中间层刚被其子层覆盖区回填；返回父递归前恢复它自身的
-        // coarse-fine ghost，供父层安排的下一次中间层子步使用。
-        if (lev > 0) {
-            lid.FillGhostLevel(lev, cur_time + dt, 1);
-        }
         if (lid.checkStateEachSubstep()) {
             lid.ValidateInitializedState("After average-down");
         }

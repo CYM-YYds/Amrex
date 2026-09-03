@@ -349,7 +349,7 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     // }
 
     // 1. 当前层向下一层插值一次
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
@@ -361,7 +361,7 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.SwapLevel(lev, nghost);
 
     // 3. 下一层用一半时间步连续推进两次
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         JaberCycle2(lev + 1, cur_time, lid);
         JaberCycle2(lev + 1, cur_time + dt / 2.0, lid);
 

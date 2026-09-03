@@ -3051,7 +3051,7 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
         new_osi_state.setVal(std::numeric_limits<Real>::quiet_NaN());
 
         // 旧、新 fine 布局重叠区：按旧 phase 分批解码，再由 ParallelCopy
-        // 完成本地或跨 rank remap。新布局 phase=0，目标地址即逻辑坐标。
+        // 完成本地或跨 rank remap；新布局从 phase=0 开始。
         for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
             const int ncomp =
                 amrex::min(osi_sync_batch_components, Q - q0);
@@ -3061,6 +3061,7 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
                 old_decode_batch, 0, q0, ncomp, IntVect(0), IntVect(0),
                 Geom(lev).periodicity());
         }
+
 
         if (lev > 0) {
             const IntVect fill_ng(0);
