@@ -2083,7 +2083,7 @@ void AmrCoreLBM::ValidateConfiguration() const {
         const IntVect sync_ng = osi_sync_buffer[lev].nGrowVect();
         for (int ibox = 0; ibox < sync_ba.size(); ++ibox) {
             sync_values += amrex::grow(sync_ba[ibox], sync_ng).numPts() *
-                            osi_sync_buffer[lev].nComp();
+                           osi_sync_buffer[lev].nComp();
         }
         amrex::Print() << "[OSI level] level=" << lev
                        << " boxes=" << state_ba.size()
@@ -2994,6 +2994,7 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
     amrex::MultiFab& vort_lev = vorticity.at(lev);
     amrex::MultiFab& force_lev = force.at(lev);
     amrex::MultiFab& shear_lev = shear.at(lev);
+
     u_lev.define(ba, dm, AMREX_SPACEDIM, nghost);
     rho_lev.define(ba, dm, 1, nghost);
     vort_lev.define(ba, dm, 2, nghost); // 改成两个，分别存vort和q
@@ -3001,21 +3002,19 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
     shear_lev.define(ba, dm, 1, nghost);
 
     if (stream_mode == 0) {
-        auto& f_new_lev = f_new.at(lev);
-        auto& f_old_lev = f_old.at(lev);
+        amrex::MultiFab& f_new_lev = f_new.at(lev);
+        amrex::MultiFab& f_old_lev = f_old.at(lev);
         f_new_lev.define(ba, dm, Q, nghost);
         f_old_lev.define(ba, dm, Q, nghost);
 
         FillCoarsePatch(lev, time, f_old_lev);
-    }
+    } else {
+        InitializeOsiLevel(lev, ba, dm);
+        amrex::MultiFab& state = osi_state.at(lev);
+        state.setVal(std::numeric_limits<Real>::quiet_NaN());
 
-    InitializeOsiLevel(lev, ba, dm);
-    auto& state = osi_state.at(lev);
-    state.setVal(std::numeric_limits<Real>::quiet_NaN());
-    force_lev.setVal(0.0, nghost);
-    shear_lev.setVal(0.0, nghost);
-    vort_lev.setVal(0.0, nghost);
-    FillNewLevelFromCoarse(lev, time);
+        FillNewLevelFromCoarse(lev, time);
+    }
 }
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
                              const amrex::DistributionMapping& dm) { // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用
@@ -3057,7 +3056,6 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
                 old_decode_batch, 0, q0, ncomp, IntVect(0), IntVect(0),
                 Geom(lev).periodicity());
         }
-
 
         if (lev > 0) {
             const IntVect fill_ng(0);
@@ -3375,6 +3373,7 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
     amrex::MultiFab& vort_lev = vorticity.at(lev);
     amrex::MultiFab& force_lev = force.at(lev);
     amrex::MultiFab& shear_lev = shear.at(lev);
+
     u_lev.define(ba, dm, AMREX_SPACEDIM, nghost);
     rho_lev.define(ba, dm, 1, nghost);
     vort_lev.define(ba, dm, 2, nghost);
@@ -3382,8 +3381,8 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
     shear_lev.define(ba, dm, 1, nghost);
     const bool allocate_ab = stream_mode == 0 || osi_ab_check;
     if (allocate_ab) {
-        auto& f_new_lev = f_new.at(lev);
-        auto& f_old_lev = f_old.at(lev);
+        amrex::MultiFab& f_new_lev = f_new.at(lev);
+        amrex::MultiFab& f_old_lev = f_old.at(lev);
         f_new_lev.define(ba, dm, Q, nghost);
         f_old_lev.define(ba, dm, Q, nghost);
     }
@@ -3398,8 +3397,8 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
     vort_lev.setVal(0.0, nghost);
 
     if (allocate_ab) {
-        auto& f_new_lev = f_new.at(lev);
-        auto& f_old_lev = f_old.at(lev);
+        amrex::MultiFab& f_new_lev = f_new.at(lev);
+        amrex::MultiFab& f_old_lev = f_old.at(lev);
         for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
             const Box& bx = mfi.growntilebox(nghost);
             const Array4<Real>& fold = f_old_lev.array(mfi);

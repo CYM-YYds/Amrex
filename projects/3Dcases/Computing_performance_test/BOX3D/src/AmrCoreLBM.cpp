@@ -1311,7 +1311,8 @@ void AmrCoreLBM::PrintDdfChecksums(int step) const {
                     ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                         dst(i, j, k) = (covered(i, j, k) == 0 ||
                                         interface(i, j, k) != 0)
-                                           ? src(i, j, k, q) : Real(0.0);
+                                           ? src(i, j, k, q)
+                                           : Real(0.0);
                     });
                 }
             }
@@ -2050,8 +2051,7 @@ void AmrCoreLBM::MoveParticle(int lev, amrex::Real cur_time) {
 //                     Pure virtual function                          //
 //********************************************************************//
 void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::BoxArray& ba,
-                                        const amrex::DistributionMapping& dm) // 暂时用不到
-{
+                                        const amrex::DistributionMapping& dm) {
     // amrex::AllPrint()<<"MakeNewLevelFromCoarse on " << lev <<std::endl;
 
     if (lev == 0) {
@@ -2082,7 +2082,7 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
 
     amrex::MultiFab new_state(ba, dm, Q, nghost);
     amrex::MultiFab old_state(ba, dm, Q, nghost);
-    amrex::MultiFab u_new(ba, dm, AMREX_SPACEDIM, nghost); // 什么用,要初始化吗
+    amrex::MultiFab u_new(ba, dm, AMREX_SPACEDIM, nghost);
     amrex::MultiFab rho_new(ba, dm, 1, nghost);
     amrex::MultiFab vort_new(ba, dm, 2, nghost);
     amrex::MultiFab force_new(ba, dm, AMREX_SPACEDIM, nghost);
