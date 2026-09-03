@@ -11,8 +11,8 @@
 
 using namespace amrex;
 
-void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);  // 好像更适配cumulant_opt
-void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);  // 更适配cumulant
+void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 好像更适配cumulant_opt
+void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 更适配cumulant
 void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
@@ -120,6 +120,11 @@ int main(int argc, char* argv[]) {
                     lid.FindCentre();
                 }
                 lid.RefineMesh(cur_time);
+                // Regrid callbacks reconstruct valid cells, but a new or
+                // remapped layout has no trustworthy same-level/periodic
+                // ghost values yet.  Collision advances grown boxes before
+                // CommunicateLevel(), so synchronize every active level here.
+                lid.PrepareStateForAdvance();
                 if (lid.params().write_particles) {
                     lid.RedistributeParticle();
                 }

@@ -2100,6 +2100,38 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
             stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
         MultiFab* decoded =
             stream_mode == 1 ? &osi_sync_buffer.at(lev) : nullptr;
+        const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+        MultiFab active_scalar(
+            state.boxArray(), state.DistributionMap(), 1, 0);
+
+        // Deep-covered coarse cells are deliberately skipped by Collide/Stream
+        // and may contain stale or undefined values after a layout change.
+        // Validation must follow the same ownership rule as the solver instead
+        // of treating those inactive cells as part of the numerical solution.
+        const auto active_stats =
+            [&](const MultiFab& source, int comp, Real inactive_value) {
+                if (!has_fine) {
+                    return GpuArray<Real, 3>{source.min(comp, 0),
+                                             source.max(comp, 0),
+                                             source.sum(comp, 0)};
+                }
+                for (MFIter mfi(source, false); mfi.isValid(); ++mfi) {
+                    const Box bx = mfi.validbox();
+                    const auto src = source.const_array(mfi);
+                    const auto dst = active_scalar.array(mfi);
+                    const auto covered =
+                        covered_mask.at(lev).const_array(mfi);
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            dst(i, j, k) = covered(i, j, k) == 0
+                                               ? src(i, j, k, comp)
+                                               : inactive_value;
+                        });
+                }
+                return GpuArray<Real, 3>{active_scalar.min(0, 0),
+                                         active_scalar.max(0, 0),
+                                         active_scalar.sum(0, 0)};
+            };
         Real ddf_min = std::numeric_limits<Real>::max();
         Real ddf_max = std::numeric_limits<Real>::lowest();
 
@@ -2114,9 +2146,10 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
             }
             for (int n = 0; n < ncomp; ++n) {
                 const int comp = stream_mode == 1 ? n : q0 + n;
-                const Real q_min = canonical->min(comp, 0);
-                const Real q_max = canonical->max(comp, 0);
-                const Real q_sum = canonical->sum(comp, 0);
+                const auto stats = active_stats(*canonical, comp, Real(0.0));
+                const Real q_min = stats[0];
+                const Real q_max = stats[1];
+                const Real q_sum = stats[2];
                 AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
                     std::isfinite(q_min) && std::isfinite(q_max) &&
                         std::isfinite(q_sum) && q_min <= q_max,
@@ -2127,13 +2160,19 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
         }
 
         ComputeMacroLevel(lev);
-        const Real rho_min = density.at(lev).min(0, 0);
-        const Real rho_max = density.at(lev).max(0, 0);
-        const Real rho_sum = density.at(lev).sum(0, 0);
+        const auto rho_stats =
+            active_stats(density.at(lev), 0, Real(1.0));
+        const Real rho_min = rho_stats[0];
+        const Real rho_max = rho_stats[1];
+        const Real rho_sum = rho_stats[2];
         Real velocity_linf = 0.0;
         for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+            const auto velocity_stats =
+                active_stats(velocity.at(lev), dir, Real(0.0));
             velocity_linf = amrex::max(
-                velocity_linf, velocity.at(lev).norm0(dir, 0));
+                velocity_linf,
+                amrex::max(std::abs(velocity_stats[0]),
+                           std::abs(velocity_stats[1])));
         }
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
             std::isfinite(rho_min) && std::isfinite(rho_max) &&
@@ -2961,19 +3000,25 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
     force_lev.define(ba, dm, AMREX_SPACEDIM, nghost);
     shear_lev.define(ba, dm, 1, nghost);
 
-    if (stream_mode == 1) {
-        InitializeOsiLevel(lev, ba, dm);
-        auto& state = osi_state.at(lev);
-        state.setVal(std::numeric_limits<Real>::quiet_NaN());
-        force_lev.setVal(0.0, nghost);
-        shear_lev.setVal(0.0, nghost);
-        vort_lev.setVal(0.0, nghost);
-    } else {
+    if (stream_mode == 0) {
         auto& f_new_lev = f_new.at(lev);
         auto& f_old_lev = f_old.at(lev);
         f_new_lev.define(ba, dm, Q, nghost);
         f_old_lev.define(ba, dm, Q, nghost);
+        // Preserve the canonical BOX3D A-B construction path exactly.
+        // The batched non-equilibrium-scaled adapter below exists for OSI's
+        // twisted single-array state and must not replace the A-B baseline.
+        FillCoarsePatch(lev, time, f_old_lev);
+        MultiFab::Copy(f_new_lev, f_old_lev, 0, 0, Q, nghost);
+        return;
     }
+
+    InitializeOsiLevel(lev, ba, dm);
+    auto& state = osi_state.at(lev);
+    state.setVal(std::numeric_limits<Real>::quiet_NaN());
+    force_lev.setVal(0.0, nghost);
+    shear_lev.setVal(0.0, nghost);
+    vort_lev.setVal(0.0, nghost);
     FillNewLevelFromCoarse(lev, time);
 }
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
