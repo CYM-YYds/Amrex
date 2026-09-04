@@ -364,10 +364,15 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     // 2. 当前层推进一个时间步
     lid.Collide(lev, nghost);
+    lid.PrintLevelDdfChecksum("advance_after_collide", lev);
     lid.CommunicateLevel(lev);
+    lid.PrintLevelDdfChecksum("advance_after_communicate", lev);
     lid.Stream(lev, nghost);
+    lid.PrintLevelDdfChecksum("advance_after_stream", lev, true);
     lid.Boundary(lev);
+    lid.PrintLevelDdfChecksum("advance_after_boundary", lev, true);
     lid.SwapLevel(lev, nghost);
+    lid.PrintLevelDdfChecksum("advance_after_swap", lev);
     lid.PrintLevelDdfChecksum("cycle2_after_advance", lev);
 
     // 3. 下一层用一半时间步连续推进两次

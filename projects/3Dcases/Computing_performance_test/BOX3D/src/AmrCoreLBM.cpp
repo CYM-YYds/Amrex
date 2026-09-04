@@ -1311,12 +1311,12 @@ void AmrCoreLBM::PrintDdfChecksums(int step) const {
     }
 }
 
-void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) const {
+void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new) const {
     amrex::GpuArray<amrex::Real, Q> component_sum{};
     amrex::Real valid_sum = 0.0;
     amrex::Real active_sum = 0.0;
     amrex::GpuArray<amrex::Real, Q> active_component_sum{};
-    const amrex::MultiFab& state = f_old.at(lev);
+    const amrex::MultiFab& state = use_new ? f_new.at(lev) : f_old.at(lev);
     const bool has_fine = lev < finest_level && cf_mask_mode == 1;
     amrex::MultiFab active(state.boxArray(), state.DistributionMap(), 1, 0);
     for (int q = 0; q < Q; ++q) {
@@ -1677,7 +1677,7 @@ void AmrCoreLBM::Collide(int lev, int n) {
     amrex::Real dt = Geom(lev).CellSizeArray()[0];
     amrex::Real tau_lev = tau[lev];
     const amrex::Real omega_lev = 1.0 / tau_lev;
-    const Box domain = Geom(lev).Domain();
+    const Box domain = Geom(lev).growPeriodicDomain(n);
     const bool has_fine_level = (lev < finest_level);
     AMREX_ALWAYS_ASSERT(n <= cf_interface_mask_nghost);
 

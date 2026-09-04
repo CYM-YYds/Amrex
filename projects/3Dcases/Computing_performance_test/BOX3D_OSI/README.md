@@ -54,20 +54,20 @@ A-B 基线逐单元等价。`scripts/submit_osi_multilevel_ab.sh` 会以 `1e-12`
 双重覆盖前的证据，不能代表当前实现。修复后的双数组 job `585390`
 （`stream_mode=0`、`max_level=3`、`regrid_int=32`）显示：step 32 regrid 前两边一致，
 `ErrorEst` 的 `tag_cells` 都为 7942，`FillCoarsePatch()`、`MakeNewLevelFromCoarse()`、
-`RefineMesh()` 返回后的 level 1 也一致（`valid_sum=524278.3023`）。首次可观察差异
-出现在 step 32 随后的第一次多层 `Cycle2/JaberCycle2` 推进完成后；后续只排查
-`stream_mode=0` 的推进子阶段。脚本 `scripts/submit_ab_four_level_smoke.sh` 仍保留
-为复现入口。
+`RefineMesh()` 返回后的 level 1 也一致（`valid_sum=524278.3023`）。该早期判断已被
+后续 blocking-factor 对齐和分段复测取代；当前定位结果见下文。脚本
+`scripts/submit_ab_four_level_smoke.sh` 保留为复现入口。
 
 ### 当前修复边界（2026-09-04）
 
 当前待修复问题严格限定为 `lbm.stream_mode=0` 的双数组推进路径；`BOX3D` 是唯一的
 数值基准对照。每次修改都必须在相同输入、网格、MPI 配置和输出设置下，与 BOX3D
 逐阶段比较 `f_old/f_new`、valid DDF 及宏观量。`stream_mode=1` 的 OSI 单数组路径
-不作为本问题的正确性判据，也不用于解释双数组路径的差异。现有证据表明 step 32
-重网格创建完成前两者一致，首次差异位于随后第一次多层 `Cycle2` 推进内部；因此
-后续诊断和修复应从 `Boundary`、`Collide`、`FillGhost/Communicate`、`Stream/Swap`
-以及 `AverageDownGhostLevel` 的阶段边界开始定位。
+不作为本问题的正确性判据，也不用于解释双数组路径的差异。分段 jobs
+`585869`--`585879` 表明两边可一致通过 step 192，OSI 在 step 224 失败，而同条件
+BOX3D job `585878` 正常。对称阶段诊断进一步把首次可观察差异收窄到 step 224、
+level 1 的 `Stream()` 输出；`Collide()` 和 `CommunicateLevel()` 后的逐 q 聚合 checksum
+仍一致，但这还不能证明两份 `f_old` 逐 cell 相同。
 
 不要把继承自 BOX3D 的历史 job、图表或性能数字描述为 OSI 结果。
 
@@ -77,7 +77,10 @@ A-B 基线逐单元等价。`scripts/submit_osi_multilevel_ab.sh` 会以 `1e-12`
 `(8,8,8)`；相同 `ErrorEst` 标记因此在 step 64 生成了不同的 BoxArray，随后造成
 覆盖掩码和推进状态分叉。已将 `src/main.cpp` 对齐为 `(8,8,8)`。修复后 job `585731`
 在 `stream_mode=0` 四层 smoke 中与 BOX3D 的 level 0--2 布局、covered/interface
-统计及 step 64 level 2 重构后 DDF checksum 一致，运行日志未出现 NaN/Inf。
+统计及 step 64 level 2 重构后 DDF checksum 一致。该短程结果只证明对应窗口；后续
+job `585892` 在 step 224 的 level 1 `Stream()` 后首次出现聚合差异，并在 level 2
+`Boundary()` 后出现 active NaN。诊断已统一使用完整 `validbox()`，差异仍可复现；
+当前优先核对 Stream launch box、covered mask 和 `f_old` 的逐 cell 输入。
 
 已完成的 OSI 阶段 1--4 内容：
 

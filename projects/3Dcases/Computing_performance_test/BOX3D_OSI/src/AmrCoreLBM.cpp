@@ -2629,8 +2629,8 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new)
             if (lev < finest_level && cf_mask_mode == 1) {
                 MultiFab active(state.boxArray(), state.DistributionMap(), 1, 0,
                                 MFInfo().SetArena(The_Arena()));
-                for (MFIter mfi(state, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-                    const Box bx = mfi.tilebox();
+                for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+                    const Box bx = mfi.validbox();
                     const auto src = state.const_array(mfi);
                     const auto dst = active.array(mfi);
                     const auto covered = covered_mask.at(lev).const_array(mfi);

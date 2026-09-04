@@ -54,20 +54,28 @@ canonical checkpoint/restart/宏观量 plotfile。当前仍没有：
 结果。修复后的 job `585390`（`stream_mode=0,max_level=3,regrid_int=32`）在 step 32
 确认 regrid 前、`ErrorEst(tag_cells=7942)`、`FillCoarsePatch()`、
 `MakeNewLevelFromCoarse()` 和 `RefineMesh()` 返回后的 level 1 均与 BOX3D 一致
-（`valid_sum=524278.3023`）；首次差异出现在随后第一次多层 `Cycle2/JaberCycle2`
-推进完成后。因此当前排查范围是双数组推进子阶段，而不是首次建层或 `ErrorEst()`。
+（`valid_sum=524278.3023`）。该早期定位已由后续分段复测取代；当前排查范围仍是
+双数组推进子阶段，而不是首次建层或 `ErrorEst()`。
 三层以上仍是诊断路径，不能据此宣称多层生产稳定性。
 
 2026-09-04 已确认该分叉的布局根因是 OSI `AmrInfo` blocking factor `(2,2,2)` 与 BOX3D
 基准 `(8,8,8)` 不一致，已在 `src/main.cpp` 修正。job `585731` 的四层
 `stream_mode=0` smoke 显示 step 64 的 level 0--2 BoxArray、粗细覆盖掩码和 level 2
-重构后 DDF checksum 均与 BOX3D 一致，且日志未出现 NaN/Inf；后续仍需更长时间的
-同条件 A/B 才能扩大稳定性结论。
+重构后 DDF checksum 均与 BOX3D 一致；这只证明对应短程窗口，不能作为长程稳定性结论。
+
+后续同条件分段 jobs `585869`--`585879` 逐个覆盖 step 96、128、160、192 和 224：
+两边一致通过 step 192，step 224 时 BOX3D 正常而 OSI 双数组路径失败。BOX3D job
+`585891` 与 OSI job `585892` 使用对称的 `f_old/f_new` 阶段诊断；在 step 224 level 1，
+`cycle2_after_fill_ghost`、`advance_after_collide` 和 `advance_after_communicate` 的逐 q
+聚合 checksum 一致，首次可观察差异在 `advance_after_stream` 的 `f_new`。随后 level 2
+在 `advance_after_boundary` 出现 active NaN。OSI 诊断从 tiled `tilebox()` 改为完整
+`validbox()` 后差异仍然存在。下一步必须比较 Stream 的实际 launch box、逐 cell
+`covered_mask` 和逐 cell/逐 q 的 `f_old`；聚合 checksum 相同不等价于输入逐点相同。
 
 当前修复任务以 `BOX3D` 为双数组数值基准，仅处理 `lbm.stream_mode=0`。OSI
-`stream_mode=1` 属于独立实现路径，不参与本轮 A-B 正确性判定。后续应在首次分歧的
-step 32 多层 `Cycle2` 内，按 `Boundary -> Collide -> ghost/communication ->
-Stream/Swap -> AverageDownGhostLevel` 的阶段边界建立对照和回归记录。
+`stream_mode=1` 属于独立实现路径，不参与本轮 A-B 正确性判定。后续应围绕 step 224、
+level 1 的 Stream 输入、执行范围和 mask 建立逐点对照；不要把 level 2 的 Boundary NaN
+误判为首次根因。
 
 ## 2. 总体开发策略
 

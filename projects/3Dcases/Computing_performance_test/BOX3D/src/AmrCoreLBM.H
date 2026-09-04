@@ -137,7 +137,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void Stream(int lev, int n);
     void SwapLevel(int lev, int n);
     void PrintDdfChecksums(int step) const;
-    void PrintLevelDdfChecksum(const char* stage, int lev) const;
+    void PrintLevelDdfChecksum(const char* stage, int lev, bool use_new = false) const;
 
     void InterpScale(int lev, int n);
     void AverageScale(int lev, int n);
