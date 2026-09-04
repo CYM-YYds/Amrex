@@ -784,6 +784,13 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
     coarse_stage.ParallelCopy(
         coarse_state, 0, 0, Q, IntVect(0), IntVect(0),
         Geom(lev - 1).periodicity());
+    if (lev == 1 || lev == 2) {
+        amrex::Print() << "INTERP_STAGE_NORM stage=after_coarse_copy lev=" << lev;
+        for (int q : {0, 3, 18, 26}) {
+            amrex::Print() << " q" << q << "=" << coarse_stage.norm1(q, 0);
+        }
+        amrex::Print() << "\n";
+    }
     // 阶段 2：两条插值路径共享相同的物理边界规则。
     FillCoarseInterpolationStagePhysicalBoundary(lev);
 
@@ -822,6 +829,14 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
                         ic, jc, kc, fine, coarse, fine_box);
                 });
         }
+    }
+    if (lev == 1 || lev == 2) {
+        amrex::Print() << "INTERP_STAGE_NORM stage=after_interpolation lev=" << lev;
+        for (int q : {0, 3, 18, 26}) {
+            amrex::Print() << " q" << q << "_valid=" << fine_state.norm1(q, 0)
+                           << " q" << q << "_grow=" << fine_state.norm1(q, fine_state.nGrowVect().max());
+        }
+        amrex::Print() << "\n";
     }
 }
 
