@@ -756,6 +756,23 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
         DistributionMapping coarse_stage_dm(std::move(coarse_owners));
         coarse_stage.define(coarse_stage_ba, coarse_stage_dm, Q, 0);
     }
+    if (lev == 1 || lev == 2) {
+        long long fine_points = 0;
+        long long coarse_points = 0;
+        for (const Box& b : fine_work_boxes) { fine_points += b.numPts(); }
+        for (const Box& b : coarse_boxes) { coarse_points += b.numPts(); }
+        amrex::Print() << "INTERP_CACHE lev=" << lev
+                       << " entries=" << fine_work_boxes.size()
+                       << " fine_points=" << fine_points
+                       << " coarse_points=" << coarse_points;
+        if (!fine_work_boxes.empty()) {
+            amrex::Print() << " first_fine=" << fine_work_boxes.front()
+                           << " first_coarse=" << coarse_boxes.front()
+                           << " last_fine=" << fine_work_boxes.back()
+                           << " last_coarse=" << coarse_boxes.back();
+        }
+        amrex::Print() << "\n";
+    }
     interp_direct_cache_ready[lev] = 1;
     ++perf_stats.interp_cache_builds;
     perf_stats.interp_cache_build += amrex::second() - start;
