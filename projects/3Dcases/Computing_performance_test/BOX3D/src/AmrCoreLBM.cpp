@@ -1314,18 +1314,40 @@ void AmrCoreLBM::PrintDdfChecksums(int step) const {
 void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) const {
     amrex::GpuArray<amrex::Real, Q> component_sum{};
     amrex::Real valid_sum = 0.0;
+    amrex::Real active_sum = 0.0;
+    amrex::GpuArray<amrex::Real, Q> active_component_sum{};
     const amrex::MultiFab& state = f_old.at(lev);
+    const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+    amrex::MultiFab active(state.boxArray(), state.DistributionMap(), 1, 0);
     for (int q = 0; q < Q; ++q) {
         component_sum[q] = state.sum(q, 0);
         valid_sum += component_sum[q];
+        for (amrex::MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+            const auto bx = mfi.validbox();
+            const auto src = state.const_array(mfi);
+            const auto dst = active.array(mfi);
+            if (!has_fine) {
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) { dst(i,j,k) = src(i,j,k,q); });
+            } else {
+                const auto covered = covered_mask.at(lev).const_array(mfi);
+                const auto interface = interface_mask.at(lev).const_array(mfi);
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    dst(i,j,k) = (covered(i,j,k) == 0 || interface(i,j,k) != 0) ? src(i,j,k,q) : amrex::Real(0.0);
+                });
+            }
+        }
+        active_component_sum[q] = active.sum(0, 0);
+        active_sum += active_component_sum[q];
     }
 
     if (amrex::ParallelDescriptor::IOProcessor()) {
         amrex::Print() << "CYCLE_DIAG stage=" << stage
                        << " lev=" << lev
-                       << " valid_sum=" << valid_sum;
+                       << " valid_sum=" << valid_sum
+                       << " active_sum=" << active_sum;
         for (int q = 0; q < Q; ++q) {
-            amrex::Print() << " q" << q << "=" << component_sum[q];
+            amrex::Print() << " q" << q << "=" << component_sum[q]
+                           << " active_q" << q << "=" << active_component_sum[q];
         }
         amrex::Print() << '\n';
     }
