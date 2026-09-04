@@ -58,6 +58,11 @@ canonical checkpoint/restart/宏观量 plotfile。当前仍没有：
 推进完成后。因此当前排查范围是双数组推进子阶段，而不是首次建层或 `ErrorEst()`。
 三层以上仍是诊断路径，不能据此宣称多层生产稳定性。
 
+当前修复任务以 `BOX3D` 为双数组数值基准，仅处理 `lbm.stream_mode=0`。OSI
+`stream_mode=1` 属于独立实现路径，不参与本轮 A-B 正确性判定。后续应在首次分歧的
+step 32 多层 `Cycle2` 内，按 `Boundary -> Collide -> ghost/communication ->
+Stream/Swap -> AverageDownGhostLevel` 的阶段边界建立对照和回归记录。
+
 ## 2. 总体开发策略
 
 必须保留 A-B 基线，通过运行时参数做同代码树 A/B：

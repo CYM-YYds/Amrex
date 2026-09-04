@@ -59,6 +59,16 @@ A-B 基线逐单元等价。`scripts/submit_osi_multilevel_ab.sh` 会以 `1e-12`
 `stream_mode=0` 的推进子阶段。脚本 `scripts/submit_ab_four_level_smoke.sh` 仍保留
 为复现入口。
 
+### 当前修复边界（2026-09-04）
+
+当前待修复问题严格限定为 `lbm.stream_mode=0` 的双数组推进路径；`BOX3D` 是唯一的
+数值基准对照。每次修改都必须在相同输入、网格、MPI 配置和输出设置下，与 BOX3D
+逐阶段比较 `f_old/f_new`、valid DDF 及宏观量。`stream_mode=1` 的 OSI 单数组路径
+不作为本问题的正确性判据，也不用于解释双数组路径的差异。现有证据表明 step 32
+重网格创建完成前两者一致，首次差异位于随后第一次多层 `Cycle2` 推进内部；因此
+后续诊断和修复应从 `Boundary`、`Collide`、`FillGhost/Communicate`、`Stream/Swap`
+以及 `AverageDownGhostLevel` 的阶段边界开始定位。
+
 不要把继承自 BOX3D 的历史 job、图表或性能数字描述为 OSI 结果。
 
 已完成的 OSI 阶段 1--4 内容：

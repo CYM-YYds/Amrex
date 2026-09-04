@@ -2310,11 +2310,17 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         return;
     }
 
+    const bool trace = checkStateEachSubstep();
     Collide(lev, nghost);
+    if (trace) { PrintLevelDdfChecksum("advance_after_collide", lev); }
     CommunicateLevel(lev);
+    if (trace) { PrintLevelDdfChecksum("advance_after_communicate", lev); }
     Stream(lev, nghost);
+    if (trace) { PrintLevelDdfChecksum("advance_after_stream", lev); }
     Boundary(lev);
+    if (trace) { PrintLevelDdfChecksum("advance_after_boundary", lev); }
     SwapLevel(lev, nghost);
+    if (trace) { PrintLevelDdfChecksum("advance_after_swap", lev); }
 }
 
 void AmrCoreLBM::AdvanceOsiLevelImpl(int lev) {
@@ -2582,7 +2588,9 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
 
 void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) {
     GpuArray<Real, Q> component_sum{};
+    GpuArray<Real, Q> active_component_sum{};
     Real valid_sum = 0.0;
+    Real active_sum = 0.0;
 
     if (stream_mode == 1) {
         const MultiFab& state = osi_state.at(lev);
@@ -2595,6 +2603,8 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) {
                 const int q = q0 + n;
                 component_sum[q] = batch.sum(n, 0);
                 valid_sum += component_sum[q];
+                active_component_sum[q] = component_sum[q];
+                active_sum += active_component_sum[q];
             }
         }
     } else {
@@ -2602,6 +2612,26 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) {
         for (int q = 0; q < Q; ++q) {
             component_sum[q] = state.sum(q, 0);
             valid_sum += component_sum[q];
+
+            if (lev < finest_level && cf_mask_mode == 1) {
+                MultiFab active(state.boxArray(), state.DistributionMap(), 1, 0,
+                                MFInfo().SetArena(The_Arena()));
+                for (MFIter mfi(state, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                    const Box bx = mfi.tilebox();
+                    const auto src = state.const_array(mfi);
+                    const auto dst = active.array(mfi);
+                    const auto covered = covered_mask.at(lev).const_array(mfi);
+                    const auto interface = interface_mask.at(lev).const_array(mfi);
+                    ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                        dst(i, j, k) = (covered(i, j, k) == 0 || interface(i, j, k) != 0)
+                                           ? src(i, j, k, q) : Real(0.0);
+                    });
+                }
+                active_component_sum[q] = active.sum(0, 0);
+            } else {
+                active_component_sum[q] = component_sum[q];
+            }
+            active_sum += active_component_sum[q];
         }
     }
 
@@ -2609,9 +2639,11 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) {
         amrex::Print() << "NEW_LEVEL_DIAG stage=" << stage
                        << " mode=" << stream_mode
                        << " lev=" << lev
-                       << " valid_sum=" << valid_sum;
+                       << " valid_sum=" << valid_sum
+                       << " active_sum=" << active_sum;
         for (int q = 0; q < Q; ++q) {
-            amrex::Print() << " q" << q << "=" << component_sum[q];
+            amrex::Print() << " q" << q << "=" << component_sum[q]
+                           << " active_q" << q << "=" << active_component_sum[q];
         }
         amrex::Print() << '\n';
     }
