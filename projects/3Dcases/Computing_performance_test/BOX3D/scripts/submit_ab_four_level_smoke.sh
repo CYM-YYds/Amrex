@@ -13,6 +13,7 @@ set -euo pipefail
 
 MAX_STEP="${AB_MAX_STEP:-64}"
 PLOT_INT="${AB_PLOT_INT:-1000000}"
+CHK_INT="${AB_CHK_INT:--1}"
 
 source /home/HPCBase/tools/module-5.2.0/init/profile.sh
 module use /home/HPCBase/modulefiles/
@@ -42,8 +43,13 @@ mpirun -hostfile "${HOSTFILE}" -n 1 -x PATH -x LD_LIBRARY_PATH \
   "${APP_EXE}" "${INPUTS}" \
   max_step="${MAX_STEP}" stop_time=2500000.0 \
   amr.max_level=3 amr.regrid_int=32 amr.plot_int="${PLOT_INT}" \
-  checkpoint.chk_int=-1 checkpoint.write_particles=false \
+  checkpoint.chk_int="${CHK_INT}" checkpoint.write_particles=false \
   lbm.stream_mode=0 verification.check_state_after_regrid=true \
   verification.check_state_each_substep=true
 
 echo "ab_four_level_smoke_pass: run_dir=${RUN_DIR} max_step=${MAX_STEP}"
+if (( CHK_INT > 0 )); then
+    CHK_TAG=$(printf '%08d' "${CHK_INT}")
+    test -f "chk${CHK_TAG}/Header"
+    echo "checkpoint_written: chk${CHK_TAG}"
+fi
