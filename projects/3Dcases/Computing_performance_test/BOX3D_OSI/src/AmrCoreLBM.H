@@ -176,7 +176,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void AdvanceLevel(int lev);
     void AdvanceAndCheckOsiReference(int lev, int step);
     void PrintDdfChecksums(int step);
-    void PrintLevelDdfChecksum(const char* stage, int lev);
+    void PrintLevelDdfChecksum(const char* stage, int lev, bool use_new = false);
 
     void InterpScale(int lev, int n);
     void AverageScale(int lev, int n);

@@ -2319,9 +2319,9 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
     CommunicateLevel(lev);
     if (trace) { PrintLevelDdfChecksum("advance_after_communicate", lev); }
     Stream(lev, nghost);
-    if (trace) { PrintLevelDdfChecksum("advance_after_stream", lev); }
+    if (trace) { PrintLevelDdfChecksum("advance_after_stream", lev, true); }
     Boundary(lev);
-    if (trace) { PrintLevelDdfChecksum("advance_after_boundary", lev); }
+    if (trace) { PrintLevelDdfChecksum("advance_after_boundary", lev, true); }
     SwapLevel(lev, nghost);
     if (trace) { PrintLevelDdfChecksum("advance_after_swap", lev); }
 }
@@ -2589,7 +2589,7 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
     }
 }
 
-void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) {
+void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new) {
     GpuArray<Real, Q> component_sum{};
     GpuArray<Real, Q> active_component_sum{};
     Real valid_sum = 0.0;
@@ -2611,7 +2611,7 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) {
             }
         }
     } else {
-        const MultiFab& state = f_old.at(lev);
+        const MultiFab& state = use_new ? f_new.at(lev) : f_old.at(lev);
         for (int q = 0; q < Q; ++q) {
             component_sum[q] = state.sum(q, 0);
             valid_sum += component_sum[q];
@@ -2642,6 +2642,7 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) {
         amrex::Print() << "NEW_LEVEL_DIAG stage=" << stage
                        << " mode=" << stream_mode
                        << " lev=" << lev
+                       << " array=" << (use_new ? "f_new" : "f_old")
                        << " valid_sum=" << valid_sum
                        << " active_sum=" << active_sum;
         for (int q = 0; q < Q; ++q) {
