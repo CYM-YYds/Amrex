@@ -245,6 +245,7 @@ int main(int argc, char* argv[]) {
 
             if (plot_int > 0 && step >= begin_plot && step % plot_int == 0) {
                 lid.PrintMeshInfo();
+                lid.ComputeMacro();
                 // Decode canonical macros and reject invalid DDF/rho before
                 // committing any validation plotfiles.
                 lid.ValidateInitializedState("Output validation");

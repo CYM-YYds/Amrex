@@ -1363,9 +1363,6 @@ void AmrCoreLBM::FindCentre() {
 //********************************************************************//
 
 void AmrCoreLBM::ComputeMacroLevel(int lev) {
-    if (lev < finest_level) {
-        AverageDownValidLevel(lev, true);
-    }
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& rho_lev = density[lev];
     amrex::MultiFab& u_lev = velocity[lev];
@@ -1383,6 +1380,9 @@ void AmrCoreLBM::ComputeMacroLevel(int lev) {
 }
 
 void AmrCoreLBM::ComputeMacro() {
+    // Synchronize covered coarse cells once, in finest-to-coarse order,
+    // before computing the macro variables on every level.
+    AverageDownValid();
     for (int lev = 0; lev <= finest_level; lev++) {
         ComputeMacroLevel(lev);
     }
