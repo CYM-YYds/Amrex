@@ -80,11 +80,17 @@ level 1 的 `Stream()` 输出；`Collide()` 和 `CommunicateLevel()` 后的逐 q
 统计及 step 64 level 2 重构后 DDF checksum 一致。该短程结果只证明对应窗口；后续
 job `585892` 在 step 224 的 level 1 `Stream()` 后首次出现聚合差异，并在 level 2
 `Boundary()` 后出现 active NaN。诊断已统一使用完整 `validbox()`，差异仍可复现；
-当前已在 BOX3D 与 OSI 两份 `Stream()` 中加入对称的 `STREAM_RANGE`/`STREAM_FAB`
-诊断：记录 `growtilebox(n-1)` 的实际 launch 范围、`covered != 0` 的 cell 数、推算的
-实际 stream cell 数，以及每个 Fab 的 Box 边界。该诊断代码只用于定位执行范围，尚未
-改变数值路径；必须用同一批新编译的二进制运行 step 224，才能判断两边是否在 launch
-范围或 mask 上分叉。当前仍不能把尚未完成的对照运行写成根因结论。
+已在 BOX3D 与 OSI 两份 `Stream()` 中加入对称的 `STREAM_RANGE`/`STREAM_FAB`
+诊断；step 224 的作业 `585973`（BOX3D）和 `585974`（OSI）显示 launch 范围、
+covered cell 数、stream cell 数及 Fab Box 一致。进一步的 `STREAM_INPUT_NORM` 显示，
+`after_refine_mesh` 后 level 1/2 的 valid DDF 范数逐 q 完全一致，但包含 ghost 的 grown
+范数已经不同（例如 level 1 的 q0：`326037.3477` 对 `325444.5884`）。因此当前已将
+分叉定位为 Stream 输入阶段的 ghost 数据差异，而不是 Stream 执行范围差异。该统计点
+位于 `FillGhostLevel()` 和 `CommunicateLevel()` 之后，尚不能单独证明根因来自粗细网格
+插值；下一步应分别在 `FillDdfGhostFromCoarse()` 返回后和 `CommunicateLevel()` 返回后
+输出同样的 ghost 范数/逐 cell 对照。无 regrid 作业 `585966`/`585967` 仍在 Stream
+后分叉，说明不能只把问题归因于动态网格重构。当前仍不能把 ghost 来源写成最终修复
+结论。
 
 已完成的 OSI 阶段 1--4 内容：
 

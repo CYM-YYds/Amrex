@@ -1742,6 +1742,14 @@ void AmrCoreLBM::Stream(int lev, int n) {
     amrex::MultiFab& f_new_lev = f_new[lev];
     const bool has_fine_level = (lev < finest_level);
     Long launch_cells = 0;
+    if ((lev == 1 || lev == 2) && n > 0) {
+        amrex::Print() << "STREAM_INPUT_NORM lev=" << lev;
+        for (int q : {0, 3, 18, 26}) {
+            amrex::Print() << " q" << q << "_valid=" << f_old_lev.norm1(q, 0)
+                           << " q" << q << "_grow=" << f_old_lev.norm1(q, n - 1);
+        }
+        amrex::Print() << '\n';
+    }
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         // The outer ghost layer supplies pull-streaming data for the inner layer.
