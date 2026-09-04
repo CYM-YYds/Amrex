@@ -17,6 +17,7 @@ CHK_INT="${AB_CHK_INT:-${MAX_STEP}}"
 RESTART_STEP="${AB_RESTART_STEP:-0}"
 RESTART_PREFIX="${AB_RESTART_PREFIX:-chk}"
 REFERENCE_CHECKPOINT="${AB_REFERENCE_CHECKPOINT:-}"
+REGRID_INT="${AB_REGRID_INT:-32}"
 
 source /home/HPCBase/tools/module-5.2.0/init/profile.sh
 module use /home/HPCBase/modulefiles/
@@ -57,7 +58,7 @@ mpirun \
     "${APP_EXE}" "${INPUTS}" \
     max_step="${MAX_STEP}" \
     amr.max_level=3 \
-    amr.regrid_int=32 \
+    amr.regrid_int="${REGRID_INT}" \
     amr.plot_int="${PLOT_INT}" \
     amr.plot_file=plt \
     checkpoint.chk_int="${CHK_INT}" \
