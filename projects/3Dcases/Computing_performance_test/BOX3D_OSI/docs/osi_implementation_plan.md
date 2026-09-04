@@ -73,9 +73,12 @@ canonical checkpoint/restart/宏观量 plotfile。当前仍没有：
 `covered_mask` 和逐 cell/逐 q 的 `f_old`；聚合 checksum 相同不等价于输入逐点相同。
 
 当前修复任务以 `BOX3D` 为双数组数值基准，仅处理 `lbm.stream_mode=0`。OSI
-`stream_mode=1` 属于独立实现路径，不参与本轮 A-B 正确性判定。后续应围绕 step 224、
-level 1 的 Stream 输入、执行范围和 mask 建立逐点对照；不要把 level 2 的 Boundary NaN
-误判为首次根因。
+`stream_mode=1` 属于独立实现路径，不参与本轮 A-B 正确性判定。现已在 BOX3D 与 OSI
+两份 `Stream()` 中加入对称的 `STREAM_RANGE`/`STREAM_FAB` 诊断，分别输出
+`growtilebox(n-1)` 的实际范围、covered cell 数、推算的 stream cell 数和每个 Fab 的
+Box 边界。该改动仅用于定位执行范围，不改变数值算法；需用同一新二进制运行 step 224
+后，再结合逐 cell/逐 q `f_old` 对照判断是否为 launch 范围或 mask 分叉。不要把 level 2
+的 Boundary NaN 误判为首次根因。
 
 ## 2. 总体开发策略
 

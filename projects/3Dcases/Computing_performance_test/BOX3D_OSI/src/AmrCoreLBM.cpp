@@ -2820,10 +2820,12 @@ void AmrCoreLBM::Stream(int lev, int n) {
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
     const bool has_fine_level = (lev < finest_level);
+    Long launch_cells = 0;
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         // The outer ghost layer supplies pull-streaming data for the inner layer.
         const auto bx = mfi.growntilebox(n - 1);
+        launch_cells += bx.numPts();
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& fnew = f_new_lev.array(mfi);
 
@@ -2841,6 +2843,15 @@ void AmrCoreLBM::Stream(int lev, int n) {
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                 stream(i, j, k, fold, fnew);
             });
+        }
+    }
+    if (checkStateEachSubstep() && ParallelDescriptor::IOProcessor()) {
+        Long covered_cells = (has_fine_level && cf_mask_mode == 1) ? covered_mask[lev].sum(0, 0) : 0;
+        amrex::Print() << "STREAM_RANGE lev=" << lev << " n=" << n << " fabs=" << f_old_lev.boxArray().size()
+                       << " launch_cells=" << launch_cells << " covered_cells=" << covered_cells
+                       << " stream_cells=" << (launch_cells - covered_cells) << '\n';
+        for (int ib = 0; ib < f_old_lev.boxArray().size(); ++ib) {
+            amrex::Print() << "STREAM_FAB lev=" << lev << " fab=" << ib << " box=" << f_old_lev.boxArray()[ib] << '\n';
         }
     }
 }

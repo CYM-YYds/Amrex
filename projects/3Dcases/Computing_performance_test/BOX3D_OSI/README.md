@@ -80,7 +80,11 @@ level 1 的 `Stream()` 输出；`Collide()` 和 `CommunicateLevel()` 后的逐 q
 统计及 step 64 level 2 重构后 DDF checksum 一致。该短程结果只证明对应窗口；后续
 job `585892` 在 step 224 的 level 1 `Stream()` 后首次出现聚合差异，并在 level 2
 `Boundary()` 后出现 active NaN。诊断已统一使用完整 `validbox()`，差异仍可复现；
-当前优先核对 Stream launch box、covered mask 和 `f_old` 的逐 cell 输入。
+当前已在 BOX3D 与 OSI 两份 `Stream()` 中加入对称的 `STREAM_RANGE`/`STREAM_FAB`
+诊断：记录 `growtilebox(n-1)` 的实际 launch 范围、`covered != 0` 的 cell 数、推算的
+实际 stream cell 数，以及每个 Fab 的 Box 边界。该诊断代码只用于定位执行范围，尚未
+改变数值路径；必须用同一批新编译的二进制运行 step 224，才能判断两边是否在 launch
+范围或 mask 上分叉。当前仍不能把尚未完成的对照运行写成根因结论。
 
 已完成的 OSI 阶段 1--4 内容：
 
