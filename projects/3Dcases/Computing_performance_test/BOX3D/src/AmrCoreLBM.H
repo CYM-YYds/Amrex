@@ -182,7 +182,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 0：原始通用 BGK；1：无外力/无 SGS 的 D3Q27 寄存器复用路径。
     int collide_mode = 0;
     // 0：全区域分步；1：全区域融合；2：交界区域分步；3：交界区域融合。
-    int average_mode = 1;
     // 粗到细 DDF 插值：0 = ratio-2 三线性；1 = GPU 守恒线性；
     // 2 = GPU 单元二次插值。
     int interp_mode = 0;
@@ -198,7 +197,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
     // 全区域融合平均的结果缓冲区；回写前沿用细层的网格布局与数据归属。
-    amrex::Vector<amrex::MultiFab> average_down_buffer;
     // 模式 2/3 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
     amrex::Vector<amrex::MultiFab> average_interface_buffer;
     // 将每个稀疏交界 Box 映射到包含其全部子单元的细层 Fab。

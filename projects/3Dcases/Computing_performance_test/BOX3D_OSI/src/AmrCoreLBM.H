@@ -270,7 +270,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 代价是按比例增加临时缓冲内存。
     int osi_sync_batch_components = 3;
     // 0：全区域分步基准；1：交界区域融合。
-    int average_mode = 1;
     // 粗到细 DDF 插值：0 = ratio-2 三线性；1 = GPU 守恒线性；
     // 2 = GPU 单元二次插值。
     int interp_mode = 0;

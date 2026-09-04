@@ -36,14 +36,6 @@ lbm.cf_mask_mode = 1
 # 1 = 无外力/无 SGS 的 D3Q27 专用路径，寄存器复用 DDF 并合并 feq 公共项
 lbm.collide_mode = 1
 
-# 细网格到粗网格的 DDF 平均下传模式：
-# 0 = 全部 fine valid，复用 f_new，分步执行 Copy + Scale + Restrict
-# 1 = 全部 fine valid，融合执行非平衡缩放与 Restrict
-# 2 = 仅 coarse-fine interface，复用 f_new，分步执行 Copy + Scale + Restrict
-# 3 = 仅 coarse-fine interface，融合执行非平衡缩放与 Restrict（当前实测默认）
-# 注：regrid 前仍通过 AverageDownValid() 执行完整 fine-to-coarse 同步
-lbm.average_mode = 3
-
 # 粗到细 DDF 插值：
 # 0 = ratio-2 三线性（现有快速基线）
 # 1 = GPU 守恒线性（CellConservativeLinear 风格的受限斜率）

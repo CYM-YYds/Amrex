@@ -29,6 +29,5 @@ lbm.stream_mode = 1
 lbm.osi_sync_batch_components = 3
 lbm.collide_mode = 1
 lbm.cf_mask_mode = 1
-lbm.average_mode = 1
 lbm.interp_mode = 0
 lbm.err = 1.0e30

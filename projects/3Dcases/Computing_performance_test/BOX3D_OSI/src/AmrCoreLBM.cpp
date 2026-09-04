@@ -290,7 +290,6 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  cf_mask=" << std::setw(10) << std::right << cf_mask_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  col_mode=" << std::setw(10) << std::right << collide_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  str_mode=" << std::setw(10) << std::right << stream_mode << std::endl;
-    amrex::Print() << std::setw(15) << std::left << "  avg_mode=" << std::setw(10) << std::right << average_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  int_mode=" << std::setw(10) << std::right << interp_mode << std::endl;
 
     for (int lev = 0; lev <= finest_level; lev++) {
@@ -507,10 +506,6 @@ void AmrCoreLBM::ReadParameters() {
         pp.query("osi_sync_batch_components", osi_sync_batch_components);
         if (osi_sync_batch_components < 1 || osi_sync_batch_components > Q) {
             amrex::Abort("lbm.osi_sync_batch_components must be in [1,Q]");
-        }
-        pp.query("average_mode", average_mode);
-        if (average_mode != 0 && average_mode != 1) {
-            amrex::Abort("lbm.average_mode must be 0 or 1");
         }
         int n = pp.countval("err");
         if (n > 0) {
@@ -1332,11 +1327,6 @@ void AmrCoreLBM::BuildRestrictionCache() {
         BoxArray coarse_from_fine =
             amrex::coarsen(fine_layout.boxArray(), refRatio(lev));
 
-        if (average_mode == 0) {
-            continue;
-        }
-        AMREX_ALWAYS_ASSERT(average_mode == 1);
-
         BoxList interface_boxes;
         Vector<int> interface_owners;
         Vector<int> fine_box_indices;
@@ -1627,25 +1617,12 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     ++perf_stats.avgdown_calls;
     // amrex::AllPrint()<<"AverageDownGhostLevel from " << lev+1 << " to " << lev <<std::endl;
 
-    if (stream_mode == 1) {
-        if (lev > 0) {
-            // An intermediate level is both a fine solution and the parent of
-            // another level.  Refresh its complete covered region so its next
-            // substep cannot consume stale deep-covered directional values.
-            AverageDownOsiValidLevel(lev, is_scale);
-            CommunicateOsiLevel(lev);
-        } else {
-            AverageDownOsiLevel(lev, is_scale);
-        }
-        return;
-    }
     if (lev >= finest_level) {
         return;
     }
 
-    if (lev > 0) {
-        AverageDownValidLevel(lev, is_scale);
-        CommunicateLevel(lev);
+    if (stream_mode == 1) {
+        AverageDownOsiLevel(lev, is_scale);
         return;
     }
 
@@ -1657,33 +1634,7 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     const Real scale = 2.0 * tau[lev] / tau[lev + 1];
     ScopedPerfTimer avgdown_timer(perf_stats.average_down);
 
-    if (average_mode == 0) {
-        amrex::MultiFab& fine_scratch = f_new[lev + 1];
-        // 全区域分步基准路径：复制 -> 可选的原位缩放 -> AMReX 通用平均。
-        // 当前层已完成 SwapLevel，因此此处可以安全地复用 f_new 作为临时缓冲区。
-        {
-            ScopedPerfTimer copy_timer(perf_stats.average_copy);
-            MultiFab::Copy(fine_scratch, fine_mf, 0, 0, Q, 0);
-        }
-        if (is_scale) {
-            ScopedPerfTimer scale_timer(perf_stats.average_scale);
-            for (MFIter mfi(fine_scratch, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-                const Box bx = mfi.tilebox();
-                const Array4<Real>& scratch = fine_scratch.array(mfi);
-                perf_stats.average_scale_cells += bx.numPts();
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                    average_scale(i, j, k, scratch, scale);
-                });
-            }
-        }
-        {
-            ScopedPerfTimer restrict_timer(perf_stats.average_restrict);
-            amrex::average_down(fine_scratch, crse_mf, 0, Q, ratio);
-        }
-        return;
-    }
-
-    if (average_mode == 1) {
+    {
         const Long children_per_parent = ratio[0] * ratio[1] * ratio[2];
         // 交界区域融合路径只处理缓存的 coarse-interface 父单元。
         MultiFab& interface_result = average_interface_buffer[lev];
@@ -1754,10 +1705,7 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
             // 必要的 MPI 通信写入真实粗层布局。
             crse_mf.ParallelCopy(interface_result, 0, 0, Q);
         }
-        return;
     }
-
-    amrex::Abort("unreachable lbm.average_mode");
 }
 
 void AmrCoreLBM::AverageDownGhost() {
@@ -1889,10 +1837,6 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
 }
 
 void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        average_mode == 1,
-        "Direct OSI fine-to-coarse transfer currently supports average_mode=1");
-
     auto& coarse_state = osi_state.at(lev);
     const auto& fine_state = osi_state.at(lev + 1);
     auto& interface_result = average_interface_buffer.at(lev);
