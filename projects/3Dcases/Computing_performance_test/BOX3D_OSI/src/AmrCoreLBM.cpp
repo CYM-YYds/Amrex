@@ -2068,9 +2068,12 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
                     const auto dst = active_scalar.array(mfi);
                     const auto covered =
                         covered_mask.at(lev).const_array(mfi);
+                    const auto interface =
+                        interface_mask.at(lev).const_array(mfi);
                     amrex::ParallelFor(
                         bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                            dst(i, j, k) = covered(i, j, k) == 0
+                            dst(i, j, k) = (covered(i, j, k) == 0 ||
+                                            interface(i, j, k) != 0)
                                                ? src(i, j, k, comp)
                                                : inactive_value;
                         });
