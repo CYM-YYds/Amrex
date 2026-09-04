@@ -1389,6 +1389,13 @@ void AmrCoreLBM::FindCentre() {
 //********************************************************************//
 
 void AmrCoreLBM::ComputeMacroLevel(int lev) {
+    if (lev < finest_level) {
+        if (stream_mode == 1) {
+            AverageDownOsiValidLevel(lev, true);
+        } else {
+            AverageDownValidLevel(lev, true);
+        }
+    }
     if (stream_mode == 1) {
         const amrex::MultiFab& state = osi_state[lev];
         amrex::MultiFab& rho_lev = density[lev];
@@ -2633,6 +2640,43 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
     }
 }
 
+void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) {
+    GpuArray<Real, Q> component_sum{};
+    Real valid_sum = 0.0;
+
+    if (stream_mode == 1) {
+        const MultiFab& state = osi_state.at(lev);
+        MultiFab& batch = osi_sync_buffer.at(lev);
+        const auto phase = osi_phase.at(lev);
+        for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+            const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+            DecodeOsiValidBatch(state, phase, batch, q0, ncomp);
+            for (int n = 0; n < ncomp; ++n) {
+                const int q = q0 + n;
+                component_sum[q] = batch.sum(n, 0);
+                valid_sum += component_sum[q];
+            }
+        }
+    } else {
+        const MultiFab& state = f_old.at(lev);
+        for (int q = 0; q < Q; ++q) {
+            component_sum[q] = state.sum(q, 0);
+            valid_sum += component_sum[q];
+        }
+    }
+
+    if (ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "NEW_LEVEL_DIAG stage=" << stage
+                       << " mode=" << stream_mode
+                       << " lev=" << lev
+                       << " valid_sum=" << valid_sum;
+        for (int q = 0; q < Q; ++q) {
+            amrex::Print() << " q" << q << "=" << component_sum[q];
+        }
+        amrex::Print() << '\n';
+    }
+}
+
 void AmrCoreLBM::PrintParticleChecksums(int step) const {
     if (!particle_checksum) {
         return;
@@ -3008,13 +3052,20 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
         f_old_lev.define(ba, dm, Q, nghost);
 
         FillCoarsePatch(lev, time, f_old_lev);
+        PrintLevelDdfChecksum("after_fill_coarse_patch", lev);
     } else {
         InitializeOsiLevel(lev, ba, dm);
         amrex::MultiFab& state = osi_state.at(lev);
         state.setVal(std::numeric_limits<Real>::quiet_NaN());
 
         FillNewLevelFromCoarse(lev, time);
+        PrintLevelDdfChecksum("after_fill_new_level_from_coarse", lev);
     }
+
+    force_lev.setVal(0.0, nghost);
+    shear_lev.setVal(0.0, nghost);
+    vort_lev.setVal(0.0, nghost);
+    PrintLevelDdfChecksum("after_primary_state_ready", lev);
 }
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
                              const amrex::DistributionMapping& dm) { // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用

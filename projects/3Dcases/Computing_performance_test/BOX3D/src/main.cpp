@@ -359,6 +359,7 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     // 1. 当前层向下一层插值一次
     if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
+        lid.PrintLevelDdfChecksum("cycle2_after_fill_ghost", lev + 1);
     }
 
     // 2. 当前层推进一个时间步
@@ -367,14 +368,18 @@ void JaberCycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Stream(lev, nghost);
     lid.Boundary(lev);
     lid.SwapLevel(lev, nghost);
+    lid.PrintLevelDdfChecksum("cycle2_after_advance", lev);
 
     // 3. 下一层用一半时间步连续推进两次
     if (lev < lid.finestLevel()) {
         JaberCycle2(lev + 1, cur_time, lid);
+        lid.PrintLevelDdfChecksum("cycle2_after_fine_substep1", lev + 1);
         JaberCycle2(lev + 1, cur_time + dt / 2.0, lid);
+        lid.PrintLevelDdfChecksum("cycle2_after_fine_substep2", lev + 1);
 
         // 4. 两个细步完成后，只平均一次
         lid.AverageDownGhostLevel(lev, 1);
+        lid.PrintLevelDdfChecksum("cycle2_after_average_down", lev);
     }
 }
 

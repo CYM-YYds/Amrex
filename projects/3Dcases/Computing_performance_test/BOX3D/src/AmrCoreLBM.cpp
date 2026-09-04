@@ -767,108 +767,105 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     perf_stats.interp_cache_build += amrex::second() - start;
 }
 
-void AmrCoreLBM::FillDdfGhostFromCoarse(int lev) {
-    amrex::MultiFab& mf = f_old[lev];
-    amrex::MultiFab& f_old_lev_c = f_old[lev - 1];
-    const amrex::Real scale = tau[lev] / tau[lev - 1] / 2.0;
+void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
+    (void)time;
+    AMREX_ALWAYS_ASSERT(lev > 0 && lev <= finest_level);
+    AMREX_ALWAYS_ASSERT(refRatio(lev - 1) == IntVect(2));
 
-    const amrex::IntVect fill_ng = mf.nGrowVect();
-    const auto ratio = refRatio(lev - 1);
-    AMREX_ALWAYS_ASSERT(ratio == amrex::IntVect(2));
+    auto& fine_state = f_old.at(lev);
+    const auto& coarse_state = f_old.at(lev - 1);
+    auto& coarse_stage = interp_direct_coarse_stage.at(lev);
+    const auto& fine_work_boxes = interp_direct_fine_boxes.at(lev);
+    const auto& fine_indices = interp_direct_fine_index.at(lev);
+    const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
+
+    if (fine_indices.empty()) {
+        return;
+    }
 
     ScopedPerfTimer timer(perf_stats.interp_fillpatch);
-    auto& coarse_stage = interp_direct_coarse_stage[lev];
-    auto& fine_work_boxes = interp_direct_fine_boxes[lev];
-    auto& fine_indices = interp_direct_fine_index[lev];
     const int interp_mode_local = interp_mode;
 
-    if (!fine_indices.empty()) {
-        coarse_stage.ParallelCopy(
-            f_old_lev_c, 0, 0, Q, amrex::IntVect(0),
-            amrex::IntVect(0), Geom(lev - 1).periodicity());
+    // 阶段 1：把 canonical coarse valid/周期像装入稀疏 stencil。
+    coarse_stage.ParallelCopy(
+        coarse_state, 0, 0, Q, IntVect(0), IntVect(0),
+        Geom(lev - 1).periodicity());
+    // 阶段 2：两条插值路径共享相同的物理边界规则。
+    FillCoarseInterpolationStagePhysicalBoundary(lev);
 
-        // AmrCoreFill 不施加额外 ext_dir 数值；通用 PhysBCFunct 在这里
-        // 等价于把非周期域外 stencil 复制为最近的域内 coarse 值。
-        // 只为真正越过物理边界的 staging Box 启动复制 kernel，避免
-        // 每次插值对全部离散 Fab 执行通用边界管理。
-        const Box coarse_domain = Geom(lev - 1).Domain();
-        const auto coarse_lo = amrex::lbound(coarse_domain);
-        const auto coarse_hi = amrex::ubound(coarse_domain);
-        const auto coarse_periodic = Geom(lev - 1).isPeriodicArray();
-        for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-            const int stage_index = mfi.index();
-            if (!interp_direct_needs_physical_fill[lev][stage_index]) {
-                continue;
-            }
+    // 阶段 3/4：缩放当前 stencil，随后写入 canonical fine 布局。
+    for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+        const int stage_index = mfi.index();
+        const Box stage_box = mfi.validbox();
+        const auto coarse = coarse_stage.array(mfi);
+        amrex::ParallelFor(
+            stage_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                average_scale(i, j, k, coarse, scale);
+            });
 
-            const Box bx = mfi.validbox();
-            const auto coarse = coarse_stage.array(mfi);
+        const int fine_index = fine_indices.at(stage_index);
+        const Box fine_box = fine_work_boxes.at(stage_index);
+        const auto fine = fine_state.array(fine_index);
+        if (interp_mode_local == 0) {
             amrex::ParallelFor(
-                bx, Q,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                    const int src_i =
-                        coarse_periodic[0]
-                            ? i
-                            : (i < coarse_lo.x
-                                   ? coarse_lo.x
-                                   : (i > coarse_hi.x ? coarse_hi.x : i));
-                    const int src_j =
-                        coarse_periodic[1]
-                            ? j
-                            : (j < coarse_lo.y
-                                   ? coarse_lo.y
-                                   : (j > coarse_hi.y ? coarse_hi.y : j));
-                    const int src_k =
-                        coarse_periodic[2]
-                            ? k
-                            : (k < coarse_lo.z
-                                   ? coarse_lo.z
-                                   : (k > coarse_hi.z ? coarse_hi.z : k));
-                    if (src_i != i || src_j != j || src_k != k) {
-                        coarse(i, j, k, q) =
-                            coarse(src_i, src_j, src_k, q);
-                    }
+                fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    interp_bilinear_d3q(i, j, k, fine, coarse);
+                });
+        } else if (interp_mode_local == 1) {
+            const Box coarse_parent_box = amrex::coarsen(fine_box, 2);
+            amrex::ParallelFor(
+                coarse_parent_box,
+                [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
+                    interp_cell_cons_linear_children_d3q(
+                        ic, jc, kc, fine, coarse, fine_box);
+                });
+        } else {
+            const Box coarse_parent_box = amrex::coarsen(fine_box, 2);
+            amrex::ParallelFor(
+                coarse_parent_box,
+                [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
+                    interp_cell_quadratic_children_d3q(
+                        ic, jc, kc, fine, coarse, fine_box);
                 });
         }
+    }
+}
 
-        for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-            const auto coarse = coarse_stage.array(mfi);
-            const Box bx = mfi.validbox();
-            amrex::ParallelFor(
-                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    average_scale(i, j, k, coarse, scale);
-                });
-        }
+void AmrCoreLBM::FillCoarseInterpolationStagePhysicalBoundary(int lev) {
+    auto& coarse_stage = interp_direct_coarse_stage.at(lev);
+    const Box coarse_domain = Geom(lev - 1).Domain();
+    const auto coarse_lo = amrex::lbound(coarse_domain);
+    const auto coarse_hi = amrex::ubound(coarse_domain);
+    const auto coarse_periodic = Geom(lev - 1).isPeriodicArray();
 
-        for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-            const int stage_index = mfi.index();
-            const auto coarse = coarse_stage.const_array(mfi);
-            const int fine_index = fine_indices[stage_index];
-            const auto fine = mf.array(fine_index);
-            const Box& bx = fine_work_boxes[stage_index];
-            if (interp_mode_local == 0) {
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        interp_bilinear_d3q(i, j, k, fine, coarse);
-                    });
-            } else if (interp_mode_local == 1) {
-                const Box coarse_parent_box = amrex::coarsen(bx, 2);
-                amrex::ParallelFor(
-                    coarse_parent_box,
-                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                        interp_cell_cons_linear_children_d3q(
-                            ic, jc, kc, fine, coarse, bx);
-                    });
-            } else {
-                const Box coarse_parent_box = amrex::coarsen(bx, 2);
-                amrex::ParallelFor(
-                    coarse_parent_box,
-                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                        interp_cell_quadratic_children_d3q(
-                            ic, jc, kc, fine, coarse, bx);
-                    });
-            }
+    // coarse_stage 的域外 stencil 沿最近的非周期域内单元延拓；周期方向
+    // 已由调用者的 ParallelCopy(periodicity) 完成映射。
+    for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+        const int stage_index = mfi.index();
+        if (!interp_direct_needs_physical_fill.at(lev).at(stage_index)) {
+            continue;
         }
+        const Box stage_box = mfi.validbox();
+        const auto coarse = coarse_stage.array(mfi);
+        amrex::ParallelFor(
+            stage_box, Q,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                const int src_i = coarse_periodic[0]
+                                      ? i
+                                      : amrex::max(coarse_lo.x,
+                                                   amrex::min(i, coarse_hi.x));
+                const int src_j = coarse_periodic[1]
+                                      ? j
+                                      : amrex::max(coarse_lo.y,
+                                                   amrex::min(j, coarse_hi.y));
+                const int src_k = coarse_periodic[2]
+                                      ? k
+                                      : amrex::max(coarse_lo.z,
+                                                   amrex::min(k, coarse_hi.z));
+                if (src_i != i || src_j != j || src_k != k) {
+                    coarse(i, j, k, q) = coarse(src_i, src_j, src_k, q);
+                }
+            });
     }
 }
 
@@ -1332,6 +1329,26 @@ void AmrCoreLBM::PrintDdfChecksums(int step) const {
     }
 }
 
+void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) const {
+    amrex::GpuArray<amrex::Real, Q> component_sum{};
+    amrex::Real valid_sum = 0.0;
+    const amrex::MultiFab& state = f_old.at(lev);
+    for (int q = 0; q < Q; ++q) {
+        component_sum[q] = state.sum(q, 0);
+        valid_sum += component_sum[q];
+    }
+
+    if (amrex::ParallelDescriptor::IOProcessor()) {
+        amrex::Print() << "CYCLE_DIAG stage=" << stage
+                       << " lev=" << lev
+                       << " valid_sum=" << valid_sum;
+        for (int q = 0; q < Q; ++q) {
+            amrex::Print() << " q" << q << "=" << component_sum[q];
+        }
+        amrex::Print() << '\n';
+    }
+}
+
 void AmrCoreLBM::FindCentre() {
     // amrex::AllPrint()<<"FindCentre "<<std::endl;
 
@@ -1346,6 +1363,9 @@ void AmrCoreLBM::FindCentre() {
 //********************************************************************//
 
 void AmrCoreLBM::ComputeMacroLevel(int lev) {
+    if (lev < finest_level) {
+        AverageDownValidLevel(lev, true);
+    }
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& rho_lev = density[lev];
     amrex::MultiFab& u_lev = velocity[lev];
@@ -1717,7 +1737,7 @@ void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
     amrex::MultiFab& f_old_lev = f_old[lev];
 
     if (is_scale) {
-        FillDdfGhostFromCoarse(lev);
+        FillDdfGhostFromCoarse(lev, time);
     } else {
         FillPatch(lev, time, f_old_lev);
     }

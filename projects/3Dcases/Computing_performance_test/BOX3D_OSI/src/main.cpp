@@ -391,6 +391,8 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
 
+    const bool trace_double_array = (lid.streamMode() == 0);
+
     // if(lev == max_ref_level)
     // {
     //     lid.ComputeParticle(lev);
@@ -401,6 +403,9 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     //    fine substeps 共享这次时间插值，与既有两层 Jaber 调度一致。
     if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
+        if (trace_double_array) {
+            lid.PrintLevelDdfChecksum("cycle2_after_fill_ghost", lev + 1);
+        }
         if (lid.checkStateEachSubstep()) {
             lid.ValidateInitializedState("After coarse-fine fill");
         }
@@ -408,6 +413,9 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     // 2. 当前层推进一个时间步
     lid.AdvanceLevel(lev);
+    if (trace_double_array) {
+        lid.PrintLevelDdfChecksum("cycle2_after_advance", lev);
+    }
     if (lid.checkStateEachSubstep()) {
         lid.ValidateInitializedState("After advance");
     }
@@ -415,10 +423,19 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     // 3. 下一层用一半时间步连续推进两次
     if (lev < lid.finestLevel()) {
         Cycle2(lev + 1, cur_time, lid);
+        if (trace_double_array) {
+            lid.PrintLevelDdfChecksum("cycle2_after_fine_substep1", lev + 1);
+        }
         Cycle2(lev + 1, cur_time + dt / 2.0, lid);
+        if (trace_double_array) {
+            lid.PrintLevelDdfChecksum("cycle2_after_fine_substep2", lev + 1);
+        }
 
         // 4. 两个细步完成后，只平均一次
         lid.AverageDownGhostLevel(lev, 1);
+        if (trace_double_array) {
+            lid.PrintLevelDdfChecksum("cycle2_after_average_down", lev);
+        }
         if (lid.checkStateEachSubstep()) {
             lid.ValidateInitializedState("After average-down");
         }

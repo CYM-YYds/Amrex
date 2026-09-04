@@ -109,7 +109,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void RefineMesh(amrex::Real time);
     // CUDA 扩展版设备 Lambda 要求包裹它的成员函数必须是 public 公有访问权限
     void RebuildCoarseFineCaches();
-    void FillDdfGhostFromCoarse(int lev);
+    void FillDdfGhostFromCoarse(int lev, amrex::Real time);
+    void FillCoarseInterpolationStagePhysicalBoundary(int lev);
     void RemakeDdfState(int lev, amrex::Real time,
                         amrex::MultiFab& new_old_state);
     void RebuildCoarseFineMasks();
@@ -136,6 +137,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void Stream(int lev, int n);
     void SwapLevel(int lev, int n);
     void PrintDdfChecksums(int step) const;
+    void PrintLevelDdfChecksum(const char* stage, int lev) const;
 
     void InterpScale(int lev, int n);
     void AverageScale(int lev, int n);
@@ -215,7 +217,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Vector<int>> interp_direct_fine_index;
     amrex::Vector<amrex::Vector<unsigned char>> interp_direct_needs_physical_fill;
     amrex::Vector<unsigned char> interp_direct_cache_ready;
-    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; //boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box
+    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; // boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box
 
     amrex::Vector<amrex::Real> tau;
 

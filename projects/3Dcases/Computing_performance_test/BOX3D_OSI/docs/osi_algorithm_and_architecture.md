@@ -452,7 +452,7 @@ OSI 地址；后者绑定 `osi_state`、`osi_sync_buffer` 的 `Array4`，用于�
 | `Kernels.H` | fused OSI collision kernel 和 boundary accessor |
 | `AmrCoreLBM.cpp` | grown-Fab launch、通信区域/tag 生命周期、phase-aware ghost 同步、regrid/checkpoint 生命周期 |
 | `main.cpp` | 根据 stream mode 选择 A-B 或 OSI 推进；保持 AMR 调度一致 |
-| `config/inputs` | `lbm.stream_mode`，默认 0 直到验证完成 |
+| `config/inputs` | `lbm.stream_mode`；当前默认 1，双数组基线测试必须显式覆盖为 0 |
 
 地址函数必须是无状态 device helper；phase 的所有权属于 level driver，不能在 device
 kernel 内自行修改。

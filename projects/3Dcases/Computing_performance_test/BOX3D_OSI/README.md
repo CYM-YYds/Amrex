@@ -50,10 +50,14 @@ checkpoint 不持久化 raw twisted 地址，restart 统一恢复为 phase 0 并
 A-B 基线逐单元等价。`scripts/submit_osi_multilevel_ab.sh` 会以 `1e-12` 为门槛，
 超差即返回失败。
 
-独立 canonical A-B 四层配置 job `585096`（`stream_mode=0`、`max_level=3`）也未
-通过：运行到 coarse step 64 的 regrid 后实际建立 level 0--2，随后第一次递归推进在
-level 1 的“After advance”有限性检查中捕获 NaN/Inf。该结果说明当前多层失败并非只有
-OSI 存储路径才会出现；脚本 `scripts/submit_ab_four_level_smoke.sh` 保留为复现入口。
+此前的 canonical A-B 四层 jobs `585096`、`585291` 是修复 `MakeNewLevelFromCoarse()`
+双重覆盖前的证据，不能代表当前实现。修复后的双数组 job `585390`
+（`stream_mode=0`、`max_level=3`、`regrid_int=32`）显示：step 32 regrid 前两边一致，
+`ErrorEst` 的 `tag_cells` 都为 7942，`FillCoarsePatch()`、`MakeNewLevelFromCoarse()`、
+`RefineMesh()` 返回后的 level 1 也一致（`valid_sum=524278.3023`）。首次可观察差异
+出现在 step 32 随后的第一次多层 `Cycle2/JaberCycle2` 推进完成后；后续只排查
+`stream_mode=0` 的推进子阶段。脚本 `scripts/submit_ab_four_level_smoke.sh` 仍保留
+为复现入口。
 
 不要把继承自 BOX3D 的历史 job、图表或性能数字描述为 OSI 结果。
 
@@ -216,12 +220,11 @@ storage(Addr(fab,q,phase,i,j,k), q)
 7. OSI 原生通信及端到端内存/性能优化。
 
 当前已完成阶段 6 的两层动态 AMR 双-rank 回归：OSI 正式路径在关闭 oracle 时不分配
-`f_old/f_new`，但 A-B 实现仍
-保留为可选择的数值基线；OSI 尚不能设为默认路径。运行时模式为：
+`f_old/f_new`，但 A-B 实现仍保留为可选择的数值基线。运行时模式为：
 
 ```text
 lbm.stream_mode = 0  # 现有 A-B 基线
-lbm.stream_mode = 1  # OSI 实验路径
+lbm.stream_mode = 1  # OSI 当前默认路径；已验证范围为两层
 ```
 
 即使后续完成 MPI/AMR 回归，也应先保留可构建的双数组模式用于受控 A/B；是否最终移除
