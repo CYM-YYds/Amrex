@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
             1,                                                                                            // verbose
             runtime_max_level,                                                                            // max_level
             amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(2, 2, 2)}},        // 粗细比率
-            amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(2, 2, 2)}},        // 网格生成时的分块因子（每个方向的网格尺寸须为其整数倍）
+            amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(8, 8, 8)}},        // 与 BOX3D 基准一致的网格分块因子
             amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(128, 128, 128)}}}; // 最大网格块大小
 
         AmrCoreLBM lid(geom, info);

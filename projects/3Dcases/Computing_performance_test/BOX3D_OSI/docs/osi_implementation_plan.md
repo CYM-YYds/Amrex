@@ -58,6 +58,12 @@ canonical checkpoint/restart/宏观量 plotfile。当前仍没有：
 推进完成后。因此当前排查范围是双数组推进子阶段，而不是首次建层或 `ErrorEst()`。
 三层以上仍是诊断路径，不能据此宣称多层生产稳定性。
 
+2026-09-04 已确认该分叉的布局根因是 OSI `AmrInfo` blocking factor `(2,2,2)` 与 BOX3D
+基准 `(8,8,8)` 不一致，已在 `src/main.cpp` 修正。job `585731` 的四层
+`stream_mode=0` smoke 显示 step 64 的 level 0--2 BoxArray、粗细覆盖掩码和 level 2
+重构后 DDF checksum 均与 BOX3D 一致，且日志未出现 NaN/Inf；后续仍需更长时间的
+同条件 A/B 才能扩大稳定性结论。
+
 当前修复任务以 `BOX3D` 为双数组数值基准，仅处理 `lbm.stream_mode=0`。OSI
 `stream_mode=1` 属于独立实现路径，不参与本轮 A-B 正确性判定。后续应在首次分歧的
 step 32 多层 `Cycle2` 内，按 `Boundary -> Collide -> ghost/communication ->

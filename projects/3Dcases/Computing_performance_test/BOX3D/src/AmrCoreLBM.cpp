@@ -1327,12 +1327,12 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev) const {
             const auto src = state.const_array(mfi);
             const auto dst = active.array(mfi);
             if (!has_fine) {
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) { dst(i,j,k) = src(i,j,k,q); });
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) { dst(i, j, k) = src(i, j, k, q); });
             } else {
                 const auto covered = covered_mask.at(lev).const_array(mfi);
                 const auto interface = interface_mask.at(lev).const_array(mfi);
                 amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    dst(i,j,k) = (covered(i,j,k) == 0 || interface(i,j,k) != 0) ? src(i,j,k,q) : amrex::Real(0.0);
+                    dst(i, j, k) = (covered(i, j, k) == 0 || interface(i, j, k) != 0) ? src(i, j, k, q) : amrex::Real(0.0);
                 });
             }
         }
@@ -1531,63 +1531,63 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
 
     AMREX_ALWAYS_ASSERT(interface_result.size() == fine_box_indices.size());
 
-        // 交界区域融合路径：不再于多个 kernel 之间写回完整的缩放后 DDF 中间数据。
-        ScopedPerfTimer fused_timer(perf_stats.average_fused);
-        for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-                const int fine_index = fine_box_indices[mfi.index()];
-                const Box bx = mfi.tilebox();
-                const Array4<const Real>& fine = fine_mf.const_array(fine_index);
-                const Array4<Real>& coarse = interface_result.array(mfi);
-                perf_stats.average_parent_cells += bx.numPts();
-                if (is_scale) {
-                    perf_stats.average_scale_cells += bx.numPts() * children_per_parent;
+    // 交界区域融合路径：不再于多个 kernel 之间写回完整的缩放后 DDF 中间数据。
+    ScopedPerfTimer fused_timer(perf_stats.average_fused);
+    for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        const int fine_index = fine_box_indices[mfi.index()];
+        const Box bx = mfi.tilebox();
+        const Array4<const Real>& fine = fine_mf.const_array(fine_index);
+        const Array4<Real>& coarse = interface_result.array(mfi);
+        perf_stats.average_parent_cells += bx.numPts();
+        if (is_scale) {
+            perf_stats.average_scale_cells += bx.numPts() * children_per_parent;
 #ifdef AMREX_USE_CUDA
-                    // 一个 warp 负责一个粗层父单元，D3Q27 分量分配给不同 lane；相比
-                    // 单线程负责整个父单元，可显著降低单线程寄存器占用。
-                    constexpr int threads_per_block = 256;
-                    constexpr int warp_size = 32;
-                    constexpr int warps_per_block = threads_per_block / warp_size;
-                    const Long ncells = bx.numPts();
-                    const int nblocks = static_cast<int>((ncells + warps_per_block - 1) /
-                                                         warps_per_block);
-                    const auto lo = amrex::lbound(bx); // 返回各方向最小索引
-                    const int nx = bx.length(0);       // x方向格点数量
-                    const int ny = bx.length(1);       // y方向格点数量
-                    amrex::launch<threads_per_block>(
-                        nblocks, amrex::Gpu::Device::gpuStream(),
-                        [=] AMREX_GPU_DEVICE() noexcept {
-                            const int lane = threadIdx.x % warp_size;          // threadIdx.x 是线程在当前 block 内的编号, lane 是线程在 warp 内的编号
-                            const int warp_in_block = threadIdx.x / warp_size; // 取得 block 内 warp 编号
-                            const Long icell = static_cast<Long>(blockIdx.x) * warps_per_block +
-                                               warp_in_block;
-                            if (icell < ncells) { // 排除了最后一个 block 中的多余 warp
-                                // GPU内部的线程编号映射到AmreX中的网格坐标
-                                const int i = lo.x + static_cast<int>(icell % nx);
-                                const Long yz = icell / nx;
-                                const int j = lo.y + static_cast<int>(yz % ny);
-                                const int k = lo.z + static_cast<int>(yz / ny);
-                                average_down_lbm_scaled_warp(i, j, k, lane, coarse, fine,
-                                                             ratio, scale);
-                            }
-                        });
+            // 一个 warp 负责一个粗层父单元，D3Q27 分量分配给不同 lane；相比
+            // 单线程负责整个父单元，可显著降低单线程寄存器占用。
+            constexpr int threads_per_block = 256;
+            constexpr int warp_size = 32;
+            constexpr int warps_per_block = threads_per_block / warp_size;
+            const Long ncells = bx.numPts();
+            const int nblocks = static_cast<int>((ncells + warps_per_block - 1) /
+                                                 warps_per_block);
+            const auto lo = amrex::lbound(bx); // 返回各方向最小索引
+            const int nx = bx.length(0);       // x方向格点数量
+            const int ny = bx.length(1);       // y方向格点数量
+            amrex::launch<threads_per_block>(
+                nblocks, amrex::Gpu::Device::gpuStream(),
+                [=] AMREX_GPU_DEVICE() noexcept {
+                    const int lane = threadIdx.x % warp_size;          // threadIdx.x 是线程在当前 block 内的编号, lane 是线程在 warp 内的编号
+                    const int warp_in_block = threadIdx.x / warp_size; // 取得 block 内 warp 编号
+                    const Long icell = static_cast<Long>(blockIdx.x) * warps_per_block +
+                                       warp_in_block;
+                    if (icell < ncells) { // 排除了最后一个 block 中的多余 warp
+                        // GPU内部的线程编号映射到AmreX中的网格坐标
+                        const int i = lo.x + static_cast<int>(icell % nx);
+                        const Long yz = icell / nx;
+                        const int j = lo.y + static_cast<int>(yz % ny);
+                        const int k = lo.z + static_cast<int>(yz / ny);
+                        average_down_lbm_scaled_warp(i, j, k, lane, coarse, fine,
+                                                     ratio, scale);
+                    }
+                });
 #else
-                    amrex::ParallelFor(
-                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                            average_down_lbm_scaled(i, j, k, coarse, fine, ratio, scale);
-                        });
+            amrex::ParallelFor(
+                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                    average_down_lbm_scaled(i, j, k, coarse, fine, ratio, scale);
+                });
 #endif
-                } else {
-                    amrex::ParallelFor(
-                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                            average_down_lbm(i, j, k, coarse, fine, ratio);
-                        });
-                }
+        } else {
+            amrex::ParallelFor(
+                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                    average_down_lbm(i, j, k, coarse, fine, ratio);
+                });
         }
+    }
     {
         ScopedPerfTimer copyback_timer(perf_stats.average_copyback);
-            // 稀疏缓冲区沿用细层数据归属；ParallelCopy 负责将结果通过本地复制或
-            // 必要的 MPI 通信写入真实粗层布局。
-            crse_mf.ParallelCopy(interface_result, 0, 0, Q);
+        // 稀疏缓冲区沿用细层数据归属；ParallelCopy 负责将结果通过本地复制或
+        // 必要的 MPI 通信写入真实粗层布局。
+        crse_mf.ParallelCopy(interface_result, 0, 0, Q);
     }
     return;
 }
@@ -1647,11 +1647,9 @@ void AmrCoreLBM::Boundary(int lev) {
     amrex::IntVect hi{right, back, up};
     const auto is_periodic = Geom(lev).isPeriodicArray();
 
-    amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
 
-    for (MFIter mfi(f_old_lev, false); mfi.isValid(); ++mfi) {
-        const Array4<Real>& fold = f_old_lev.array(mfi);
+    for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
         const Array4<Real>& fnew = f_new_lev.array(mfi);
         perf_stats.boundary_full_cells += mfi.tilebox().numPts();
 

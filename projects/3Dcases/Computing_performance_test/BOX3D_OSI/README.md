@@ -71,6 +71,14 @@ A-B 基线逐单元等价。`scripts/submit_osi_multilevel_ab.sh` 会以 `1e-12`
 
 不要把继承自 BOX3D 的历史 job、图表或性能数字描述为 OSI 结果。
 
+### blocking factor 对齐修复（2026-09-04）
+
+定位确认 OSI 的 `AmrInfo` blocking factor 曾为 `(2,2,2)`，而 BOX3D 基准为
+`(8,8,8)`；相同 `ErrorEst` 标记因此在 step 64 生成了不同的 BoxArray，随后造成
+覆盖掩码和推进状态分叉。已将 `src/main.cpp` 对齐为 `(8,8,8)`。修复后 job `585731`
+在 `stream_mode=0` 四层 smoke 中与 BOX3D 的 level 0--2 布局、covered/interface
+统计及 step 64 level 2 重构后 DDF checksum 一致，运行日志未出现 NaN/Inf。
+
 已完成的 OSI 阶段 1--4 内容：
 
 - `src/OsiIndex.H` 提供 host/device 共用的 `positive_mod()`、`osi_coord()` 和

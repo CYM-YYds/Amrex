@@ -1295,14 +1295,14 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
                 const int lo = domain.smallEnd(dir);
                 const int hi = domain.bigEnd(dir);
                 if (valid_box.smallEnd(dir) == lo) {
-                    Box face = valid_box;
+                    Box face = boundary_source_box;
                     face.setSmall(dir, lo);
-                    face.setBig(dir, lo);
+                    face.setBig(dir, std::min(hi, lo + nghost));
                     boundary_faces.push_back(face);
                 }
                 if (hi != lo && valid_box.bigEnd(dir) == hi) {
-                    Box face = valid_box;
-                    face.setSmall(dir, hi);
+                    Box face = boundary_source_box;
+                    face.setSmall(dir, std::max(lo, hi - nghost));
                     face.setBig(dir, hi);
                     boundary_faces.push_back(face);
                 }
@@ -2315,15 +2315,25 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
 
     const bool trace = checkStateEachSubstep();
     Collide(lev, nghost);
-    if (trace) { PrintLevelDdfChecksum("advance_after_collide", lev); }
+    if (trace) {
+        PrintLevelDdfChecksum("advance_after_collide", lev);
+    }
     CommunicateLevel(lev);
-    if (trace) { PrintLevelDdfChecksum("advance_after_communicate", lev); }
+    if (trace) {
+        PrintLevelDdfChecksum("advance_after_communicate", lev);
+    }
     Stream(lev, nghost);
-    if (trace) { PrintLevelDdfChecksum("advance_after_stream", lev, true); }
+    if (trace) {
+        PrintLevelDdfChecksum("advance_after_stream", lev, true);
+    }
     Boundary(lev);
-    if (trace) { PrintLevelDdfChecksum("advance_after_boundary", lev, true); }
+    if (trace) {
+        PrintLevelDdfChecksum("advance_after_boundary", lev, true);
+    }
     SwapLevel(lev, nghost);
-    if (trace) { PrintLevelDdfChecksum("advance_after_swap", lev); }
+    if (trace) {
+        PrintLevelDdfChecksum("advance_after_swap", lev);
+    }
 }
 
 void AmrCoreLBM::AdvanceOsiLevelImpl(int lev) {
@@ -2627,7 +2637,8 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new)
                     const auto interface = interface_mask.at(lev).const_array(mfi);
                     ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
                         dst(i, j, k) = (covered(i, j, k) == 0 || interface(i, j, k) != 0)
-                                           ? src(i, j, k, q) : Real(0.0);
+                                           ? src(i, j, k, q)
+                                           : Real(0.0);
                     });
                 }
                 active_component_sum[q] = active.sum(0, 0);
@@ -2713,10 +2724,9 @@ void AmrCoreLBM::Boundary(int lev) {
     amrex::IntVect hi{right, back, up};
     const auto is_periodic = Geom(lev).isPeriodicArray();
 
-    amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
 
-    for (MFIter mfi(f_old_lev, false); mfi.isValid(); ++mfi) {
+    for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
         const Array4<Real>& fnew = f_new_lev.array(mfi);
         perf_stats.boundary_full_cells += mfi.tilebox().numPts();
 
