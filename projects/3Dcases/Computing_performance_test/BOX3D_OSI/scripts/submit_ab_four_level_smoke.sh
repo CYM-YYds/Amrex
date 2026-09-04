@@ -14,6 +14,9 @@ set -euo pipefail
 MAX_STEP="${AB_MAX_STEP:-256}"
 PLOT_INT="${AB_PLOT_INT:-128}"
 CHK_INT="${AB_CHK_INT:-${MAX_STEP}}"
+RESTART_STEP="${AB_RESTART_STEP:-0}"
+RESTART_PREFIX="${AB_RESTART_PREFIX:-chk}"
+REFERENCE_CHECKPOINT="${AB_REFERENCE_CHECKPOINT:-}"
 
 source /home/HPCBase/tools/module-5.2.0/init/profile.sh
 module use /home/HPCBase/modulefiles/
@@ -62,6 +65,9 @@ mpirun \
     checkpoint.keep_latest_only=false \
     checkpoint.write_particles=false \
     lbm.stream_mode=0 \
+    checkpoint.begin_step="${RESTART_STEP}" \
+    checkpoint.chk_prefix="${RESTART_PREFIX}" \
+    verification.ddf_reference_checkpoint="${REFERENCE_CHECKPOINT}" \
     verification.check_state_after_regrid=true \
     verification.check_state_each_substep=true
 
