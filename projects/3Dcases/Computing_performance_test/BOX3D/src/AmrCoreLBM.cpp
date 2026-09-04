@@ -2407,11 +2407,13 @@ void AmrCoreLBM::ReadCheckpoint() {
         force[lev].setVal(0.0, nghost);
     }
 
-    for (int i = 0; i < particle_num; ++i) {
-        const std::string pname = "particles_" + std::to_string(i);
-        particles[i].reset();
-        particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
-        particles[i]->Restart(chkname, pname);
+    if (params_.write_particles) {
+        for (int i = 0; i < particle_num; ++i) {
+            const std::string pname = "particles_" + std::to_string(i);
+            particles[i].reset();
+            particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
+            particles[i]->Restart(chkname, pname);
+        }
     }
 
     RebuildCoarseFineCaches();

@@ -67,7 +67,6 @@ mpirun \
     lbm.stream_mode=0 \
     checkpoint.begin_step="${RESTART_STEP}" \
     checkpoint.chk_prefix="${RESTART_PREFIX}" \
-    verification.ddf_reference_checkpoint="${REFERENCE_CHECKPOINT}" \
     verification.check_state_after_regrid=true \
     verification.check_state_each_substep=true
 
