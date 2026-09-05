@@ -2776,6 +2776,133 @@ void AmrCoreLBM::Boundary(int lev) {
             });
         }
     }
+
+    if (checkStateEachSubstep() && (lev == 1 || lev == 2)) {
+        Gpu::streamSynchronize();
+        const Box domain = Geom(lev).Domain();
+        const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+        GpuArray<Long, Q> bad{};
+        GpuArray<Long, Q> bad_covered{};
+        GpuArray<Long, Q> bad_interface{};
+        GpuArray<Long, Q> bad_physical{};
+        GpuArray<Long, Q> bad_fab_edge{};
+        GpuArray<Long, Q> bad_neighbor_nonfinite{};
+        GpuArray<Long, Q> bad_active{};
+        GpuArray<Long, Q> bad_active_physical{};
+        std::array<IntVect, Q> min_iv;
+        std::array<IntVect, Q> max_iv;
+        std::array<std::vector<IntVect>, Q> samples;
+        std::array<std::vector<IntVect>, Q> sample_neighbors;
+        std::array<std::vector<IntVect>, Q> active_samples;
+
+        for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
+            const Box bx = mfi.validbox();
+            FArrayBox host_state(f_new_lev[mfi].box(), Q,
+                                 The_Pinned_Arena());
+            Gpu::dtoh_memcpy(host_state.dataPtr(),
+                             f_new_lev[mfi].dataPtr(),
+                             host_state.nBytes());
+            IArrayBox host_covered(
+                has_fine ? covered_mask[lev][mfi].box() : bx, 1,
+                The_Pinned_Arena());
+            IArrayBox host_interface(
+                has_fine ? interface_mask[lev][mfi].box() : bx, 1,
+                The_Pinned_Arena());
+            if (has_fine) {
+                Gpu::dtoh_memcpy(host_covered.dataPtr(),
+                                 covered_mask[lev][mfi].dataPtr(),
+                                 host_covered.nBytes());
+                Gpu::dtoh_memcpy(host_interface.dataPtr(),
+                                 interface_mask[lev][mfi].dataPtr(),
+                                 host_interface.nBytes());
+            }
+            const auto state = host_state.const_array();
+            const auto covered = host_covered.const_array();
+            const auto interface = host_interface.const_array();
+            const IntVect lo = bx.smallEnd();
+            const IntVect hi_box = bx.bigEnd();
+            for (int k = lo[2]; k <= hi_box[2]; ++k) {
+                for (int j = lo[1]; j <= hi_box[1]; ++j) {
+                    for (int i = lo[0]; i <= hi_box[0]; ++i) {
+                        const IntVect iv(AMREX_D_DECL(i, j, k));
+                        int ni = i;
+                        int nj = j;
+                        int nk = k;
+                        if (!is_periodic[0] && i == domain.smallEnd(0)) ni = i + 1;
+                        if (!is_periodic[0] && i == domain.bigEnd(0)) ni = i - 1;
+                        if (!is_periodic[1] && j == domain.smallEnd(1)) nj = j + 1;
+                        if (!is_periodic[1] && j == domain.bigEnd(1)) nj = j - 1;
+                        if (!is_periodic[2] && k == domain.smallEnd(2)) nk = k + 1;
+                        if (!is_periodic[2] && k == domain.bigEnd(2)) nk = k - 1;
+                        const IntVect neighbor(AMREX_D_DECL(ni, nj, nk));
+                        const bool physical = neighbor != iv;
+                        const bool fab_edge = i == lo[0] || i == hi_box[0] ||
+                                              j == lo[1] || j == hi_box[1] ||
+                                              k == lo[2] || k == hi_box[2];
+                        bool neighbor_nonfinite = false;
+                        if (host_state.box().contains(neighbor)) {
+                            for (int nq = 0; nq < Q; ++nq) {
+                                neighbor_nonfinite = neighbor_nonfinite ||
+                                    !std::isfinite(state(neighbor, nq));
+                            }
+                        }
+                        for (int q = 0; q < Q; ++q) {
+                            if (std::isfinite(state(i, j, k, q))) continue;
+                            if (bad[q] == 0) {
+                                min_iv[q] = iv;
+                                max_iv[q] = iv;
+                            } else {
+                                min_iv[q].min(iv);
+                                max_iv[q].max(iv);
+                            }
+                            ++bad[q];
+                            bad_covered[q] += has_fine && covered(i, j, k) != 0;
+                            bad_interface[q] += has_fine && interface(i, j, k) != 0;
+                            bad_physical[q] += physical;
+                            bad_fab_edge[q] += fab_edge;
+                            bad_neighbor_nonfinite[q] += physical && neighbor_nonfinite;
+                            const bool active = !has_fine || covered(i, j, k) == 0 ||
+                                                interface(i, j, k) != 0;
+                            bad_active[q] += active;
+                            bad_active_physical[q] += active && physical;
+                            if (active && active_samples[q].size() < 12) {
+                                active_samples[q].push_back(iv);
+                            }
+                            if (samples[q].size() < 8) {
+                                samples[q].push_back(iv);
+                                sample_neighbors[q].push_back(neighbor);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for (int q = 0; q < Q; ++q) {
+            if (bad[q] == 0) continue;
+            amrex::Print() << "BOUNDARY_NONFINITE lev=" << lev << " q=" << q
+                           << " count=" << bad[q]
+                           << " covered=" << bad_covered[q]
+                           << " interface=" << bad_interface[q]
+                           << " physical_boundary=" << bad_physical[q]
+                           << " fab_edge=" << bad_fab_edge[q]
+                           << " active=" << bad_active[q]
+                           << " active_physical_boundary="
+                           << bad_active_physical[q]
+                           << " boundary_neighbor_nonfinite="
+                           << bad_neighbor_nonfinite[q]
+                           << " bbox=" << Box(min_iv[q], max_iv[q]);
+            for (std::size_t n = 0; n < samples[q].size(); ++n) {
+                amrex::Print() << " sample" << n << "=" << samples[q][n]
+                               << " neighbor" << n << "="
+                               << sample_neighbors[q][n];
+            }
+            for (std::size_t n = 0; n < active_samples[q].size(); ++n) {
+                amrex::Print() << " active_sample" << n << "="
+                               << active_samples[q][n];
+            }
+            amrex::Print() << '\n';
+        }
+    }
 }
 
 void AmrCoreLBM::Collide(int lev, int n) {
