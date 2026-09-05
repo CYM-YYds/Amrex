@@ -2794,6 +2794,7 @@ void AmrCoreLBM::Boundary(int lev) {
         std::array<std::vector<IntVect>, Q> samples;
         std::array<std::vector<IntVect>, Q> sample_neighbors;
         std::array<std::vector<IntVect>, Q> active_samples;
+        std::array<std::vector<IntVect>, Q> active_physical_samples;
 
         for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
             const Box bx = mfi.validbox();
@@ -2868,6 +2869,10 @@ void AmrCoreLBM::Boundary(int lev) {
                             if (active && active_samples[q].size() < 12) {
                                 active_samples[q].push_back(iv);
                             }
+                            if (active && physical &&
+                                active_physical_samples[q].size() < 12) {
+                                active_physical_samples[q].push_back(iv);
+                            }
                             if (samples[q].size() < 8) {
                                 samples[q].push_back(iv);
                                 sample_neighbors[q].push_back(neighbor);
@@ -2899,6 +2904,10 @@ void AmrCoreLBM::Boundary(int lev) {
             for (std::size_t n = 0; n < active_samples[q].size(); ++n) {
                 amrex::Print() << " active_sample" << n << "="
                                << active_samples[q][n];
+            }
+            for (std::size_t n = 0; n < active_physical_samples[q].size(); ++n) {
+                amrex::Print() << " active_physical_sample" << n << "="
+                               << active_physical_samples[q][n];
             }
             amrex::Print() << '\n';
         }
