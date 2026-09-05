@@ -2910,6 +2910,9 @@ void AmrCoreLBM::Stream(int lev, int n) {
         std::array<IntVect, Q> first_iv{};
         std::array<IntVect, Q> first_src{};
         std::array<int, Q> first_has{};
+        constexpr int ex[Q] = {0,0,0,-1,1,0,0,-1,1,-1,1,0,0,-1,1,0,0,-1,1,1,-1,1,-1,1,-1,1,-1};
+        constexpr int ey[Q] = {0,1,-1,0,0,0,0,1,1,-1,-1,1,-1,0,0,1,-1,0,0,1,1,-1,-1,1,1,-1,-1};
+        constexpr int ez[Q] = {0,0,0,0,0,1,-1,0,0,0,0,1,1,1,1,-1,-1,-1,-1,1,1,1,1,-1,-1,-1,-1};
         for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
             const Box bx = mfi.validbox();
             FArrayBox host_new(f_new_lev[mfi].box(), Q, The_Pinned_Arena());
@@ -2961,7 +2964,7 @@ void AmrCoreLBM::Stream(int lev, int n) {
                             bad_physical[q] += phys;
                             bad_fab_edge[q] += edge;
                             const IntVect src_iv = iv -
-                                IntVect(AMREX_D_DECL(e[q][0], e[q][1], e[q][2]));
+                                IntVect(AMREX_D_DECL(ex[q], ey[q], ez[q]));
                             const bool src_in_valid = bx.contains(src_iv);
                             const bool src_in_fab = source_box.contains(src_iv);
                             source_ghost[q] += !src_in_valid;
@@ -2972,7 +2975,7 @@ void AmrCoreLBM::Stream(int lev, int n) {
                             if (!first_has[q]) {
                                 first_has[q] = 1;
                                 first_iv[q] = iv;
-                                first_src[q] = iv - IntVect(AMREX_D_DECL(e[q][0], e[q][1], e[q][2]));
+                                first_src[q] = iv - IntVect(AMREX_D_DECL(ex[q], ey[q], ez[q]));
                             }
                         }
                     }
