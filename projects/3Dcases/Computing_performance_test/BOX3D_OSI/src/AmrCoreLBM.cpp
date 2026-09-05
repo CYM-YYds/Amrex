@@ -2919,8 +2919,8 @@ void AmrCoreLBM::Stream(int lev, int n) {
             FArrayBox host_old(source_box, Q, The_Pinned_Arena());
             Gpu::dtoh_memcpy(host_old.dataPtr(), f_old_lev[mfi].dataPtr(),
                              host_old.nBytes());
-            IArrayBox host_covered(bx, 1, The_Pinned_Arena());
-            IArrayBox host_interface(bx, 1, The_Pinned_Arena());
+            IArrayBox host_covered(covered_mask[lev][mfi].box(), 1, The_Pinned_Arena());
+            IArrayBox host_interface(interface_mask[lev][mfi].box(), 1, The_Pinned_Arena());
             if (has_fine_level && cf_mask_mode == 1) {
                 Gpu::dtoh_memcpy(host_covered.dataPtr(),
                                  covered_mask[lev][mfi].dataPtr(),
