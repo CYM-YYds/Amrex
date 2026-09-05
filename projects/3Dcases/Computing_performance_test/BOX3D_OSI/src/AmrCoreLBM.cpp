@@ -2762,16 +2762,23 @@ void AmrCoreLBM::Boundary(int lev) {
     int up = Geom(lev).Domain().length(2) - 1;
     amrex::IntVect hi{right, back, up};
     const auto is_periodic = Geom(lev).isPeriodicArray();
+    const bool has_fine_level = lev < finest_level && cf_mask_mode == 1;
 
     amrex::MultiFab& f_new_lev = f_new[lev];
 
     for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
         const Array4<Real>& fnew = f_new_lev.array(mfi);
+        const Array4<const int> covered =
+            has_fine_level ? covered_mask[lev].const_array(mfi)
+                           : Array4<const int>{};
         perf_stats.boundary_full_cells += mfi.tilebox().numPts();
 
         for (const Box& bx : boundary_work_boxes[lev][mfi.index()]) { // 用 mfi.index() 得到该 Box 的全局编号
             perf_stats.boundary_launch_cells += bx.numPts();
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                if (has_fine_level && covered(i, j, k) != 0) {
+                    return;
+                }
                 fill_boundary(i, j, k, fnew, hi, is_periodic);
             });
         }
