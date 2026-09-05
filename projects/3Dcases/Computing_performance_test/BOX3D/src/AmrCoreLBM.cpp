@@ -802,7 +802,7 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
         coarse_state, 0, 0, Q, IntVect(0), IntVect(0),
         Geom(lev - 1).periodicity());
     if (lev == 1 || lev == 2) {
-        amrex::Print() << "INTERP_STAGE_NORM stage=after_coarse_copy lev=" << lev;
+        amrex::Print() << "INTERP_STAGE_NORM stage=after_coarse_copy_raw lev=" << lev;
         for (int q : {0, 3, 18, 26}) {
             amrex::Print() << " q" << q << "=" << coarse_stage.norm1(q, 0);
         }
@@ -810,6 +810,13 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
     }
     // 阶段 2：两条插值路径共享相同的物理边界规则。
     FillCoarseInterpolationStagePhysicalBoundary(lev);
+    if (lev == 1 || lev == 2) {
+        amrex::Print() << "INTERP_STAGE_NORM stage=after_physical_boundary lev=" << lev;
+        for (int q : {0, 3, 18, 26}) {
+            amrex::Print() << " q" << q << "=" << coarse_stage.norm1(q, 0);
+        }
+        amrex::Print() << "\n";
+    }
 
     // 阶段 3/4：缩放当前 stencil，随后写入 canonical fine 布局。
     for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
