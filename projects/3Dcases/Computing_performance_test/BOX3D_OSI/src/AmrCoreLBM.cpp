@@ -2094,6 +2094,9 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
         // and may contain stale or undefined values after a layout change.
         // Validation must follow the same ownership rule as the solver instead
         // of treating those inactive cells as part of the numerical solution.
+        // Physical validity is defined on uncovered cells only.  Interface
+        // covered cells are an AMR coupling diagnostic, not solver-owned
+        // physical cells and may legitimately be stale after a regrid.
         const auto active_stats =
             [&](const MultiFab& source, int comp, Real inactive_value) {
                 if (!has_fine) {
@@ -2111,8 +2114,7 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
                         interface_mask.at(lev).const_array(mfi);
                     amrex::ParallelFor(
                         bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                            dst(i, j, k) = (covered(i, j, k) == 0 ||
-                                            interface(i, j, k) != 0)
+                            dst(i, j, k) = (covered(i, j, k) == 0)
                                                ? src(i, j, k, comp)
                                                : inactive_value;
                         });
@@ -2580,9 +2582,7 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
                         amrex::ParallelFor(
                             bx,
                             [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                                const bool active =
-                                    covered(i, j, k) == 0 ||
-                                    interface(i, j, k) != 0;
+                                const bool active = covered(i, j, k) == 0;
                                 if (!active) {
                                     values(i, j, k, n) = Real(0.0);
                                 }
@@ -2614,8 +2614,7 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
                     amrex::ParallelFor(
                         bx,
                         [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                            const bool active = covered(i, j, k) == 0 ||
-                                                interface(i, j, k) != 0;
+                    const bool active = covered(i, j, k) == 0;
                             dst(i, j, k) =
                                 active ? src(i, j, k, q) : Real(0.0);
                         });
@@ -2675,7 +2674,7 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new)
                     const auto covered = covered_mask.at(lev).const_array(mfi);
                     const auto interface = interface_mask.at(lev).const_array(mfi);
                     ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                        dst(i, j, k) = (covered(i, j, k) == 0 || interface(i, j, k) != 0)
+                        dst(i, j, k) = (covered(i, j, k) == 0)
                                            ? src(i, j, k, q)
                                            : Real(0.0);
                     });
@@ -2869,8 +2868,7 @@ void AmrCoreLBM::Boundary(int lev) {
                             bad_physical[q] += physical;
                             bad_fab_edge[q] += fab_edge;
                             bad_neighbor_nonfinite[q] += physical && neighbor_nonfinite;
-                            const bool active = !has_fine || covered(i, j, k) == 0 ||
-                                                interface(i, j, k) != 0;
+                            const bool active = !has_fine || covered(i, j, k) == 0;
                             bad_active[q] += active;
                             bad_active_physical[q] += active && physical;
                             if (active && active_samples[q].size() < 12) {
@@ -4075,10 +4073,8 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                 lev < finest_level && cf_mask_mode == 1;
             const Long valid_cells = state.boxArray().numPts();
             const Long active_cells =
-                has_fine
-                    ? valid_cells - covered_cell_counts.at(lev) +
-                          interface_cell_counts.at(lev)
-                    : valid_cells;
+                has_fine ? valid_cells - covered_cell_counts.at(lev)
+                         : valid_cells;
             Real level_valid_linf = 0.0;
             Real level_valid_l1 = 0.0;
             Real level_valid_l2_sq = 0.0;
@@ -4212,9 +4208,7 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                                 bx,
                                 [=] AMREX_GPU_DEVICE(
                                     int i, int j, int k) noexcept {
-                                    const bool active =
-                                        covered(i, j, k) == 0 ||
-                                        interface(i, j, k) != 0;
+                                    const bool active = covered(i, j, k) == 0;
                                     if (!active) {
                                         diff(i, j, k, n) = Real(0.0);
                                     }
@@ -4245,9 +4239,7 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                                 bx,
                                 [=] AMREX_GPU_DEVICE(
                                     int i, int j, int k) noexcept {
-                                    const bool active =
-                                        covered(i, j, k) == 0 ||
-                                        interface(i, j, k) != 0;
+                                    const bool active = covered(i, j, k) == 0;
                                     values(i, j, k, n) =
                                         active ? ref(i, j, k, q)
                                                : Real(0.0);

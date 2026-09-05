@@ -79,7 +79,7 @@ level 1 的 `Stream()` 输出；`Collide()` 和 `CommunicateLevel()` 后的逐 q
 在 `stream_mode=0` 四层 smoke 中与 BOX3D 的 level 0--2 布局、covered/interface
 统计及 step 64 level 2 重构后 DDF checksum 一致。该短程结果只证明对应窗口；后续
 job `585892` 在 step 224 的 level 1 `Stream()` 后首次出现聚合差异，并在 level 2
-`Boundary()` 后出现 active NaN。诊断已统一使用完整 `validbox()`，差异仍可复现；
+`Boundary()` 后出现 covered-inclusive active NaN。诊断已统一使用完整 `validbox()`，差异仍可复现；
 已在 BOX3D 与 OSI 两份 `Stream()` 中加入对称的 `STREAM_RANGE`/`STREAM_FAB`
 诊断；step 224 的作业 `585973`（BOX3D）和 `585974`（OSI）显示 launch 范围、
 covered cell 数、stream cell 数及 Fab Box 一致。进一步的 `STREAM_INPUT_NORM` 显示，
@@ -87,10 +87,22 @@ covered cell 数、stream cell 数及 Fab Box 一致。进一步的 `STREAM_INPU
 范数已经不同（例如 level 1 的 q0：`326037.3477` 对 `325444.5884`）。因此当前已将
 分叉定位为 Stream 输入阶段的 ghost 数据差异，而不是 Stream 执行范围差异。该统计点
 位于 `FillGhostLevel()` 和 `CommunicateLevel()` 之后，尚不能单独证明根因来自粗细网格
-插值；下一步应分别在 `FillDdfGhostFromCoarse()` 返回后和 `CommunicateLevel()` 返回后
+插值；最终仍需分别在 `FillDdfGhostFromCoarse()` 返回后和 `CommunicateLevel()` 返回后
 输出同样的 ghost 范数/逐 cell 对照。无 regrid 作业 `585966`/`585967` 仍在 Stream
 后分叉，说明不能只把问题归因于动态网格重构。当前仍不能把 ghost 来源写成最终修复
 结论。
+
+### uncovered 统计与 step 224–300 复测（2026-09-05）
+
+为避免把被细层覆盖的 coarse cell 误判为物理解，`stream_mode=0` 的有限性/差异统计
+统一按 `covered_mask == 0` 计算；`interface-covered` 和 `deep-covered` 只单独报告。
+OSI 的 `Boundary()` 与 `Stream()` 都跳过 `covered_mask != 0`。从 BOX3D 的
+`chk00000223` 重启到 step 300 的 OSI job `586201` 显示：step 224、level 1 在
+`advance_after_stream` 首次出现 uncovered 非有限值，坐标位于物理边界、pull source
+落在域外 ghost；`Boundary()` 后该批点被修复，step 224–300 的
+`advance_after_boundary`/`advance_after_swap` 没有 uncovered NaN。由此，旧的
+“三百步发散”主要是 covered/interface-covered 统计误报；但这些聚合统计尚不足以
+证明 BOX3D 与 OSI 的 uncovered DDF 逐点完全一致，最终验收仍需 pointwise A/B。
 
 已完成的 OSI 阶段 1--4 内容：
 

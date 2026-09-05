@@ -81,7 +81,17 @@ Stream 输入的 ghost 数据已经分叉。因为该统计位于 `FillGhostLeve
 `CommunicateLevel()` 之后，尚不能断言是插值函数本身；应在 `FillDdfGhostFromCoarse()`
 和 `CommunicateLevel()` 各自返回后增加分层统计，再做逐 cell/逐 q `f_old` 对照。无 regrid
 作业 `585966`/`585967` 也在 Stream 后分叉，因此动态网格重构不是必要触发条件。不要把
-level 2 的 Boundary NaN 误判为首次根因。
+level 2 的 covered-inclusive Boundary NaN 误判为首次根因。
+
+### uncovered 有限性口径与复测结论（2026-09-05）
+
+物理 valid 统计只包含 `covered_mask == 0`；interface-covered/deep-covered 另行统计。
+OSI job `586201` 从 BOX3D `chk00000223` 重启并完成 step 224–300：step 224、level 1
+的 `Stream()` 在物理边界 uncovered cell 读取域外 ghost 时出现暂时非有限值，
+`Boundary()` 后被清除，后续 `advance_after_boundary` 和 `advance_after_swap` 未见
+uncovered NaN。因此旧的 300 步“发散”是将 covered 区域纳入 active 判定造成的误报；
+这项结果不替代 BOX3D/OSI uncovered DDF 的逐点比较。BOX3D job `586199` 的重启
+测试因独立 Segmentation fault 失败，不作为数值结论。
 
 ## 2. 总体开发策略
 
