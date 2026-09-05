@@ -19,6 +19,11 @@ RESTART_PREFIX="${AB_RESTART_PREFIX:-chk}"
 REFERENCE_CHECKPOINT="${AB_REFERENCE_CHECKPOINT:-}"
 REGRID_INT="${AB_REGRID_INT:-32}"
 
+VERIFY_ARGS=()
+if [[ -n "${REFERENCE_CHECKPOINT}" ]]; then
+    VERIFY_ARGS+=("verification.ddf_reference_checkpoint=${REFERENCE_CHECKPOINT}")
+fi
+
 source /home/HPCBase/tools/module-5.2.0/init/profile.sh
 module use /home/HPCBase/modulefiles/
 module purge
@@ -69,7 +74,8 @@ mpirun \
     checkpoint.begin_step="${RESTART_STEP}" \
     checkpoint.chk_prefix="${RESTART_PREFIX}" \
     verification.check_state_after_regrid=true \
-    verification.check_state_each_substep=true
+    verification.check_state_each_substep=true \
+    "${VERIFY_ARGS[@]}"
 
 if (( PLOT_INT > 0 )); then
     for step in $(seq "${PLOT_INT}" "${PLOT_INT}" "${MAX_STEP}" | awk '{printf "%08d\n", $1}'); do

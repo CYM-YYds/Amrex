@@ -3869,6 +3869,86 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                     const Real valid_l2 =
                         difference_batch.norm2(n);
 
+                    // Coordinate-level classification of the largest valid-cell
+                    // mismatch.  This is intentionally done before covered-cell
+                    // masking so that covered/interface status is reported too.
+                    Real max_diff = 0.0;
+                    IntVect max_iv(0);
+                    int max_covered = 0;
+                    int max_interface = 0;
+                    int max_physical = 0;
+                    int max_fab_edge = 0;
+                    Long mismatch_count = 0;
+                    Long mismatch_covered = 0;
+                    Long mismatch_interface = 0;
+                    Long mismatch_physical = 0;
+                    Long mismatch_fab_edge = 0;
+                    const Box domain = Geom(lev).Domain();
+                    for (MFIter mfi(difference_batch, false);
+                         mfi.isValid(); ++mfi) {
+                        const Box bx = mfi.validbox();
+                        FArrayBox host_diff(mfi.validbox(), difference_batch.nComp(), The_Pinned_Arena());
+                        Gpu::dtoh_memcpy(host_diff.dataPtr(), difference_batch[mfi].dataPtr(), host_diff.nBytes());
+                        const auto diff = host_diff.const_array();
+                        const auto covered = has_fine
+                            ? covered_mask.at(lev).const_array(mfi)
+                            : Array4<const int>{};
+                        const auto interface = has_fine
+                            ? interface_mask.at(lev).const_array(mfi)
+                            : Array4<const int>{};
+                        const IntVect lo = bx.smallEnd();
+                        const IntVect hi = bx.bigEnd();
+                        for (int k = lo[2]; k <= hi[2]; ++k) {
+                            for (int j = lo[1]; j <= hi[1]; ++j) {
+                                for (int i = lo[0]; i <= hi[0]; ++i) {
+                                    const Real d = std::abs(diff(i,j,k,n));
+                                    if (d <= Real(1.e-12)) continue;
+                                    ++mismatch_count;
+                                    const int cv = has_fine ? covered(i,j,k) : 0;
+                                    const int iv = has_fine ? interface(i,j,k) : 0;
+                                    const bool physical =
+                                        (!Geom(lev).isPeriodic(0) &&
+                                         (i == domain.smallEnd(0) || i == domain.bigEnd(0))) ||
+                                        (!Geom(lev).isPeriodic(1) &&
+                                         (j == domain.smallEnd(1) || j == domain.bigEnd(1))) ||
+                                        (!Geom(lev).isPeriodic(2) &&
+                                         (k == domain.smallEnd(2) || k == domain.bigEnd(2)));
+                                    const bool fab_edge =
+                                        i == lo[0] || i == hi[0] ||
+                                        j == lo[1] || j == hi[1] ||
+                                        k == lo[2] || k == hi[2];
+                                    mismatch_covered += (cv != 0);
+                                    mismatch_interface += (iv != 0);
+                                    mismatch_physical += physical;
+                                    mismatch_fab_edge += fab_edge;
+                                    if (d > max_diff) {
+                                        max_diff = d;
+                                        max_iv = IntVect(AMREX_D_DECL(i,j,k));
+                                        max_covered = cv != 0;
+                                        max_interface = iv != 0;
+                                        max_physical = physical;
+                                        max_fab_edge = fab_edge;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    amrex::Print()
+                        << "ddf_mismatch_location: lev=" << lev
+                        << " q=" << q
+                        << " count_gt_1e-12=" << mismatch_count
+                        << " covered=" << mismatch_covered
+                        << " interface=" << mismatch_interface
+                        << " physical_boundary=" << mismatch_physical
+                        << " fab_edge=" << mismatch_fab_edge
+                        << " max=" << max_diff
+                        << " max_iv=" << max_iv
+                        << " max_is_covered=" << max_covered
+                        << " max_is_interface=" << max_interface
+                        << " max_is_physical_boundary=" << max_physical
+                        << " max_is_fab_edge=" << max_fab_edge
+                        << '\n';
+
                     if (has_fine) {
                         for (MFIter mfi(difference_batch, false);
                              mfi.isValid(); ++mfi) {
@@ -4054,6 +4134,47 @@ void AmrCoreLBM::CompareDdfCheckpoint(
             const Real ref_l2 = reference_on_current.norm2(q);
             const Real rel_l2 =
                 ref_l2 > 0.0 ? diff_l2 / ref_l2 : 0.0;
+            Long mismatch_count = 0;
+            Long mismatch_covered = 0;
+            Long mismatch_interface = 0;
+            Long mismatch_physical = 0;
+            Long mismatch_fab_edge = 0;
+            Real max_diff = 0.0;
+            IntVect max_iv(0);
+            const Box domain = Geom(lev).Domain();
+            const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+            for (MFIter mfi(difference, false); mfi.isValid(); ++mfi) {
+                const Box bx = mfi.validbox();
+                FArrayBox host_diff(mfi.validbox(), difference.nComp(), The_Pinned_Arena());
+                Gpu::dtoh_memcpy(host_diff.dataPtr(), difference[mfi].dataPtr(), host_diff.nBytes());
+                const auto diff = host_diff.const_array();
+                const auto covered = has_fine ? covered_mask.at(lev).const_array(mfi) : Array4<const int>{};
+                const auto interface = has_fine ? interface_mask.at(lev).const_array(mfi) : Array4<const int>{};
+                const IntVect lo = bx.smallEnd();
+                const IntVect hi = bx.bigEnd();
+                for (int k = lo[2]; k <= hi[2]; ++k) for (int j = lo[1]; j <= hi[1]; ++j) for (int i = lo[0]; i <= hi[0]; ++i) {
+                    const Real d = std::abs(diff(i,j,k,q));
+                    if (d <= Real(1.e-12)) continue;
+                    ++mismatch_count;
+                    const bool physical =
+                        (!Geom(lev).isPeriodic(0) && (i == domain.smallEnd(0) || i == domain.bigEnd(0))) ||
+                        (!Geom(lev).isPeriodic(1) && (j == domain.smallEnd(1) || j == domain.bigEnd(1))) ||
+                        (!Geom(lev).isPeriodic(2) && (k == domain.smallEnd(2) || k == domain.bigEnd(2)));
+                    const bool fab_edge = i == lo[0] || i == hi[0] || j == lo[1] || j == hi[1] || k == lo[2] || k == hi[2];
+                    mismatch_covered += has_fine && covered(i,j,k) != 0;
+                    mismatch_interface += has_fine && interface(i,j,k) != 0;
+                    mismatch_physical += physical;
+                    mismatch_fab_edge += fab_edge;
+                    if (d > max_diff) { max_diff = d; max_iv = IntVect(AMREX_D_DECL(i,j,k)); }
+                }
+            }
+            amrex::Print() << "ddf_mismatch_location: lev=" << lev << " q=" << q
+                           << " count_gt_1e-12=" << mismatch_count
+                           << " covered=" << mismatch_covered
+                           << " interface=" << mismatch_interface
+                           << " physical_boundary=" << mismatch_physical
+                           << " fab_edge=" << mismatch_fab_edge
+                           << " max=" << max_diff << " max_iv=" << max_iv << '\n';
             amrex::Print() << "ddf_norm_component: lev=" << lev
                            << " q=" << q
                            << " linf=" << linf
