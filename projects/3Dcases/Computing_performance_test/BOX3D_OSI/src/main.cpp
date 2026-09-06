@@ -118,6 +118,7 @@ int main(int argc, char* argv[]) {
                 lid.AverageDownValid();
             }
             lid.ComputeMacro();
+            amrex::Gpu::synchronize();
             previous_convergence_velocity = std::make_unique<amrex::MultiFab>(
                 lid.velocityLevel(0).boxArray(), lid.velocityLevel(0).DistributionMap(),
                 AMREX_SPACEDIM, 0);
@@ -208,6 +209,7 @@ int main(int argc, char* argv[]) {
                     lid.AverageDownValid();
                 }
                 lid.ComputeMacro();
+                amrex::Gpu::synchronize();
                 amrex::MultiFab velocity_delta(
                     lid.velocityLevel(0).boxArray(),
                     lid.velocityLevel(0).DistributionMap(),
@@ -217,24 +219,29 @@ int main(int argc, char* argv[]) {
                 amrex::MultiFab::Subtract(
                     velocity_delta, *previous_convergence_velocity,
                     0, 0, AMREX_SPACEDIM, 0);
+                amrex::Gpu::synchronize();
 
                 amrex::Real numerator_sq = 0.0;
                 amrex::Real denominator_sq = 0.0;
                 for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-                    const amrex::Real diff_l2 = velocity_delta.norm2(dir, 0);
-                    const amrex::Real velocity_l2 = lid.velocityLevel(0).norm2(dir, 0);
+                    const amrex::Real diff_l2 = velocity_delta.norm2(dir, 1);
+                    const amrex::Real velocity_l2 = lid.velocityLevel(0).norm2(dir, 1);
                     numerator_sq += diff_l2 * diff_l2;
                     denominator_sq += velocity_l2 * velocity_l2;
                 }
                 const amrex::Real residual = std::sqrt(numerator_sq) /
                     amrex::max(std::sqrt(denominator_sq),
                                std::numeric_limits<amrex::Real>::min());
+                const amrex::Real current_l2 = std::sqrt(denominator_sq);
+                const amrex::Real delta_l2 = std::sqrt(numerator_sq);
                 convergence_streak = residual < convergence_tolerance
                     ? convergence_streak + 1 : 0;
                 converged = convergence_streak >= convergence_required;
                 amrex::Print() << "CONVERGENCE step=" << step
                                << " interval=" << convergence_check_int
                                << " velocity_l2_relative=" << residual
+                               << " velocity_l2=" << current_l2
+                               << " delta_velocity_l2=" << delta_l2
                                << " tolerance=" << convergence_tolerance
                                << " consecutive=" << convergence_streak
                                << '/' << convergence_required
