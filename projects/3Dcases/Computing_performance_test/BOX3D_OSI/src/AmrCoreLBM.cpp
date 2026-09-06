@@ -795,7 +795,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
         DistributionMapping coarse_stage_dm(std::move(coarse_owners));
         coarse_stage.define(coarse_stage_ba, coarse_stage_dm, Q, 0);
     }
-    if (lev == 1 || lev == 2) {
+    if (check_state_each_substep && (lev == 1 || lev == 2)) {
         long long fine_points = 0;
         long long coarse_points = 0;
         for (const Box& b : fine_work_boxes) { fine_points += b.numPts(); }
@@ -909,7 +909,7 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
     coarse_stage.ParallelCopy(
         coarse_state, 0, 0, Q, IntVect(0), IntVect(0),
         Geom(lev - 1).periodicity());
-    if (lev == 1 || lev == 2) {
+    if (check_state_each_substep && (lev == 1 || lev == 2)) {
         amrex::Print() << "INTERP_STAGE_NORM stage=after_coarse_copy_raw lev=" << lev;
         for (int q : {0, 3, 18, 26}) {
             amrex::Print() << " q" << q << "=" << coarse_stage.norm1(q, 0);
@@ -918,7 +918,7 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
     }
     // 阶段 2：两条插值路径共享相同的物理边界规则。
     FillCoarseInterpolationStagePhysicalBoundary(lev);
-    if (lev == 1 || lev == 2) {
+    if (check_state_each_substep && (lev == 1 || lev == 2)) {
         amrex::Print() << "INTERP_STAGE_NORM stage=after_physical_boundary lev=" << lev;
         for (int q : {0, 3, 18, 26}) {
             amrex::Print() << " q" << q << "=" << coarse_stage.norm1(q, 0);
@@ -962,7 +962,7 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
                 });
         }
     }
-    if (lev == 1 || lev == 2) {
+    if (check_state_each_substep && (lev == 1 || lev == 2)) {
         amrex::Print() << "INTERP_STAGE_NORM stage=after_interpolation lev=" << lev;
         for (int q : {0, 3, 18, 26}) {
             amrex::Print() << " q" << q << "_valid=" << fine_state.norm1(q, 0)
@@ -1156,7 +1156,7 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
         ValidateInitializedState();
     }
 
-    if (ParallelDescriptor::IOProcessor()) {
+    if (check_state_each_substep && ParallelDescriptor::IOProcessor()) {
         amrex::Print() << "regrid_observe: finest_level="
                        << finest_level << '\n';
         for (int lev = 0; lev <= finest_level; ++lev) {
@@ -2526,6 +2526,9 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
 }
 
 void AmrCoreLBM::PrintDdfChecksums(int step) {
+    if (!check_state_each_substep) {
+        return;
+    }
     for (int lev = 0; lev <= finest_level; ++lev) {
         const bool has_fine = lev < finest_level && cf_mask_mode == 1;
         Real valid_checksum = 0.0;
@@ -2638,6 +2641,12 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
 }
 
 void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new) {
+    // The per-level checksum is an opt-in diagnostic.  Keeping it behind the
+    // existing substep verification switch avoids launching global reductions
+    // on every level when running production-length cases.
+    if (!check_state_each_substep) {
+        return;
+    }
     GpuArray<Real, Q> component_sum{};
     GpuArray<Real, Q> active_component_sum{};
     Real valid_sum = 0.0;

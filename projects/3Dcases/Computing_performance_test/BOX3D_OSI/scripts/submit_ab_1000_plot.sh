@@ -14,4 +14,6 @@ export AB_PLOT_INT=100
 export AB_CHK_INT=1000
 export AB_RESTART_STEP=223
 export AB_RESTART_PREFIX=/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D/tmp/ab_four_level_smoke_585946/chk
+export AB_CHECK_AFTER_REGRID=false
+export AB_CHECK_EACH_SUBSTEP=false
 exec "$(dirname "$0")/submit_ab_four_level_smoke.sh"

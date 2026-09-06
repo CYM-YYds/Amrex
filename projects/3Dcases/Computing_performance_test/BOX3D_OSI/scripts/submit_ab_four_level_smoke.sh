@@ -18,6 +18,8 @@ RESTART_STEP="${AB_RESTART_STEP:-0}"
 RESTART_PREFIX="${AB_RESTART_PREFIX:-chk}"
 REFERENCE_CHECKPOINT="${AB_REFERENCE_CHECKPOINT:-}"
 REGRID_INT="${AB_REGRID_INT:-32}"
+CHECK_AFTER_REGRID="${AB_CHECK_AFTER_REGRID:-true}"
+CHECK_EACH_SUBSTEP="${AB_CHECK_EACH_SUBSTEP:-true}"
 
 VERIFY_ARGS=()
 if [[ -n "${REFERENCE_CHECKPOINT}" ]]; then
@@ -73,8 +75,8 @@ mpirun \
     lbm.stream_mode=0 \
     checkpoint.begin_step="${RESTART_STEP}" \
     checkpoint.chk_prefix="${RESTART_PREFIX}" \
-    verification.check_state_after_regrid=true \
-    verification.check_state_each_substep=true \
+    verification.check_state_after_regrid="${CHECK_AFTER_REGRID}" \
+    verification.check_state_each_substep="${CHECK_EACH_SUBSTEP}" \
     "${VERIFY_ARGS[@]}"
 
 if (( PLOT_INT > 0 )); then

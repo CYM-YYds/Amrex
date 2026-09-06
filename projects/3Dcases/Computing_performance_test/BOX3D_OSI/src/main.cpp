@@ -1,6 +1,9 @@
 #include <iostream>
 #include <chrono>
 #include <array>
+#include <cmath>
+#include <limits>
+#include <memory>
 
 #include <AMReX.H>
 #include <AMReX_BLProfiler.H>
@@ -34,10 +37,18 @@ int main(int argc, char* argv[]) {
         int chk_int = -1;
         int begin_step = 0;
         std::string ddf_reference_checkpoint;
+        bool convergence_enabled = false;
+        int convergence_check_int = 1000;
+        int convergence_required = 3;
+        amrex::Real convergence_tolerance = 1.0e-12;
         {
             amrex::ParmParse pp_verify("verification");
             pp_verify.query(
                 "ddf_reference_checkpoint", ddf_reference_checkpoint);
+            pp_verify.query("convergence_enabled", convergence_enabled);
+            pp_verify.query("convergence_check_int", convergence_check_int);
+            pp_verify.query("convergence_required", convergence_required);
+            pp_verify.query("convergence_tolerance", convergence_tolerance);
         }
 
         int runtime_max_level = max_ref_level;
@@ -96,6 +107,24 @@ int main(int argc, char* argv[]) {
         // Init/restart guarantees canonical valid data; prepare every active
         // level's same-level/periodic ghosts before the first collision.
         lid.PrepareStateForAdvance();
+
+        std::unique_ptr<amrex::MultiFab> previous_convergence_velocity;
+        int convergence_streak = 0;
+        if (convergence_enabled) {
+            AMREX_ALWAYS_ASSERT(convergence_check_int > 0);
+            AMREX_ALWAYS_ASSERT(convergence_required > 0);
+            AMREX_ALWAYS_ASSERT(convergence_tolerance > 0.0);
+            if (lid.finestLevel() > 0) {
+                lid.AverageDownValid();
+            }
+            lid.ComputeMacro();
+            previous_convergence_velocity = std::make_unique<amrex::MultiFab>(
+                lid.velocityLevel(0).boxArray(), lid.velocityLevel(0).DistributionMap(),
+                AMREX_SPACEDIM, 0);
+            amrex::MultiFab::Copy(*previous_convergence_velocity,
+                                  lid.velocityLevel(0), 0, 0,
+                                  AMREX_SPACEDIM, 0);
+        }
 
         float compute_time = 0.0f;
         float regrid_time = 0.0f;
@@ -169,6 +198,51 @@ int main(int argc, char* argv[]) {
             auto end_time_compute_time = std::chrono::high_resolution_clock::now();
             compute_time += std::chrono::duration<float, std::milli>(end_time_compute_time - start_time_compute_time).count();
             cur_time += dt_0;
+
+            bool converged = false;
+            if (convergence_enabled && step % convergence_check_int == 0) {
+                // Collapse the AMR hierarchy onto the fixed level-0 grid.  This
+                // gives every physical location one contribution and remains
+                // comparable when regridding changes the fine BoxArrays.
+                if (lid.finestLevel() > 0) {
+                    lid.AverageDownValid();
+                }
+                lid.ComputeMacro();
+                amrex::MultiFab velocity_delta(
+                    lid.velocityLevel(0).boxArray(),
+                    lid.velocityLevel(0).DistributionMap(),
+                    AMREX_SPACEDIM, 0);
+                amrex::MultiFab::Copy(velocity_delta, lid.velocityLevel(0), 0, 0,
+                                      AMREX_SPACEDIM, 0);
+                amrex::MultiFab::Subtract(
+                    velocity_delta, *previous_convergence_velocity,
+                    0, 0, AMREX_SPACEDIM, 0);
+
+                amrex::Real numerator_sq = 0.0;
+                amrex::Real denominator_sq = 0.0;
+                for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                    const amrex::Real diff_l2 = velocity_delta.norm2(dir, 0);
+                    const amrex::Real velocity_l2 = lid.velocityLevel(0).norm2(dir, 0);
+                    numerator_sq += diff_l2 * diff_l2;
+                    denominator_sq += velocity_l2 * velocity_l2;
+                }
+                const amrex::Real residual = std::sqrt(numerator_sq) /
+                    amrex::max(std::sqrt(denominator_sq),
+                               std::numeric_limits<amrex::Real>::min());
+                convergence_streak = residual < convergence_tolerance
+                    ? convergence_streak + 1 : 0;
+                converged = convergence_streak >= convergence_required;
+                amrex::Print() << "CONVERGENCE step=" << step
+                               << " interval=" << convergence_check_int
+                               << " velocity_l2_relative=" << residual
+                               << " tolerance=" << convergence_tolerance
+                               << " consecutive=" << convergence_streak
+                               << '/' << convergence_required
+                               << " converged=" << converged << '\n';
+                amrex::MultiFab::Copy(*previous_convergence_velocity,
+                                      lid.velocityLevel(0), 0, 0,
+                                      AMREX_SPACEDIM, 0);
+            }
 
             // if(step >= 98000 && step <= 100000 && step % 100 == 0)
             // {
@@ -263,6 +337,10 @@ int main(int argc, char* argv[]) {
 
             if (chk_int > 0 && step % chk_int == 0) {
                 lid.WriteCheckpoint(step, cur_time);
+            }
+            if (converged) {
+                amrex::Print() << "CONVERGED step=" << step << '\n';
+                break;
             }
         }
 

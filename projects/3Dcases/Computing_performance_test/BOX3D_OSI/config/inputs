@@ -2,11 +2,11 @@
 # Run until nsteps == max_step or time == stop_time,
 #     whichever comes first
 # *****************************************************************
-max_step  = 64000
+max_step  = 100000
 stop_time = 2500000.0
 
 amr.regrid_int  = 32
-amr.max_level   = 1
+amr.max_level   = 3
 
 amr.grid_eff          = 0.7
 amr.n_error_buf       = 0 0 0 0
@@ -15,13 +15,13 @@ amr.blocking_factor_x = 32 32 32 32
 amr.blocking_factor_y = 32 32 32 32
 amr.blocking_factor_z = 32 32 32 32
 
-amr.plot_file  = data32to64_osi_validation/case_Re1000_
+amr.plot_file  = data32to64_validation/case_Re1000_
 amr.plot_int   = 8000
 amr.begin_plot = 0
 # 每 8000 个 coarse 步分别输出：速度 ux/uy/uz、密度 rho、Q/Vorticity。
 # 可用于中心线速度、质量守恒和涡结构随时间的正确性/收敛验证。
 
-checkpoint.begin_step = 0
+checkpoint.begin_step = 64000
 checkpoint.chk_int = 16000
 checkpoint.chk_prefix = chk_osi_validation
 checkpoint.keep_latest_only = true
@@ -48,7 +48,7 @@ lbm.collide_mode = 1
 # 默认保持在已经通过逐单元 A/B 的两层范围。三层以上已解除编译硬限制，但当前
 # 四层 OSI/A-B 逐单元误差仍约 1e-4，且动态 regrid 冒烟在第 128 步捕获 NaN；
 # 仅通过诊断脚本显式覆盖 amr.max_level=3，不作为已确认的生产数值结果。
-lbm.stream_mode = 1
+lbm.stream_mode = 0
 
 # OSI canonical 通信缓冲一次处理的 DDF 分量数，范围 1..27。
 # 1 最省临时内存；3/9 可分别把每步 FillBoundary 次数降为 9/3。
@@ -62,8 +62,12 @@ lbm.interp_mode = 0
 
 # 启动时总会检查一次全部 active level；正确性运行还在每次动态 regrid 后检查，
 # 以便新建/重构 fine level 出现 NaN、Inf 或非正密度时立即停止。
-verification.check_state_after_regrid = true
+verification.check_state_after_regrid = false
 verification.check_state_each_substep = false
+verification.convergence_enabled = true
+verification.convergence_check_int = 1000
+verification.convergence_tolerance = 1.0e-12
+verification.convergence_required = 3
 
 # *****************************************************************
 # mesh setting

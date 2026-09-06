@@ -116,6 +116,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     const RuntimeParams& params() const {
         return params_;
     }
+    const amrex::MultiFab& velocityLevel(int lev) const {
+        return velocity.at(lev);
+    }
     int ghostCells() const {
         return nghost;
     }
