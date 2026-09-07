@@ -49,7 +49,9 @@ canonical checkpoint/restart/宏观量 plotfile。当前仍没有：
 四层扩展 job `585083` 在实际 level 0--3 的每个递归子阶段检查 D3Q27、密度和速度
 有限性，但在第 128 个 coarse step 的动态 regrid 后捕获 NaN，未通过验收。分层 job
 `585078` 中两层 active `Linf=4.996003611e-16`，三层中间层则为
-`7.530773731e-5`。因此默认输入保持 `amr.max_level=1`；三层以上仅保留为显式诊断路径。
+`7.530773731e-5`。因此这份 OSI 验收结论仍只覆盖两层；三层以上 OSI 仅保留为显式
+诊断路径。当前 `config/inputs` 后来改为四层 `stream_mode=0` 方腔验证配置，不能作为
+`stream_mode=1` 多层 OSI 已通过的证据。
 此前 A-B jobs `585096`、`585291` 属于 `MakeNewLevelFromCoarse()` 双重覆盖修复前的
 结果。修复后的 job `585390`（`stream_mode=0,max_level=3,regrid_int=32`）在 step 32
 确认 regrid 前、`ErrorEst(tag_cells=7942)`、`FillCoarsePatch()`、

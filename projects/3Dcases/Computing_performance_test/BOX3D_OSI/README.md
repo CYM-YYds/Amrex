@@ -9,8 +9,9 @@
 
 BOX3D 的 `fill_boundary()` 已同步为本算例当前的边界处理方式。同步后的 BOX3D 在 `max_level=3`、`regrid_int=32` 下完成 300 步测试（job `585201`），通过 step 288；后续应将其作为 A-B 对照基线，重点比较 level 2/3 的粗细层传递和 ghost 时序，不再修改物理边界。
 
-截至 2026-09-02，默认时间推进为 `lbm.stream_mode=1` 的 OSI 单数组路径；A-B 双
-`MultiFab` pull-streaming 仍由 `stream_mode=0` 保留作数值基线。OSI 阶段 1--4
+OSI 单数组路径由 `lbm.stream_mode=1` 选择；A-B 双 `MultiFab` pull-streaming
+由 `stream_mode=0` 选择并作为 BOX3D 数值对照基线。当前 `config/inputs` 为了进行
+三维方腔正确性验证，明确使用 `stream_mode=0`。OSI 阶段 1--4
 的单层路径已经完成：`collide_mode=1` 下支持
 多 Fab、多 MPI rank，以及三向全周期或六面非周期边界。当前采用
 `nGrow=2 + grown-Fab OSI`：
@@ -42,9 +43,10 @@ checkpoint 不持久化 raw twisted 地址，restart 统一恢复为 phase 0 并
 - `Cycle2()` 对两种存储模式统一执行细层 2:1 时间子循环，并在运行中执行动态 regrid。
 
 四层诊断会对每次递归填充、推进和平均下传后的全部活动层执行 D3Q27 有限性、正密度
-与速度检查。job `585083` 在第 128 个 coarse step 的动态 regrid 后捕获 NaN，因此四层
-动态路径尚未通过。默认 `config/inputs` 明确使用 `amr.max_level=1`；四层只能通过
-`scripts/submit_osi_four_level_smoke.sh` 显式覆盖并继续定位，不能作为生产结果。
+与速度检查。job `585083` 曾在第 128 个 coarse step 的动态 regrid 后捕获 NaN；后续
+排查确认旧的“三百步发散”主要来自 covered/interface-covered 区域统计误报，详见下文。
+当前 `config/inputs` 使用 `amr.max_level=3` 和 `stream_mode=0` 进行四层三维方腔验证；
+这不构成 `stream_mode=1` 四层 OSI 路径的验收。
 分层分叉 job `585078` 表明两层 active DDF 的最大 `Linf=4.996003611e-16`，但三层
 中间层为 `7.530773731e-5`；因此当前只解除编译/运行硬限制，尚未宣称三层以上与
 A-B 基线逐单元等价。`scripts/submit_osi_multilevel_ab.sh` 会以 `1e-12` 为门槛，
@@ -103,6 +105,25 @@ OSI 的 `Boundary()` 与 `Stream()` 都跳过 `covered_mask != 0`。从 BOX3D �
 `advance_after_boundary`/`advance_after_swap` 没有 uncovered NaN。由此，旧的
 “三百步发散”主要是 covered/interface-covered 统计误报；但这些聚合统计尚不足以
 证明 BOX3D 与 OSI 的 uncovered DDF 逐点完全一致，最终验收仍需 pointwise A/B。
+
+### Re=1000 三维方腔验证（2026-09-06）
+
+当前正确性运行固定使用 `stream_mode=0`、`amr.max_level=3` 和
+`amr.regrid_int=32`。job `586364` 从 step 96000 的 checkpoint 继续至 step 192000，
+正常结束且未出现运行时发散。为避免不同 AMR 重构相位污染稳态判断，程序同时输出
+每 1000 步的 `CONVERGENCE_TREND` 和每 32000 步的同相位 `CONVERGENCE`：后者的
+相对速度 L2 残差依次为 `3.2089158e-6`、`5.329944332e-8`、`1.009327974e-9`。
+该结果说明同相位解持续收敛，但尚未满足连续三次低于 `1e-12` 的自动停止条件；
+不能将 job 成功结束写成严格收敛。
+
+step 192000 的 AMReX plotfile 位于
+`data32to64_validation/case_Re1000_192000`。`data_post_processing/192000_3D.csv`
+把 ParaView 中心线采样与论文数字化点放在同一文件；
+`data_post_processing/process_192000_3d.py` 会拆分、排序并按 `H=64`、
+`u_lid=0.05` 归一化，生成 `paper_fig18a.csv` 和 `simulation_192000.csv`。
+安装 `matplotlib` 时还会生成 `Re1000_3D_comparison.png`；缺少该依赖时 CSV 仍会正常
+生成。三维速度剖面应与 Jaber 论文 Fig.18(a) 对照；Fig.19(a) 是二维涡量、流线和
+AMR 层级的定性图，不是本算例的三维中心线定量基准。
 
 已完成的 OSI 阶段 1--4 内容：
 
@@ -266,8 +287,8 @@ storage(Addr(fab,q,phase,i,j,k), q)
 `f_old/f_new`，但 A-B 实现仍保留为可选择的数值基线。运行时模式为：
 
 ```text
-lbm.stream_mode = 0  # 现有 A-B 基线
-lbm.stream_mode = 1  # OSI 当前默认路径；已验证范围为两层
+lbm.stream_mode = 0  # 当前三维方腔正确性验证和 BOX3D A-B 基线
+lbm.stream_mode = 1  # OSI 单数组路径；已验证范围为两层
 ```
 
 即使后续完成 MPI/AMR 回归，也应先保留可构建的双数组模式用于受控 A/B；是否最终移除
@@ -303,7 +324,9 @@ lbm.stream_mode = 1  # OSI 当前默认路径；已验证范围为两层
 早期 OSI smoke/performance 作业共用 `config/inputs_osi`；不同实验只在提交脚本中覆盖
 少量参数。阶段 2 GPU smoke 由 `scripts/submit_osi_stage2_smoke.sh` 覆盖单 Fab 和 A-B
 检查参数。当前 OSI 仍要求 `collide_mode=1`。plotfile 与 canonical checkpoint/restart
-adapter 已完成；默认输入限于验证通过的两层（`amr.max_level=1`），三层以上仅供诊断。
+adapter 已完成。OSI 专用的 `config/inputs_osi` 当前是单层验证配置；`config/inputs`
+则是四层 `stream_mode=0` 方腔正确性配置。三层以上 OSI 仍仅供诊断，不能由当前
+双数组长程结果外推其正确性。
 
 阶段 3 使用同一份 64-Fab 输入分别验证单/双 rank：
 

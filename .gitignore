@@ -39,6 +39,9 @@ docs/superpowers/
 
 # Python bytecode cache
 __pycache__/
+.venv/
+.venv-latest/
+.tools/
 
 
 # Misc
@@ -48,4 +51,3 @@ __pycache__/
 *.zip
 *.dat
 *.pdf
-

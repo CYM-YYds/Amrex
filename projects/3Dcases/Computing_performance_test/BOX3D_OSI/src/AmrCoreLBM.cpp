@@ -798,8 +798,12 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     if (check_state_each_substep && (lev == 1 || lev == 2)) {
         long long fine_points = 0;
         long long coarse_points = 0;
-        for (const Box& b : fine_work_boxes) { fine_points += b.numPts(); }
-        for (const Box& b : coarse_boxes) { coarse_points += b.numPts(); }
+        for (const Box& b : fine_work_boxes) {
+            fine_points += b.numPts();
+        }
+        for (const Box& b : coarse_boxes) {
+            coarse_points += b.numPts();
+        }
         amrex::Print() << "INTERP_CACHE lev=" << lev
                        << " entries=" << fine_work_boxes.size()
                        << " fine_points=" << fine_points
@@ -2617,7 +2621,7 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
                     amrex::ParallelFor(
                         bx,
                         [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    const bool active = covered(i, j, k) == 0;
+                            const bool active = covered(i, j, k) == 0;
                             dst(i, j, k) =
                                 active ? src(i, j, k, q) : Real(0.0);
                         });
@@ -2844,12 +2848,18 @@ void AmrCoreLBM::Boundary(int lev) {
                         int ni = i;
                         int nj = j;
                         int nk = k;
-                        if (!is_periodic[0] && i == domain.smallEnd(0)) ni = i + 1;
-                        if (!is_periodic[0] && i == domain.bigEnd(0)) ni = i - 1;
-                        if (!is_periodic[1] && j == domain.smallEnd(1)) nj = j + 1;
-                        if (!is_periodic[1] && j == domain.bigEnd(1)) nj = j - 1;
-                        if (!is_periodic[2] && k == domain.smallEnd(2)) nk = k + 1;
-                        if (!is_periodic[2] && k == domain.bigEnd(2)) nk = k - 1;
+                        if (!is_periodic[0] && i == domain.smallEnd(0))
+                            ni = i + 1;
+                        if (!is_periodic[0] && i == domain.bigEnd(0))
+                            ni = i - 1;
+                        if (!is_periodic[1] && j == domain.smallEnd(1))
+                            nj = j + 1;
+                        if (!is_periodic[1] && j == domain.bigEnd(1))
+                            nj = j - 1;
+                        if (!is_periodic[2] && k == domain.smallEnd(2))
+                            nk = k + 1;
+                        if (!is_periodic[2] && k == domain.bigEnd(2))
+                            nk = k - 1;
                         const IntVect neighbor(AMREX_D_DECL(ni, nj, nk));
                         const bool physical = neighbor != iv;
                         const bool fab_edge = i == lo[0] || i == hi_box[0] ||
@@ -2859,11 +2869,12 @@ void AmrCoreLBM::Boundary(int lev) {
                         if (host_state.box().contains(neighbor)) {
                             for (int nq = 0; nq < Q; ++nq) {
                                 neighbor_nonfinite = neighbor_nonfinite ||
-                                    !std::isfinite(state(neighbor, nq));
+                                                     !std::isfinite(state(neighbor, nq));
                             }
                         }
                         for (int q = 0; q < Q; ++q) {
-                            if (std::isfinite(state(i, j, k, q))) continue;
+                            if (std::isfinite(state(i, j, k, q)))
+                                continue;
                             if (bad[q] == 0) {
                                 min_iv[q] = iv;
                                 max_iv[q] = iv;
@@ -2897,7 +2908,8 @@ void AmrCoreLBM::Boundary(int lev) {
             }
         }
         for (int q = 0; q < Q; ++q) {
-            if (bad[q] == 0) continue;
+            if (bad[q] == 0)
+                continue;
             amrex::Print() << "BOUNDARY_NONFINITE lev=" << lev << " q=" << q
                            << " count=" << bad[q]
                            << " covered=" << bad_covered[q]
@@ -3060,9 +3072,9 @@ void AmrCoreLBM::Stream(int lev, int n) {
         std::array<IntVect, Q> first_iv{};
         std::array<IntVect, Q> first_src{};
         std::array<int, Q> first_has{};
-        constexpr int ex[Q] = {0,0,0,-1,1,0,0,-1,1,-1,1,0,0,-1,1,0,0,-1,1,1,-1,1,-1,1,-1,1,-1};
-        constexpr int ey[Q] = {0,1,-1,0,0,0,0,1,1,-1,-1,1,-1,0,0,1,-1,0,0,1,1,-1,-1,1,1,-1,-1};
-        constexpr int ez[Q] = {0,0,0,0,0,1,-1,0,0,0,0,1,1,1,1,-1,-1,-1,-1,1,1,1,1,-1,-1,-1,-1};
+        constexpr int ex[Q] = {0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1, 1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
+        constexpr int ey[Q] = {0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0, 0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
+        constexpr int ez[Q] = {0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1, 1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
         for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
             const Box bx = mfi.validbox();
             FArrayBox host_new(f_new_lev[mfi].box(), Q, The_Pinned_Arena());
@@ -3091,7 +3103,7 @@ void AmrCoreLBM::Stream(int lev, int n) {
             for (int k = lo[2]; k <= hi[2]; ++k) {
                 for (int j = lo[1]; j <= hi[1]; ++j) {
                     for (int i = lo[0]; i <= hi[0]; ++i) {
-                        const IntVect iv(AMREX_D_DECL(i,j,k));
+                        const IntVect iv(AMREX_D_DECL(i, j, k));
                         const bool phys =
                             (!Geom(lev).isPeriodic(0) &&
                              (i == domain.smallEnd(0) || i == domain.bigEnd(0))) ||
@@ -3099,27 +3111,28 @@ void AmrCoreLBM::Stream(int lev, int n) {
                              (j == domain.smallEnd(1) || j == domain.bigEnd(1))) ||
                             (!Geom(lev).isPeriodic(2) &&
                              (k == domain.smallEnd(2) || k == domain.bigEnd(2)));
-                            const bool edge = i == lo[0] || i == hi[0] ||
+                        const bool edge = i == lo[0] || i == hi[0] ||
                                           j == lo[1] || j == hi[1] ||
                                           k == lo[2] || k == hi[2];
                         for (int q = 0; q < Q; ++q) {
-                            if (std::isfinite(values(i,j,k,q))) continue;
+                            if (std::isfinite(values(i, j, k, q)))
+                                continue;
                             ++bad[q];
                             const bool cov = has_fine_level && cf_mask_mode == 1 &&
-                                             covered(i,j,k) != 0;
+                                             covered(i, j, k) != 0;
                             const bool intf = has_fine_level && cf_mask_mode == 1 &&
-                                              interface(i,j,k) != 0;
+                                              interface(i, j, k) != 0;
                             bad_covered[q] += cov;
                             bad_interface[q] += intf;
                             bad_physical[q] += phys;
                             bad_fab_edge[q] += edge;
                             const IntVect src_iv = iv -
-                                IntVect(AMREX_D_DECL(ex[q], ey[q], ez[q]));
+                                                   IntVect(AMREX_D_DECL(ex[q], ey[q], ez[q]));
                             const bool src_in_valid = bx.contains(src_iv);
                             const bool src_in_fab = source_box.contains(src_iv);
                             source_ghost[q] += !src_in_valid;
                             source_outside_fab[q] += !src_in_fab;
-                            if (src_in_fab && !std::isfinite(sources(src_iv,q))) {
+                            if (src_in_fab && !std::isfinite(sources(src_iv, q))) {
                                 ++bad_source[q];
                             }
                             if (!first_has[q]) {
@@ -3877,9 +3890,9 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
         amrex::Print() << "[Checkpoint] Writing '" << out_chkname
                        << "' step=" << step << " time=" << time << '\n';
 
-        amrex::UtilCreateCleanDirectory(out_chkname, false);
+        amrex::UtilCreateCleanDirectory(out_chkname, false); // 为当前 checkpoint 创建一个“干净的输出目录”。
 
-        for (int lev = 0; lev <= finest_level; ++lev) {
+        for (int lev = 0; lev <= finest_level; ++lev) { // 为当前 checkpoint 创建各个 AMR 层级对应的子目录。
             const std::string level_dir = out_chkname + "/" + level_prefix + std::to_string(lev);
             amrex::UtilCreateDirectory(level_dir, 0755);
         }
@@ -4145,21 +4158,22 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                         Gpu::dtoh_memcpy(host_diff.dataPtr(), difference_batch[mfi].dataPtr(), host_diff.nBytes());
                         const auto diff = host_diff.const_array();
                         const auto covered = has_fine
-                            ? covered_mask.at(lev).const_array(mfi)
-                            : Array4<const int>{};
+                                                 ? covered_mask.at(lev).const_array(mfi)
+                                                 : Array4<const int>{};
                         const auto interface = has_fine
-                            ? interface_mask.at(lev).const_array(mfi)
-                            : Array4<const int>{};
+                                                   ? interface_mask.at(lev).const_array(mfi)
+                                                   : Array4<const int>{};
                         const IntVect lo = bx.smallEnd();
                         const IntVect hi = bx.bigEnd();
                         for (int k = lo[2]; k <= hi[2]; ++k) {
                             for (int j = lo[1]; j <= hi[1]; ++j) {
                                 for (int i = lo[0]; i <= hi[0]; ++i) {
-                                    const Real d = std::abs(diff(i,j,k,n));
-                                    if (d <= Real(1.e-12)) continue;
+                                    const Real d = std::abs(diff(i, j, k, n));
+                                    if (d <= Real(1.e-12))
+                                        continue;
                                     ++mismatch_count;
-                                    const int cv = has_fine ? covered(i,j,k) : 0;
-                                    const int iv = has_fine ? interface(i,j,k) : 0;
+                                    const int cv = has_fine ? covered(i, j, k) : 0;
+                                    const int iv = has_fine ? interface(i, j, k) : 0;
                                     const bool physical =
                                         (!Geom(lev).isPeriodic(0) &&
                                          (i == domain.smallEnd(0) || i == domain.bigEnd(0))) ||
@@ -4177,7 +4191,7 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                                     mismatch_fab_edge += fab_edge;
                                     if (d > max_diff) {
                                         max_diff = d;
-                                        max_iv = IntVect(AMREX_D_DECL(i,j,k));
+                                        max_iv = IntVect(AMREX_D_DECL(i, j, k));
                                         max_covered = cv != 0;
                                         max_interface = iv != 0;
                                         max_physical = physical;
@@ -4402,21 +4416,27 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                 const auto interface = has_fine ? interface_mask.at(lev).const_array(mfi) : Array4<const int>{};
                 const IntVect lo = bx.smallEnd();
                 const IntVect hi = bx.bigEnd();
-                for (int k = lo[2]; k <= hi[2]; ++k) for (int j = lo[1]; j <= hi[1]; ++j) for (int i = lo[0]; i <= hi[0]; ++i) {
-                    const Real d = std::abs(diff(i,j,k,q));
-                    if (d <= Real(1.e-12)) continue;
-                    ++mismatch_count;
-                    const bool physical =
-                        (!Geom(lev).isPeriodic(0) && (i == domain.smallEnd(0) || i == domain.bigEnd(0))) ||
-                        (!Geom(lev).isPeriodic(1) && (j == domain.smallEnd(1) || j == domain.bigEnd(1))) ||
-                        (!Geom(lev).isPeriodic(2) && (k == domain.smallEnd(2) || k == domain.bigEnd(2)));
-                    const bool fab_edge = i == lo[0] || i == hi[0] || j == lo[1] || j == hi[1] || k == lo[2] || k == hi[2];
-                    mismatch_covered += has_fine && covered(i,j,k) != 0;
-                    mismatch_interface += has_fine && interface(i,j,k) != 0;
-                    mismatch_physical += physical;
-                    mismatch_fab_edge += fab_edge;
-                    if (d > max_diff) { max_diff = d; max_iv = IntVect(AMREX_D_DECL(i,j,k)); }
-                }
+                for (int k = lo[2]; k <= hi[2]; ++k)
+                    for (int j = lo[1]; j <= hi[1]; ++j)
+                        for (int i = lo[0]; i <= hi[0]; ++i) {
+                            const Real d = std::abs(diff(i, j, k, q));
+                            if (d <= Real(1.e-12))
+                                continue;
+                            ++mismatch_count;
+                            const bool physical =
+                                (!Geom(lev).isPeriodic(0) && (i == domain.smallEnd(0) || i == domain.bigEnd(0))) ||
+                                (!Geom(lev).isPeriodic(1) && (j == domain.smallEnd(1) || j == domain.bigEnd(1))) ||
+                                (!Geom(lev).isPeriodic(2) && (k == domain.smallEnd(2) || k == domain.bigEnd(2)));
+                            const bool fab_edge = i == lo[0] || i == hi[0] || j == lo[1] || j == hi[1] || k == lo[2] || k == hi[2];
+                            mismatch_covered += has_fine && covered(i, j, k) != 0;
+                            mismatch_interface += has_fine && interface(i, j, k) != 0;
+                            mismatch_physical += physical;
+                            mismatch_fab_edge += fab_edge;
+                            if (d > max_diff) {
+                                max_diff = d;
+                                max_iv = IntVect(AMREX_D_DECL(i, j, k));
+                            }
+                        }
             }
             amrex::Print() << "ddf_mismatch_location: lev=" << lev << " q=" << q
                            << " count_gt_1e-12=" << mismatch_count

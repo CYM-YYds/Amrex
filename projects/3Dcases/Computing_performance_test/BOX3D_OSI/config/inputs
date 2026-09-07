@@ -9,11 +9,11 @@ amr.regrid_int  = 32
 amr.max_level   = 3
 
 amr.grid_eff          = 0.7
-amr.n_error_buf       = 0 0 0 0
+amr.n_error_buf       = 1 1 1 1
 amr.max_grid_size     = 64 64 64 64
-amr.blocking_factor_x = 32 32 32 32
-amr.blocking_factor_y = 32 32 32 32
-amr.blocking_factor_z = 32 32 32 32
+amr.blocking_factor_x = 16 16 16 16
+amr.blocking_factor_y = 16 16 16 16
+amr.blocking_factor_z = 16 16 16 16
 
 amr.plot_file  = data32to64_validation/case_Re1000_
 amr.plot_int   = 8000
@@ -27,7 +27,7 @@ checkpoint.chk_prefix = chk_osi_validation
 checkpoint.keep_latest_only = true
 checkpoint.write_particles = false
 
-lbm.err = 0.005 0.010 0.020 0.040
+lbm.err = 0.004 0.08 0.16 0.32
 
 # 粗细网格覆盖掩码模式：
 # 0 = 不使用 mask，粗层所有 cell 都参与 Collide/Stream
@@ -65,7 +65,7 @@ lbm.interp_mode = 0
 verification.check_state_after_regrid = false
 verification.check_state_each_substep = false
 verification.convergence_enabled = true
-verification.convergence_check_int = 32000
+verification.convergence_check_int = 3200
 verification.convergence_trend_int = 1000
 verification.convergence_tolerance = 1.0e-12
 verification.convergence_required = 3
