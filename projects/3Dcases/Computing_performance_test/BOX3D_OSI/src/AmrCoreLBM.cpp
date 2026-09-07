@@ -3906,7 +3906,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
     }
     ParallelDescriptor::Barrier();
 
-    if (isIOP) {
+    if (isIOP) { //写Header
         std::ofstream header(out_chkname + "/Header", std::ios::out | std::ios::trunc);
         if (!header.is_open()) {
             amrex::Print() << "[Checkpoint][ERROR] Cannot open '" << out_chkname
