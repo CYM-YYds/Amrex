@@ -39,6 +39,7 @@ int main(int argc, char* argv[]) {
         std::string ddf_reference_checkpoint;
         bool convergence_enabled = false;
         int convergence_check_int = 1000;
+        int convergence_trend_int = 1000;
         int convergence_required = 3;
         amrex::Real convergence_tolerance = 1.0e-12;
         {
@@ -47,6 +48,7 @@ int main(int argc, char* argv[]) {
                 "ddf_reference_checkpoint", ddf_reference_checkpoint);
             pp_verify.query("convergence_enabled", convergence_enabled);
             pp_verify.query("convergence_check_int", convergence_check_int);
+            pp_verify.query("convergence_trend_int", convergence_trend_int);
             pp_verify.query("convergence_required", convergence_required);
             pp_verify.query("convergence_tolerance", convergence_tolerance);
         }
@@ -109,9 +111,11 @@ int main(int argc, char* argv[]) {
         lid.PrepareStateForAdvance();
 
         std::unique_ptr<amrex::MultiFab> previous_convergence_velocity;
+        std::unique_ptr<amrex::MultiFab> previous_trend_velocity;
         int convergence_streak = 0;
         if (convergence_enabled) {
             AMREX_ALWAYS_ASSERT(convergence_check_int > 0);
+            AMREX_ALWAYS_ASSERT(convergence_trend_int > 0);
             AMREX_ALWAYS_ASSERT(convergence_required > 0);
             AMREX_ALWAYS_ASSERT(convergence_tolerance > 0.0);
             if (lid.finestLevel() > 0) {
@@ -123,6 +127,12 @@ int main(int argc, char* argv[]) {
                 lid.velocityLevel(0).boxArray(), lid.velocityLevel(0).DistributionMap(),
                 AMREX_SPACEDIM, 0);
             amrex::MultiFab::Copy(*previous_convergence_velocity,
+                                  lid.velocityLevel(0), 0, 0,
+                                  AMREX_SPACEDIM, 0);
+            previous_trend_velocity = std::make_unique<amrex::MultiFab>(
+                lid.velocityLevel(0).boxArray(), lid.velocityLevel(0).DistributionMap(),
+                AMREX_SPACEDIM, 0);
+            amrex::MultiFab::Copy(*previous_trend_velocity,
                                   lid.velocityLevel(0), 0, 0,
                                   AMREX_SPACEDIM, 0);
         }
@@ -201,7 +211,11 @@ int main(int argc, char* argv[]) {
             cur_time += dt_0;
 
             bool converged = false;
-            if (convergence_enabled && step % convergence_check_int == 0) {
+            const bool convergence_sample = convergence_enabled &&
+                (step - begin_step) % convergence_check_int == 0;
+            const bool trend_sample = convergence_enabled &&
+                (step - begin_step) % convergence_trend_int == 0;
+            if (convergence_sample || trend_sample) {
                 // Collapse the AMR hierarchy onto the fixed level-0 grid.  This
                 // gives every physical location one contribution and remains
                 // comparable when regridding changes the fine BoxArrays.
@@ -210,45 +224,59 @@ int main(int argc, char* argv[]) {
                 }
                 lid.ComputeMacro();
                 amrex::Gpu::synchronize();
-                amrex::MultiFab velocity_delta(
-                    lid.velocityLevel(0).boxArray(),
-                    lid.velocityLevel(0).DistributionMap(),
-                    AMREX_SPACEDIM, 0);
-                amrex::MultiFab::Copy(velocity_delta, lid.velocityLevel(0), 0, 0,
-                                      AMREX_SPACEDIM, 0);
-                amrex::MultiFab::Subtract(
-                    velocity_delta, *previous_convergence_velocity,
-                    0, 0, AMREX_SPACEDIM, 0);
-                amrex::Gpu::synchronize();
-
-                amrex::Real numerator_sq = 0.0;
-                amrex::Real denominator_sq = 0.0;
-                for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-                    const amrex::Real diff_l2 = velocity_delta.norm2(dir, 1);
-                    const amrex::Real velocity_l2 = lid.velocityLevel(0).norm2(dir, 1);
-                    numerator_sq += diff_l2 * diff_l2;
-                    denominator_sq += velocity_l2 * velocity_l2;
+                const auto measure_velocity_change = [&](amrex::MultiFab& previous) {
+                    amrex::MultiFab velocity_delta(
+                        lid.velocityLevel(0).boxArray(),
+                        lid.velocityLevel(0).DistributionMap(),
+                        AMREX_SPACEDIM, 0);
+                    amrex::MultiFab::Copy(velocity_delta, lid.velocityLevel(0), 0, 0,
+                                          AMREX_SPACEDIM, 0);
+                    amrex::MultiFab::Subtract(
+                        velocity_delta, previous, 0, 0, AMREX_SPACEDIM, 0);
+                    amrex::Gpu::synchronize();
+                    amrex::Real numerator_sq = 0.0;
+                    amrex::Real denominator_sq = 0.0;
+                    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                        const amrex::Real diff_l2 = velocity_delta.norm2(dir, 1);
+                        const amrex::Real velocity_l2 = lid.velocityLevel(0).norm2(dir, 1);
+                        numerator_sq += diff_l2 * diff_l2;
+                        denominator_sq += velocity_l2 * velocity_l2;
+                    }
+                    return std::array<amrex::Real, 3>{
+                        std::sqrt(numerator_sq) /
+                            amrex::max(std::sqrt(denominator_sq),
+                                       std::numeric_limits<amrex::Real>::min()),
+                        std::sqrt(denominator_sq), std::sqrt(numerator_sq)};
+                };
+                if (trend_sample) {
+                    const auto values = measure_velocity_change(*previous_trend_velocity);
+                    amrex::Print() << "CONVERGENCE_TREND step=" << step
+                                   << " interval=" << convergence_trend_int
+                                   << " velocity_l2_relative=" << values[0]
+                                   << " velocity_l2=" << values[1]
+                                   << " delta_velocity_l2=" << values[2] << '\n';
+                    amrex::MultiFab::Copy(*previous_trend_velocity,
+                                          lid.velocityLevel(0), 0, 0,
+                                          AMREX_SPACEDIM, 0);
                 }
-                const amrex::Real residual = std::sqrt(numerator_sq) /
-                    amrex::max(std::sqrt(denominator_sq),
-                               std::numeric_limits<amrex::Real>::min());
-                const amrex::Real current_l2 = std::sqrt(denominator_sq);
-                const amrex::Real delta_l2 = std::sqrt(numerator_sq);
-                convergence_streak = residual < convergence_tolerance
-                    ? convergence_streak + 1 : 0;
-                converged = convergence_streak >= convergence_required;
-                amrex::Print() << "CONVERGENCE step=" << step
-                               << " interval=" << convergence_check_int
-                               << " velocity_l2_relative=" << residual
-                               << " velocity_l2=" << current_l2
-                               << " delta_velocity_l2=" << delta_l2
-                               << " tolerance=" << convergence_tolerance
-                               << " consecutive=" << convergence_streak
-                               << '/' << convergence_required
-                               << " converged=" << converged << '\n';
-                amrex::MultiFab::Copy(*previous_convergence_velocity,
-                                      lid.velocityLevel(0), 0, 0,
-                                      AMREX_SPACEDIM, 0);
+                if (convergence_sample) {
+                    const auto values = measure_velocity_change(*previous_convergence_velocity);
+                    convergence_streak = values[0] < convergence_tolerance
+                        ? convergence_streak + 1 : 0;
+                    converged = convergence_streak >= convergence_required;
+                    amrex::Print() << "CONVERGENCE step=" << step
+                                   << " interval=" << convergence_check_int
+                                   << " velocity_l2_relative=" << values[0]
+                                   << " velocity_l2=" << values[1]
+                                   << " delta_velocity_l2=" << values[2]
+                                   << " tolerance=" << convergence_tolerance
+                                   << " consecutive=" << convergence_streak
+                                   << '/' << convergence_required
+                                   << " converged=" << converged << '\n';
+                    amrex::MultiFab::Copy(*previous_convergence_velocity,
+                                          lid.velocityLevel(0), 0, 0,
+                                          AMREX_SPACEDIM, 0);
+                }
             }
 
             // if(step >= 98000 && step <= 100000 && step % 100 == 0)
