@@ -113,7 +113,8 @@ int main(int argc, char* argv[]) {
         const Real dx = x_length / input.n_cell[0];
         const LbmGridParams grid{
             input.n_cell[0], input.n_cell[1], input.n_cell[2],
-            x_length, y_length, z_length, dx, dx, dx / rate, dx / rate};
+            x_length, y_length, z_length, dx, dx, dx / rate, dx / rate,
+            U0 * x_length / Re};
         const std::array<int, AMREX_SPACEDIM> is_periodic{
             AMREX_D_DECL(periodic_input[0], periodic_input[1], periodic_input[2])};
 
