@@ -106,7 +106,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     force.resize(nlevs_max);
 
     tau.resize(nlevs_max);
-    tau[0] = tau_0;
+    tau[0] = grid_.viscosity / (cs2 * grid_.dt) + 0.5;
 
     for (int lev = 1; lev <= max_level; ++lev) {
         tau[lev] = 2 * (tau[lev - 1] - 0.5) + 0.5;
@@ -4624,7 +4624,7 @@ void AmrCoreLBM::ReadCheckpoint() {
         // A canonical checkpoint contains valid cells only. Reconstruct the
         // runtime replica ghosts after all topology-dependent caches exist.
         CommunicateOsiLevel(0);
-        const Real restart_time = params_.begin_step * dt_0;
+        const Real restart_time = params_.begin_step * grid_.dt;
         for (int lev = 1; lev <= finest_level; ++lev) {
             FillOsiGhostFromCoarse(lev, restart_time);
             CommunicateOsiLevel(lev);

@@ -67,6 +67,15 @@ InputConfig ReadInputConfig()
             config.is_periodic[dir] == 0 || config.is_periodic[dir] == 1,
             "geometry.is_periodic entries must be 0 or 1");
     }
+    const Real dx_x = (config.prob_hi[0] - config.prob_lo[0]) / config.n_cell[0];
+    const Real dx_y = (config.prob_hi[1] - config.prob_lo[1]) / config.n_cell[1];
+    const Real dx_z = (config.prob_hi[2] - config.prob_lo[2]) / config.n_cell[2];
+    const Real spacing_scale = std::max({Real(1.0), std::abs(dx_x),
+                                         std::abs(dx_y), std::abs(dx_z)});
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        std::abs(dx_x - dx_y) <= 1.0e-12 * spacing_scale &&
+        std::abs(dx_x - dx_z) <= 1.0e-12 * spacing_scale,
+        "current LBM kernels require isotropic coarse cell spacing");
 
     return config;
 }
@@ -138,7 +147,7 @@ int main(int argc, char* argv[]) {
         plot_int = lid.params().plot_int;
         begin_plot = lid.params().begin_plot;
 
-        amrex::Real cur_time = begin_step * dt_0;
+        amrex::Real cur_time = begin_step * grid.dt;
 
         if (begin_step > 0) {
             lid.ReadCheckpoint();
@@ -260,7 +269,7 @@ int main(int argc, char* argv[]) {
             /*--------------------------------------------------------------------*/
             auto end_time_compute_time = std::chrono::high_resolution_clock::now();
             compute_time += std::chrono::duration<float, std::milli>(end_time_compute_time - start_time_compute_time).count();
-            cur_time += dt_0;
+            cur_time += grid.dt;
 
             bool converged = false;
             const bool convergence_sample = convergence_enabled &&
