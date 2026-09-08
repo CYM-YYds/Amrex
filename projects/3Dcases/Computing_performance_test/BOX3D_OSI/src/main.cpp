@@ -26,6 +26,7 @@ struct InputConfig {
     int max_step = 0;
     Real stop_time = 0.0;
     int max_level = max_ref_level;
+    Vector<int> n_cell{AMREX_D_DECL(NX, NY, NZ)};
     Vector<Real> prob_lo{AMREX_D_DECL(0.0, 0.0, 0.0)};
     Vector<Real> prob_hi{AMREX_D_DECL(nx, ny, nz)};
     Vector<int> is_periodic{AMREX_D_DECL(0, 0, 0)};
@@ -41,6 +42,7 @@ InputConfig ReadInputConfig()
 
     ParmParse pp_amr("amr");
     pp_amr.query("max_level", config.max_level);
+    pp_amr.queryarr("n_cell", config.n_cell);
 
     ParmParse pp_geometry("geometry");
     pp_geometry.queryarr("prob_lo", config.prob_lo);
@@ -54,6 +56,9 @@ InputConfig ReadInputConfig()
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         config.max_level >= 0 && config.max_level <= max_ref_level,
         "amr.max_level must be within the compiled AMR level range");
+    for (const int cells : config.n_cell) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(cells > 0, "amr.n_cell must be positive");
+    }
     for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
             config.prob_hi[dir] > config.prob_lo[dir],
@@ -101,11 +106,12 @@ int main(int argc, char* argv[]) {
         const auto& prob_lo = input.prob_lo;
         const auto& prob_hi = input.prob_hi;
         const auto& periodic_input = input.is_periodic;
+        const IntVect n_cell(AMREX_D_DECL(input.n_cell[0], input.n_cell[1], input.n_cell[2]));
         const std::array<int, AMREX_SPACEDIM> is_periodic{
             AMREX_D_DECL(periodic_input[0], periodic_input[1], periodic_input[2])};
 
         amrex::Geometry geom(
-            amrex::Box({AMREX_D_DECL(0, 0, 0)}, {AMREX_D_DECL(NX - 1, NY - 1, NZ - 1)}),
+            amrex::Box(IntVect::TheZeroVector(), n_cell - IntVect::TheUnitVector()),
             amrex::RealBox({AMREX_D_DECL(prob_lo[0], prob_lo[1], prob_lo[2])},
                            {AMREX_D_DECL(prob_hi[0], prob_hi[1], prob_hi[2])}),
             amrex::CoordSys::cartesian, is_periodic);
