@@ -79,15 +79,7 @@ geometry.prob_lo     =  0.0   0.0   0.0
 geometry.prob_hi     =  128.0 128.0 128.0
 geometry.is_periodic =  0    0    0
 
-# amr.n_cell           =  64 64 32
-# amr.max_level        =  0
-
 # amr.v                =  1
-# amr.ref_ratio        =  2 2 2 2
-
-# amr.blocking_factor_x = 8
-# amr.blocking_factor_y = 8
-# amr.blocking_factor_z = 8
 # *****************************************************************
 # Particles
 # *****************************************************************
