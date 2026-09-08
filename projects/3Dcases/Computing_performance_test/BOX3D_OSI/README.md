@@ -45,8 +45,10 @@ checkpoint 不持久化 raw twisted 地址，restart 统一恢复为 phase 0 并
 四层诊断会对每次递归填充、推进和平均下传后的全部活动层执行 D3Q27 有限性、正密度
 与速度检查。job `585083` 曾在第 128 个 coarse step 的动态 regrid 后捕获 NaN；后续
 排查确认旧的“三百步发散”主要来自 covered/interface-covered 区域统计误报，详见下文。
-当前 `config/inputs` 使用 `amr.max_level=3` 和 `stream_mode=0` 进行四层三维方腔验证；
-这不构成 `stream_mode=1` 四层 OSI 路径的验收。
+当前 `config/inputs` 使用 `amr.max_level=2`、`stream_mode=0`、
+`amr.blocking_factor_* = 32` 和 `amr.n_error_buf = 1 1 1 1`，作为当前三层层级的
+A-B 稳定性配置。这不构成 `stream_mode=1` 或四层 OSI 路径的验收；历史四层结果只保留
+作诊断背景，不能与当前配置的运行结论混用。
 分层分叉 job `585078` 表明两层 active DDF 的最大 `Linf=4.996003611e-16`，但三层
 中间层为 `7.530773731e-5`；因此当前只解除编译/运行硬限制，尚未宣称三层以上与
 A-B 基线逐单元等价。`scripts/submit_osi_multilevel_ab.sh` 会以 `1e-12` 为门槛，
@@ -106,9 +108,9 @@ OSI 的 `Boundary()` 与 `Stream()` 都跳过 `covered_mask != 0`。从 BOX3D �
 “三百步发散”主要是 covered/interface-covered 统计误报；但这些聚合统计尚不足以
 证明 BOX3D 与 OSI 的 uncovered DDF 逐点完全一致，最终验收仍需 pointwise A/B。
 
-### Re=1000 三维方腔验证（2026-09-06）
+### Re=1000 三维方腔验证（2026-09-06，历史四层配置）
 
-当前正确性运行固定使用 `stream_mode=0`、`amr.max_level=3` 和
+该历史运行固定使用 `stream_mode=0`、`amr.max_level=3` 和
 `amr.regrid_int=32`。job `586364` 从 step 96000 的 checkpoint 继续至 step 192000，
 正常结束且未出现运行时发散。为避免不同 AMR 重构相位污染稳态判断，程序同时输出
 每 1000 步的 `CONVERGENCE_TREND` 和每 32000 步的同相位 `CONVERGENCE`：后者的
