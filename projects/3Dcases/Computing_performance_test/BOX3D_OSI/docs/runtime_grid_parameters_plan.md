@@ -130,6 +130,11 @@ AGAL 的 `Ny/Nz` 是由长宽比推导的，而本算例直接读取三维 `n_ce
 - 不出现 host variable in device code 错误。
 - 检查 `git diff --check` 和编译日志。
 
+本轮实际结果：默认 CUDA+MPI 完整编译成功，生成
+`main3d.gnu.TPROF.MPI.CUDA.ex`。短 smoke 作业因当前会话 UID 无法在调度环境解析而
+未提交成功，本地容器也缺少 `libcuda.so.1`；因此运行时数值矩阵仍需在正常登录节点上
+执行，不能仅凭本次编译宣称数值等价。
+
 ### 数值验证
 
 1. 默认配置 `128 128 128`：与迁移前比较初始 DDF、前 300 步 checksum、宏观量和 regrid 后状态。
