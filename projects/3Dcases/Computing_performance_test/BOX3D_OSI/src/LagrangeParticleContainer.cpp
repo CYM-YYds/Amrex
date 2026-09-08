@@ -237,6 +237,7 @@ void LagrangeParticleContainer::MoveParticle(int lev, amrex::Real cur_time)
     centre[2] = pos_new[2];
 
     const Real delta = Geom(lev).CellSize()[0];
+    const LbmGridParams grid = grid_;
 
     for(MyParIter pti(*this, lev); pti.isValid(); ++pti)
     {
@@ -253,9 +254,9 @@ void LagrangeParticleContainer::MoveParticle(int lev, amrex::Real cur_time)
 
         amrex::ParallelFor(n, [=]AMREX_GPU_DEVICE(int i) noexcept
         {
-            p_ptr[i].pos(0) = centre_pos[0] * grid_.dx + xlocal[i];
-            p_ptr[i].pos(1) = centre_pos[1] * grid_.dx + ylocal[i];
-            p_ptr[i].pos(2) = centre_pos[2] * grid_.dx + zlocal[i];
+            p_ptr[i].pos(0) = centre_pos[0] * grid.dx + xlocal[i];
+            p_ptr[i].pos(1) = centre_pos[1] * grid.dx + ylocal[i];
+            p_ptr[i].pos(2) = centre_pos[2] * grid.dx + zlocal[i];
         });
     }
 }
