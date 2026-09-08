@@ -43,7 +43,6 @@ InputConfig ReadInputConfig()
     ParmParse pp_amr("amr");
     pp_amr.query("max_level", config.max_level);
     pp_amr.queryarr("n_cell", config.n_cell);
-    pp_amr.queryarr("n_cell", config.n_cell);
 
     ParmParse pp_geometry("geometry");
     pp_geometry.queryarr("prob_lo", config.prob_lo);
@@ -57,9 +56,6 @@ InputConfig ReadInputConfig()
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         config.max_level >= 0 && config.max_level <= max_ref_level,
         "amr.max_level must be within the compiled AMR level range");
-    for (const int cells : config.n_cell) {
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(cells > 0, "amr.n_cell must be positive");
-    }
     for (const int cells : config.n_cell) {
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(cells > 0, "amr.n_cell must be positive");
     }
@@ -110,9 +106,6 @@ int main(int argc, char* argv[]) {
         const auto& prob_lo = input.prob_lo;
         const auto& prob_hi = input.prob_hi;
         const auto& periodic_input = input.is_periodic;
-        ConfigureLbmGrid(input.n_cell[0], input.n_cell[1], input.n_cell[2],
-                         prob_hi[0] - prob_lo[0], prob_hi[1] - prob_lo[1],
-                         prob_hi[2] - prob_lo[2]);
         const IntVect n_cell(AMREX_D_DECL(input.n_cell[0], input.n_cell[1], input.n_cell[2]));
         const std::array<int, AMREX_SPACEDIM> is_periodic{
             AMREX_D_DECL(periodic_input[0], periodic_input[1], periodic_input[2])};

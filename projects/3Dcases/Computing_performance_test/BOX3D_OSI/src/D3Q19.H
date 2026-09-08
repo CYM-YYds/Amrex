@@ -33,13 +33,13 @@ const int rate = (1 << max_ref_level);
 const Real D = 32.0; // obj_dim_z;
 const Real R = D / 2.0;
 
-AMREX_GPU_MANAGED inline int NX = 4 * static_cast<int>(D);
-AMREX_GPU_MANAGED inline int NY = 4 * static_cast<int>(D);
-AMREX_GPU_MANAGED inline int NZ = 4 * static_cast<int>(D);
+const int NX = 4 * D;
+const int NY = 4 * D;
+const int NZ = 4 * D;
 
-AMREX_GPU_MANAGED inline Real nx = NX;
-AMREX_GPU_MANAGED inline Real ny = NY;
-AMREX_GPU_MANAGED inline Real nz = NZ;
+const Real nx = NX;
+const Real ny = NY;
+const Real nz = NZ;
 
 #define dx_0 (nx / NX)
 #define dt_0 (dx_0)
@@ -73,34 +73,14 @@ AMREX_GPU_MANAGED inline Real nz = NZ;
 #define Mp_iner (Mp * D * dx_0 * D * dx_0 / 10.0)
 #define Mf_iner (Mf * D * dx_0 * D * dx_0 / 10.0)
 
-AMREX_GPU_MANAGED inline Real X = NX / 2.0;
-AMREX_GPU_MANAGED inline Real Y = NY / 2.0;
-AMREX_GPU_MANAGED inline Real Z = NZ / 2.0;
-AMREX_GPU_MANAGED inline Real center[DIM] = {X, Y, Z};
+const Real X = NX / 2.0;
+const Real Y = NY / 2.0;
+const Real Z = NZ / 2.0;
+const Real center[DIM] = {X, Y, Z};
 
 // 颗粒相关的参数
-AMREX_GPU_MANAGED inline Real dx_min = dx_0 / rate;
-AMREX_GPU_MANAGED inline Real dt_min = dt_0 / rate;
-
-inline void ConfigureLbmGrid(int nx_cells, int ny_cells, int nz_cells,
-                             Real x_length, Real y_length, Real z_length)
-{
-    AMREX_ALWAYS_ASSERT(nx_cells > 0 && ny_cells > 0 && nz_cells > 0);
-    NX = nx_cells;
-    NY = ny_cells;
-    NZ = nz_cells;
-    nx = x_length;
-    ny = y_length;
-    nz = z_length;
-    X = NX / 2.0;
-    Y = NY / 2.0;
-    Z = NZ / 2.0;
-    center[0] = X;
-    center[1] = Y;
-    center[2] = Z;
-    dx_min = dx_0 / rate;
-    dt_min = dt_0 / rate;
-}
+const Real dx_min = dx_0 / rate;
+const Real dt_min = dt_0 / rate;
 
 const Real rb = pow(((pow(rate * R, 3) + pow(rate * R - 1, 3)) / 2.0), (1.0 / 3.0)); // 修正的半径
 
