@@ -2,7 +2,7 @@
 # Run until nsteps == max_step or time == stop_time,
 #     whichever comes first
 # *****************************************************************
-max_step  = 96000
+max_step  = 160000
 stop_time = 2500000.0
 
 amr.regrid_int  = 32
@@ -21,7 +21,7 @@ amr.begin_plot = 0
 # 每 8000 个 coarse 步分别输出：速度 ux/uy/uz、密度 rho、Q/Vorticity。
 # 可用于中心线速度、质量守恒和涡结构随时间的正确性/收敛验证。
 
-checkpoint.begin_step = 0
+checkpoint.begin_step = 96000
 checkpoint.chk_int = 32000
 checkpoint.chk_prefix = chk_osi_validation
 checkpoint.keep_latest_only = true
