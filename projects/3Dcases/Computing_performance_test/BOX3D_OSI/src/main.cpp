@@ -54,17 +54,26 @@ int main(int argc, char* argv[]) {
         }
 
         int runtime_max_level = max_ref_level;
+        amrex::Vector<int> n_cell(AMREX_SPACEDIM, 0);
         amrex::Vector<amrex::Real> prob_lo(AMREX_SPACEDIM, 0.0);
         amrex::Vector<amrex::Real> prob_hi{AMREX_D_DECL(nx, ny, nz)};
         amrex::Vector<int> periodic_input(AMREX_SPACEDIM, 0);
         {
             amrex::ParmParse pp_amr("amr");
             pp_amr.query("max_level", runtime_max_level);
+            pp_amr.queryarr("n_cell", n_cell);
             amrex::ParmParse pp_geometry("geometry");
             pp_geometry.queryarr("prob_lo", prob_lo);
             pp_geometry.queryarr("prob_hi", prob_hi);
             pp_geometry.queryarr("is_periodic", periodic_input);
         }
+        if (n_cell[0] <= 0 || n_cell[1] <= 0 || n_cell[2] <= 0) {
+            n_cell = {AMREX_D_DECL(NX, NY, NZ)};
+        }
+        ConfigureLbmGrid(n_cell[0], n_cell[1], n_cell[2],
+                         prob_hi[0] - prob_lo[0],
+                         prob_hi[1] - prob_lo[1],
+                         prob_hi[2] - prob_lo[2]);
         const std::array<int, AMREX_SPACEDIM> is_periodic{
             AMREX_D_DECL(periodic_input[0], periodic_input[1], periodic_input[2])};
 

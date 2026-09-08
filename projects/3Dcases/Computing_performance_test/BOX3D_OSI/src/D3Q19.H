@@ -30,16 +30,18 @@ const int rate = (1 << max_ref_level);
 // const Real obj_dim_z = (obj_hi_z  - obj_lo_z);
 /*---------------------------------------------------*/
 
-const Real D = 32.0; // obj_dim_z;
-const Real R = D / 2.0;
+// Object diameter remains a model constant; mesh dimensions and physical
+// domain lengths are configured at runtime from the inputs file.
+inline constexpr Real D = 32.0;
+inline constexpr Real R = D / 2.0;
 
-const int NX = 4 * D;
-const int NY = 4 * D;
-const int NZ = 4 * D;
+inline int NX = 4 * static_cast<int>(D);
+inline int NY = 4 * static_cast<int>(D);
+inline int NZ = 4 * static_cast<int>(D);
 
-const Real nx = NX;
-const Real ny = NY;
-const Real nz = NZ;
+inline Real nx = NX;
+inline Real ny = NY;
+inline Real nz = NZ;
 
 #define dx_0 (nx / NX)
 #define dt_0 (dx_0)
@@ -73,23 +75,48 @@ const Real nz = NZ;
 #define Mp_iner (Mp * D * dx_0 * D * dx_0 / 10.0)
 #define Mf_iner (Mf * D * dx_0 * D * dx_0 / 10.0)
 
-const Real X = NX / 2.0;
-const Real Y = NY / 2.0;
-const Real Z = NZ / 2.0;
-const Real center[DIM] = {X, Y, Z};
+inline Real X = NX / 2.0;
+inline Real Y = NY / 2.0;
+inline Real Z = NZ / 2.0;
+inline Real center[DIM] = {X, Y, Z};
 
 // 颗粒相关的参数
-const Real dx_min = dx_0 / rate;
-const Real dt_min = dt_0 / rate;
+inline Real dx_min = dx_0 / rate;
+inline Real dt_min = dt_0 / rate;
 
-const Real rb = pow(((pow(rate * R, 3) + pow(rate * R - 1, 3)) / 2.0), (1.0 / 3.0)); // 修正的半径
+inline Real rb = pow(((pow(rate * R, 3) + pow(rate * R - 1, 3)) / 2.0), (1.0 / 3.0)); // 修正的半径
 
 const Real ds0 = 1.0;
-const int ns = PI * rb / ds0 + 1;  // 表面分带数
-const int nt1 = 2 * PI * rb / ds0; // 赤道上point数量
+inline int ns = PI * rb / ds0 + 1;  // 表面分带数
+inline int nt1 = 2 * PI * rb / ds0; // 赤道上point数量
 
 const Real LP_dr = 1.0;
-const Real LP_area = 4 * PI * rb * rb;
+inline Real LP_area = 4 * PI * rb * rb;
+
+inline void ConfigureLbmGrid(int nx_cells, int ny_cells, int nz_cells,
+                             Real x_length, Real y_length, Real z_length)
+{
+    AMREX_ALWAYS_ASSERT(nx_cells > 0 && ny_cells > 0 && nz_cells > 0);
+    NX = nx_cells;
+    NY = ny_cells;
+    NZ = nz_cells;
+    nx = x_length;
+    ny = y_length;
+    nz = z_length;
+    dx_min = dx_0 / rate;
+    dt_min = dt_0 / rate;
+    X = NX / 2.0;
+    Y = NY / 2.0;
+    Z = NZ / 2.0;
+    center[0] = X;
+    center[1] = Y;
+    center[2] = Z;
+    rb = pow(((pow(rate * R, 3) + pow(rate * R - 1, 3)) / 2.0),
+             (1.0 / 3.0));
+    ns = PI * rb / ds0 + 1;
+    nt1 = 2 * PI * rb / ds0;
+    LP_area = 4 * PI * rb * rb;
+}
 
 // 多颗粒相关的参数
 const Real safe = 0.025 * R;
