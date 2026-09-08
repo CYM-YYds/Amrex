@@ -54,11 +54,15 @@ int main(int argc, char* argv[]) {
         }
 
         int runtime_max_level = max_ref_level;
+        amrex::Vector<amrex::Real> prob_lo(AMREX_SPACEDIM, 0.0);
+        amrex::Vector<amrex::Real> prob_hi{AMREX_D_DECL(nx, ny, nz)};
         amrex::Vector<int> periodic_input(AMREX_SPACEDIM, 0);
         {
             amrex::ParmParse pp_amr("amr");
             pp_amr.query("max_level", runtime_max_level);
             amrex::ParmParse pp_geometry("geometry");
+            pp_geometry.queryarr("prob_lo", prob_lo);
+            pp_geometry.queryarr("prob_hi", prob_hi);
             pp_geometry.queryarr("is_periodic", periodic_input);
         }
         const std::array<int, AMREX_SPACEDIM> is_periodic{
@@ -66,7 +70,8 @@ int main(int argc, char* argv[]) {
 
         amrex::Geometry geom(
             amrex::Box({AMREX_D_DECL(0, 0, 0)}, {AMREX_D_DECL(NX - 1, NY - 1, NZ - 1)}),
-            amrex::RealBox({AMREX_D_DECL(0., 0., 0.)}, {AMREX_D_DECL(nx, ny, nz)}),
+            amrex::RealBox({AMREX_D_DECL(prob_lo[0], prob_lo[1], prob_lo[2])},
+                           {AMREX_D_DECL(prob_hi[0], prob_hi[1], prob_hi[2])}),
             amrex::CoordSys::cartesian, is_periodic);
 
         amrex::AmrInfo info{
