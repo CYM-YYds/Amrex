@@ -15,10 +15,13 @@
 
 ## 当前状态
 
-- `geometry.prob_lo`、`geometry.prob_hi` 和 `geometry.is_periodic` 已由 `inputs` 读取。
-- 参数读取入口已集中到 `main.cpp::ReadInputConfig()`。
-- 当前 `NX/NY/NZ` 仍由 `D3Q19.H` 中的 `D` 推导。
-- 已验证直接使用可变 host 全局变量会导致 CUDA device 编译错误，因此不能采用该方案。
+- 本计划的代码迁移已完成：`geometry.*`、`amr.n_cell` 由
+  `main.cpp::ReadInputConfig()` 统一读取、校验并构造 `LbmGridParams`。
+- `Geometry`、AMR coarse box、时间推进、碰撞松弛时间、IBM 力核、粒子和辅助压力点
+  均使用同一份运行时网格状态；GPU 路径通过显式参数传递，不读取可变 host 全局量。
+- 旧的 `NX/NY/NZ`、`nx/ny/nz`、`dx_0/dt_0/dx_min/dt_min` 派生宏已从活动代码路径移除；
+  `D` 和粒子离散表面常量仍按计划保留为编译期物理模型参数。
+- 默认构建配置使用 AMReX 26.06、C++20、CUDA、MPI，已完成 CUDA+MPI 完整编译验证。
 - 默认构建配置使用 AMReX 26.06、C++20、CUDA、MPI。
 - AGAL 对照显示：网格尺寸可以是运行时 `Mesh` 状态，而格子模型、block 布局等仍可由编译期参数包固定。
 
@@ -62,17 +65,19 @@ AGAL 的 `ArgsPack/LBMPack` 将维数、速度集、碰撞算子、插值阶数�
 - 运行时：`amr.n_cell`、`geometry.*`、`dx/dt`、输出、验证和 AMR 触发参数；
 - 连接层：`LbmGridParams`，由 host 构造并显式进入 GPU lambda/kernel。
 
-AGAL 的 `Ny/Nz` 是由长宽比推导的，而本算例直接读取三维 `n_cell`；这样可以支持非立方网格，但必须逐方向计算 cell size，不能默认 `dx == dy == dz`。
+AGAL 的 `Ny/Nz` 是由长宽比推导的，而本算例直接读取三维 `n_cell`。当前 LBM
+碰撞/时间尺度仍要求各向同性粗网格，因此输入校验会拒绝不满足
+`dx == dy == dz` 的组合；这项限制应在真正支持各向异性格子后再放宽。
 
 ## 实施阶段
 
-### 阶段 0：基线冻结
+### 阶段 0：基线冻结（已完成历史基线保存）
 
 - 保存当前工作区和可执行文件时间戳。
 - 使用默认 `inputs`、单 MPI rank、单 GPU、`stream_mode=0` 运行短基线。
 - 记录初始状态、前若干步 DDF checksum、宏观量范围和 regrid 事件。
 
-### 阶段 1：配置结构和输入校验
+### 阶段 1：配置结构和输入校验（已完成）
 
 - 在 `ReadInputConfig()` 中读取 `amr.n_cell`。
 - 检查三个尺寸为正数，并检查与 blocking factor、refinement ratio 的兼容性。
@@ -81,7 +86,7 @@ AGAL 的 `Ny/Nz` 是由长宽比推导的，而本算例直接读取三维 `n_ce
 - 启动时打印最终配置，便于复现实验。
 - 不在 `D3Q19.H` 中执行 `ParmParse`，也不让头文件全局初始化依赖运行时输入。
 
-### 阶段 2：Geometry 和 AMR 入口
+### 阶段 2：Geometry 和 AMR 入口（已完成）
 
 - 使用 `grid.nx_cells/grid.ny_cells/grid.nz_cells` 构造 coarse `Box`。
 - 使用 `prob_lo/prob_hi` 构造 `RealBox`。
@@ -89,13 +94,13 @@ AGAL 的 `Ny/Nz` 是由长宽比推导的，而本算例直接读取三维 `n_ce
 - 确认 `Geometry` 的 cell size 与参数结构中的 `dx` 一致。
 - 对非立方网格保存 `cell_size[3]`；只有在代码确实采用各向同性 LBM 时间尺度时，才将 `dt` 与指定方向的 `dx` 绑定，并在输入检查中明确该约束。
 
-### 阶段 3：主机端派生量
+### 阶段 3：主机端派生量（已完成）
 
 - 将 `dx_0`、`dt_0`、`tau_0`、`mv_0` 等从宏替换为基于 `LbmGridParams` 的小型 `AMREX_GPU_HOST_DEVICE` 函数或显式计算。
 - 检查 `D` 相关派生量（半径、粒子质量、惯量）是否仍按原有物理定义计算。
 - 不改变碰撞、推进、插值和 AverageDown 的算法顺序。
 
-### 阶段 4：GPU kernel 参数传递
+### 阶段 4：GPU kernel 参数传递（已完成）
 
 - 找出 `Kernels.H` 中直接使用网格全局量的 device 函数。
 - 为这些函数增加 `const LbmGridParams& grid` 参数，或在调用 lambda 中捕获按值复制的结构。
@@ -104,13 +109,13 @@ AGAL 的 `Ny/Nz` 是由长宽比推导的，而本算例直接读取三维 `n_ce
 - 优先沿现有 AMReX `ParallelFor` 调用链传递值对象；不要采用普通全局变量、`__managed__` 动态初始化或隐式 device 全局状态。
 - 每次 kernel 使用的网格量只从 `grid` 读取；禁止同一 kernel 同时读取 `grid` 和旧的 `NX/nx` 宏。
 
-### 阶段 5：粒子和边界逻辑
+### 阶段 5：粒子和边界逻辑（已完成）
 
 - 将 `LagrangeParticleContainer` 中直接使用 `NX/NY/NZ` 的边界判断改为使用参数结构或 `Geometry` domain 长度。
 - 明确粒子坐标是 cell index、coarse physical coordinate 还是 level-local coordinate。
 - 对非立方网格和非零 `prob_lo` 做最小冒烟测试。
 
-### 阶段 6：清理和文档
+### 阶段 6：清理和文档（代码清理已完成，运行矩阵待执行）
 
 - 删除不再使用的网格全局变量和宏。
 - 检查完整源码、`inputs`、脚本和文档中是否仍存在过时的 `NX = 4 * D` 假设。

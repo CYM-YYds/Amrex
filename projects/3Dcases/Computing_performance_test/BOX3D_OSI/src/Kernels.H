@@ -2977,13 +2977,13 @@ AMREX_GPU_HOST_DEVICE // 自适应加密
     state_error(int i, int j, int k, amrex::Array4<char> const& tag,
                 amrex::Array4<amrex::Real const> const& vort,
                 amrex::Real phierr, char tagval, char clearval, int lev,
-                amrex::Real dx, amrex::IntVect const& lo2,
+                amrex::Real dx, amrex::Real coarse_dx, amrex::IntVect const& lo2,
                 amrex::IntVect const& hi2, amrex::RealVect const& pos) {
-    Real x_r = pos[0] * dx_0 / dx;
-    Real y_r = pos[1] * dx_0 / dx;
-    Real z_r = pos[2] * dx_0 / dx;
+    Real x_r = pos[0] * coarse_dx / dx;
+    Real y_r = pos[1] * coarse_dx / dx;
+    Real z_r = pos[2] * coarse_dx / dx;
 
-    Real r_r = R * dx_0 / dx;
+    Real r_r = R * coarse_dx / dx;
 
     Real dist = sqrt((i - x_r) * (i - x_r) + (j - y_r) * (j - y_r) +
                      (k - z_r) * (k - z_r));
@@ -3013,14 +3013,14 @@ AMREX_GPU_HOST_DEVICE // 自适应加密
                   amrex::Real phierr, char tagval, char clearval, int lev,
                   amrex::GeometryData const& geomdata,
                   amrex::IntVect const& lo2, amrex::IntVect const& hi2,
-                  amrex::RealVect const& pos) {
+                  amrex::RealVect const& pos, amrex::Real coarse_dx) {
     const amrex::Real* dx = geomdata.CellSize();
 
-    Real x_r = pos[0] * dx_0 / dx[0];
-    Real y_r = pos[1] * dx_0 / dx[1];
-    Real z_r = pos[2] * dx_0 / dx[2];
+    Real x_r = pos[0] * coarse_dx / dx[0];
+    Real y_r = pos[1] * coarse_dx / dx[1];
+    Real z_r = pos[2] * coarse_dx / dx[2];
 
-    Real r_r = R * dx_0 / dx[0];
+    Real r_r = R * coarse_dx / dx[0];
 
     Real dist = sqrt((i - x_r) * (i - x_r) + (j - y_r) * (j - y_r) +
                      (k - z_r) * (k - z_r));
@@ -3091,7 +3091,8 @@ AMREX_GPU_HOST_DEVICE // 论文风格: 目标层级映射到 refine tag
                   amrex::Real phierr, char tagval, char clearval, int lev,
                   amrex::GeometryData const& geomdata,
                   amrex::IntVect const& lo2, amrex::IntVect const& hi2,
-                  amrex::RealVect* p_pos, const int particle_num) {
+                  amrex::RealVect* p_pos, const int particle_num,
+                  amrex::Real coarse_dx) {
     amrex::ignore_unused(clearval, geomdata, lo2, hi2, p_pos, particle_num);
 
     // 论文用块内最大涡量决定目标层级；这里先做单元级的目标层级映射，
@@ -3177,16 +3178,17 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
                   amrex::Real phierr, char tagval, char clearval, int lev,
                   amrex::GeometryData const& geomdata,
                   amrex::IntVect const& lo2, amrex::IntVect const& hi2,
-                  amrex::RealVect* p_pos, const int particle_num) {
+                  amrex::RealVect* p_pos, const int particle_num,
+                  amrex::Real coarse_dx) {
     const amrex::Real* dx = geomdata.CellSize();
 
     // 根据固体表面距离加密
     for (int p_num = 0; p_num < particle_num; p_num++) {
-        Real x_r = p_pos[p_num][0] * dx_0 / dx[0];
-        Real y_r = p_pos[p_num][1] * dx_0 / dx[0];
-        Real z_r = p_pos[p_num][2] * dx_0 / dx[0];
+        Real x_r = p_pos[p_num][0] * coarse_dx / dx[0];
+        Real y_r = p_pos[p_num][1] * coarse_dx / dx[1];
+        Real z_r = p_pos[p_num][2] * coarse_dx / dx[2];
 
-        Real r_r = R * dx_0 / dx[0];
+        Real r_r = R * coarse_dx / dx[0];
         Real d_r = 2 * r_r;
         Real dist = sqrt((i - x_r) * (i - x_r) + (j - y_r) * (j - y_r) +
                          (k - z_r) * (k - z_r));

@@ -22,9 +22,9 @@ void AuxiliaryPointContainer::InitCpPoint(int lev)
             p.id()  = j; //ParticleType::NextID();
             p.cpu() = ParallelDescriptor::MyProc();
 
-            p.pos(0) = (centre[0]) * delta[0] - rt * cos(j * alpha) * dx_min;
+            p.pos(0) = (centre[0]) * delta[0] - rt * cos(j * alpha) * grid_.dx_min;
             p.pos(1) = (centre[1]) * delta[0];
-            p.pos(2) = (centre[2]) * delta[0] + rt * sin(j * alpha) * dx_min;                         
+            p.pos(2) = (centre[2]) * delta[0] + rt * sin(j * alpha) * grid_.dx_min;
 
             attribs[PIdx2::cp] = 0.0;
 

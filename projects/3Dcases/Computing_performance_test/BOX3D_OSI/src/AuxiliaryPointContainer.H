@@ -8,6 +8,7 @@
 #include <AMReX_AmrParticles.H>
 
 #include "D3Q19.H"
+#include "LbmGridParams.H"
 
 struct PIdx2
 {
@@ -48,9 +49,11 @@ public:
 class AuxiliaryPointContainer : public amrex::ParticleContainer<0, 0, PIdx2::nattribs>
 {
 public:
-    AuxiliaryPointContainer(amrex::AmrCore* amr_core,  amrex::RealVect& point, const int idx)
+    AuxiliaryPointContainer(amrex::AmrCore* amr_core, amrex::RealVect const& point,
+                            const int idx, LbmGridParams grid)
         :   amrex::ParticleContainer<0, 0, PIdx2::nattribs>(amr_core->GetParGDB())
     {
+        grid_ = grid;
         radius = rb;      //lev=0网格下的解析度
         id = idx;
         centre  = {AMREX_D_DECL(point[0], point[1], point[2])};    //lev=0网格下
@@ -76,8 +79,9 @@ private://颗粒信息
 
     int id;
 
-    amrex::Real     radius; 
+    amrex::Real     radius;
     amrex::RealVect centre;
+    LbmGridParams grid_{};
 };
 
-#endif 
+#endif

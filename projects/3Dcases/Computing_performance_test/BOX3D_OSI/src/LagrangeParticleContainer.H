@@ -62,13 +62,21 @@ public:
 class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::nattribs>
 {
 public:
-    LagrangeParticleContainer(amrex::AmrCore* amr_core, LbmGridParams grid = {})
+    LagrangeParticleContainer(amrex::AmrCore* amr_core, LbmGridParams grid)
         :   amrex::ParticleContainer<0, 0, PIdx::nattribs>(amr_core->GetParGDB())
     {
         grid_ = grid;
         radius = rate*R;      //lev=0网格下的解析度, 算球体可能要内缩一下
 
-        centre  = {AMREX_D_DECL(X, Y, Z)};    //lev=0网格下
+        centre  = {AMREX_D_DECL(0.5 * grid_.nx_cells,
+                                0.5 * grid_.ny_cells,
+                                0.5 * grid_.nz_cells)};    //lev=0网格下
+
+        const Real particle_length = D * grid_.dx;
+        const Real particle_volume = PI * particle_length * particle_length *
+                                     particle_length / 6.0;
+        particle_mass_ = rhop * particle_volume;
+        particle_inertia_ = particle_mass_ * particle_length * particle_length / 10.0;
 
         F_tot      = {AMREX_D_DECL(0., 0., 0.)};
         T_tot      = {AMREX_D_DECL(0., 0., 0.)};
@@ -81,13 +89,19 @@ public:
     }
 
     LagrangeParticleContainer(amrex::AmrCore* amr_core,  amrex::RealVect& point, const int idx,
-                              LbmGridParams grid = {})
+                              LbmGridParams grid)
         :   amrex::ParticleContainer<0, 0, PIdx::nattribs>(amr_core->GetParGDB())
     {
         grid_ = grid;
         radius = rb;      //lev=0网格下的解析度, 算球体可能要内缩一下
         id = idx;
         centre  = {AMREX_D_DECL(point[0], point[1], point[2])};    //lev=0网格下
+
+        const Real particle_length = D * grid_.dx;
+        const Real particle_volume = PI * particle_length * particle_length *
+                                     particle_length / 6.0;
+        particle_mass_ = rhop * particle_volume;
+        particle_inertia_ = particle_mass_ * particle_length * particle_length / 10.0;
 
         F_tot      = {AMREX_D_DECL(0., 0., 0.)};
         T_tot      = {AMREX_D_DECL(0., 0., 0.)};
@@ -135,6 +149,8 @@ public:
 private://颗粒信息
 
     LbmGridParams grid_{};
+    amrex::Real particle_mass_ = 0.0;
+    amrex::Real particle_inertia_ = 0.0;
 
     int id;
 

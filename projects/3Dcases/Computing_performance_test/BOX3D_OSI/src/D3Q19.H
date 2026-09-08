@@ -33,16 +33,6 @@ const int rate = (1 << max_ref_level);
 const Real D = 32.0; // obj_dim_z;
 const Real R = D / 2.0;
 
-const int NX = 4 * D;
-const int NY = 4 * D;
-const int NZ = 4 * D;
-
-const Real nx = NX;
-const Real ny = NY;
-const Real nz = NZ;
-
-#define dx_0 (nx / NX)
-#define dt_0 (dx_0)
 #define c (1.0)
 #define cs (c / sqrt(3.0))
 #define cs2 (cs * cs)
@@ -54,8 +44,6 @@ const Real nz = NZ;
 #define Re (1000)
 #define U0 (0.05)
 #define Ma (U0 / cs)
-#define mv_0 (U0 * NX * dx_0 / Re)
-#define tau_0 (mv_0 / (cs2 * dt_0) + 0.5)
 #define G (981)
 /*-----------颗粒流--------------------------*/
 // #define Re    (1.5)
@@ -67,21 +55,6 @@ const Real nz = NZ;
 
 #define rhof (rho0)
 #define rhop (1.14 * rho0)
-#define volume (PI * D * dx_0 * D * dx_0 * D * dx_0 / 6.0)
-#define Mp (rhop * volume) // g
-#define Mf (rhof * volume) // g
-#define Mp_iner (Mp * D * dx_0 * D * dx_0 / 10.0)
-#define Mf_iner (Mf * D * dx_0 * D * dx_0 / 10.0)
-
-const Real X = NX / 2.0;
-const Real Y = NY / 2.0;
-const Real Z = NZ / 2.0;
-const Real center[DIM] = {X, Y, Z};
-
-// 颗粒相关的参数
-const Real dx_min = dx_0 / rate;
-const Real dt_min = dt_0 / rate;
-
 const Real rb = pow(((pow(rate * R, 3) + pow(rate * R - 1, 3)) / 2.0), (1.0 / 3.0)); // 修正的半径
 
 const Real ds0 = 1.0;

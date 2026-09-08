@@ -132,7 +132,8 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     points.resize(particle_num);
     // generateSpheres(particle_num, R, NX, NY, NZ, points);
     // generateSpheres(D, NX, NY, NZ, points);
-    points[0] = {X, Y, Z};
+    points[0] = {0.5 * grid_.nx_cells, 0.5 * grid_.ny_cells,
+                 0.5 * grid_.nz_cells};
     // points[1] = {X + 2.0*D, Y, Z};
     // points[0] = {X + 0.03*D, Y + 0.03*D, 21.00*D};
     // points[1] = {X - 0.03*D, Y - 0.03*D, 18.96*D};
@@ -281,8 +282,8 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  NX     =" << std::setw(10) << std::right << Geom(0).Domain().length(0) << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  NY     =" << std::setw(10) << std::right << Geom(0).Domain().length(1) << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  NZ     =" << std::setw(10) << std::right << Geom(0).Domain().length(2) << std::endl;
-    amrex::Print() << std::setw(15) << std::left << "  dx_0   =" << std::setw(10) << std::right << dx_0 << std::endl;
-    amrex::Print() << std::setw(15) << std::left << "  dx_min =" << std::setw(10) << std::right << dx_min << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  dx_0   =" << std::setw(10) << std::right << grid_.dx << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  dx_min =" << std::setw(10) << std::right << grid_.dx_min << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  Re     =" << std::setw(10) << std::right << Re << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  cs2    =" << std::setw(10) << std::right << cs2 << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  p0     =" << std::setw(10) << std::right << p0 << std::endl;
@@ -3298,7 +3299,8 @@ void AmrCoreLBM::RedistributeParticle() {
 
 void AmrCoreLBM::InitCpPoint(int lev) {
     for (int i = 0; i < particle_num; i++) {
-        particlesCp[i] = std::make_unique<AuxiliaryPointContainer>(this, points[i], i);
+        particlesCp[i] = std::make_unique<AuxiliaryPointContainer>(
+            this, points[i], i, grid_);
         particlesCp[i]->InitCpPoint(lev);
     }
 }

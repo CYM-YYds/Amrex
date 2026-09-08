@@ -20,9 +20,9 @@ void LagrangeParticleContainer::PrintParticleParm()
 
     amrex::Print() << std::setw(15) << std::left << "  rhof   =" << std::setw(10) << std::right << rhof << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  rhop   =" << std::setw(10) << std::right << rhop << std::endl;
-    amrex::Print() << std::setw(15) << std::left << "  mp     =" << std::setw(10) << std::right << Mp << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  mp     =" << std::setw(10) << std::right << particle_mass_ << std::endl;
     // amrex::Print() << std::setw(15) << std::left << "  mf     =" << std::setw(10) << std::right << Mf << std::endl;
-    amrex::Print() << std::setw(15) << std::left << "  Mp     =" << std::setw(10) << std::right << Mp_iner << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  Mp     =" << std::setw(10) << std::right << particle_inertia_ << std::endl;
     // amrex::Print() << std::setw(15) << std::left << "  Mf     =" << std::setw(10) << std::right << Mf_iner << std::endl;
 
     amrex::Print() << "╚══════════════════════════════════════════════════════╝" << std::endl;
@@ -208,18 +208,18 @@ void LagrangeParticleContainer::MoveParticle(int lev, amrex::Real cur_time)
     amrex::RealVect pos_dif, pos_new;
     amrex::RealVect vel_new, angvel_new;
     amrex::RealVect G_dire{0.0, 0.0, -1.0};
-    amrex::Real Fgra = (1.0 - rhof / rhop) * Mp * G;
+    amrex::Real Fgra = (1.0 - rhof / rhop) * particle_mass_ * G;
     
     for(int i = 0; i < AMREX_SPACEDIM; i++)
     {
         // F_lub[i] = 0.0;
 
-        vel_new[i] = (1.0 + rhof/rhop)*vel[i] - (rhof/rhop)*vel_old[i] + (F_tot[i] + Fgra * G_dire[i] + F_lub[i])/  Mp * grid_.dt_min;
+        vel_new[i] = (1.0 + rhof/rhop)*vel[i] - (rhof/rhop)*vel_old[i] + (F_tot[i] + Fgra * G_dire[i] + F_lub[i])/  particle_mass_ * grid_.dt_min;
         pos_new[i] = centre[i] + grid_.dt_min * 0.5 * (vel_new[i] + vel[i])/grid_.dx;
         vel_old[i] = vel[i];
         vel[i] = vel_new[i];
 
-        angvel_new[i] = (1.0 + rhof/rhop)*angvel[i] - (rhof/rhop) * angvel_old[i] + T_tot[i] * grid_.dt_min / Mp_iner;
+        angvel_new[i] = (1.0 + rhof/rhop)*angvel[i] - (rhof/rhop) * angvel_old[i] + T_tot[i] * grid_.dt_min / particle_inertia_;
         angvel_old[i] = angvel[i];
         angvel[i] = angvel_new[i];    
     }
@@ -467,7 +467,7 @@ void LagrangeParticleContainer::CollideParticle(const std::unique_ptr<LagrangePa
     amrex::Real lc  = sqrt(lxc*lxc + lyc*lyc + lzc*lzc);
 
     amrex::Real Ftmp =  0.0;
-    amrex::Real Fgra = (1.0 - 1.0 * rhof / rhop) * Mp * G * grid_.dx_min; //调整了大小不要忘记
+    amrex::Real Fgra = (1.0 - 1.0 * rhof / rhop) * particle_mass_ * G * grid_.dx_min; //调整了大小不要忘记
     amrex::Real npp1 = (lc - R * 2.0 - safe) / safe;
     amrex::Real npp2 = (R * 2.0 - lc) / safe;
 
@@ -509,7 +509,7 @@ void LagrangeParticleContainer::CollideWall()
     amrex::Real lxc, lyc, lzc, lc;
     amrex::Real Ftmp, npw1, npw2, xc_fict;
 
-    amrex::Real Fgra = (1.0 - rhof / rhop) * Mp * G * grid_.dx_min;
+    amrex::Real Fgra = (1.0 - rhof / rhop) * particle_mass_ * G * grid_.dx_min;
       
     //左边界
     if(pos_p1[0] <= (R + safe + 1.0))

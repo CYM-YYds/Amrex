@@ -44,6 +44,19 @@ dsub -s ./scripts/submit.sh
 TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本。专项复现入口位于
 `scripts/submit_*.sh`，对应日志检查位于 `tests/`。
 
+## 运行时网格参数
+
+`config/inputs` 是网格和物理域的唯一运行时入口：
+
+- `amr.n_cell` 设置 level-0 的 `NX/NY/NZ`；
+- `geometry.prob_lo`、`geometry.prob_hi` 设置物理域边界；
+- `geometry.is_periodic` 设置三个方向的周期性。
+
+程序启动时会校验尺寸、边界和各向同性 cell spacing，并把派生的 `dx/dt`、最细层
+`dx_min/dt_min` 放入轻量 `LbmGridParams`，显式传给 AMR、粒子和 GPU kernel。当前
+碰撞模型要求三个方向的粗网格 spacing 相同，因此修改 `n_cell` 时应同步调整域长度。
+`D3Q27` 速度集、`Q`、最大编译层数和物体直径 `D` 仍属于编译期模型参数。
+
 ## 模式和验证边界
 
 - `stream_mode=0`：双数组数值基准路径，当前正确性工作的优先对象。

@@ -26,9 +26,9 @@ struct InputConfig {
     int max_step = 0;
     Real stop_time = 0.0;
     int max_level = max_ref_level;
-    Vector<int> n_cell{AMREX_D_DECL(NX, NY, NZ)};
+    Vector<int> n_cell{AMREX_D_DECL(128, 128, 128)};
     Vector<Real> prob_lo{AMREX_D_DECL(0.0, 0.0, 0.0)};
-    Vector<Real> prob_hi{AMREX_D_DECL(nx, ny, nz)};
+    Vector<Real> prob_hi{AMREX_D_DECL(128.0, 128.0, 128.0)};
     Vector<int> is_periodic{AMREX_D_DECL(0, 0, 0)};
 };
 
