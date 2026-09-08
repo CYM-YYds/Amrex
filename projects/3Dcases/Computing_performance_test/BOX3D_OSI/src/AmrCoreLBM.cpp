@@ -3935,9 +3935,6 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             lev, out_chkname, level_prefix, "f_old");
         if (stream_mode == 0) {
             VisMF::Write(f_old[lev], old_name);
-            VisMF::Write(
-                f_new[lev], MultiFabFileFullPrefix(
-                                lev, out_chkname, level_prefix, "f_new"));
             continue;
         }
 
@@ -3983,7 +3980,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
     ParallelDescriptor::Barrier();
 
     if (params_.keep_latest_only && isIOP) {
-        DIR* dir = opendir(".");
+        DIR* dir = opendir("."); // 打开当前工作目录
         if (dir) {
             struct dirent* entry;
             int removed_count = 0;
@@ -3991,17 +3988,17 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
                 if (name == out_chkname) {
                     return false;
                 }
-                if (name.rfind(params_.chk_prefix, 0) != 0) {
+                if (name.rfind(params_.chk_prefix, 0) != 0) { // 检查前缀
                     return false;
                 }
-                if (name.size() <= params_.chk_prefix.size()) {
+                if (name.size() <= params_.chk_prefix.size()) { // 确保前缀后面存在内容
                     return false;
                 }
                 return std::all_of(name.begin() + params_.chk_prefix.size(), name.end(),
-                                   [](unsigned char ch) { return std::isdigit(ch); });
+                                   [](unsigned char ch) { return std::isdigit(ch); }); // 只有当前缀后面的所有字符都是数字时，才判定为 checkpoint。
             };
 
-            while ((entry = readdir(dir)) != nullptr) {
+            while ((entry = readdir(dir)) != nullptr) { // 遍历当前目录
                 std::string name(entry->d_name);
                 if (is_chk_dir(name)) {
                     amrex::Print() << "[Checkpoint] Removing old checkpoint directory '" << name << "'\n";
@@ -4017,7 +4014,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             }
             closedir(dir);
             amrex::Print() << "[Checkpoint] Old checkpoint cleanup done. removed=" << removed_count << "\n";
-        } else {
+        } else { // 目录无法打开时
             amrex::Print() << "[Checkpoint][WARN] Could not open current directory for deleting old checkpoints\n";
         }
     }
@@ -4482,7 +4479,7 @@ void AmrCoreLBM::ReadCheckpoint() {
     amrex::Vector<char> header_chars;
     ParallelDescriptor::ReadAndBcastFile(header_file, header_chars);
     std::string header_str(header_chars.dataPtr());
-    std::istringstream is(header_str);
+    std::istringstream is(header_str); // 随后将字符串包装成输入流，便于逐行解析。
 
     std::string label;
     std::getline(is, label);
@@ -4490,9 +4487,10 @@ void AmrCoreLBM::ReadCheckpoint() {
         label == checkpoint_label_v1 || label == checkpoint_label_v2,
         "Invalid checkpoint header");
 
-    // Version 1 is the historical A-B format. Its DDF arrays were already
-    // canonical, so it is safe to load explicitly as canonical input. Version
-    // 2 names the layout and never treats an unidentified array as OSI raw.
+    // 版本1采用旧式A‑B格式。它的DDF数组本身已经是标准格式，
+    // 因此可以直接作为标准输入加载。版本2对数据布局进行命名，
+    // 并且不会将未识别的数组视作OSI原始数据。
+
     std::string stored_layout = checkpoint_layout_ab;
     if (label == checkpoint_label_v2) {
         std::getline(is, stored_layout);
@@ -4512,7 +4510,7 @@ void AmrCoreLBM::ReadCheckpoint() {
     }
 
     int finest_in_file;
-    is >> finest_in_file;
+    is >> finest_in_file; // getline适合读字符串, operator>> 适合读取整数、浮点数等结构化数据
     {
         std::string tmp;
         std::getline(is, tmp);
@@ -4533,12 +4531,14 @@ void AmrCoreLBM::ReadCheckpoint() {
         }
     }
 
-    SetFinestLevel(finest_in_file);
+    SetFinestLevel(finest_in_file); // 将当前对象的最高层级设置为 checkpoint 中保存的层级。
     for (int lev = 0; lev <= finest_level; ++lev) {
         SetBoxArray(lev, ba_file[lev]);
-        // Rebuild ownership for the current MPI size. VisMF reads the stored
-        // layout independently; ParallelCopy below redistributes canonical
-        // valid data onto this DistributionMapping.
+        /* checkpoint 文件
+            ↓ VisMF::Read
+        按照文件中原有布局读取
+            ↓ ParallelCopy
+        按照当前 MPI 进程数重新分配 */
         SetDistributionMap(lev, DistributionMapping(ba_file[lev]));
     }
 
