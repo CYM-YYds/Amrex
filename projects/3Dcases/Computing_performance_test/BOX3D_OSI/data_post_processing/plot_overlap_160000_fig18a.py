@@ -23,8 +23,8 @@ OUT = HERE / "Re1000_3D_overlap_160000_fig18a.png"
 
 # fig18a 机器提取参考系列配色
 REF_STYLE = {
-    "Cortes_and_Miller_circle": {"color": "#1f77b4", "marker": "o",
-                                  "label": "Fig.18(a) Cortes & Miller circle"},
+    "AMR_triangle": {"color": "#d62728", "label": "Fig.18(a) AMR triangle"},
+    "Cortes_and_Miller_circle": {"color": "#1f77b4", "label": "Fig.18(a) Cortes & Miller circle"},
 }
 
 

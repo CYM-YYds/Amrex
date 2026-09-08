@@ -3906,7 +3906,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
     }
     ParallelDescriptor::Barrier();
 
-    if (isIOP) { //写Header
+    if (isIOP) { // 写Header
         std::ofstream header(out_chkname + "/Header", std::ios::out | std::ios::trunc);
         if (!header.is_open()) {
             amrex::Print() << "[Checkpoint][ERROR] Cannot open '" << out_chkname
@@ -3927,7 +3927,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             DistributionMap(lev).writeOn(header);
             header << '\n';
         }
-        header.flush();
+        header.flush(); // 将 C++ 输出缓冲区中的数据立即刷新到文件中
     }
 
     for (int lev = 0; lev <= finest_level; ++lev) {
@@ -3941,9 +3941,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             continue;
         }
 
-        // Checkpoint only persists logical valid DDF. Raw OSI coordinates and
-        // Fab-local phase are deliberately not part of the file format, so the
-        // checkpoint can be restarted with another DistributionMapping.
+        // 保存检查点时不写入 OSI 原始坐标、Fab 局部相位；重启作业时允许使用完全不同的进程网格分配策略，不需要和生成 checkpoint 时的`DistributionMapping`保持一致。
         const MultiFab& state = osi_state.at(lev);
         MultiFab canonical(
             state.boxArray(), state.DistributionMap(), Q, 0);
