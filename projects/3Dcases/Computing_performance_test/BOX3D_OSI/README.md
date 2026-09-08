@@ -63,9 +63,3 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
   [DDF 粗细网格填充](docs/DDF粗细网格填充学习文档.md)：粗细层数据语义。
 - [性能分析](docs/performance_profiling.md) 与 [MLUPS 记录](docs/MLUPS记录.md)：
   历史性能证据及其适用边界。
-
-## 修改约定
-
-修改代码前遵守仓库根 `CLAUDE.md`/`AGENTS.md` 的基线提交要求。物理模型、时间推进、
-输出或 AMR 行为变更前先读 `config/inputs`；结束时至少运行 `git diff --check`，并在
-报告中写清配置、日志来源以及测试没有证明什么。
