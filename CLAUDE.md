@@ -82,6 +82,10 @@ dsub -s ./scripts/submit.sh
 - 在修改物理模型、时间推进、输出频率或 AMR 行为前，优先阅读 `config/inputs`。
 - 如果任务涉及编译行为，请检查 `scripts/compile.sh` 和目标算例的 `config/GNUmakefile`。
 - 如果任务涉及运行和提交行为，请检查目标算例的 `scripts/submit.sh`。
+- `projects/3Dcases/Computing_performance_test/BOX3D_OSI` 的 Python 后处理统一使用
+  仓库根 `.venv/bin/python`；该算例目录没有独立 `.venv`。生成
+  `data_post_processing/` 图片时必须标注步数、归一化方式和参考数据来源，不能依赖
+  系统 Python 的包环境。
 
 ## 本仓库当前的特别注意事项
 
