@@ -107,6 +107,13 @@ int main(int argc, char* argv[]) {
         const auto& prob_hi = input.prob_hi;
         const auto& periodic_input = input.is_periodic;
         const IntVect n_cell(AMREX_D_DECL(input.n_cell[0], input.n_cell[1], input.n_cell[2]));
+        const Real x_length = prob_hi[0] - prob_lo[0];
+        const Real y_length = prob_hi[1] - prob_lo[1];
+        const Real z_length = prob_hi[2] - prob_lo[2];
+        const Real dx = x_length / input.n_cell[0];
+        const LbmGridParams grid{
+            input.n_cell[0], input.n_cell[1], input.n_cell[2],
+            x_length, y_length, z_length, dx, dx, dx / rate, dx / rate};
         const std::array<int, AMREX_SPACEDIM> is_periodic{
             AMREX_D_DECL(periodic_input[0], periodic_input[1], periodic_input[2])};
 
@@ -123,7 +130,7 @@ int main(int argc, char* argv[]) {
             amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(8, 8, 8)}},        // 与 BOX3D 基准一致的网格分块因子
             amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(128, 128, 128)}}}; // 最大网格块大小
 
-        AmrCoreLBM lid(geom, info);
+        AmrCoreLBM lid(geom, info, grid);
         begin_step = lid.params().begin_step;
         chk_int = lid.params().chk_int;
         regrid_int = lid.params().regrid_int;

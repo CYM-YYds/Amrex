@@ -69,8 +69,9 @@ convertToDeviceVector(amrex::Vector<T> v) {
 //********************************************************************//
 //                           constructor                              //
 //********************************************************************//
-AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const& amr_info)
-    : AmrCore(level_0_geom, amr_info) {
+AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const& amr_info,
+                       LbmGridParams grid)
+    : AmrCore(level_0_geom, amr_info), grid_(grid) {
     ReadParameters();
 
     int nlevs_max = max_level + 1;

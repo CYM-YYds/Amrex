@@ -18,6 +18,8 @@
 #include <string>
 #include <utility>
 
+#include "LbmGridParams.H"
+
 #include "LagrangeParticleContainer.H"
 #include "AuxiliaryPointContainer.H"
 #include "OsiIndex.H"
@@ -87,7 +89,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     //********************************************************************//
     AmrCoreLBM();
     ~AmrCoreLBM() override;
-    AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const& amr_info);
+    AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const& amr_info,
+               LbmGridParams grid);
     AmrCoreLBM(AmrCoreLBM&& rhs) noexcept = default;
     AmrCoreLBM& operator=(AmrCoreLBM&& rhs) noexcept = default;
     AmrCoreLBM(const AmrCoreLBM& rhs) = delete;
@@ -116,6 +119,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     const RuntimeParams& params() const {
         return params_;
     }
+    const LbmGridParams& gridParams() const noexcept { return grid_; }
     const amrex::MultiFab& velocityLevel(int lev) const {
         return velocity.at(lev);
     }
@@ -210,6 +214,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow) override;
 
   private:
+
+    LbmGridParams grid_{};
     void BuildBoundaryWorkBoxes();
     void BuildOsiCommunicationRegionCache(int lev);
     void BuildInterpolationCache();
