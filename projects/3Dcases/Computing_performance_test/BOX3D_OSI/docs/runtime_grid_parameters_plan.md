@@ -20,6 +20,7 @@
 - 当前 `NX/NY/NZ` 仍由 `D3Q19.H` 中的 `D` 推导。
 - 已验证直接使用可变 host 全局变量会导致 CUDA device 编译错误，因此不能采用该方案。
 - 默认构建配置使用 AMReX 26.06、C++20、CUDA、MPI。
+- AGAL 对照显示：网格尺寸可以是运行时 `Mesh` 状态，而格子模型、block 布局等仍可由编译期参数包固定。
 
 ## 设计原则
 
@@ -29,10 +30,12 @@
 4. 传入 device 的参数结构保持小而平坦，只包含标量和固定大小数组。
 5. 物理模型常量与算例运行参数分离；不把 D3Q27 离散速度等编译期模型数据参数化。
 6. 默认 `128 x 128 x 128` 配置必须在迁移前后保持数值一致。
+7. 借鉴 AGAL 的分层：编译期只选择模型和 kernel 布局，运行时对象保存网格和物理域状态。
+8. 不把完整 `Geometry`、`MultiFab` 或动态容器塞进 GPU 参数；device 参数只保存小型标量/固定数组。
 
 ## 目标数据结构
 
-在 `D3Q19.H` 或专用配置头文件中定义可复制到 device 的轻量结构：
+在专用配置头文件中定义可复制到 device 的轻量结构。该结构对应 AGAL 的 `Mesh` 运行时网格状态，不替代 `D3Q19` 的编译期速度集和权重：
 
 ```cpp
 struct LbmGridParams {
@@ -49,7 +52,17 @@ struct LbmGridParams {
 };
 ```
 
-该结构由主机端读取 `inputs` 后一次构造，并按值捕获到 AMReX GPU lambda 或作为 kernel 参数传递。不得重新引入 `NX/nx/dx_min` 等可变 host 全局变量。
+该结构由主机端读取 `inputs` 后一次构造，并按值捕获到 AMReX GPU lambda 或作为 kernel 参数传递。不得重新引入 `NX/nx/dx_min` 等可变 host 全局变量。结构应由 `AmrCoreLBM` 持有，并通过只读访问器提供给调用层。
+
+## 从 AGAL 借鉴的边界
+
+AGAL 的 `ArgsPack/LBMPack` 将维数、速度集、碰撞算子、插值阶数和 block 布局固定在编译期；`Mesh::M_Init()` 再从 `input.txt` 读取 `Nx`、物理长度、周期性和 AMR 控制量，并计算 `Ny/Nz/dx`。本算例采用同样的边界：
+
+- 编译期：`DIM`、`Q`、D3Q19/D3Q27 速度集、权重、`nghost` 假设和最大编译层数；
+- 运行时：`amr.n_cell`、`geometry.*`、`dx/dt`、输出、验证和 AMR 触发参数；
+- 连接层：`LbmGridParams`，由 host 构造并显式进入 GPU lambda/kernel。
+
+AGAL 的 `Ny/Nz` 是由长宽比推导的，而本算例直接读取三维 `n_cell`；这样可以支持非立方网格，但必须逐方向计算 cell size，不能默认 `dx == dy == dz`。
 
 ## 实施阶段
 
@@ -66,6 +79,7 @@ struct LbmGridParams {
 - 从 `prob_hi - prob_lo` 计算物理域长度。
 - 构造 `LbmGridParams`，统一计算 `dx/dt/dx_min/dt_min`。
 - 启动时打印最终配置，便于复现实验。
+- 不在 `D3Q19.H` 中执行 `ParmParse`，也不让头文件全局初始化依赖运行时输入。
 
 ### 阶段 2：Geometry 和 AMR 入口
 
@@ -73,6 +87,7 @@ struct LbmGridParams {
 - 使用 `prob_lo/prob_hi` 构造 `RealBox`。
 - 保持 AMR refinement ratio、最大层数和 BoxArray 逻辑不变。
 - 确认 `Geometry` 的 cell size 与参数结构中的 `dx` 一致。
+- 对非立方网格保存 `cell_size[3]`；只有在代码确实采用各向同性 LBM 时间尺度时，才将 `dt` 与指定方向的 `dx` 绑定，并在输入检查中明确该约束。
 
 ### 阶段 3：主机端派生量
 
@@ -86,6 +101,8 @@ struct LbmGridParams {
 - 为这些函数增加 `const LbmGridParams& grid` 参数，或在调用 lambda 中捕获按值复制的结构。
 - 优先处理 `dx_0/dx_min/dt_min` 使用点，再处理需要 cell 数量的边界或几何判断。
 - 保持 kernel 参数结构紧凑，编译后检查寄存器和 occupancy 是否出现异常变化。
+- 优先沿现有 AMReX `ParallelFor` 调用链传递值对象；不要采用普通全局变量、`__managed__` 动态初始化或隐式 device 全局状态。
+- 每次 kernel 使用的网格量只从 `grid` 读取；禁止同一 kernel 同时读取 `grid` 和旧的 `NX/nx` 宏。
 
 ### 阶段 5：粒子和边界逻辑
 
@@ -98,6 +115,7 @@ struct LbmGridParams {
 - 删除不再使用的网格全局变量和宏。
 - 检查完整源码、`inputs`、脚本和文档中是否仍存在过时的 `NX = 4 * D` 假设。
 - 更新算例 README，说明 `amr.n_cell` 与 `geometry.*` 的关系和限制。
+- 在启动日志中同时打印编译期模型信息和运行时网格信息，形成类似 AGAL 输出元数据的可复现实验记录。
 
 ## 验证矩阵
 
@@ -138,4 +156,3 @@ struct LbmGridParams {
 - regrid 后出现 NaN、Inf、非正密度或粒子越界；
 - 非默认网格导致 Geometry 与 kernel 使用的尺寸不一致；
 - 默认配置性能出现无法解释的明显退化。
-
