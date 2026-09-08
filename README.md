@@ -115,7 +115,21 @@ dsub -s ./scripts/submit.sh
 3. 运行日志通常可在算例目录的 `*.log` 或 `logs/` 下查看。
 4. 结果数据通常输出到 `data/`。
 
-## 5. 备注
+## 5. Python 后处理环境
+
+仓库根 `.venv/` 是所有算例共用的 Python 虚拟环境，供后处理、数据分析和绘图脚本
+使用。算例目录不需要各自维护 `.venv`，也不应依赖系统 Python 的包集合。
+
+从仓库根调用：
+
+```bash
+.venv/bin/python <case>/data_post_processing/script.py
+```
+
+从任意算例目录调用时，先定位仓库根，或使用相对路径调用其 `.venv/bin/python`。生成的
+图表应记录输入数据、步数、归一化方式和参考数据来源，避免与其他配置或历史作业混淆。
+
+## 6. 开发备注
 
 - 本仓库包含多个算例并行演化，建议每个算例目录维护独立的 `.clangd` 与 `config/compile_commands.json`，减少跨算例语义干扰。
 - 使用根目录 `learnamerx.code-workspace` 切换多个算例时，`clangd.arguments` 中的 `--query-driver` 路径必须以逗号分隔。生成数据库后应确认编译器、C++ 标准和 `AMREX_HOME` 与该算例一致，再重启 clangd。
