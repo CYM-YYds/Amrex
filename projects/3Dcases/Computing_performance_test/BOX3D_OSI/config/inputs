@@ -74,7 +74,6 @@ verification.convergence_required = 3
 # mesh setting
 #
 # *****************************************************************
-amr.n_cell           = 128 128 128
 geometry.prob_lo     =  0.0   0.0   0.0
 geometry.prob_hi     =  128.0 128.0 128.0
 geometry.is_periodic =  0    0    0
