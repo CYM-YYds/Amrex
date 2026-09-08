@@ -20,20 +20,64 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 
+namespace {
+
+struct InputConfig {
+    int max_step = 0;
+    Real stop_time = 0.0;
+    int max_level = max_ref_level;
+    Vector<Real> prob_lo{AMREX_D_DECL(0.0, 0.0, 0.0)};
+    Vector<Real> prob_hi{AMREX_D_DECL(nx, ny, nz)};
+    Vector<int> is_periodic{AMREX_D_DECL(0, 0, 0)};
+};
+
+InputConfig ReadInputConfig()
+{
+    InputConfig config;
+
+    ParmParse pp;
+    pp.query("max_step", config.max_step);
+    pp.query("stop_time", config.stop_time);
+
+    ParmParse pp_amr("amr");
+    pp_amr.query("max_level", config.max_level);
+
+    ParmParse pp_geometry("geometry");
+    pp_geometry.queryarr("prob_lo", config.prob_lo);
+    pp_geometry.queryarr("prob_hi", config.prob_hi);
+    pp_geometry.queryarr("is_periodic", config.is_periodic);
+
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        config.max_step >= 0, "max_step must be non-negative");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        config.stop_time >= 0.0, "stop_time must be non-negative");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        config.max_level >= 0 && config.max_level <= max_ref_level,
+        "amr.max_level must be within the compiled AMR level range");
+    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            config.prob_hi[dir] > config.prob_lo[dir],
+            "geometry.prob_hi must be greater than geometry.prob_lo");
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            config.is_periodic[dir] == 0 || config.is_periodic[dir] == 1,
+            "geometry.is_periodic entries must be 0 or 1");
+    }
+
+    return config;
+}
+
+} // namespace
+
 int main(int argc, char* argv[]) {
     amrex::Initialize(argc, argv);
 
     {
         const Real start_time = amrex::second();
 
-        int max_step, regrid_int, plot_int, begin_plot;
-        amrex::Real stop_time;
-
-        {
-            amrex::ParmParse pp;
-            pp.query("max_step", max_step);
-            pp.query("stop_time", stop_time);
-        }
+        const InputConfig input = ReadInputConfig();
+        const int max_step = input.max_step;
+        const Real stop_time = input.stop_time;
+        int regrid_int, plot_int, begin_plot;
         int chk_int = -1;
         int begin_step = 0;
         std::string ddf_reference_checkpoint;
@@ -53,18 +97,10 @@ int main(int argc, char* argv[]) {
             pp_verify.query("convergence_tolerance", convergence_tolerance);
         }
 
-        int runtime_max_level = max_ref_level;
-        amrex::Vector<amrex::Real> prob_lo(AMREX_SPACEDIM, 0.0);
-        amrex::Vector<amrex::Real> prob_hi{AMREX_D_DECL(nx, ny, nz)};
-        amrex::Vector<int> periodic_input(AMREX_SPACEDIM, 0);
-        {
-            amrex::ParmParse pp_amr("amr");
-            pp_amr.query("max_level", runtime_max_level);
-            amrex::ParmParse pp_geometry("geometry");
-            pp_geometry.queryarr("prob_lo", prob_lo);
-            pp_geometry.queryarr("prob_hi", prob_hi);
-            pp_geometry.queryarr("is_periodic", periodic_input);
-        }
+        const int runtime_max_level = input.max_level;
+        const auto& prob_lo = input.prob_lo;
+        const auto& prob_hi = input.prob_hi;
+        const auto& periodic_input = input.is_periodic;
         const std::array<int, AMREX_SPACEDIM> is_periodic{
             AMREX_D_DECL(periodic_input[0], periodic_input[1], periodic_input[2])};
 
@@ -82,9 +118,6 @@ int main(int argc, char* argv[]) {
             amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(128, 128, 128)}}}; // 最大网格块大小
 
         AmrCoreLBM lid(geom, info);
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-            runtime_max_level >= 0 && runtime_max_level <= max_ref_level,
-            "amr.max_level must be within the compiled AMR level range");
         begin_step = lid.params().begin_step;
         chk_int = lid.params().chk_int;
         regrid_int = lid.params().regrid_int;
