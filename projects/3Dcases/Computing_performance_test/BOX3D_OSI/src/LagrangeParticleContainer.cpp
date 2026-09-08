@@ -50,11 +50,11 @@ void LagrangeParticleContainer::InitParticle(int lev)
                 p.cpu() = ParallelDescriptor::MyProc(); //int(p.id()%num_proc);
                 p.pos(0) = (centre[0] ) * delta[0];  //TODO:修改为局部坐标系失败
                 p.pos(1) = (centre[1] ) * delta[0];
-                p.pos(2) = (centre[2] ) * delta[0] + radius * dx_min;
+                p.pos(2) = (centre[2] ) * delta[0] + radius * grid_.dx_min;
 
                 attribs[PIdx::xlocal] = 0.0;
                 attribs[PIdx::ylocal] = 0.0;                
-                attribs[PIdx::zlocal] = radius * dx_min;
+                attribs[PIdx::zlocal] = radius * grid_.dx_min;
 
                 attribs[PIdx::area]  = LP_area * (1.0 - cos(PI/(2*(ns-1))))/2.0; 
                 attribs[PIdx::fx]  = 0.0;
@@ -82,13 +82,13 @@ void LagrangeParticleContainer::InitParticle(int lev)
                     p.id()  = ParticleType::NextID();
                     p.cpu() = ParallelDescriptor::MyProc(); //int(p.id()/num_proc);
 
-                    p.pos(0) = (centre[0]) * delta[0] + radius*sin(sita)*cos(alpha)*dx_min;
-                    p.pos(1) = (centre[1]) * delta[0] + radius*sin(sita)*sin(alpha)*dx_min;
-                    p.pos(2) = (centre[2]) * delta[0] + radius*cos(sita)*dx_min;                         
+                    p.pos(0) = (centre[0]) * delta[0] + radius*sin(sita)*cos(alpha)*grid_.dx_min;
+                    p.pos(1) = (centre[1]) * delta[0] + radius*sin(sita)*sin(alpha)*grid_.dx_min;
+                    p.pos(2) = (centre[2]) * delta[0] + radius*cos(sita)*grid_.dx_min;
 
-                    attribs[PIdx::xlocal] = radius*sin(sita)*cos(alpha)*dx_min;
-                    attribs[PIdx::ylocal] = radius*sin(sita)*sin(alpha)*dx_min;                
-                    attribs[PIdx::zlocal] = radius*cos(sita)*dx_min;
+                    attribs[PIdx::xlocal] = radius*sin(sita)*cos(alpha)*grid_.dx_min;
+                    attribs[PIdx::ylocal] = radius*sin(sita)*sin(alpha)*grid_.dx_min;
+                    attribs[PIdx::zlocal] = radius*cos(sita)*grid_.dx_min;
                     attribs[PIdx::area] = LP_area * (cos((i-0.5)*PI/(ns-1)) - cos((i+0.5)*PI/(ns-1))) / 2.0 / nt;
                     attribs[PIdx::fx]  = 0.0;
                     attribs[PIdx::fy]  = 0.0;
@@ -110,11 +110,11 @@ void LagrangeParticleContainer::InitParticle(int lev)
                 p.cpu() = ParallelDescriptor::MyProc();  //int(p.id()/num_proc);  
                 p.pos(0) = (centre[0]) * delta[0];
                 p.pos(1) = (centre[1]) * delta[0];
-                p.pos(2) = (centre[2]) * delta[0] - radius * dx_min;
+                p.pos(2) = (centre[2]) * delta[0] - radius * grid_.dx_min;
 
                 attribs[PIdx::xlocal] = 0.0;
                 attribs[PIdx::ylocal] = 0.0;                
-                attribs[PIdx::zlocal] = -radius * dx_min;                             
+                attribs[PIdx::zlocal] = -radius * grid_.dx_min;
                 attribs[PIdx::area] = LP_area * (1.0 - cos(PI/(2*(ns-1)))) / 2.0; 
                 attribs[PIdx::fx]  = 0.0;
                 attribs[PIdx::fy]  = 0.0;
@@ -170,9 +170,9 @@ void LagrangeParticleContainer::InitParticleFromFile(int lev, const std::string 
 
                 p.id()   = ParticleType::NextID();
                 p.cpu()  = ParallelDescriptor::MyProc(); 
-                p.pos(0) = (centre[0]) * delta[0] + pos_x / factor * dx_min;
-                p.pos(1) = (centre[1]) * delta[0] + pos_y / factor * dx_min;
-                p.pos(2) = (centre[2]) * delta[0] + pos_z / factor * dx_min;
+                p.pos(0) = (centre[0]) * delta[0] + pos_x / factor * grid_.dx_min;
+                p.pos(1) = (centre[1]) * delta[0] + pos_y / factor * grid_.dx_min;
+                p.pos(2) = (centre[2]) * delta[0] + pos_z / factor * grid_.dx_min;
                 
                 attribs[PIdx::xlocal] = 0.0;//这个可以先设置成为0，目前不需要计算转矩等参数
                 attribs[PIdx::ylocal] = 0.0;                
@@ -214,21 +214,21 @@ void LagrangeParticleContainer::MoveParticle(int lev, amrex::Real cur_time)
     {
         // F_lub[i] = 0.0;
 
-        vel_new[i] = (1.0 + rhof/rhop)*vel[i] - (rhof/rhop)*vel_old[i] + (F_tot[i] + Fgra * G_dire[i] + F_lub[i])/  Mp * dt_min;
-        pos_new[i] = centre[i] + dt_min * 0.5 * (vel_new[i] + vel[i])/dx_0;
+        vel_new[i] = (1.0 + rhof/rhop)*vel[i] - (rhof/rhop)*vel_old[i] + (F_tot[i] + Fgra * G_dire[i] + F_lub[i])/  Mp * grid_.dt_min;
+        pos_new[i] = centre[i] + grid_.dt_min * 0.5 * (vel_new[i] + vel[i])/grid_.dx;
         vel_old[i] = vel[i];
         vel[i] = vel_new[i];
 
-        angvel_new[i] = (1.0 + rhof/rhop)*angvel[i] - (rhof/rhop) * angvel_old[i] + T_tot[i] * dt_min / Mp_iner;
+        angvel_new[i] = (1.0 + rhof/rhop)*angvel[i] - (rhof/rhop) * angvel_old[i] + T_tot[i] * grid_.dt_min / Mp_iner;
         angvel_old[i] = angvel[i];
         angvel[i] = angvel_new[i];    
     }
 
 
     //更新拉格朗日点绝对位置
-    pos_dif[0] = (pos_new[0] - centre[0]) * dx_0;
-    pos_dif[1] = (pos_new[1] - centre[1]) * dx_0;
-    pos_dif[2] = (pos_new[2] - centre[2]) * dx_0;
+    pos_dif[0] = (pos_new[0] - centre[0]) * grid_.dx;
+    pos_dif[1] = (pos_new[1] - centre[1]) * grid_.dx;
+    pos_dif[2] = (pos_new[2] - centre[2]) * grid_.dx;
 
     // amrex::Print() << "dif_x = " << pos_dif[0] << ", " << "dif_y = " << pos_dif[1] << ", " << "dif_z = " << pos_dif[2] << std::endl;
 
@@ -253,9 +253,9 @@ void LagrangeParticleContainer::MoveParticle(int lev, amrex::Real cur_time)
 
         amrex::ParallelFor(n, [=]AMREX_GPU_DEVICE(int i) noexcept
         {
-            p_ptr[i].pos(0) = centre_pos[0] * dx_0 + xlocal[i];
-            p_ptr[i].pos(1) = centre_pos[1] * dx_0 + ylocal[i];
-            p_ptr[i].pos(2) = centre_pos[2] * dx_0 + zlocal[i];
+            p_ptr[i].pos(0) = centre_pos[0] * grid_.dx + xlocal[i];
+            p_ptr[i].pos(1) = centre_pos[1] * grid_.dx + ylocal[i];
+            p_ptr[i].pos(2) = centre_pos[2] * grid_.dx + zlocal[i];
         });
     }
 }
@@ -274,7 +274,7 @@ amrex::RealVect LagrangeParticleContainer::ReturnVelocity()
 void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev)
 {
     const Real delta = Geom(lev).CellSize()[0];
-    const LbmGridParams grid{NX, NY, NZ, nx, ny, nz, dx_0, dt_0, dx_min, dt_min, mv_0};
+    const LbmGridParams grid = grid_;
 
     for(MyParIter pti(*this, lev); pti.isValid(); ++pti)
     {
@@ -363,7 +363,7 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
 void LagrangeParticleContainer::InterpForceWallModel(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev)
 {
     const Real delta = Geom(lev).CellSize()[0];
-    const LbmGridParams grid{NX, NY, NZ, nx, ny, nz, dx_0, dt_0, dx_min, dt_min, mv_0};
+    const LbmGridParams grid = grid_;
 
     for(MyParIter pti(*this, lev); pti.isValid(); ++pti)
     {
@@ -466,7 +466,7 @@ void LagrangeParticleContainer::CollideParticle(const std::unique_ptr<LagrangePa
     amrex::Real lc  = sqrt(lxc*lxc + lyc*lyc + lzc*lzc);
 
     amrex::Real Ftmp =  0.0;
-    amrex::Real Fgra = (1.0 - 1.0 * rhof / rhop) * Mp * G * dx_min; //调整了大小不要忘记
+    amrex::Real Fgra = (1.0 - 1.0 * rhof / rhop) * Mp * G * grid_.dx_min; //调整了大小不要忘记
     amrex::Real npp1 = (lc - R * 2.0 - safe) / safe;
     amrex::Real npp2 = (R * 2.0 - lc) / safe;
 
@@ -508,7 +508,7 @@ void LagrangeParticleContainer::CollideWall()
     amrex::Real lxc, lyc, lzc, lc;
     amrex::Real Ftmp, npw1, npw2, xc_fict;
 
-    amrex::Real Fgra = (1.0 - rhof / rhop) * Mp * G * dx_min;
+    amrex::Real Fgra = (1.0 - rhof / rhop) * Mp * G * grid_.dx_min;
       
     //左边界
     if(pos_p1[0] <= (R + safe + 1.0))
@@ -536,9 +536,9 @@ void LagrangeParticleContainer::CollideWall()
         Fpw_lub[0] += Ftmp * lxc / lc;
     }
     //右边界
-    if(pos_p1[0] >= (NX - R - safe - 1.0))
+    if(pos_p1[0] >= (grid_.nx_cells - R - safe - 1.0))
     {
-        xc_fict = NX + R - 1.0;    
+        xc_fict = grid_.nx_cells + R - 1.0;
         lxc     = pos_p1[0] - xc_fict;
         lc      = std::abs(lxc);
 
@@ -588,9 +588,9 @@ void LagrangeParticleContainer::CollideWall()
     }
 
     //前边界
-    if(pos_p1[1] >= (NY - R - safe - 1.0))
+    if(pos_p1[1] >= (grid_.ny_cells - R - safe - 1.0))
     {
-        xc_fict = NY + R - 1.0;              //这里到底是多少
+        xc_fict = grid_.ny_cells + R - 1.0;              //这里到底是多少
         lxc     = pos_p1[1] - xc_fict;
         lc      = std::abs(lxc);
 
@@ -640,9 +640,9 @@ void LagrangeParticleContainer::CollideWall()
     }
 
     //上边界
-    if(pos_p1[2] >= (NZ - R - safe - 1.0))
+    if(pos_p1[2] >= (grid_.nz_cells - R - safe - 1.0))
     {
-        xc_fict = NZ + R - 1.0;              //这里到底是多少
+        xc_fict = grid_.nz_cells + R - 1.0;              //这里到底是多少
         lxc     = pos_p1[2] - xc_fict;
         lc      = std::abs(lxc);
 
@@ -747,7 +747,7 @@ void LagrangeParticleContainer::SaveFxy(int lev, int step)
     ParallelDescriptor::ReduceRealSum(fy);
     ParallelDescriptor::ReduceRealSum(fz);
 
-    amrex::Real m = 0.5 * (rho0) * U0 * U0 * PI * D * dx_0 * D * dx_0 / 4.0;
+    amrex::Real m = 0.5 * (rho0) * U0 * U0 * PI * D * grid_.dx * D * grid_.dx / 4.0;
     fx /= m;
     fy /= m;
     fz /= m;
