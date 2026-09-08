@@ -8,6 +8,7 @@
 #include <AMReX_AmrParticles.H>
 
 #include "D3Q19.H"
+#include "LbmGridParams.H"
 
 struct PIdx
 {
@@ -61,9 +62,10 @@ public:
 class LagrangeParticleContainer : public amrex::ParticleContainer<0, 0, PIdx::nattribs>
 {
 public:
-    LagrangeParticleContainer(amrex::AmrCore* amr_core)
+    LagrangeParticleContainer(amrex::AmrCore* amr_core, LbmGridParams grid = {})
         :   amrex::ParticleContainer<0, 0, PIdx::nattribs>(amr_core->GetParGDB())
     {
+        grid_ = grid;
         radius = rate*R;      //lev=0网格下的解析度, 算球体可能要内缩一下
 
         centre  = {AMREX_D_DECL(X, Y, Z)};    //lev=0网格下
@@ -78,9 +80,11 @@ public:
         amrex::Print()<<"Particle construct successed ..." << std:: endl;
     }
 
-    LagrangeParticleContainer(amrex::AmrCore* amr_core,  amrex::RealVect& point, const int idx)
+    LagrangeParticleContainer(amrex::AmrCore* amr_core,  amrex::RealVect& point, const int idx,
+                              LbmGridParams grid = {})
         :   amrex::ParticleContainer<0, 0, PIdx::nattribs>(amr_core->GetParGDB())
     {
+        grid_ = grid;
         radius = rb;      //lev=0网格下的解析度, 算球体可能要内缩一下
         id = idx;
         centre  = {AMREX_D_DECL(point[0], point[1], point[2])};    //lev=0网格下
@@ -129,6 +133,8 @@ public:
     void CollideWall();
 
 private://颗粒信息
+
+    LbmGridParams grid_{};
 
     int id;
 

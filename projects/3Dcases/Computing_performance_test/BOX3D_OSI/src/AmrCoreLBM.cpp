@@ -3213,7 +3213,7 @@ void AmrCoreLBM::AverageScale(int lev, int n) {
 //********************************************************************//
 void AmrCoreLBM::InitParticle(int lev) {
     for (int i = 0; i < particle_num; i++) {
-        particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
+        particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i, grid_);
         particles[i]->InitParticle(lev);
         // particles[i] ->InitParticleFromFile(lev, "../../../object/sphere128");
         // particles[i] ->InitParticleFromFile(lev, "../../../object/car_fine");
@@ -4614,7 +4614,7 @@ void AmrCoreLBM::ReadCheckpoint() {
         for (int i = 0; i < particle_num; ++i) {
             const std::string pname = "particles_" + std::to_string(i);
             particles[i].reset();
-            particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
+            particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i, grid_);
             particles[i]->Restart(chkname, pname);
         }
     }
