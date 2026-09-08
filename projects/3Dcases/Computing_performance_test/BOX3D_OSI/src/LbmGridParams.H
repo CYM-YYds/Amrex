@@ -15,6 +15,7 @@ struct LbmGridParams {
     amrex::Real dt = 0.0;
     amrex::Real dx_min = 0.0;
     amrex::Real dt_min = 0.0;
+    amrex::Real viscosity = 0.0;
 };
 
 #endif

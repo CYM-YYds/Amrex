@@ -274,6 +274,7 @@ amrex::RealVect LagrangeParticleContainer::ReturnVelocity()
 void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev)
 {
     const Real delta = Geom(lev).CellSize()[0];
+    const LbmGridParams grid{NX, NY, NZ, nx, ny, nz, dx_0, dt_0, dx_min, dt_min, mv_0};
 
     for(MyParIter pti(*this, lev); pti.isValid(); ++pti)
     {
@@ -305,7 +306,7 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
         amrex::ParallelFor(n, [=]AMREX_GPU_DEVICE(int i) noexcept
         {
             force_interp_extrap(p_ptr[i], fx[i], fy[i], fz[i], tx[i], ty[i], tz[i], xlocal[i], ylocal[i], zlocal[i], area[i], 
-                                u, rho, Ft, delta, uc, wc, pos);
+                                u, rho, Ft, delta, uc, wc, pos, grid);
         });
     }
 
@@ -362,6 +363,7 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
 void LagrangeParticleContainer::InterpForceWallModel(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev)
 {
     const Real delta = Geom(lev).CellSize()[0];
+    const LbmGridParams grid{NX, NY, NZ, nx, ny, nz, dx_0, dt_0, dx_min, dt_min, mv_0};
 
     for(MyParIter pti(*this, lev); pti.isValid(); ++pti)
     {
@@ -393,7 +395,7 @@ void LagrangeParticleContainer::InterpForceWallModel(int lev, amrex::MultiFab& r
         amrex::ParallelFor(n, [=]AMREX_GPU_DEVICE(int i) noexcept
         {
             force_wall_model(p_ptr[i], fx[i], fy[i], fz[i], tx[i], ty[i], tz[i], xlocal[i], ylocal[i], zlocal[i], area[i], 
-                                u, rho, Ft, delta, uc, wc, pos);
+                                u, rho, Ft, delta, uc, wc, pos, grid);
         });
     }
 

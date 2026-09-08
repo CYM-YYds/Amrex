@@ -7,6 +7,7 @@
 #include <AMReX_PhysBCFunct.H>
 
 #include "D3Q19.H"
+#include "LbmGridParams.H"
 #include "OsiIndex.H"
 #define KERNEL_ABS std::abs
 
@@ -3304,7 +3305,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
     amrex::Array4<amrex::Real> const& u, amrex::Array4<amrex::Real> const& rho,
     amrex::Array4<amrex::Real> const& Ft, amrex::Real const delta,
     amrex::RealVect const& uc, amrex::RealVect const& wc,
-    amrex::RealVect const& centre) {
+    amrex::RealVect const& centre, LbmGridParams const& grid) {
     amrex::Real xt, yt, zt, lx, ly, lz;
     amrex::Real IB_Interp, IB_weight;
     amrex::Real uxt, uyt, uzt, rhot, upx, upy, upz, fxt, fyt, fzt;
@@ -3346,19 +3347,19 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
         }
     }
 
-    rhot = 2 * rhot / dt_min;
+    rhot = 2 * rhot / grid.dt_min;
 
     fxt = rhot * (uxt - upx);
     fyt = rhot * (uyt - upy);
     fzt = rhot * (uzt - upz);
 
-    fx = fxt * IB_weight * dx_min * dx_min * dx_min;
-    fy = fyt * IB_weight * dx_min * dx_min * dx_min;
-    fz = fzt * IB_weight * dx_min * dx_min * dx_min;
+    fx = fxt * IB_weight * grid.dx_min * grid.dx_min * grid.dx_min;
+    fy = fyt * IB_weight * grid.dx_min * grid.dx_min * grid.dx_min;
+    fz = fzt * IB_weight * grid.dx_min * grid.dx_min * grid.dx_min;
 
-    tx = (fzt * y_local - fyt * z_local) * IB_weight * dx_min * dx_min * dx_min;
-    ty = (fxt * z_local - fzt * x_local) * IB_weight * dx_min * dx_min * dx_min;
-    tz = (fyt * x_local - fxt * y_local) * IB_weight * dx_min * dx_min * dx_min;
+    tx = (fzt * y_local - fyt * z_local) * IB_weight * grid.dx_min * grid.dx_min * grid.dx_min;
+    ty = (fxt * z_local - fzt * x_local) * IB_weight * grid.dx_min * grid.dx_min * grid.dx_min;
+    tz = (fyt * x_local - fxt * y_local) * IB_weight * grid.dx_min * grid.dx_min * grid.dx_min;
 
     for (int x = -2; x <= 2; x++) {
         for (int y = -2; y <= 2; y++) {
@@ -3389,7 +3390,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_wall_model(
     amrex::Array4<amrex::Real> const& u, amrex::Array4<amrex::Real> const& rho,
     amrex::Array4<amrex::Real> const& Ft, amrex::Real const delta,
     amrex::RealVect const& uc, amrex::RealVect const& wc,
-    amrex::RealVect const& centre) {
+    amrex::RealVect const& centre, LbmGridParams const& grid) {
     amrex::Real xc, yc, zc, lx, ly, lz;
     amrex::Real IB_Interp, IB_weight;
     amrex::Real xq, yq, zq, xRef, yRef, zRef;
@@ -3455,20 +3456,20 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_wall_model(
     amrex::Real velTang = vTangSum;
 
     amrex::Real tw = rhoRef * std::pow((velTang / 8.3), (2 / (1.0 + 1.0 / 7.0))) *
-                     std::pow((mv_0 / 2.5), (2.0 / 7.0 / (1.0 + 1.0 / 7.0)));
+                     std::pow((grid.viscosity / 2.5), (2.0 / 7.0 / (1.0 + 1.0 / 7.0)));
 
     // 计算Q点剪切应力和体积力
-    rhoRef = 2 * rhoRef / dt_min;
-    amrex::Real fTang = 2.0 * tw / dx_min;
+    rhoRef = 2 * rhoRef / grid.dt_min;
+    amrex::Real fTang = 2.0 * tw / grid.dx_min;
     amrex::Real fNormal = rhoRef * (velNormal - 0.0);
 
     // 力外推
     fxt = fNormal * normal[0] + fTang * tangent[0];
     fyt = fNormal * normal[1] + fTang * tangent[1];
     fzt = fNormal * normal[2] + fTang * tangent[2];
-    fx = fxt * IB_weight * dx_min * dx_min * dx_min;
-    fy = fyt * IB_weight * dx_min * dx_min * dx_min;
-    fz = fzt * IB_weight * dx_min * dx_min * dx_min;
+    fx = fxt * IB_weight * grid.dx_min * grid.dx_min * grid.dx_min;
+    fy = fyt * IB_weight * grid.dx_min * grid.dx_min * grid.dx_min;
+    fz = fzt * IB_weight * grid.dx_min * grid.dx_min * grid.dx_min;
 
     for (int x = -2; x <= 2; x++) {
         for (int y = -2; y <= 2; y++) {
