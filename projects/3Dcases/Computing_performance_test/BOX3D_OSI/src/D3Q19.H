@@ -15,21 +15,6 @@ const int coarsest_level = 0;
 const int max_ref_level = 3;
 const int rate = (1 << max_ref_level);
 
-/*-----------------复杂结构体------------------------*/
-// const Real obj_lo_x = -16.0;
-// const Real obj_hi_x = 16.0;
-
-// const Real obj_lo_y = -67.0;
-// const Real obj_hi_y = 5.0;
-
-// const Real obj_lo_z = -4.0;
-// const Real obj_hi_z = 20.0;
-
-// const Real obj_dim_x = (obj_hi_x  - obj_lo_x);
-// const Real obj_dim_y = (obj_hi_y  - obj_lo_y);
-// const Real obj_dim_z = (obj_hi_z  - obj_lo_z);
-/*---------------------------------------------------*/
-
 const Real D = 32.0; // obj_dim_z;
 const Real R = D / 2.0;
 
