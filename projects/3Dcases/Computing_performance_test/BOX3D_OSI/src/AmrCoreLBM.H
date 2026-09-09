@@ -12,6 +12,7 @@
 #include <AMReX_AmrParticles.H>
 #include <AMReX_Particles.H>
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -116,6 +117,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ReadCheckpoint();
     void CompareDdfCheckpoint(const std::string& checkpoint_path) const;
     void PrintParticleChecksums(int step) const;
+    void PrepareLevel0VelocityForConvergence();
+    std::array<amrex::Real, 3> MeasureLevel0VelocityChange(
+        const amrex::MultiFab& previous);
     const RuntimeParams& params() const {
         return params_;
     }

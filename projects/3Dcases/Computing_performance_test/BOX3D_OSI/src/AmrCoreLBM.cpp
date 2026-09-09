@@ -1473,6 +1473,45 @@ void AmrCoreLBM::ComputeMacro() {
     }
 }
 
+void AmrCoreLBM::PrepareLevel0VelocityForConvergence() {
+    // Compare on the fixed level-0 mesh so that each physical location has
+    // one contribution even if dynamic regridding changed fine BoxArrays.
+    if (finest_level > 0) {
+        AverageDownValid();
+    }
+    ComputeMacro();
+    Gpu::synchronize();
+}
+
+std::array<Real, 3> AmrCoreLBM::MeasureLevel0VelocityChange(
+    const MultiFab& previous)
+{
+    const MultiFab& velocity_0 = velocity.at(0);
+    MultiFab velocity_delta(
+        velocity_0.boxArray(), velocity_0.DistributionMap(),
+        AMREX_SPACEDIM, 0);
+    MultiFab::Copy(
+        velocity_delta, velocity_0, 0, 0, AMREX_SPACEDIM, 0);
+    MultiFab::Subtract(
+        velocity_delta, previous, 0, 0, AMREX_SPACEDIM, 0);
+    Gpu::synchronize();
+
+    Real numerator_sq = 0.0;
+    Real denominator_sq = 0.0;
+    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+        const Real diff_l2 = velocity_delta.norm2(dir, 1);
+        const Real velocity_l2 = velocity_0.norm2(dir, 1);
+        numerator_sq += diff_l2 * diff_l2;
+        denominator_sq += velocity_l2 * velocity_l2;
+    }
+
+    const Real delta_velocity_l2 = std::sqrt(numerator_sq);
+    const Real velocity_l2 = std::sqrt(denominator_sq);
+    return {delta_velocity_l2 /
+                amrex::max(velocity_l2, std::numeric_limits<Real>::min()),
+            velocity_l2, delta_velocity_l2};
+}
+
 void AmrCoreLBM::ComputeVorticityLevel(int lev) {
     // amrex::AllPrint()<<"ComputeVorticityLevel on " << lev <<std::endl;
 

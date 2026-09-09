@@ -37,8 +37,7 @@ struct InputConfig {
     Vector<int> blocking_factor_z;
 };
 
-InputConfig ReadInputConfig()
-{
+InputConfig ReadInputConfig() {
     InputConfig config;
 
     ParmParse pp;
@@ -88,8 +87,8 @@ InputConfig ReadInputConfig()
             config.max_grid_size[lev] > 0, "amr.max_grid_size must be positive");
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
             config.blocking_factor_x[lev] > 0 &&
-            config.blocking_factor_y[lev] > 0 &&
-            config.blocking_factor_z[lev] > 0,
+                config.blocking_factor_y[lev] > 0 &&
+                config.blocking_factor_z[lev] > 0,
             "amr.blocking_factor_x/y/z must be positive");
     }
     for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
@@ -107,7 +106,7 @@ InputConfig ReadInputConfig()
                                          std::abs(dx_y), std::abs(dx_z)});
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         std::abs(dx_x - dx_y) <= 1.0e-12 * spacing_scale &&
-        std::abs(dx_x - dx_z) <= 1.0e-12 * spacing_scale,
+            std::abs(dx_x - dx_z) <= 1.0e-12 * spacing_scale,
         "current LBM kernels require isotropic coarse cell spacing");
 
     return config;
@@ -308,44 +307,14 @@ int main(int argc, char* argv[]) {
 
             bool converged = false;
             const bool convergence_sample = convergence_enabled &&
-                (step - begin_step) % convergence_check_int == 0;
+                                            (step - begin_step) % convergence_check_int == 0;
             const bool trend_sample = convergence_enabled &&
-                (step - begin_step) % convergence_trend_int == 0;
+                                      (step - begin_step) % convergence_trend_int == 0;
             if (convergence_sample || trend_sample) {
-                // Collapse the AMR hierarchy onto the fixed level-0 grid.  This
-                // gives every physical location one contribution and remains
-                // comparable when regridding changes the fine BoxArrays.
-                if (lid.finestLevel() > 0) {
-                    lid.AverageDownValid();
-                }
-                lid.ComputeMacro();
-                amrex::Gpu::synchronize();
-                const auto measure_velocity_change = [&](amrex::MultiFab& previous) {
-                    amrex::MultiFab velocity_delta(
-                        lid.velocityLevel(0).boxArray(),
-                        lid.velocityLevel(0).DistributionMap(),
-                        AMREX_SPACEDIM, 0);
-                    amrex::MultiFab::Copy(velocity_delta, lid.velocityLevel(0), 0, 0,
-                                          AMREX_SPACEDIM, 0);
-                    amrex::MultiFab::Subtract(
-                        velocity_delta, previous, 0, 0, AMREX_SPACEDIM, 0);
-                    amrex::Gpu::synchronize();
-                    amrex::Real numerator_sq = 0.0;
-                    amrex::Real denominator_sq = 0.0;
-                    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-                        const amrex::Real diff_l2 = velocity_delta.norm2(dir, 1);
-                        const amrex::Real velocity_l2 = lid.velocityLevel(0).norm2(dir, 1);
-                        numerator_sq += diff_l2 * diff_l2;
-                        denominator_sq += velocity_l2 * velocity_l2;
-                    }
-                    return std::array<amrex::Real, 3>{
-                        std::sqrt(numerator_sq) /
-                            amrex::max(std::sqrt(denominator_sq),
-                                       std::numeric_limits<amrex::Real>::min()),
-                        std::sqrt(denominator_sq), std::sqrt(numerator_sq)};
-                };
+                lid.PrepareLevel0VelocityForConvergence();
                 if (trend_sample) {
-                    const auto values = measure_velocity_change(*previous_trend_velocity);
+                    const auto values =
+                        lid.MeasureLevel0VelocityChange(*previous_trend_velocity);
                     amrex::Print() << "CONVERGENCE_TREND step=" << step
                                    << " interval=" << convergence_trend_int
                                    << " velocity_l2_relative=" << values[0]
@@ -356,9 +325,11 @@ int main(int argc, char* argv[]) {
                                           AMREX_SPACEDIM, 0);
                 }
                 if (convergence_sample) {
-                    const auto values = measure_velocity_change(*previous_convergence_velocity);
+                    const auto values =
+                        lid.MeasureLevel0VelocityChange(*previous_convergence_velocity);
                     convergence_streak = values[0] < convergence_tolerance
-                        ? convergence_streak + 1 : 0;
+                                             ? convergence_streak + 1
+                                             : 0;
                     converged = convergence_streak >= convergence_required;
                     amrex::Print() << "CONVERGENCE step=" << step
                                    << " interval=" << convergence_check_int
