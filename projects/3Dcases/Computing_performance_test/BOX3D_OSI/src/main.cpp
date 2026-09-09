@@ -30,6 +30,11 @@ struct InputConfig {
     Vector<Real> prob_lo;
     Vector<Real> prob_hi;
     Vector<int> is_periodic;
+    Vector<int> ref_ratio;
+    Vector<int> max_grid_size;
+    Vector<int> blocking_factor_x;
+    Vector<int> blocking_factor_y;
+    Vector<int> blocking_factor_z;
 };
 
 InputConfig ReadInputConfig()
@@ -44,6 +49,17 @@ InputConfig ReadInputConfig()
     pp_amr.get("max_level", config.max_level);
     config.n_cell.resize(AMREX_SPACEDIM);
     pp_amr.getarr("n_cell", config.n_cell);
+    const auto n_amr_levels = static_cast<std::size_t>(config.max_level + 1);
+    config.ref_ratio.resize(n_amr_levels);
+    config.max_grid_size.resize(n_amr_levels);
+    config.blocking_factor_x.resize(n_amr_levels);
+    config.blocking_factor_y.resize(n_amr_levels);
+    config.blocking_factor_z.resize(n_amr_levels);
+    pp_amr.getarr("ref_ratio", config.ref_ratio);
+    pp_amr.getarr("max_grid_size", config.max_grid_size);
+    pp_amr.getarr("blocking_factor_x", config.blocking_factor_x);
+    pp_amr.getarr("blocking_factor_y", config.blocking_factor_y);
+    pp_amr.getarr("blocking_factor_z", config.blocking_factor_z);
 
     ParmParse pp_geometry("geometry");
     config.prob_lo.resize(AMREX_SPACEDIM);
@@ -62,6 +78,19 @@ InputConfig ReadInputConfig()
         "amr.max_level must be within the compiled AMR level range");
     for (const int cells : config.n_cell) {
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(cells > 0, "amr.n_cell must be positive");
+    }
+    for (std::size_t lev = 0; lev < n_amr_levels; ++lev) {
+        if (lev > 0) {
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                config.ref_ratio[lev] > 0, "amr.ref_ratio must be positive");
+        }
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            config.max_grid_size[lev] > 0, "amr.max_grid_size must be positive");
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            config.blocking_factor_x[lev] > 0 &&
+            config.blocking_factor_y[lev] > 0 &&
+            config.blocking_factor_z[lev] > 0,
+            "amr.blocking_factor_x/y/z must be positive");
     }
     for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
@@ -137,12 +166,19 @@ int main(int argc, char* argv[]) {
                            {AMREX_D_DECL(prob_hi[0], prob_hi[1], prob_hi[2])}),
             amrex::CoordSys::cartesian, is_periodic);
 
-        amrex::AmrInfo info{
-            1,                                                                                            // verbose
-            runtime_max_level,                                                                            // max_level
-            amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(2, 2, 2)}},        // 粗细比率
-            amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(8, 8, 8)}},        // 与 BOX3D 基准一致的网格分块因子
-            amrex::Vector<amrex::IntVect>{(size_t)runtime_max_level + 1, {AMREX_D_DECL(128, 128, 128)}}}; // 最大网格块大小
+        const auto n_amr_levels = static_cast<std::size_t>(runtime_max_level + 1);
+        amrex::Vector<amrex::IntVect> ref_ratio(n_amr_levels);
+        amrex::Vector<amrex::IntVect> blocking_factor(n_amr_levels);
+        amrex::Vector<amrex::IntVect> max_grid_size(n_amr_levels);
+        for (std::size_t lev = 0; lev < n_amr_levels; ++lev) {
+            ref_ratio[lev] = amrex::IntVect(input.ref_ratio[lev]);
+            blocking_factor[lev] = amrex::IntVect(
+                input.blocking_factor_x[lev], input.blocking_factor_y[lev],
+                input.blocking_factor_z[lev]);
+            max_grid_size[lev] = amrex::IntVect(input.max_grid_size[lev]);
+        }
+        amrex::AmrInfo info{1, runtime_max_level, ref_ratio,
+                            blocking_factor, max_grid_size};
 
         AmrCoreLBM lid(geom, info, grid);
         begin_step = lid.params().begin_step;
