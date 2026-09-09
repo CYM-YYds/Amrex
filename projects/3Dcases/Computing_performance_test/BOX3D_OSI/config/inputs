@@ -9,7 +9,6 @@ stop_time = 2500000.0
 # mesh setting
 #
 # *****************************************************************
-amr.ref_ratio        = 2 2 2 # 不能更改
 
 geometry.prob_lo     =  0.0   0.0   0.0
 geometry.prob_hi     =  128.0 128.0 128.0
@@ -79,4 +78,3 @@ verification.convergence_check_int = 3200
 verification.convergence_trend_int = 1000
 verification.convergence_tolerance = 1.0e-12
 verification.convergence_required = 3
-

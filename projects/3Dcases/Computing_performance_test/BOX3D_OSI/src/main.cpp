@@ -30,7 +30,6 @@ struct InputConfig {
     Vector<Real> prob_lo;
     Vector<Real> prob_hi;
     Vector<int> is_periodic;
-    Vector<int> ref_ratio;
     Vector<int> max_grid_size;
     Vector<int> blocking_factor_x;
     Vector<int> blocking_factor_y;
@@ -49,12 +48,10 @@ InputConfig ReadInputConfig() {
     config.n_cell.resize(AMREX_SPACEDIM);
     pp_amr.getarr("n_cell", config.n_cell);
     const auto n_amr_levels = static_cast<std::size_t>(config.max_level + 1);
-    config.ref_ratio.resize(n_amr_levels);
     config.max_grid_size.resize(n_amr_levels);
     config.blocking_factor_x.resize(n_amr_levels);
     config.blocking_factor_y.resize(n_amr_levels);
     config.blocking_factor_z.resize(n_amr_levels);
-    pp_amr.getarr("ref_ratio", config.ref_ratio);
     pp_amr.getarr("max_grid_size", config.max_grid_size);
     pp_amr.getarr("blocking_factor_x", config.blocking_factor_x);
     pp_amr.getarr("blocking_factor_y", config.blocking_factor_y);
@@ -79,10 +76,6 @@ InputConfig ReadInputConfig() {
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(cells > 0, "amr.n_cell must be positive");
     }
     for (std::size_t lev = 0; lev < n_amr_levels; ++lev) {
-        if (lev > 0) {
-            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-                config.ref_ratio[lev] > 0, "amr.ref_ratio must be positive");
-        }
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
             config.max_grid_size[lev] > 0, "amr.max_grid_size must be positive");
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
@@ -166,11 +159,12 @@ int main(int argc, char* argv[]) {
             amrex::CoordSys::cartesian, is_periodic);
 
         const auto n_amr_levels = static_cast<std::size_t>(runtime_max_level + 1);
-        amrex::Vector<amrex::IntVect> ref_ratio(n_amr_levels);
+        // 当前 LBM 多层推进只支持逐级二倍细化。
+        amrex::Vector<amrex::IntVect> ref_ratio(n_amr_levels,
+                                                 amrex::IntVect(2));
         amrex::Vector<amrex::IntVect> blocking_factor(n_amr_levels);
         amrex::Vector<amrex::IntVect> max_grid_size(n_amr_levels);
         for (std::size_t lev = 0; lev < n_amr_levels; ++lev) {
-            ref_ratio[lev] = amrex::IntVect(input.ref_ratio[lev]);
             blocking_factor[lev] = amrex::IntVect(
                 input.blocking_factor_x[lev], input.blocking_factor_y[lev],
                 input.blocking_factor_z[lev]);
