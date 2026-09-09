@@ -4547,7 +4547,7 @@ void AmrCoreLBM::ReadCheckpoint() {
 
     const std::string level_prefix = "Level_";
     for (int lev = 0; lev <= finest_level; ++lev) {
-        ClearLevel(lev);
+        ClearLevel(lev); // 确保接下来的 define() 是从干净状态开始
         velocity[lev].define(boxArray(lev), DistributionMap(lev), AMREX_SPACEDIM, nghost);
         density[lev].define(boxArray(lev), DistributionMap(lev), 1, nghost);
         vorticity[lev].define(boxArray(lev), DistributionMap(lev), 2, nghost);
@@ -4557,13 +4557,13 @@ void AmrCoreLBM::ReadCheckpoint() {
         const std::string old_name = MultiFabFileFullPrefix(
             lev, chkname, level_prefix, "f_old");
         MultiFab stored_old;
-        VisMF::Read(stored_old, old_name);
+        VisMF::Read(stored_old, old_name); // 读取 f_old
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
             stored_old.nComp() == Q &&
                 stored_old.boxArray() == boxArray(lev),
             "Checkpoint canonical DDF does not match the level BoxArray");
-        MultiFab canonical(
-            boxArray(lev), DistributionMap(lev), Q, 0);
+            
+        MultiFab canonical(boxArray(lev), DistributionMap(lev), Q, 0);
         canonical.ParallelCopy(
             stored_old, 0, 0, Q, IntVect(0), IntVect(0),
             Geom(lev).periodicity());
