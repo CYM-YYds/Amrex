@@ -268,11 +268,6 @@ int main(int argc, char* argv[]) {
                 lid.RefineMesh(cur_time);
                 amrex::Print() << "REGRID_DIAG step=" << step << " stage=after_refine_mesh\n";
                 lid.PrintDdfChecksums(step);
-                // Regrid callbacks reconstruct valid cells, but a new or
-                // remapped layout has no trustworthy same-level/periodic
-                // ghost values yet.  Collision advances grown boxes before
-                // CommunicateLevel(), so synchronize every active level here.
-                lid.PrepareStateForAdvance();
                 if (lid.params().write_particles) {
                     lid.RedistributeParticle();
                 }

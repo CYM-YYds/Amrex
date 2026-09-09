@@ -4608,14 +4608,4 @@ void AmrCoreLBM::ReadCheckpoint() {
     }
 
     RebuildCoarseFineCaches();
-    if (stream_mode == 1) {
-        // A canonical checkpoint contains valid cells only. Reconstruct the
-        // runtime replica ghosts after all topology-dependent caches exist.
-        CommunicateOsiLevel(0);
-        const Real restart_time = params_.begin_step * grid_.dt;
-        for (int lev = 1; lev <= finest_level; ++lev) {
-            FillOsiGhostFromCoarse(lev, restart_time);
-            CommunicateOsiLevel(lev);
-        }
-    }
 }
