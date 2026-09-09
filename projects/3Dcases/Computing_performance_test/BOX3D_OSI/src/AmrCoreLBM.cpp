@@ -2046,8 +2046,13 @@ void AmrCoreLBM::FillForceGhostLevel(int lev, amrex::Real time) {
     }
 }
 
-void AmrCoreLBM::CommunicateLevel(int lev) {
+void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
     ScopedPerfTimer timer(perf_stats.comm);
+    if (layout == DdfLayout::Osi) {
+        CommunicateOsiLevel(lev);
+        return;
+    }
+
     amrex::MultiFab& f_old_lev = f_old[lev];
     f_old_lev.FillBoundary(geom[lev].periodicity());
 }
@@ -2374,111 +2379,19 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
 }
 
 void AmrCoreLBM::AdvanceLevel(int lev) {
-    if (stream_mode == 1) {
-        AdvanceOsiLevelImpl(lev);
-        return;
-    }
-
-    Collide(lev, nghost);
-    CommunicateLevel(lev);
-    Stream(lev, nghost);
-    Boundary(lev);
-    SwapLevel(lev, nghost);
-}
-
-void AmrCoreLBM::AdvanceOsiLevelImpl(int lev) {
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(stream_mode == 1,
-                                     "AdvanceOsiLevelImpl requires lbm.stream_mode=1");
+    const DdfLayout layout =
+        stream_mode == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        lev >= 0 && lev <= finest_level && osi_state.at(lev).isDefined(),
-        "AdvanceOsiLevelImpl requires an initialized AMR level");
+        layout == DdfLayout::Canonical || osi_state.at(lev).isDefined(),
+        "AdvanceLevel requires an initialized OSI state");
 
-    CollideOsiLevel(lev);
-
-    // 将本步碰撞后的 owner valid 值按当前 phase 同步到重叠 grown ghost。
-    // phase 提交后，相邻 valid 会把这些 ghost 槽解释为新的 incoming DDF。
-    {
-        ScopedPerfTimer timer(perf_stats.comm);
-        CommunicateOsiLevel(lev);
-    }
-
-    ++osi_phase.at(lev); // 逻辑 streaming 完成
-
-    ApplyOsiBoundaryLevel(lev);
-}
-
-void AmrCoreLBM::CollideOsiLevel(int lev) {
-    MultiFab& state_lev = osi_state.at(lev);
-    const std::uint64_t phase = osi_phase[lev];
-    const Box collision_domain =
-        Geom(lev).growPeriodicDomain(state_lev.nGrowVect());
-    const Real omega = 1.0 / tau.at(lev);
-    const bool has_fine_level = lev < finest_level && cf_mask_mode == 1;
-
-    if (has_fine_level) {
-        for (int d = 0; d < AMREX_SPACEDIM; ++d) {
-            AMREX_ALWAYS_ASSERT(
-                state_lev.nGrowVect()[d] <= cf_interface_mask_nghost);
-        }
-    }
-
-    ScopedPerfTimer timer(perf_stats.collide);
-
-    for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
-        const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
-        const auto lo = ring.smallEnd();
-        const box3d_osi::FabGeometry fab{{lo[0], lo[1], lo[2]},
-                                         {ring.length(0), ring.length(1), ring.length(2)}};
-        const Array4<Real> state = state_lev.array(mfi);
-        // 周期方向的域外 ghost 是周期另一侧 valid 单元的逻辑副本，需要
-        // 与域内数据采用相同碰撞规则；只有非周期方向裁剪到物理 domain。
-        const Box bx = ring & collision_domain;
-
-        if (has_fine_level) {
-            const Array4<const int> covered =
-                covered_mask.at(lev).const_array(mfi);
-            const Array4<const int> interface =
-                interface_mask.at(lev).const_array(mfi);
-            amrex::ParallelFor(
-                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    if (covered(i, j, k) != 0 &&
-                        interface(i, j, k) == 0) {
-                        return;
-                    }
-                    collide_bgk_register_osi(
-                        i, j, k, state, phase, fab, omega);
-                });
-        } else {
-            amrex::ParallelFor(
-                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    collide_bgk_register_osi(
-                        i, j, k, state, phase, fab, omega);
-                });
-        }
-    }
-}
-
-void AmrCoreLBM::ApplyOsiBoundaryLevel(int lev) {
-    MultiFab& state_lev = osi_state.at(lev);
-    const std::uint64_t phase = osi_phase[lev];
-    const Box domain = Geom(lev).Domain();
-    const auto periodic = Geom(lev).isPeriodicArray();
-    const IntVect hi{domain.length(0) - 1, domain.length(1) - 1, domain.length(2) - 1};
-    ScopedPerfTimer timer(perf_stats.boundary);
-
-    for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
-        const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
-        const auto lo = ring.smallEnd();
-        const box3d_osi::FabGeometry fab{{lo[0], lo[1], lo[2]},
-                                         {ring.length(0), ring.length(1), ring.length(2)}};
-        const Array4<Real> state = state_lev.array(mfi);
-
-        for (const Box& bx : boundary_work_boxes.at(lev).at(mfi.index())) {
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                fill_boundary_osi_state(i, j, k, state, hi, periodic, phase, fab);
-            });
-        }
-    }
+    // 两种存储模式共享完全相同的物理阶段顺序；各阶段只在真正访问
+    // DDF 或执行数据移动时选择 canonical/OSI 实现。
+    Collide(lev, nghost, layout);
+    CommunicateLevel(lev, layout);
+    Stream(lev, nghost, layout);
+    Boundary(lev, layout);
+    SwapLevel(lev, nghost, layout);
 }
 
 void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
@@ -2491,11 +2404,12 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
 
     // 保留的 A-B 状态作为 OSI 逐步 oracle：valid collision、ghost 同步、
     // 显式 pull、物理边界和 swap。
-    Collide(lev, 0);
-    CommunicateLevel(lev);
-    Stream(lev, 1);
-    Boundary(lev);
-    SwapLevel(lev, 1);
+    constexpr DdfLayout reference_layout = DdfLayout::Canonical;
+    Collide(lev, 0, reference_layout);
+    CommunicateLevel(lev, reference_layout);
+    Stream(lev, 1, reference_layout);
+    Boundary(lev, reference_layout);
+    SwapLevel(lev, 1, reference_layout);
 
     amrex::MultiFab& difference = f_new[lev];
     const amrex::MultiFab& reference = f_old[lev];
@@ -2848,33 +2762,51 @@ void AmrCoreLBM::PrintParticleChecksums(int step) const {
     }
 }
 
-void AmrCoreLBM::Boundary(int lev) {
+void AmrCoreLBM::Boundary(int lev, DdfLayout layout) {
     ScopedPerfTimer timer(perf_stats.boundary);
 
-    int right = Geom(lev).Domain().length(0) - 1;
-    int back = Geom(lev).Domain().length(1) - 1;
-    int up = Geom(lev).Domain().length(2) - 1;
-    amrex::IntVect hi{right, back, up};
+    const bool use_osi = layout == DdfLayout::Osi;
+    const Box domain = Geom(lev).Domain();
+    const amrex::IntVect hi{domain.length(0) - 1,
+                            domain.length(1) - 1,
+                            domain.length(2) - 1};
     const auto is_periodic = Geom(lev).isPeriodicArray();
     const bool has_fine_level = lev < finest_level && cf_mask_mode == 1;
+    const std::uint64_t phase = use_osi ? osi_phase.at(lev) : 0;
 
-    amrex::MultiFab& f_new_lev = f_new[lev];
+    amrex::MultiFab& state_lev =
+        use_osi ? osi_state.at(lev) : f_new.at(lev);
 
-    for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
-        const Array4<Real>& fnew = f_new_lev.array(mfi);
+    for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
+        const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
+        const auto lo = ring.smallEnd();
+        const box3d_osi::FabGeometry fab{
+            {lo[0], lo[1], lo[2]},
+            {ring.length(0), ring.length(1), ring.length(2)}};
+        const Array4<Real> state = state_lev.array(mfi);
         const Array4<const int> covered =
-            has_fine_level ? covered_mask[lev].const_array(mfi)
+            !use_osi && has_fine_level
+                ? covered_mask[lev].const_array(mfi)
                            : Array4<const int>{};
         perf_stats.boundary_full_cells += mfi.tilebox().numPts();
 
         for (const Box& bx : boundary_work_boxes[lev][mfi.index()]) { // 用 mfi.index() 得到该 Box 的全局编号
             perf_stats.boundary_launch_cells += bx.numPts();
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                if (has_fine_level && covered(i, j, k) != 0) {
-                    return;
-                }
-                fill_boundary(i, j, k, fnew, hi, is_periodic);
-            });
+            if (use_osi) {
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        fill_boundary_osi_state(
+                            i, j, k, state, hi, is_periodic, phase, fab);
+                    });
+            } else {
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        if (has_fine_level && covered(i, j, k) != 0) {
+                            return;
+                        }
+                        fill_boundary(i, j, k, state, hi, is_periodic);
+                    });
+            }
         }
     }
 }
@@ -3030,78 +2962,106 @@ void AmrCoreLBM::DiagnoseBoundaryResult(int lev) {
     }
 }
 
-void AmrCoreLBM::Collide(int lev, int n) {
+void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
     ScopedPerfTimer timer(perf_stats.collide);
 
-    int right = Geom(lev).Domain().length(0) - 1;
-    int back = Geom(lev).Domain().length(1) - 1;
-    int up = Geom(lev).Domain().length(2) - 1;
-    amrex::IntVect hi{right, back, up};
-
-    amrex::MultiFab& f_old_lev = f_old[lev];
+    const bool use_osi = layout == DdfLayout::Osi;
+    const Box domain = Geom(lev).Domain();
+    const amrex::IntVect hi{domain.length(0) - 1,
+                            domain.length(1) - 1,
+                            domain.length(2) - 1};
+    amrex::MultiFab& state_lev =
+        use_osi ? osi_state.at(lev) : f_old.at(lev);
     amrex::MultiFab& shear_lev = shear[lev];
     amrex::MultiFab& force_lev = force[lev];
     amrex::Real dt = Geom(lev).CellSizeArray()[0];
     amrex::Real tau_lev = tau[lev];
     const amrex::Real omega_lev = 1.0 / tau_lev;
-    const Box collision_domain = Geom(lev).growPeriodicDomain(n);
-    const bool has_fine_level = (lev < finest_level);
-    AMREX_ALWAYS_ASSERT(n <= cf_interface_mask_nghost);
+    const Box collision_domain = use_osi
+        ? Geom(lev).growPeriodicDomain(state_lev.nGrowVect())
+        : Geom(lev).growPeriodicDomain(n);
+    const bool has_fine_level = lev < finest_level && cf_mask_mode == 1;
+    const std::uint64_t phase = use_osi ? osi_phase.at(lev) : 0;
 
-    for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+    if (use_osi) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            collide_mode == 1,
+            "OSI collision requires lbm.collide_mode=1");
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+            AMREX_ALWAYS_ASSERT(
+                state_lev.nGrowVect()[d] <= cf_interface_mask_nghost);
+        }
+    } else {
+        AMREX_ALWAYS_ASSERT(n <= cf_interface_mask_nghost);
+    }
+
+    const bool use_tiling = use_osi ? false : TilingIfNotGPU();
+    for (MFIter mfi(state_lev, use_tiling); mfi.isValid(); ++mfi) {
         // 与 grown-Fab OSI 保持一致：周期域外 ghost 参与碰撞，非周期
         // ghost 仍由物理边界条件负责，不进入碰撞 kernel。
-        const auto bx = mfi.growntilebox(n) & collision_domain;
-        const Array4<Real>& fold = f_old_lev.array(mfi);
-        const Array4<Real>& s = shear_lev.array(mfi);
-        const Array4<Real>& Ft = force_lev.array(mfi);
+        const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
+        const Box bx = (use_osi ? ring : mfi.growntilebox(n)) &
+                       collision_domain;
+        const auto lo = ring.smallEnd();
+        const box3d_osi::FabGeometry fab{
+            {lo[0], lo[1], lo[2]},
+            {ring.length(0), ring.length(1), ring.length(2)}};
+        const Array4<Real> state = state_lev.array(mfi);
+        Array4<Real> s;
+        Array4<Real> Ft;
+        if (!use_osi && collide_mode == 0) {
+            s = shear_lev.array(mfi);
+            Ft = force_lev.array(mfi);
+        }
 
-        // collide_mode 在 host 侧选择 kernel，避免把基线和优化路径编译进
-        // 同一个 device kernel，否则不同路径的寄存器需求会彼此干扰。
-        const auto launch_active = [&](const Box& launch_box) {
-            if (collide_mode == 0) {
-                amrex::ParallelFor(launch_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
-                });
-            } else {
-                amrex::ParallelFor(launch_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    collide_bgk_register(i, j, k, fold, omega_lev);
-                });
-            }
-        };
+        const Array4<const int> covered =
+            has_fine_level ? covered_mask[lev].const_array(mfi)
+                           : Array4<const int>{};
+        const Array4<const int> interface =
+            has_fine_level ? interface_mask[lev].const_array(mfi)
+                           : Array4<const int>{};
 
-        const auto launch_masked = [&](const Box& launch_box,
-                                       const Array4<const int>& covered,
-                                       const Array4<const int>& interface) {
-            if (collide_mode == 0) {
-                amrex::ParallelFor(launch_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    if (covered(i, j, k) != 0 && interface(i, j, k) == 0) {
+        // 模式判断停留在 host 启动层，避免把运行时分支和另一种存储路径的
+        // 寄存器需求带入同一个 GPU kernel。
+        if (use_osi) {
+            amrex::ParallelFor(
+                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    if (has_fine_level && covered(i, j, k) != 0 &&
+                        interface(i, j, k) == 0) {
                         return;
                     }
-                    collide(i, j, k, fold, s, Ft, tau_lev, dt, hi);
+                    collide_bgk_register_osi(
+                        i, j, k, state, phase, fab, omega_lev);
                 });
-            } else {
-                amrex::ParallelFor(launch_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    if (covered(i, j, k) != 0 && interface(i, j, k) == 0) {
+        } else if (collide_mode == 0) {
+            amrex::ParallelFor(
+                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    if (has_fine_level && covered(i, j, k) != 0 &&
+                        interface(i, j, k) == 0) {
                         return;
                     }
-                    collide_bgk_register(i, j, k, fold, omega_lev);
+                    collide(i, j, k, state, s, Ft, tau_lev, dt, hi);
                 });
-            }
-        };
-
-        if (has_fine_level && cf_mask_mode == 1) {
-            const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
-            const Array4<const int>& interface = interface_mask[lev].const_array(mfi);
-
-            launch_masked(bx, covered, interface);
         } else {
-            launch_active(bx);
+            amrex::ParallelFor(
+                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    if (has_fine_level && covered(i, j, k) != 0 &&
+                        interface(i, j, k) == 0) {
+                        return;
+                    }
+                    collide_bgk_register(i, j, k, state, omega_lev);
+                });
         }
     }
 }
 
-void AmrCoreLBM::Stream(int lev, int n) {
+void AmrCoreLBM::Stream(int lev, int n, DdfLayout layout) {
+    if (layout == DdfLayout::Osi) {
+        // OSI 的逻辑迁移由 phase 提交完成，不搬运体积级 DDF。
+        ++osi_phase.at(lev);
+        return;
+    }
+
     ScopedPerfTimer timer(perf_stats.stream);
     AMREX_ALWAYS_ASSERT(n >= 1);
     AMREX_ALWAYS_ASSERT(n - 1 <= cf_covered_mask_nghost);
@@ -3277,7 +3237,12 @@ void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
     }
 }
 
-void AmrCoreLBM::SwapLevel(int lev, int n) {
+void AmrCoreLBM::SwapLevel(int lev, int n, DdfLayout layout) {
+    if (layout == DdfLayout::Osi) {
+        // OSI 只有一份体积级状态，Stream 阶段提交 phase 后无需交换数组。
+        return;
+    }
+
     ScopedPerfTimer timer(perf_stats.swap);
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];

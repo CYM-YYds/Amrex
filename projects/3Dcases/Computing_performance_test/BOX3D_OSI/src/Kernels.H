@@ -250,12 +250,44 @@ void compute_shear2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
         0.01 * dt * dt * Smag; // 不知道这样直接从三维改到二维对不对
 }
 
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void fill_boundary(int i, int j, int k,
-                   amrex::Array4<amrex::Real> const& fnew,
-                   amrex::IntVect const& hi,
-                   amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic) {
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+amrex::Real load_ddf(
+    int i, int j, int k, int q,
+    amrex::Array4<amrex::Real> const& state, std::uint64_t phase,
+    box3d_osi::FabGeometry const& fab) noexcept {
+    if constexpr (UseOsiAddress) {
+        const auto raw = box3d_osi::osi_address(
+            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
+        return state(raw.x, raw.y, raw.z, q);
+    } else {
+        return state(i, j, k, q);
+    }
+}
+
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void store_ddf(int i, int j, int k, int q, amrex::Real value,
+               amrex::Array4<amrex::Real> const& state,
+               std::uint64_t phase,
+               box3d_osi::FabGeometry const& fab) noexcept {
+    if constexpr (UseOsiAddress) {
+        const auto raw = box3d_osi::osi_address(
+            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
+        state(raw.x, raw.y, raw.z, q) = value;
+    } else {
+        state(i, j, k, q) = value;
+    }
+}
+
+// 两种存储布局共用同一份非平衡外推公式，仅 DDF 地址翻译不同。
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void fill_boundary_impl(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& state,
+    amrex::IntVect const& hi,
+    amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic,
+    std::uint64_t phase, box3d_osi::FabGeometry const& fab) noexcept {
     int x1 = i, y1 = j, z1 = k;
     bool boundary = false;
     if (!is_periodic[0] && i == 0) {
@@ -287,7 +319,8 @@ void fill_boundary(int i, int j, int k,
 
     Real rho1 = 0.0, ux1 = 0.0, uy1 = 0.0, uz1 = 0.0;
     for (int q = 0; q < Q; ++q) {
-        const Real fq = fnew(x1, y1, z1, q);
+        const Real fq = load_ddf<UseOsiAddress>(
+            x1, y1, z1, q, state, phase, fab);
         rho1 += fq;
         ux1 += fq * e[q][0];
         uy1 += fq * e[q][1];
@@ -304,14 +337,23 @@ void fill_boundary(int i, int j, int k,
         ux = U0;
 
     for (int q = 0; q < Q; ++q) {
-        fnew(i, j, k, q) = feqQian(rho1, {ux, uy, uz}, q) + fnew(x1, y1, z1, q) -
-                           feqQian(rho1, {ux1, uy1, uz1}, q);
+        const Real value =
+            feqQian(rho1, {ux, uy, uz}, q) +
+            load_ddf<UseOsiAddress>(x1, y1, z1, q, state, phase, fab) -
+            feqQian(rho1, {ux1, uy1, uz1}, q);
+        store_ddf<UseOsiAddress>(i, j, k, q, value, state, phase, fab);
     }
 }
 
-// 从迁移后的 phase 逻辑内部格点重建边界格点，并直接写回 OSI state。
-// 面的选择顺序与 fill_boundary 中六个独立 if 完全一致；边和角最终由后出现的
-// y/z 面覆盖，因此每个边界格点只需由一个线程计算，不会产生跨 kernel 竞争。
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void fill_boundary(int i, int j, int k,
+                   amrex::Array4<amrex::Real> const& state,
+                   amrex::IntVect const& hi,
+                   amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic) {
+    fill_boundary_impl<false>(i, j, k, state, hi, is_periodic, 0, {});
+}
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void fill_boundary_osi_state(
@@ -319,72 +361,8 @@ void fill_boundary_osi_state(
     amrex::IntVect const& hi,
     amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic,
     std::uint64_t phase, box3d_osi::FabGeometry const& fab) {
-    int x1 = i, y1 = j, z1 = k;
-    bool boundary = false;
-    if (!is_periodic[0] && i == 0) {
-        x1 = i + 1;
-        boundary = true;
-    }
-    if (!is_periodic[0] && i == hi[0]) {
-        x1 = i - 1;
-        boundary = true;
-    }
-    if (!is_periodic[1] && j == 0) {
-        y1 = j + 1;
-        boundary = true;
-    }
-    if (!is_periodic[1] && j == hi[1]) {
-        y1 = j - 1;
-        boundary = true;
-    }
-    if (!is_periodic[2] && k == 0) {
-        z1 = k + 1;
-        boundary = true;
-    }
-    if (!is_periodic[2] && k == hi[2]) {
-        z1 = k - 1;
-        boundary = true;
-    }
-    if (!boundary)
-        return;
-
-    Real rho1 = 0.0, ux1 = 0.0, uy1 = 0.0, uz1 = 0.0;
-    for (int q = 0; q < Q; ++q) {
-        const auto raw = box3d_osi::osi_address(
-            {x1, y1, z1}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
-        const Real fq = state(raw.x, raw.y, raw.z, q);
-        rho1 += fq;
-        ux1 += fq * e[q][0];
-        uy1 += fq * e[q][1];
-        uz1 += fq * e[q][2];
-    }
-    const Real invrho = 1.0 / rho1;
-    ux1 *= invrho;
-    uy1 *= invrho;
-    uz1 *= invrho;
-
-    Real ux = 0.0, uy = 0.0, uz = 0.0;
-
-    if (!is_periodic[2] && k == hi[2])
-        ux = U0;
-
-    const Real rho = rho1;
-    for (int q = 0; q < Q; ++q) {
-        const auto src = box3d_osi::osi_address(
-            {x1, y1, z1},
-            {e[q][0], e[q][1], e[q][2]},
-            phase,
-            fab);
-
-        const auto dst = box3d_osi::osi_address(
-            {i, j, k},
-            {e[q][0], e[q][1], e[q][2]},
-            phase,
-            fab);
-
-        state(dst.x, dst.y, dst.z, q) =
-            feqQian(rho, {ux, uy, uz}, q) + state(src.x, src.y, src.z, q) - feqQian(rho1, {ux1, uy1, uz1}, q);
-    }
+    fill_boundary_impl<true>(
+        i, j, k, state, hi, is_periodic, phase, fab);
 }
 
 AMREX_GPU_DEVICE
@@ -2227,55 +2205,13 @@ void swap_ddf(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
     }
 }
 
-// 当前 BOX3D 方腔流不使用体力或 SGS 黏性。该专用路径一次读入
-// D3Q27 分布函数并在后续 BGK 更新中复用，避免原路径第二遍从
-// MultiFab 重新加载 DDF。预先计算 u^2 也避免 feqQian() 对每个 q 重复
-// 计算相同的速度模平方。
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void collide_bgk_register(int i, int j, int k,
-                          amrex::Array4<amrex::Real> const& fold,
-                          amrex::Real omega) noexcept {
-    Real fq[Q];
-    Real rho = 0.0;
-    Real uxt = 0.0;
-    Real uyt = 0.0;
-    Real uzt = 0.0;
-
-#pragma unroll
-    for (int q = 0; q < Q; ++q) {
-        const Real ft = fold(i, j, k, q);
-        fq[q] = ft; // 这里专门额外设置这个变量，避免在后续计算中重复从显存中读取fold(i, j, k, q)
-        rho += ft;
-        uxt += ft * e[q][0];
-        uyt += ft * e[q][1];
-        uzt += ft * e[q][2];
-    }
-
-    const Real inv_rho = 1.0 / rho;
-    const Real ux = uxt * inv_rho;
-    const Real uy = uyt * inv_rho;
-    const Real uz = uzt * inv_rho;
-    const Real velocity_sq = ux * ux + uy * uy + uz * uz;
-    const Real equilibrium_common = 1.0 - 1.5 * velocity_sq;
-    const Real keep = 1.0 - omega;
-
-#pragma unroll
-    for (int q = 0; q < Q; ++q) {
-        const Real eu = e[q][0] * ux + e[q][1] * uy + e[q][2] * uz;
-        const Real feq = w[q] * rho *
-                         (equilibrium_common + 3.0 * eu + 4.5 * eu * eu);
-        fold(i, j, k, q) = keep * fq[q] + omega * feq;
-    }
-}
-
-// 阶段二 OSI 碰撞：logical cell 的 Q 个分量按当前 phase 翻译到
-// Fab-local raw 槽位，碰撞前后均访问同一组槽位。
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void collide_bgk_register_osi(
+// A-B 与 OSI 共用 BGK 数学公式；模板参数只决定 DDF 的读写地址。
+// 编译期分叉可以避免一种存储布局增加另一种布局的运行时判断和寄存器压力。
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void collide_bgk_register_impl(
     int i, int j, int k, amrex::Array4<amrex::Real> const& state,
-    std::uint64_t phase, box3d_osi::FabGeometry fab,
+    std::uint64_t phase, box3d_osi::FabGeometry const& fab,
     amrex::Real omega) noexcept {
     Real fq[Q];
     Real rho = 0.0;
@@ -2285,9 +2221,8 @@ void collide_bgk_register_osi(
 
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
-        const auto raw = box3d_osi::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
-        const Real ft = state(raw.x, raw.y, raw.z, q);
+        const Real ft = load_ddf<UseOsiAddress>(
+            i, j, k, q, state, phase, fab);
         fq[q] = ft;
         rho += ft;
         uxt += ft * e[q][0];
@@ -2308,10 +2243,28 @@ void collide_bgk_register_osi(
         const Real eu = e[q][0] * ux + e[q][1] * uy + e[q][2] * uz;
         const Real feq = w[q] * rho *
                          (equilibrium_common + 3.0 * eu + 4.5 * eu * eu);
-        const auto raw = box3d_osi::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
-        state(raw.x, raw.y, raw.z, q) = keep * fq[q] + omega * feq;
+        store_ddf<UseOsiAddress>(
+            i, j, k, q, keep * fq[q] + omega * feq,
+            state, phase, fab);
     }
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void collide_bgk_register(int i, int j, int k,
+                          amrex::Array4<amrex::Real> const& state,
+                          amrex::Real omega) noexcept {
+    collide_bgk_register_impl<false>(i, j, k, state, 0, {}, omega);
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void collide_bgk_register_osi(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& state,
+    std::uint64_t phase, box3d_osi::FabGeometry fab,
+    amrex::Real omega) noexcept {
+    collide_bgk_register_impl<true>(
+        i, j, k, state, phase, fab, omega);
 }
 
 // 直接从 twisted OSI 存储计算 logical valid cell 的宏观量。宏观场随后使用

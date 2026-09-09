@@ -85,6 +85,10 @@ class AmrCoreLBM : public amrex::AmrCore {
         long long boundary_launch_cells = 0;
     };
 
+    // 显式指定阶段函数访问 canonical A-B 状态还是 twisted OSI 状态。
+    // 诊断用 A-B oracle 在 stream_mode=1 时仍需选择 Canonical。
+    enum class DdfLayout : std::uint8_t { Canonical, Osi };
+
     //********************************************************************//
     //                           constructor                              //
     //********************************************************************//
@@ -167,11 +171,15 @@ class AmrCoreLBM : public amrex::AmrCore {
     void FillGhostLevel(int lev, amrex::Real time, bool is_scale);
     void FillMacroGhostLevel(int lev, amrex::Real time);
     void FillForceGhostLevel(int lev, amrex::Real time);
-    void CommunicateLevel(int lev);
-    void Boundary(int lev);
-    void Collide(int lev, int n);
-    void Stream(int lev, int n);
-    void SwapLevel(int lev, int n);
+    void CommunicateLevel(int lev,
+                          DdfLayout layout = DdfLayout::Canonical);
+    void Boundary(int lev, DdfLayout layout = DdfLayout::Canonical);
+    void Collide(int lev, int n,
+                 DdfLayout layout = DdfLayout::Canonical);
+    void Stream(int lev, int n,
+                DdfLayout layout = DdfLayout::Canonical);
+    void SwapLevel(int lev, int n,
+                   DdfLayout layout = DdfLayout::Canonical);
     void ValidateConfiguration() const;
     void AdvanceLevel(int lev);
 
@@ -283,9 +291,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     void AverageDownOsiValidLevel(int lev, bool is_scale);
     void FillOsiGhostFromCoarse(int lev, amrex::Real time);
     void AverageDownOsiLevel(int lev, bool is_scale);
-    void AdvanceOsiLevelImpl(int lev);
-    void CollideOsiLevel(int lev);
-    void ApplyOsiBoundaryLevel(int lev);
     void CommunicateOsiLevel(int lev);
 
   private:
