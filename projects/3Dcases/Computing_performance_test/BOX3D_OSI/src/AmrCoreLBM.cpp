@@ -31,8 +31,6 @@
 using namespace amrex;
 
 namespace {
-constexpr int cf_interface_mask_nghost = 2;
-constexpr int cf_covered_mask_nghost = cf_interface_mask_nghost + 1;
 constexpr char checkpoint_label_v1[] = "LBMCheckpoint";
 constexpr char checkpoint_label_v2[] = "LBMCheckpointV2";
 constexpr char checkpoint_layout_ab[] = "canonical_ab_two_array_v1";
@@ -1192,26 +1190,26 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
     for (int lev = 0; lev < finest_level; ++lev) {
         AMREX_ALWAYS_ASSERT(state.at(lev).isDefined());
         AMREX_ALWAYS_ASSERT(state.at(lev + 1).isDefined());
-        const Box domain = Geom(lev).Domain();
         covered_mask[lev] = amrex::makeFineMask(
-            state[lev], state[lev + 1], amrex::IntVect(cf_covered_mask_nghost), refRatio(lev),
+            // interface 的 valid 分类只需 3x3x3 邻域；但碰撞会在 DDF
+            // 的完整 grown ring 中读取 covered 标记，故宽度仍须为 nghost。
+            state[lev], state[lev + 1], amrex::IntVect(nghost), refRatio(lev),
             Geom(lev).periodicity(), 0, 1);
 
-        interface_mask[lev].define(state[lev].boxArray(), state[lev].DistributionMap(), 1, cf_interface_mask_nghost);
+        // interface 的 ghost 仅是 valid 标记的同层/周期副本，宽度与
+        // 碰撞访问的 DDF ghost 一致。
+        interface_mask[lev].define(
+            state[lev].boxArray(), state[lev].DistributionMap(), 1, nghost);
         interface_mask[lev].setVal(0);
-        const Box mask_domain =
-            Geom(lev).growPeriodicDomain(cf_interface_mask_nghost);
         const Box covered_neighbor_domain =
-            Geom(lev).growPeriodicDomain(cf_covered_mask_nghost);
+            Geom(lev).growPeriodicDomain(1);
         const auto neighbor_lo = amrex::lbound(covered_neighbor_domain);
         const auto neighbor_hi = amrex::ubound(covered_neighbor_domain);
 
         for (MFIter mfi(interface_mask[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            // 周期域外 ghost 与周期另一侧的域内单元是同一个逻辑单元，
-            // 因而直接在周期扩展域上构造 interface 标记；非周期方向仍
-            // 裁剪到物理 domain。
-            const Box bx =
-                mfi.growntilebox(cf_interface_mask_nghost) & mask_domain;
+            // interface 的物理分类只在 valid 单元构造；其 ghost 随后由
+            // FillBoundary 从同层或周期对应的 valid 单元复制。
+            const Box bx = mfi.tilebox();
             const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
             const Array4<int>& interface = interface_mask[lev].array(mfi);
 
@@ -1233,7 +1231,7 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
                                  nj <= neighbor_hi.y) &&
                                 (nk >= neighbor_lo.z &&
                                  nk <= neighbor_hi.z);
-                            if (in_covered_neighbor_domain &&
+                            if (in_covered_neighbor_domain ||
                                 covered(ni, nj, nk) == 0) {
                                 interface(i, j, k) = 1;
                                 return;
@@ -1243,6 +1241,8 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
                 }
             });
         }
+        amrex::Gpu::streamSynchronize();
+        interface_mask[lev].FillBoundary(Geom(lev).periodicity());
 
         covered_cell_counts[lev] = covered_mask[lev].sum(0, 0);
         interface_cell_counts[lev] = interface_mask[lev].sum(0, 0);
@@ -2989,10 +2989,10 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
             "OSI collision requires lbm.collide_mode=1");
         for (int d = 0; d < AMREX_SPACEDIM; ++d) {
             AMREX_ALWAYS_ASSERT(
-                state_lev.nGrowVect()[d] <= cf_interface_mask_nghost);
+                state_lev.nGrowVect()[d] <= nghost);
         }
     } else {
-        AMREX_ALWAYS_ASSERT(n <= cf_interface_mask_nghost);
+        AMREX_ALWAYS_ASSERT(n <= nghost);
     }
 
     const bool use_tiling = use_osi ? false : TilingIfNotGPU();
@@ -3064,7 +3064,7 @@ void AmrCoreLBM::Stream(int lev, int n, DdfLayout layout) {
 
     ScopedPerfTimer timer(perf_stats.stream);
     AMREX_ALWAYS_ASSERT(n >= 1);
-    AMREX_ALWAYS_ASSERT(n - 1 <= cf_covered_mask_nghost);
+    AMREX_ALWAYS_ASSERT(n - 1 <= 1);
 
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
@@ -3102,7 +3102,7 @@ void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
         lev >= 0 && lev <= finest_level,
         "DiagnoseStreamResult requires an active AMR level");
     AMREX_ALWAYS_ASSERT(n >= 1);
-    AMREX_ALWAYS_ASSERT(n - 1 <= cf_covered_mask_nghost);
+    AMREX_ALWAYS_ASSERT(n - 1 <= 1);
 
     const MultiFab& f_old_lev = f_old.at(lev);
     const MultiFab& f_new_lev = f_new.at(lev);
