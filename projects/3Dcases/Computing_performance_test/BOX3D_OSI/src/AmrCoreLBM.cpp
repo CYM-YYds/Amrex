@@ -522,6 +522,25 @@ void AmrCoreLBM::ReadParameters() {
         pp_verify.query("particle_checksum", particle_checksum);
         pp_verify.query("check_state_after_regrid", check_state_after_regrid);
         pp_verify.query("check_state_each_substep", check_state_each_substep);
+        pp_verify.query("convergence_enabled", convergence_.enabled);
+        pp_verify.query("convergence_check_int", convergence_.check_int);
+        pp_verify.query("convergence_trend_int", convergence_.trend_int);
+        pp_verify.query("convergence_required", convergence_.required);
+        pp_verify.query("convergence_tolerance", convergence_.tolerance);
+        if (convergence_.enabled) {
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                convergence_.check_int > 0,
+                "verification.convergence_check_int must be positive");
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                convergence_.trend_int > 0,
+                "verification.convergence_trend_int must be positive");
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                convergence_.required > 0,
+                "verification.convergence_required must be positive");
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                convergence_.tolerance > 0.0,
+                "verification.convergence_tolerance must be positive");
+        }
     }
 
     {
@@ -1473,19 +1492,8 @@ void AmrCoreLBM::ComputeMacro() {
     }
 }
 
-void AmrCoreLBM::PrepareLevel0VelocityForConvergence() {
-    // Compare on the fixed level-0 mesh so that each physical location has
-    // one contribution even if dynamic regridding changed fine BoxArrays.
-    if (finest_level > 0) {
-        AverageDownValid();
-    }
-    ComputeMacro();
-    Gpu::synchronize();
-}
-
 std::array<Real, 3> AmrCoreLBM::MeasureLevel0VelocityChange(
-    const MultiFab& previous)
-{
+    const MultiFab& previous) const {
     const MultiFab& velocity_0 = velocity.at(0);
     MultiFab velocity_delta(
         velocity_0.boxArray(), velocity_0.DistributionMap(),
@@ -1510,6 +1518,83 @@ std::array<Real, 3> AmrCoreLBM::MeasureLevel0VelocityChange(
     return {delta_velocity_l2 /
                 amrex::max(velocity_l2, std::numeric_limits<Real>::min()),
             velocity_l2, delta_velocity_l2};
+}
+
+void AmrCoreLBM::InitializeConvergence() {
+    if (!convergence_.enabled) {
+        return;
+    }
+
+    ComputeMacro();
+    Gpu::synchronize();
+
+    const MultiFab& velocity_0 = velocity.at(0);
+    convergence_.previous_check_velocity = std::make_unique<MultiFab>(
+        velocity_0.boxArray(), velocity_0.DistributionMap(),
+        AMREX_SPACEDIM, 0);
+    convergence_.previous_trend_velocity = std::make_unique<MultiFab>(
+        velocity_0.boxArray(), velocity_0.DistributionMap(),
+        AMREX_SPACEDIM, 0);
+    MultiFab::Copy(*convergence_.previous_check_velocity, velocity_0, 0, 0,
+                   AMREX_SPACEDIM, 0);
+    MultiFab::Copy(*convergence_.previous_trend_velocity, velocity_0, 0, 0,
+                   AMREX_SPACEDIM, 0);
+    convergence_.streak = 0;
+}
+
+bool AmrCoreLBM::CheckConvergence(int step) {
+    if (!convergence_.enabled) {
+        return false;
+    }
+
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        convergence_.previous_check_velocity &&
+            convergence_.previous_trend_velocity,
+        "InitializeConvergence must be called before CheckConvergence");
+    const int elapsed_steps = step - params_.begin_step;
+    const bool convergence_sample = elapsed_steps % convergence_.check_int == 0;
+    const bool trend_sample = elapsed_steps % convergence_.trend_int == 0;
+    if (!convergence_sample && !trend_sample) {
+        return false;
+    }
+
+    ComputeMacro();
+    Gpu::synchronize();
+    const MultiFab& velocity_0 = velocity.at(0);
+    if (trend_sample) {
+        const auto values =
+            MeasureLevel0VelocityChange(*convergence_.previous_trend_velocity);
+        amrex::Print() << "CONVERGENCE_TREND step=" << step
+                       << " interval=" << convergence_.trend_int
+                       << " velocity_l2_relative=" << values[0]
+                       << " velocity_l2=" << values[1]
+                       << " delta_velocity_l2=" << values[2] << '\n';
+        MultiFab::Copy(*convergence_.previous_trend_velocity, velocity_0, 0, 0,
+                       AMREX_SPACEDIM, 0);
+    }
+
+    if (!convergence_sample) {
+        return false;
+    }
+
+    const auto values =
+        MeasureLevel0VelocityChange(*convergence_.previous_check_velocity);
+    convergence_.streak = values[0] < convergence_.tolerance
+                              ? convergence_.streak + 1
+                              : 0;
+    const bool converged = convergence_.streak >= convergence_.required;
+    amrex::Print() << "CONVERGENCE step=" << step
+                   << " interval=" << convergence_.check_int
+                   << " velocity_l2_relative=" << values[0]
+                   << " velocity_l2=" << values[1]
+                   << " delta_velocity_l2=" << values[2]
+                   << " tolerance=" << convergence_.tolerance
+                   << " consecutive=" << convergence_.streak
+                   << '/' << convergence_.required
+                   << " converged=" << converged << '\n';
+    MultiFab::Copy(*convergence_.previous_check_velocity, velocity_0, 0, 0,
+                   AMREX_SPACEDIM, 0);
+    return converged;
 }
 
 void AmrCoreLBM::ComputeVorticityLevel(int lev) {
@@ -2223,16 +2308,6 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
                        << " rho_min=" << rho_min
                        << " rho_max=" << rho_max
                        << " velocity_linf=" << velocity_linf << '\n';
-    }
-}
-
-void AmrCoreLBM::PrepareStateForAdvance() {
-    for (int lev = 0; lev <= finest_level; ++lev) {
-        if (stream_mode == 1) {
-            CommunicateOsiLevel(lev);
-        } else {
-            CommunicateLevel(lev);
-        }
     }
 }
 

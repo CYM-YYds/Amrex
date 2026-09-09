@@ -117,16 +117,12 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ReadCheckpoint();
     void CompareDdfCheckpoint(const std::string& checkpoint_path) const;
     void PrintParticleChecksums(int step) const;
-    void PrepareLevel0VelocityForConvergence();
-    std::array<amrex::Real, 3> MeasureLevel0VelocityChange(
-        const amrex::MultiFab& previous);
+    void InitializeConvergence();
+    [[nodiscard]] bool CheckConvergence(int step);
     const RuntimeParams& params() const {
         return params_;
     }
     const LbmGridParams& gridParams() const noexcept { return grid_; }
-    const amrex::MultiFab& velocityLevel(int lev) const {
-        return velocity.at(lev);
-    }
     int ghostCells() const {
         return nghost;
     }
@@ -180,7 +176,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     void SwapLevel(int lev, int n);
     void ValidateConfiguration() const;
     void ValidateInitializedState(const char* context = "Initialization");
-    void PrepareStateForAdvance();
     [[nodiscard]] bool checkStateEachSubstep() const noexcept {
         return check_state_each_substep;
     }
@@ -220,6 +215,20 @@ class AmrCoreLBM : public amrex::AmrCore {
   private:
 
     LbmGridParams grid_{};
+    struct ConvergenceState {
+        bool enabled = false;
+        int check_int = 1000;
+        int trend_int = 1000;
+        int required = 3;
+        int streak = 0;
+        amrex::Real tolerance = 1.0e-12;
+        std::unique_ptr<amrex::MultiFab> previous_check_velocity;
+        std::unique_ptr<amrex::MultiFab> previous_trend_velocity;
+    };
+    ConvergenceState convergence_;
+
+    std::array<amrex::Real, 3> MeasureLevel0VelocityChange(
+        const amrex::MultiFab& previous) const;
     void BuildBoundaryWorkBoxes();
     void BuildOsiCommunicationRegionCache(int lev);
     void BuildInterpolationCache();

@@ -3,7 +3,6 @@
 #include <array>
 #include <cmath>
 #include <limits>
-#include <memory>
 
 #include <AMReX.H>
 #include <AMReX_BLProfiler.H>
@@ -120,20 +119,10 @@ int main(int argc, char* argv[]) {
         int chk_int = -1;
         int begin_step = 0;
         std::string ddf_reference_checkpoint;
-        bool convergence_enabled = false;
-        int convergence_check_int = 1000;
-        int convergence_trend_int = 1000;
-        int convergence_required = 3;
-        amrex::Real convergence_tolerance = 1.0e-12;
         {
             amrex::ParmParse pp_verify("verification");
             pp_verify.query(
                 "ddf_reference_checkpoint", ddf_reference_checkpoint);
-            pp_verify.query("convergence_enabled", convergence_enabled);
-            pp_verify.query("convergence_check_int", convergence_check_int);
-            pp_verify.query("convergence_trend_int", convergence_trend_int);
-            pp_verify.query("convergence_required", convergence_required);
-            pp_verify.query("convergence_tolerance", convergence_tolerance);
         }
 
         const int runtime_max_level = input.max_level;
@@ -160,8 +149,7 @@ int main(int argc, char* argv[]) {
 
         const auto n_amr_levels = static_cast<std::size_t>(runtime_max_level + 1);
         // 当前 LBM 多层推进只支持逐级二倍细化。
-        amrex::Vector<amrex::IntVect> ref_ratio(n_amr_levels,
-                                                 amrex::IntVect(2));
+        amrex::Vector<amrex::IntVect> ref_ratio(n_amr_levels, amrex::IntVect(2));
         amrex::Vector<amrex::IntVect> blocking_factor(n_amr_levels);
         amrex::Vector<amrex::IntVect> max_grid_size(n_amr_levels);
         for (std::size_t lev = 0; lev < n_amr_levels; ++lev) {
@@ -198,38 +186,11 @@ int main(int argc, char* argv[]) {
                 lid.PrintParticleParm();
             }
         }
-        lid.ValidateConfiguration();
-        lid.ValidateInitializedState();
-        // Init/restart guarantees canonical valid data; prepare every active
-        // level's same-level/periodic ghosts before the first collision.
-        lid.PrepareStateForAdvance();
 
-        std::unique_ptr<amrex::MultiFab> previous_convergence_velocity;
-        std::unique_ptr<amrex::MultiFab> previous_trend_velocity;
-        int convergence_streak = 0;
-        if (convergence_enabled) {
-            AMREX_ALWAYS_ASSERT(convergence_check_int > 0);
-            AMREX_ALWAYS_ASSERT(convergence_trend_int > 0);
-            AMREX_ALWAYS_ASSERT(convergence_required > 0);
-            AMREX_ALWAYS_ASSERT(convergence_tolerance > 0.0);
-            if (lid.finestLevel() > 0) {
-                lid.AverageDownValid();
-            }
-            lid.ComputeMacro();
-            amrex::Gpu::synchronize();
-            previous_convergence_velocity = std::make_unique<amrex::MultiFab>(
-                lid.velocityLevel(0).boxArray(), lid.velocityLevel(0).DistributionMap(),
-                AMREX_SPACEDIM, 0);
-            amrex::MultiFab::Copy(*previous_convergence_velocity,
-                                  lid.velocityLevel(0), 0, 0,
-                                  AMREX_SPACEDIM, 0);
-            previous_trend_velocity = std::make_unique<amrex::MultiFab>(
-                lid.velocityLevel(0).boxArray(), lid.velocityLevel(0).DistributionMap(),
-                AMREX_SPACEDIM, 0);
-            amrex::MultiFab::Copy(*previous_trend_velocity,
-                                  lid.velocityLevel(0), 0, 0,
-                                  AMREX_SPACEDIM, 0);
-        }
+        lid.ValidateConfiguration();    //  配置、层级、OSI 数组和模式是否允许计算
+        lid.ValidateInitializedState(); // 当前 DDF、密度、速度是否是有限且物理可用的数值状态
+
+        lid.InitializeConvergence();
 
         float compute_time = 0.0f;
         float regrid_time = 0.0f;
@@ -299,46 +260,7 @@ int main(int argc, char* argv[]) {
             compute_time += std::chrono::duration<float, std::milli>(end_time_compute_time - start_time_compute_time).count();
             cur_time += grid.dt;
 
-            bool converged = false;
-            const bool convergence_sample = convergence_enabled &&
-                                            (step - begin_step) % convergence_check_int == 0;
-            const bool trend_sample = convergence_enabled &&
-                                      (step - begin_step) % convergence_trend_int == 0;
-            if (convergence_sample || trend_sample) {
-                lid.PrepareLevel0VelocityForConvergence();
-                if (trend_sample) {
-                    const auto values =
-                        lid.MeasureLevel0VelocityChange(*previous_trend_velocity);
-                    amrex::Print() << "CONVERGENCE_TREND step=" << step
-                                   << " interval=" << convergence_trend_int
-                                   << " velocity_l2_relative=" << values[0]
-                                   << " velocity_l2=" << values[1]
-                                   << " delta_velocity_l2=" << values[2] << '\n';
-                    amrex::MultiFab::Copy(*previous_trend_velocity,
-                                          lid.velocityLevel(0), 0, 0,
-                                          AMREX_SPACEDIM, 0);
-                }
-                if (convergence_sample) {
-                    const auto values =
-                        lid.MeasureLevel0VelocityChange(*previous_convergence_velocity);
-                    convergence_streak = values[0] < convergence_tolerance
-                                             ? convergence_streak + 1
-                                             : 0;
-                    converged = convergence_streak >= convergence_required;
-                    amrex::Print() << "CONVERGENCE step=" << step
-                                   << " interval=" << convergence_check_int
-                                   << " velocity_l2_relative=" << values[0]
-                                   << " velocity_l2=" << values[1]
-                                   << " delta_velocity_l2=" << values[2]
-                                   << " tolerance=" << convergence_tolerance
-                                   << " consecutive=" << convergence_streak
-                                   << '/' << convergence_required
-                                   << " converged=" << converged << '\n';
-                    amrex::MultiFab::Copy(*previous_convergence_velocity,
-                                          lid.velocityLevel(0), 0, 0,
-                                          AMREX_SPACEDIM, 0);
-                }
-            }
+            const bool converged = lid.CheckConvergence(step);
 
             // if(step >= 98000 && step <= 100000 && step % 100 == 0)
             // {
