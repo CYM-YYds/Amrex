@@ -23,13 +23,13 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 namespace {
 
 struct InputConfig {
-    int max_step = 0;
-    Real stop_time = 0.0;
-    int max_level = max_ref_level;
-    Vector<int> n_cell{AMREX_D_DECL(128, 128, 128)};
-    Vector<Real> prob_lo{AMREX_D_DECL(0.0, 0.0, 0.0)};
-    Vector<Real> prob_hi{AMREX_D_DECL(128.0, 128.0, 128.0)};
-    Vector<int> is_periodic{AMREX_D_DECL(0, 0, 0)};
+    int max_step;
+    Real stop_time;
+    int max_level;
+    Vector<int> n_cell;
+    Vector<Real> prob_lo;
+    Vector<Real> prob_hi;
+    Vector<int> is_periodic;
 };
 
 InputConfig ReadInputConfig()
@@ -37,17 +37,21 @@ InputConfig ReadInputConfig()
     InputConfig config;
 
     ParmParse pp;
-    pp.query("max_step", config.max_step);
-    pp.query("stop_time", config.stop_time);
+    pp.get("max_step", config.max_step);
+    pp.get("stop_time", config.stop_time);
 
     ParmParse pp_amr("amr");
-    pp_amr.query("max_level", config.max_level);
-    pp_amr.queryarr("n_cell", config.n_cell);
+    pp_amr.get("max_level", config.max_level);
+    config.n_cell.resize(AMREX_SPACEDIM);
+    pp_amr.getarr("n_cell", config.n_cell);
 
     ParmParse pp_geometry("geometry");
-    pp_geometry.queryarr("prob_lo", config.prob_lo);
-    pp_geometry.queryarr("prob_hi", config.prob_hi);
-    pp_geometry.queryarr("is_periodic", config.is_periodic);
+    config.prob_lo.resize(AMREX_SPACEDIM);
+    config.prob_hi.resize(AMREX_SPACEDIM);
+    config.is_periodic.resize(AMREX_SPACEDIM);
+    pp_geometry.getarr("prob_lo", config.prob_lo);
+    pp_geometry.getarr("prob_hi", config.prob_hi);
+    pp_geometry.getarr("is_periodic", config.is_periodic);
 
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         config.max_step >= 0, "max_step must be non-negative");
