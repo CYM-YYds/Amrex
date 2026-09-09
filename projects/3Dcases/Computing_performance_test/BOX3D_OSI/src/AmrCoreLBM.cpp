@@ -2785,8 +2785,7 @@ void AmrCoreLBM::Boundary(int lev, DdfLayout layout) {
             {ring.length(0), ring.length(1), ring.length(2)}};
         const Array4<Real> state = state_lev.array(mfi);
         const Array4<const int> covered =
-            !use_osi && has_fine_level
-                ? covered_mask[lev].const_array(mfi)
+            has_fine_level ? covered_mask[lev].const_array(mfi)
                            : Array4<const int>{};
         perf_stats.boundary_full_cells += mfi.tilebox().numPts();
 
@@ -2795,6 +2794,9 @@ void AmrCoreLBM::Boundary(int lev, DdfLayout layout) {
             if (use_osi) {
                 amrex::ParallelFor(
                     bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        if (has_fine_level && covered(i, j, k) != 0) {
+                            return;
+                        }
                         fill_boundary_osi_state(
                             i, j, k, state, hi, is_periodic, phase, fab);
                     });
@@ -2977,9 +2979,7 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
     amrex::Real dt = Geom(lev).CellSizeArray()[0];
     amrex::Real tau_lev = tau[lev];
     const amrex::Real omega_lev = 1.0 / tau_lev;
-    const Box collision_domain = use_osi
-        ? Geom(lev).growPeriodicDomain(state_lev.nGrowVect())
-        : Geom(lev).growPeriodicDomain(n);
+    const Box collision_domain = Geom(lev).growPeriodicDomain(n);
     const bool has_fine_level = lev < finest_level && cf_mask_mode == 1;
     const std::uint64_t phase = use_osi ? osi_phase.at(lev) : 0;
 
