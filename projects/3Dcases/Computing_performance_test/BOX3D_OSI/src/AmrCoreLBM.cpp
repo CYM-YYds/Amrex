@@ -520,8 +520,6 @@ void AmrCoreLBM::ReadParameters() {
         pp_verify.query("osi_seed_pattern", osi_verification_pattern);
         pp_verify.query("osi_ab_check", osi_ab_check);
         pp_verify.query("particle_checksum", particle_checksum);
-        pp_verify.query("check_state_after_regrid", check_state_after_regrid);
-        pp_verify.query("check_state_each_substep", check_state_each_substep);
         pp_verify.query("convergence_enabled", convergence_.enabled);
         pp_verify.query("convergence_check_int", convergence_.check_int);
         pp_verify.query("convergence_trend_int", convergence_.trend_int);
@@ -668,7 +666,6 @@ void AmrCoreLBM::InitMesh(amrex::Real cur_time) {
 }
 void AmrCoreLBM::FillCoarsePatch(int lev, amrex::Real time, amrex::MultiFab& mf) // 根本没有用到
 {
-    // amrex::AllPrint()<<"FillCoarse Patch from " << lev-1 << " to " << lev <<std::endl;
 
     Interpolater* mapper = &cell_cons_interp;
 
@@ -691,7 +688,6 @@ void AmrCoreLBM::FillCoarsePatch(int lev, amrex::Real time, amrex::MultiFab& mf)
     }
 }
 void AmrCoreLBM::FillPatch(int lev, amrex::Real time, amrex::MultiFab& mf) {
-    // amrex::AllPrint()<<"FillPatch from " << lev-1 << " to " << lev <<std::endl;
 
     Interpolater* mapper = &cell_cons_interp;
 
@@ -816,28 +812,6 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
         DistributionMapping coarse_stage_dm(std::move(coarse_owners));
         coarse_stage.define(coarse_stage_ba, coarse_stage_dm, Q, 0);
     }
-    if (check_state_each_substep && (lev == 1 || lev == 2)) {
-        long long fine_points = 0;
-        long long coarse_points = 0;
-        for (const Box& b : fine_work_boxes) {
-            fine_points += b.numPts();
-        }
-        for (const Box& b : coarse_boxes) {
-            coarse_points += b.numPts();
-        }
-        amrex::Print() << "INTERP_CACHE lev=" << lev
-                       << " entries=" << fine_work_boxes.size()
-                       << " fine_points=" << fine_points
-                       << " coarse_points=" << coarse_points;
-        if (!fine_work_boxes.empty()) {
-            amrex::Print() << " first_fine=" << fine_work_boxes.front()
-                           << " first_coarse=" << coarse_boxes.front()
-                           << " last_fine=" << fine_work_boxes.back()
-                           << " last_coarse=" << coarse_boxes.back();
-        }
-        amrex::Print() << "\n";
-    }
-
     // ParallelCopy 只会从 coarse valid 读取与 coarse_stage 相交的区域。
     // 在这里一次性反查这些 source boxes，避免每个时间步解码整层 valid。
     if (stream_mode == 1) {
@@ -934,22 +908,8 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
     coarse_stage.ParallelCopy(
         coarse_state, 0, 0, Q, IntVect(0), IntVect(0),
         Geom(lev - 1).periodicity());
-    if (check_state_each_substep && (lev == 1 || lev == 2)) {
-        amrex::Print() << "INTERP_STAGE_NORM stage=after_coarse_copy_raw lev=" << lev;
-        for (int q : {0, 3, 18, 26}) {
-            amrex::Print() << " q" << q << "=" << coarse_stage.norm1(q, 0);
-        }
-        amrex::Print() << "\n";
-    }
     // 阶段 2：两条插值路径共享相同的物理边界规则。
     FillCoarseInterpolationStagePhysicalBoundary(lev);
-    if (check_state_each_substep && (lev == 1 || lev == 2)) {
-        amrex::Print() << "INTERP_STAGE_NORM stage=after_physical_boundary lev=" << lev;
-        for (int q : {0, 3, 18, 26}) {
-            amrex::Print() << " q" << q << "=" << coarse_stage.norm1(q, 0);
-        }
-        amrex::Print() << "\n";
-    }
 
     // 阶段 3/4：缩放当前 stencil，随后写入 canonical fine 布局。
     for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
@@ -986,14 +946,6 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
                         ic, jc, kc, fine, coarse, fine_box);
                 });
         }
-    }
-    if (check_state_each_substep && (lev == 1 || lev == 2)) {
-        amrex::Print() << "INTERP_STAGE_NORM stage=after_interpolation lev=" << lev;
-        for (int q : {0, 3, 18, 26}) {
-            amrex::Print() << " q" << q << "_valid=" << fine_state.norm1(q, 0)
-                           << " q" << q << "_grow=" << fine_state.norm1(q, fine_state.nGrowVect().max());
-        }
-        amrex::Print() << "\n";
     }
 }
 
@@ -1177,45 +1129,6 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
         interp_direct_cache_ready.end(), 0);
     regrid(0, cur_time);
     RebuildCoarseFineCaches();
-    if (check_state_after_regrid) {
-        ValidateInitializedState();
-    }
-
-    if (check_state_each_substep && ParallelDescriptor::IOProcessor()) {
-        amrex::Print() << "regrid_observe: finest_level="
-                       << finest_level << '\n';
-        for (int lev = 0; lev <= finest_level; ++lev) {
-            const auto& ba = boxArray(lev);
-            amrex::Print() << "regrid_observe: lev=" << lev
-                           << " boxes=" << ba.size() // 返回该 BoxArray 中的 Box 总数
-                           << " valid_cells=" << ba.numPts();
-            if (lev < max_level && regrid_tag_counts[lev] >= 0) {
-                amrex::Print() << " tagged_to_lev=" << (lev + 1)
-                               << " tag_cells=" << regrid_tag_counts[lev];
-            }
-            amrex::Print() << '\n';
-        }
-        for (int lev = 0; lev < finest_level; ++lev) {
-            if (cf_mask_mode == 0) {
-                amrex::Print() << "cf_mask_observe: lev=" << lev << " disabled\n";
-                continue;
-            }
-
-            long fine_cells_per_coarse = 1;
-            const auto ratio = refRatio(lev);
-            for (int dim = 0; dim < AMREX_SPACEDIM; ++dim) {
-                fine_cells_per_coarse *= ratio[dim];
-            }
-
-            const auto expected_covered = boxArray(lev + 1).numPts() / fine_cells_per_coarse;
-            const auto uncovered = boxArray(lev).numPts() - covered_cell_counts[lev];
-            amrex::Print() << "cf_mask_observe: lev=" << lev
-                           << " covered=" << covered_cell_counts[lev]
-                           << " covered_expected=" << expected_covered
-                           << " interface=" << interface_cell_counts[lev]
-                           << " uncovered=" << uncovered << '\n';
-        }
-    }
 }
 
 void AmrCoreLBM::RebuildCoarseFineCaches() {
@@ -1430,11 +1343,9 @@ void AmrCoreLBM::BuildRestrictionCache() {
 }
 
 void AmrCoreLBM::FindCentre() {
-    // amrex::AllPrint()<<"FindCentre "<<std::endl;
 
     for (int p_num = 0; p_num < particle_num; p_num++) {
         points[p_num] = particles[p_num]->ReturnCentre();
-        // amrex::Print() << "id " << p_num << "'s z_positon is " << points[p_num][2] << std::endl;
     }
 }
 
@@ -1598,7 +1509,6 @@ bool AmrCoreLBM::CheckConvergence(int step) {
 }
 
 void AmrCoreLBM::ComputeVorticityLevel(int lev) {
-    // amrex::AllPrint()<<"ComputeVorticityLevel on " << lev <<std::endl;
 
     const amrex::MultiFab& level_layout =
         stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
@@ -1651,7 +1561,6 @@ void AmrCoreLBM::ComputeShear() {
 }
 
 void AmrCoreLBM::AverageDownValidLevel(int lev, bool is_scale) {
-    // amrex::AllPrint()<<"AverageDownValidLevel from " << lev+1 << " to " << lev <<std::endl;
     // amrex::average_down(f_old[lev+1], f_old[lev], geom[lev+1], geom[lev],0, Q, refRatio(lev));
 
     amrex::MultiFab& fine_mf = f_old[lev + 1];
@@ -1784,7 +1693,6 @@ void AmrCoreLBM::AverageDownValid() {
 void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
     ScopedPerfTimer timer(perf_stats.average);
     ++perf_stats.avgdown_calls;
-    // amrex::AllPrint()<<"AverageDownGhostLevel from " << lev+1 << " to " << lev <<std::endl;
 
     if (lev >= finest_level) {
         return;
@@ -2127,7 +2035,6 @@ void AmrCoreLBM::FillMacroGhostLevel(int lev, amrex::Real time) {
 }
 
 void AmrCoreLBM::FillForceGhostLevel(int lev, amrex::Real time) {
-    // amrex::AllPrint()<<"FillForceGhostLevel on " << lev <<std::endl;
 
     amrex::MultiFab& force_lev = force[lev];
 
@@ -2240,8 +2147,6 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
                     const auto dst = active_scalar.array(mfi);
                     const auto covered =
                         covered_mask.at(lev).const_array(mfi);
-                    const auto interface =
-                        interface_mask.at(lev).const_array(mfi);
                     amrex::ParallelFor(
                         bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                             dst(i, j, k) = (covered(i, j, k) == 0)
@@ -2474,27 +2379,11 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         return;
     }
 
-    const bool trace = checkStateEachSubstep();
     Collide(lev, nghost);
-    if (trace) {
-        PrintLevelDdfChecksum("advance_after_collide", lev);
-    }
     CommunicateLevel(lev);
-    if (trace) {
-        PrintLevelDdfChecksum("advance_after_communicate", lev);
-    }
     Stream(lev, nghost);
-    if (trace) {
-        PrintLevelDdfChecksum("advance_after_stream", lev, true);
-    }
     Boundary(lev);
-    if (trace) {
-        PrintLevelDdfChecksum("advance_after_boundary", lev, true);
-    }
     SwapLevel(lev, nghost);
-    if (trace) {
-        PrintLevelDdfChecksum("advance_after_swap", lev);
-    }
 }
 
 void AmrCoreLBM::AdvanceOsiLevelImpl(int lev) {
@@ -2646,9 +2535,6 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
 }
 
 void AmrCoreLBM::PrintDdfChecksums(int step) {
-    if (!check_state_each_substep) {
-        return;
-    }
     for (int lev = 0; lev <= finest_level; ++lev) {
         const bool has_fine = lev < finest_level && cf_mask_mode == 1;
         Real valid_checksum = 0.0;
@@ -2700,8 +2586,6 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
                         const auto values = batch.array(mfi);
                         const auto covered =
                             covered_mask.at(lev).const_array(mfi);
-                        const auto interface =
-                            interface_mask.at(lev).const_array(mfi);
                         amrex::ParallelFor(
                             bx,
                             [=] AMREX_GPU_DEVICE(int i, int j, int k) {
@@ -2733,7 +2617,6 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
                         continue;
                     }
                     const auto covered = covered_mask.at(lev).const_array(mfi);
-                    const auto interface = interface_mask.at(lev).const_array(mfi);
                     amrex::ParallelFor(
                         bx,
                         [=] AMREX_GPU_DEVICE(int i, int j, int k) {
@@ -2761,12 +2644,6 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
 }
 
 void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new) {
-    // The per-level checksum is an opt-in diagnostic.  Keeping it behind the
-    // existing substep verification switch avoids launching global reductions
-    // on every level when running production-length cases.
-    if (!check_state_each_substep) {
-        return;
-    }
     GpuArray<Real, Q> component_sum{};
     GpuArray<Real, Q> active_component_sum{};
     Real valid_sum = 0.0;
@@ -2801,7 +2678,6 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new)
                     const auto src = state.const_array(mfi);
                     const auto dst = active.array(mfi);
                     const auto covered = covered_mask.at(lev).const_array(mfi);
-                    const auto interface = interface_mask.at(lev).const_array(mfi);
                     ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
                         dst(i, j, k) = (covered(i, j, k) == 0)
                                            ? src(i, j, k, q)
@@ -2828,6 +2704,97 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new)
                            << " active_q" << q << "=" << active_component_sum[q];
         }
         amrex::Print() << '\n';
+    }
+}
+
+void AmrCoreLBM::PrintInterpolationDiagnostics(const char* stage, int lev) {
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        stream_mode == 0,
+        "PrintInterpolationDiagnostics is only available for the A-B path");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        lev > 0 && lev <= finest_level,
+        "PrintInterpolationDiagnostics requires an active fine level");
+
+    const auto& fine_boxes = interp_direct_fine_boxes.at(lev);
+    if (fine_boxes.empty()) {
+        amrex::Print() << "INTERP_DIAG stage=" << stage
+                       << " lev=" << lev << " entries=0\n";
+        return;
+    }
+
+    const MultiFab& coarse_stage = interp_direct_coarse_stage.at(lev);
+    const MultiFab& fine_state = f_old.at(lev);
+    const auto& coarse_boxes = coarse_stage.boxArray();
+    long long fine_points = 0;
+    long long coarse_points = 0;
+    for (const Box& box : fine_boxes) {
+        fine_points += box.numPts();
+    }
+    for (int ibox = 0; ibox < coarse_boxes.size(); ++ibox) {
+        coarse_points += coarse_boxes[ibox].numPts();
+    }
+
+    amrex::Print() << "INTERP_DIAG stage=" << stage
+                   << " lev=" << lev
+                   << " entries=" << fine_boxes.size()
+                   << " fine_points=" << fine_points
+                   << " coarse_points=" << coarse_points;
+    if (!fine_boxes.empty()) {
+        amrex::Print() << " first_fine=" << fine_boxes.front()
+                       << " first_coarse=" << coarse_boxes[0]
+                       << " last_fine=" << fine_boxes.back()
+                       << " last_coarse="
+                       << coarse_boxes[coarse_boxes.size() - 1];
+    }
+    for (int q : {0, 3, 18, 26}) {
+        amrex::Print() << " coarse_q" << q << '=' << coarse_stage.norm1(q, 0)
+                       << " fine_q" << q << "_valid="
+                       << fine_state.norm1(q, 0)
+                       << " fine_q" << q << "_grow="
+                       << fine_state.norm1(q, fine_state.nGrowVect().max());
+    }
+    amrex::Print() << '\n';
+}
+
+void AmrCoreLBM::PrintRegridDiagnostics() const {
+    if (!ParallelDescriptor::IOProcessor()) {
+        return;
+    }
+
+    amrex::Print() << "REGRID_DIAG finest_level=" << finest_level << '\n';
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        const auto& ba = boxArray(lev);
+        amrex::Print() << "REGRID_DIAG lev=" << lev
+                       << " boxes=" << ba.size()
+                       << " valid_cells=" << ba.numPts();
+        if (lev < max_level && lev < regrid_tag_counts.size() &&
+            regrid_tag_counts[lev] >= 0) {
+            amrex::Print() << " tagged_to_lev=" << (lev + 1)
+                           << " tag_cells=" << regrid_tag_counts[lev];
+        }
+        amrex::Print() << '\n';
+    }
+
+    for (int lev = 0; lev < finest_level; ++lev) {
+        if (cf_mask_mode == 0) {
+            amrex::Print() << "CF_MASK_DIAG lev=" << lev << " disabled\n";
+            continue;
+        }
+
+        long fine_cells_per_coarse = 1;
+        const auto ratio = refRatio(lev);
+        for (int dim = 0; dim < AMREX_SPACEDIM; ++dim) {
+            fine_cells_per_coarse *= ratio[dim];
+        }
+        const auto expected_covered =
+            boxArray(lev + 1).numPts() / fine_cells_per_coarse;
+        const auto uncovered =
+            boxArray(lev).numPts() - covered_cell_counts[lev];
+        amrex::Print() << "CF_MASK_DIAG lev=" << lev
+                       << " covered=" << covered_cell_counts[lev]
+                       << " covered_expected=" << expected_covered
+                       << " interface=" << interface_cell_counts[lev]
+                       << " uncovered=" << uncovered << '\n';
     }
 }
 
@@ -2883,7 +2850,6 @@ void AmrCoreLBM::PrintParticleChecksums(int step) const {
 
 void AmrCoreLBM::Boundary(int lev) {
     ScopedPerfTimer timer(perf_stats.boundary);
-    // amrex::AllPrint()<<"Boundary on " << lev <<std::endl;
 
     int right = Geom(lev).Domain().length(0) - 1;
     int back = Geom(lev).Domain().length(1) - 1;
@@ -2911,154 +2877,161 @@ void AmrCoreLBM::Boundary(int lev) {
             });
         }
     }
+}
 
-    if (checkStateEachSubstep() && (lev == 1 || lev == 2)) {
-        Gpu::streamSynchronize();
-        const Box domain = Geom(lev).Domain();
-        const bool has_fine = lev < finest_level && cf_mask_mode == 1;
-        GpuArray<Long, Q> bad{};
-        GpuArray<Long, Q> bad_covered{};
-        GpuArray<Long, Q> bad_interface{};
-        GpuArray<Long, Q> bad_physical{};
-        GpuArray<Long, Q> bad_fab_edge{};
-        GpuArray<Long, Q> bad_neighbor_nonfinite{};
-        GpuArray<Long, Q> bad_active{};
-        GpuArray<Long, Q> bad_active_physical{};
-        std::array<IntVect, Q> min_iv;
-        std::array<IntVect, Q> max_iv;
-        std::array<std::vector<IntVect>, Q> samples;
-        std::array<std::vector<IntVect>, Q> sample_neighbors;
-        std::array<std::vector<IntVect>, Q> active_samples;
-        std::array<std::vector<IntVect>, Q> active_physical_samples;
+void AmrCoreLBM::DiagnoseBoundaryResult(int lev) {
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        stream_mode == 0,
+        "DiagnoseBoundaryResult is only available for the A-B path");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        lev >= 0 && lev <= finest_level,
+        "DiagnoseBoundaryResult requires an active AMR level");
+    Gpu::streamSynchronize();
+    const Box domain = Geom(lev).Domain();
+    const auto is_periodic = Geom(lev).isPeriodicArray();
+    const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+    const MultiFab& f_new_lev = f_new.at(lev);
+    GpuArray<Long, Q> bad{};
+    GpuArray<Long, Q> bad_covered{};
+    GpuArray<Long, Q> bad_interface{};
+    GpuArray<Long, Q> bad_physical{};
+    GpuArray<Long, Q> bad_fab_edge{};
+    GpuArray<Long, Q> bad_neighbor_nonfinite{};
+    GpuArray<Long, Q> bad_active{};
+    GpuArray<Long, Q> bad_active_physical{};
+    std::array<IntVect, Q> min_iv;
+    std::array<IntVect, Q> max_iv;
+    std::array<std::vector<IntVect>, Q> samples;
+    std::array<std::vector<IntVect>, Q> sample_neighbors;
+    std::array<std::vector<IntVect>, Q> active_samples;
+    std::array<std::vector<IntVect>, Q> active_physical_samples;
 
-        for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
-            const Box bx = mfi.validbox();
-            FArrayBox host_state(f_new_lev[mfi].box(), Q,
-                                 The_Pinned_Arena());
-            Gpu::dtoh_memcpy(host_state.dataPtr(),
-                             f_new_lev[mfi].dataPtr(),
-                             host_state.nBytes());
-            IArrayBox host_covered(
-                has_fine ? covered_mask[lev][mfi].box() : bx, 1,
-                The_Pinned_Arena());
-            IArrayBox host_interface(
-                has_fine ? interface_mask[lev][mfi].box() : bx, 1,
-                The_Pinned_Arena());
-            if (has_fine) {
-                Gpu::dtoh_memcpy(host_covered.dataPtr(),
-                                 covered_mask[lev][mfi].dataPtr(),
-                                 host_covered.nBytes());
-                Gpu::dtoh_memcpy(host_interface.dataPtr(),
-                                 interface_mask[lev][mfi].dataPtr(),
-                                 host_interface.nBytes());
-            }
-            const auto state = host_state.const_array();
-            const auto covered = host_covered.const_array();
-            const auto interface = host_interface.const_array();
-            const IntVect lo = bx.smallEnd();
-            const IntVect hi_box = bx.bigEnd();
-            for (int k = lo[2]; k <= hi_box[2]; ++k) {
-                for (int j = lo[1]; j <= hi_box[1]; ++j) {
-                    for (int i = lo[0]; i <= hi_box[0]; ++i) {
-                        const IntVect iv(AMREX_D_DECL(i, j, k));
-                        int ni = i;
-                        int nj = j;
-                        int nk = k;
-                        if (!is_periodic[0] && i == domain.smallEnd(0))
-                            ni = i + 1;
-                        if (!is_periodic[0] && i == domain.bigEnd(0))
-                            ni = i - 1;
-                        if (!is_periodic[1] && j == domain.smallEnd(1))
-                            nj = j + 1;
-                        if (!is_periodic[1] && j == domain.bigEnd(1))
-                            nj = j - 1;
-                        if (!is_periodic[2] && k == domain.smallEnd(2))
-                            nk = k + 1;
-                        if (!is_periodic[2] && k == domain.bigEnd(2))
-                            nk = k - 1;
-                        const IntVect neighbor(AMREX_D_DECL(ni, nj, nk));
-                        const bool physical = neighbor != iv;
-                        const bool fab_edge = i == lo[0] || i == hi_box[0] ||
-                                              j == lo[1] || j == hi_box[1] ||
-                                              k == lo[2] || k == hi_box[2];
-                        bool neighbor_nonfinite = false;
-                        if (host_state.box().contains(neighbor)) {
-                            for (int nq = 0; nq < Q; ++nq) {
-                                neighbor_nonfinite = neighbor_nonfinite ||
-                                                     !std::isfinite(state(neighbor, nq));
-                            }
+    for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
+        const Box bx = mfi.validbox();
+        FArrayBox host_state(f_new_lev[mfi].box(), Q,
+                             The_Pinned_Arena());
+        Gpu::dtoh_memcpy(host_state.dataPtr(),
+                         f_new_lev[mfi].dataPtr(),
+                         host_state.nBytes());
+        IArrayBox host_covered(
+            has_fine ? covered_mask[lev][mfi].box() : bx, 1,
+            The_Pinned_Arena());
+        IArrayBox host_interface(
+            has_fine ? interface_mask[lev][mfi].box() : bx, 1,
+            The_Pinned_Arena());
+        if (has_fine) {
+            Gpu::dtoh_memcpy(host_covered.dataPtr(),
+                             covered_mask[lev][mfi].dataPtr(),
+                             host_covered.nBytes());
+            Gpu::dtoh_memcpy(host_interface.dataPtr(),
+                             interface_mask[lev][mfi].dataPtr(),
+                             host_interface.nBytes());
+        }
+        const auto state = host_state.const_array();
+        const auto covered = host_covered.const_array();
+        const auto interface = host_interface.const_array();
+        const IntVect lo = bx.smallEnd();
+        const IntVect hi_box = bx.bigEnd();
+        for (int k = lo[2]; k <= hi_box[2]; ++k) {
+            for (int j = lo[1]; j <= hi_box[1]; ++j) {
+                for (int i = lo[0]; i <= hi_box[0]; ++i) {
+                    const IntVect iv(AMREX_D_DECL(i, j, k));
+                    int ni = i;
+                    int nj = j;
+                    int nk = k;
+                    if (!is_periodic[0] && i == domain.smallEnd(0))
+                        ni = i + 1;
+                    if (!is_periodic[0] && i == domain.bigEnd(0))
+                        ni = i - 1;
+                    if (!is_periodic[1] && j == domain.smallEnd(1))
+                        nj = j + 1;
+                    if (!is_periodic[1] && j == domain.bigEnd(1))
+                        nj = j - 1;
+                    if (!is_periodic[2] && k == domain.smallEnd(2))
+                        nk = k + 1;
+                    if (!is_periodic[2] && k == domain.bigEnd(2))
+                        nk = k - 1;
+                    const IntVect neighbor(AMREX_D_DECL(ni, nj, nk));
+                    const bool physical = neighbor != iv;
+                    const bool fab_edge = i == lo[0] || i == hi_box[0] ||
+                                          j == lo[1] || j == hi_box[1] ||
+                                          k == lo[2] || k == hi_box[2];
+                    bool neighbor_nonfinite = false;
+                    if (host_state.box().contains(neighbor)) {
+                        for (int nq = 0; nq < Q; ++nq) {
+                            neighbor_nonfinite = neighbor_nonfinite ||
+                                                 !std::isfinite(state(neighbor, nq));
                         }
-                        for (int q = 0; q < Q; ++q) {
-                            if (std::isfinite(state(i, j, k, q)))
-                                continue;
-                            if (bad[q] == 0) {
-                                min_iv[q] = iv;
-                                max_iv[q] = iv;
-                            } else {
-                                min_iv[q].min(iv);
-                                max_iv[q].max(iv);
-                            }
-                            ++bad[q];
-                            bad_covered[q] += has_fine && covered(i, j, k) != 0;
-                            bad_interface[q] += has_fine && interface(i, j, k) != 0;
-                            bad_physical[q] += physical;
-                            bad_fab_edge[q] += fab_edge;
-                            bad_neighbor_nonfinite[q] += physical && neighbor_nonfinite;
-                            const bool active = !has_fine || covered(i, j, k) == 0;
-                            bad_active[q] += active;
-                            bad_active_physical[q] += active && physical;
-                            if (active && active_samples[q].size() < 12) {
-                                active_samples[q].push_back(iv);
-                            }
-                            if (active && physical &&
-                                active_physical_samples[q].size() < 12) {
-                                active_physical_samples[q].push_back(iv);
-                            }
-                            if (samples[q].size() < 8) {
-                                samples[q].push_back(iv);
-                                sample_neighbors[q].push_back(neighbor);
-                            }
+                    }
+                    for (int q = 0; q < Q; ++q) {
+                        if (std::isfinite(state(i, j, k, q)))
+                            continue;
+                        if (bad[q] == 0) {
+                            min_iv[q] = iv;
+                            max_iv[q] = iv;
+                        } else {
+                            min_iv[q].min(iv);
+                            max_iv[q].max(iv);
+                        }
+                        ++bad[q];
+                        bad_covered[q] += has_fine && covered(i, j, k) != 0;
+                        bad_interface[q] += has_fine && interface(i, j, k) != 0;
+                        bad_physical[q] += physical;
+                        bad_fab_edge[q] += fab_edge;
+                        bad_neighbor_nonfinite[q] += physical && neighbor_nonfinite;
+                        const bool active = !has_fine || covered(i, j, k) == 0;
+                        bad_active[q] += active;
+                        bad_active_physical[q] += active && physical;
+                        if (active && active_samples[q].size() < 12) {
+                            active_samples[q].push_back(iv);
+                        }
+                        if (active && physical &&
+                            active_physical_samples[q].size() < 12) {
+                            active_physical_samples[q].push_back(iv);
+                        }
+                        if (samples[q].size() < 8) {
+                            samples[q].push_back(iv);
+                            sample_neighbors[q].push_back(neighbor);
                         }
                     }
                 }
             }
         }
-        for (int q = 0; q < Q; ++q) {
-            if (bad[q] == 0)
-                continue;
-            amrex::Print() << "BOUNDARY_NONFINITE lev=" << lev << " q=" << q
-                           << " count=" << bad[q]
-                           << " covered=" << bad_covered[q]
-                           << " interface=" << bad_interface[q]
-                           << " physical_boundary=" << bad_physical[q]
-                           << " fab_edge=" << bad_fab_edge[q]
-                           << " active=" << bad_active[q]
-                           << " active_physical_boundary="
-                           << bad_active_physical[q]
-                           << " boundary_neighbor_nonfinite="
-                           << bad_neighbor_nonfinite[q]
-                           << " bbox=" << Box(min_iv[q], max_iv[q]);
-            for (std::size_t n = 0; n < samples[q].size(); ++n) {
-                amrex::Print() << " sample" << n << "=" << samples[q][n]
-                               << " neighbor" << n << "="
-                               << sample_neighbors[q][n];
-            }
-            for (std::size_t n = 0; n < active_samples[q].size(); ++n) {
-                amrex::Print() << " active_sample" << n << "="
-                               << active_samples[q][n];
-            }
-            for (std::size_t n = 0; n < active_physical_samples[q].size(); ++n) {
-                amrex::Print() << " active_physical_sample" << n << "="
-                               << active_physical_samples[q][n];
-            }
-            amrex::Print() << '\n';
+    }
+    for (int q = 0; q < Q; ++q) {
+        if (bad[q] == 0)
+            continue;
+        amrex::Print() << "BOUNDARY_NONFINITE lev=" << lev << " q=" << q
+                       << " count=" << bad[q]
+                       << " covered=" << bad_covered[q]
+                       << " interface=" << bad_interface[q]
+                       << " physical_boundary=" << bad_physical[q]
+                       << " fab_edge=" << bad_fab_edge[q]
+                       << " active=" << bad_active[q]
+                       << " active_physical_boundary="
+                       << bad_active_physical[q]
+                       << " boundary_neighbor_nonfinite="
+                       << bad_neighbor_nonfinite[q]
+                       << " bbox=" << Box(min_iv[q], max_iv[q]);
+        for (std::size_t n = 0; n < samples[q].size(); ++n) {
+            amrex::Print() << " sample" << n << "=" << samples[q][n]
+                           << " neighbor" << n << "="
+                           << sample_neighbors[q][n];
         }
+        for (std::size_t n = 0; n < active_samples[q].size(); ++n) {
+            amrex::Print() << " active_sample" << n << "="
+                           << active_samples[q][n];
+        }
+        for (std::size_t n = 0; n < active_physical_samples[q].size(); ++n) {
+            amrex::Print() << " active_physical_sample" << n << "="
+                           << active_physical_samples[q][n];
+        }
+        amrex::Print() << '\n';
     }
 }
 
 void AmrCoreLBM::Collide(int lev, int n) {
     ScopedPerfTimer timer(perf_stats.collide);
-    // amrex::AllPrint()<<"Collide on " << lev <<std::endl;
 
     int right = Geom(lev).Domain().length(0) - 1;
     int back = Geom(lev).Domain().length(1) - 1;
@@ -3130,27 +3103,16 @@ void AmrCoreLBM::Collide(int lev, int n) {
 
 void AmrCoreLBM::Stream(int lev, int n) {
     ScopedPerfTimer timer(perf_stats.stream);
-    // amrex::AllPrint()<<"Stream on " << lev <<std::endl;
     AMREX_ALWAYS_ASSERT(n >= 1);
     AMREX_ALWAYS_ASSERT(n - 1 <= cf_covered_mask_nghost);
 
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
     const bool has_fine_level = (lev < finest_level);
-    Long launch_cells = 0;
-    if (checkStateEachSubstep() && (lev == 1 || lev == 2) && n > 0) {
-        amrex::Print() << "STREAM_INPUT_NORM lev=" << lev;
-        for (int q : {0, 3, 18, 26}) {
-            amrex::Print() << " q" << q << "_valid=" << f_old_lev.norm1(q, 0)
-                           << " q" << q << "_grow=" << f_old_lev.norm1(q, n - 1);
-        }
-        amrex::Print() << '\n';
-    }
 
     for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         // The outer ghost layer supplies pull-streaming data for the inner layer.
         const auto bx = mfi.growntilebox(n - 1);
-        launch_cells += bx.numPts();
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& fnew = f_new_lev.array(mfi);
 
@@ -3170,114 +3132,141 @@ void AmrCoreLBM::Stream(int lev, int n) {
             });
         }
     }
-    // Stream writes f_new before Boundary can repair physical-wall values.
-    // Inspect the freshly written valid cells here so a NaN cannot be hidden
-    // by the subsequent boundary kernel.  The pull source is also reported;
-    // this distinguishes a bad launch cell from a bad ghost/source value.
-    if (checkStateEachSubstep() && (lev == 1 || lev == 2) && n > 0) {
-        Gpu::streamSynchronize();
-        const Box domain = Geom(lev).Domain();
-        GpuArray<Long, Q> bad{};
-        GpuArray<Long, Q> bad_covered{};
-        GpuArray<Long, Q> bad_interface{};
-        GpuArray<Long, Q> bad_physical{};
-        GpuArray<Long, Q> bad_fab_edge{};
-        GpuArray<Long, Q> bad_source{};
-        GpuArray<Long, Q> source_ghost{};
-        GpuArray<Long, Q> source_outside_fab{};
-        std::array<IntVect, Q> first_iv{};
-        std::array<IntVect, Q> first_src{};
-        std::array<int, Q> first_has{};
-        constexpr int ex[Q] = {0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1, 1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
-        constexpr int ey[Q] = {0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0, 0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
-        constexpr int ez[Q] = {0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1, 1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
-        for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
-            const Box bx = mfi.validbox();
-            FArrayBox host_new(f_new_lev[mfi].box(), Q, The_Pinned_Arena());
-            Gpu::dtoh_memcpy(host_new.dataPtr(), f_new_lev[mfi].dataPtr(),
-                             host_new.nBytes());
-            const Box source_box = f_old_lev[mfi].box();
-            FArrayBox host_old(source_box, Q, The_Pinned_Arena());
-            Gpu::dtoh_memcpy(host_old.dataPtr(), f_old_lev[mfi].dataPtr(),
-                             host_old.nBytes());
-            IArrayBox host_covered(covered_mask[lev][mfi].box(), 1, The_Pinned_Arena());
-            IArrayBox host_interface(interface_mask[lev][mfi].box(), 1, The_Pinned_Arena());
-            if (has_fine_level && cf_mask_mode == 1) {
-                Gpu::dtoh_memcpy(host_covered.dataPtr(),
-                                 covered_mask[lev][mfi].dataPtr(),
-                                 host_covered.nBytes());
-                Gpu::dtoh_memcpy(host_interface.dataPtr(),
-                                 interface_mask[lev][mfi].dataPtr(),
-                                 host_interface.nBytes());
-            }
-            const auto values = host_new.const_array();
-            const auto sources = host_old.const_array();
-            const auto covered = host_covered.const_array();
-            const auto interface = host_interface.const_array();
-            const IntVect lo = bx.smallEnd();
-            const IntVect hi = bx.bigEnd();
-            for (int k = lo[2]; k <= hi[2]; ++k) {
-                for (int j = lo[1]; j <= hi[1]; ++j) {
-                    for (int i = lo[0]; i <= hi[0]; ++i) {
-                        const IntVect iv(AMREX_D_DECL(i, j, k));
-                        const bool phys =
-                            (!Geom(lev).isPeriodic(0) &&
-                             (i == domain.smallEnd(0) || i == domain.bigEnd(0))) ||
-                            (!Geom(lev).isPeriodic(1) &&
-                             (j == domain.smallEnd(1) || j == domain.bigEnd(1))) ||
-                            (!Geom(lev).isPeriodic(2) &&
-                             (k == domain.smallEnd(2) || k == domain.bigEnd(2)));
-                        const bool edge = i == lo[0] || i == hi[0] ||
-                                          j == lo[1] || j == hi[1] ||
-                                          k == lo[2] || k == hi[2];
-                        for (int q = 0; q < Q; ++q) {
-                            if (std::isfinite(values(i, j, k, q)))
-                                continue;
-                            ++bad[q];
-                            const bool cov = has_fine_level && cf_mask_mode == 1 &&
-                                             covered(i, j, k) != 0;
-                            const bool intf = has_fine_level && cf_mask_mode == 1 &&
-                                              interface(i, j, k) != 0;
-                            bad_covered[q] += cov;
-                            bad_interface[q] += intf;
-                            bad_physical[q] += phys;
-                            bad_fab_edge[q] += edge;
-                            const IntVect src_iv = iv -
-                                                   IntVect(AMREX_D_DECL(ex[q], ey[q], ez[q]));
-                            const bool src_in_valid = bx.contains(src_iv);
-                            const bool src_in_fab = source_box.contains(src_iv);
-                            source_ghost[q] += !src_in_valid;
-                            source_outside_fab[q] += !src_in_fab;
-                            if (src_in_fab && !std::isfinite(sources(src_iv, q))) {
-                                ++bad_source[q];
-                            }
-                            if (!first_has[q]) {
-                                first_has[q] = 1;
-                                first_iv[q] = iv;
-                                first_src[q] = iv - IntVect(AMREX_D_DECL(ex[q], ey[q], ez[q]));
-                            }
+}
+
+void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        stream_mode == 0,
+        "DiagnoseStreamResult is only available for the A-B path");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        lev >= 0 && lev <= finest_level,
+        "DiagnoseStreamResult requires an active AMR level");
+    AMREX_ALWAYS_ASSERT(n >= 1);
+    AMREX_ALWAYS_ASSERT(n - 1 <= cf_covered_mask_nghost);
+
+    const MultiFab& f_old_lev = f_old.at(lev);
+    const MultiFab& f_new_lev = f_new.at(lev);
+    const bool has_fine_level = lev < finest_level;
+    Long launch_cells = 0;
+    for (MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        launch_cells += mfi.growntilebox(n - 1).numPts();
+    }
+
+    amrex::Print() << "STREAM_INPUT_NORM lev=" << lev;
+    for (int q : {0, 3, 18, 26}) {
+        amrex::Print() << " q" << q << "_valid=" << f_old_lev.norm1(q, 0)
+                       << " q" << q << "_grow="
+                       << f_old_lev.norm1(q, n - 1);
+    }
+    amrex::Print() << '\n';
+
+    Gpu::streamSynchronize();
+    const Box domain = Geom(lev).Domain();
+    GpuArray<Long, Q> bad{};
+    GpuArray<Long, Q> bad_covered{};
+    GpuArray<Long, Q> bad_interface{};
+    GpuArray<Long, Q> bad_physical{};
+    GpuArray<Long, Q> bad_fab_edge{};
+    GpuArray<Long, Q> bad_source{};
+    GpuArray<Long, Q> source_ghost{};
+    GpuArray<Long, Q> source_outside_fab{};
+    std::array<IntVect, Q> first_iv{};
+    std::array<IntVect, Q> first_src{};
+    std::array<int, Q> first_has{};
+    constexpr int ex[Q] = {0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1, 1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
+    constexpr int ey[Q] = {0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0, 0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
+    constexpr int ez[Q] = {0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1, 1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+    for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
+        const Box bx = mfi.validbox();
+        FArrayBox host_new(f_new_lev[mfi].box(), Q, The_Pinned_Arena());
+        Gpu::dtoh_memcpy(host_new.dataPtr(), f_new_lev[mfi].dataPtr(),
+                         host_new.nBytes());
+        const Box source_box = f_old_lev[mfi].box();
+        FArrayBox host_old(source_box, Q, The_Pinned_Arena());
+        Gpu::dtoh_memcpy(host_old.dataPtr(), f_old_lev[mfi].dataPtr(),
+                         host_old.nBytes());
+        const bool has_masks = has_fine_level && cf_mask_mode == 1;
+        IArrayBox host_covered(
+            has_masks ? covered_mask[lev][mfi].box() : bx, 1,
+            The_Pinned_Arena());
+        IArrayBox host_interface(
+            has_masks ? interface_mask[lev][mfi].box() : bx, 1,
+            The_Pinned_Arena());
+        if (has_masks) {
+            Gpu::dtoh_memcpy(host_covered.dataPtr(),
+                             covered_mask[lev][mfi].dataPtr(),
+                             host_covered.nBytes());
+            Gpu::dtoh_memcpy(host_interface.dataPtr(),
+                             interface_mask[lev][mfi].dataPtr(),
+                             host_interface.nBytes());
+        }
+        const auto values = host_new.const_array();
+        const auto sources = host_old.const_array();
+        const auto covered = host_covered.const_array();
+        const auto interface = host_interface.const_array();
+        const IntVect lo = bx.smallEnd();
+        const IntVect hi = bx.bigEnd();
+        for (int k = lo[2]; k <= hi[2]; ++k) {
+            for (int j = lo[1]; j <= hi[1]; ++j) {
+                for (int i = lo[0]; i <= hi[0]; ++i) {
+                    const IntVect iv(AMREX_D_DECL(i, j, k));
+                    const bool phys =
+                        (!Geom(lev).isPeriodic(0) &&
+                         (i == domain.smallEnd(0) || i == domain.bigEnd(0))) ||
+                        (!Geom(lev).isPeriodic(1) &&
+                         (j == domain.smallEnd(1) || j == domain.bigEnd(1))) ||
+                        (!Geom(lev).isPeriodic(2) &&
+                         (k == domain.smallEnd(2) || k == domain.bigEnd(2)));
+                    const bool edge = i == lo[0] || i == hi[0] ||
+                                      j == lo[1] || j == hi[1] ||
+                                      k == lo[2] || k == hi[2];
+                    for (int q = 0; q < Q; ++q) {
+                        if (std::isfinite(values(i, j, k, q)))
+                            continue;
+                        ++bad[q];
+                        const bool cov = has_fine_level && cf_mask_mode == 1 &&
+                                         covered(i, j, k) != 0;
+                        const bool intf = has_fine_level && cf_mask_mode == 1 &&
+                                          interface(i, j, k) != 0;
+                        bad_covered[q] += cov;
+                        bad_interface[q] += intf;
+                        bad_physical[q] += phys;
+                        bad_fab_edge[q] += edge;
+                        const IntVect src_iv = iv -
+                                               IntVect(AMREX_D_DECL(ex[q], ey[q], ez[q]));
+                        const bool src_in_valid = bx.contains(src_iv);
+                        const bool src_in_fab = source_box.contains(src_iv);
+                        source_ghost[q] += !src_in_valid;
+                        source_outside_fab[q] += !src_in_fab;
+                        if (src_in_fab && !std::isfinite(sources(src_iv, q))) {
+                            ++bad_source[q];
+                        }
+                        if (!first_has[q]) {
+                            first_has[q] = 1;
+                            first_iv[q] = iv;
+                            first_src[q] = iv - IntVect(AMREX_D_DECL(ex[q], ey[q], ez[q]));
                         }
                     }
                 }
             }
         }
-        for (int q = 0; q < Q; ++q) {
-            if (bad[q] != 0) {
-                amrex::Print() << "STREAM_NONFINITE lev=" << lev << " q=" << q
-                               << " count=" << bad[q]
-                               << " covered=" << bad_covered[q]
-                               << " interface=" << bad_interface[q]
-                               << " physical_boundary=" << bad_physical[q]
-                               << " fab_edge=" << bad_fab_edge[q]
-                               << " source_nonfinite=" << bad_source[q]
-                               << " source_ghost=" << source_ghost[q]
-                               << " source_outside_fab=" << source_outside_fab[q]
-                               << " first_iv=" << first_iv[q]
-                               << " first_pull_src=" << first_src[q] << '\n';
-            }
+    }
+    for (int q = 0; q < Q; ++q) {
+        if (bad[q] != 0) {
+            amrex::Print() << "STREAM_NONFINITE lev=" << lev << " q=" << q
+                           << " count=" << bad[q]
+                           << " covered=" << bad_covered[q]
+                           << " interface=" << bad_interface[q]
+                           << " physical_boundary=" << bad_physical[q]
+                           << " fab_edge=" << bad_fab_edge[q]
+                           << " source_nonfinite=" << bad_source[q]
+                           << " source_ghost=" << source_ghost[q]
+                           << " source_outside_fab=" << source_outside_fab[q]
+                           << " first_iv=" << first_iv[q]
+                           << " first_pull_src=" << first_src[q] << '\n';
         }
     }
-    if (checkStateEachSubstep() && ParallelDescriptor::IOProcessor()) {
+    if (ParallelDescriptor::IOProcessor()) {
         Long covered_cells = (has_fine_level && cf_mask_mode == 1) ? covered_mask[lev].sum(0, 0) : 0;
         amrex::Print() << "STREAM_RANGE lev=" << lev << " n=" << n << " fabs=" << f_old_lev.boxArray().size()
                        << " launch_cells=" << launch_cells << " covered_cells=" << covered_cells
@@ -3287,24 +3276,6 @@ void AmrCoreLBM::Stream(int lev, int n) {
         }
     }
 }
-
-// void AmrCoreLBM::SwapLevel(int lev, int n)
-// {
-//     amrex::MultiFab& f_old_lev = f_old[lev];
-//     amrex::MultiFab& f_new_lev = f_new[lev];
-
-//     for(MFIter mfi(f_old_lev, TilingIfNotGPU()); mfi.isValid(); ++mfi)
-//     {
-//         const auto bx = mfi.growntilebox(n);
-//         const Array4<Real>& fold = f_old_lev.array(mfi);
-//         const Array4<Real>& fnew = f_new_lev.array(mfi);
-
-//         amrex::ParallelFor(bx, [=]AMREX_GPU_DEVICE(int i, int j, int k)
-//         {
-//             swap_ddf(i, j, k, fold, fnew);
-//         });
-//     }
-// }
 
 void AmrCoreLBM::SwapLevel(int lev, int n) {
     ScopedPerfTimer timer(perf_stats.swap);
@@ -3354,7 +3325,6 @@ void AmrCoreLBM::SumForce(int lev) {
 }
 
 void AmrCoreLBM::ComputeParticle(int lev) {
-    // amrex::AllPrint()<<"ComputeParticle on " << lev <<std::endl;
     CommunicateLevel(lev);
     ComputeMacroLevel(lev);
     InterpForce(lev);
@@ -3405,7 +3375,6 @@ void AmrCoreLBM::PrintParticleParm() {
 }
 
 void AmrCoreLBM::RedistributeParticle() {
-    // amrex::AllPrint()<< "RedistributeParticle" << std::endl;
     for (int i = 0; i < particle_num; i++) {
         particles[i]->Redistribute();
     }
@@ -3445,7 +3414,6 @@ void AmrCoreLBM::LubForceParticle(int lev, amrex::Real cur_time) {
 }
 
 void AmrCoreLBM::MoveParticle(int lev, amrex::Real cur_time) {
-    // amrex::AllPrint()<<"MoveParticle on " << lev <<std::endl;
     for (int i = 0; i < particle_num; i++) {
         particles[i]->MoveParticle(lev, cur_time);
         particles[i]->Redistribute();
@@ -3458,7 +3426,6 @@ void AmrCoreLBM::MoveParticle(int lev, amrex::Real cur_time) {
 void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::BoxArray& ba,
                                         const amrex::DistributionMapping& dm) {
     // 给新建的细网格层 lev 分配数据，并从紧邻的粗层插值出初始 DDF 状态, 只在 regrid() 新增一个此前不存在的细层时调用，RefineMesh() 会调用。
-    // amrex::AllPrint()<<"MakeNewLevelFromCoarse on " << lev <<std::endl;
     if (lev == 0) {
         amrex::Abort("Cannot construct level 0 from a coarser level.");
     }
@@ -3482,25 +3449,21 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
         f_old_lev.define(ba, dm, Q, nghost);
 
         FillCoarsePatch(lev, time, f_old_lev);
-        PrintLevelDdfChecksum("after_fill_coarse_patch", lev);
     } else {
         InitializeOsiLevel(lev, ba, dm);
         amrex::MultiFab& state = osi_state.at(lev);
         state.setVal(std::numeric_limits<Real>::quiet_NaN());
 
         FillNewLevelFromCoarse(lev, time);
-        PrintLevelDdfChecksum("after_fill_new_level_from_coarse", lev);
     }
 
     force_lev.setVal(0.0, nghost);
     shear_lev.setVal(0.0, nghost);
     vort_lev.setVal(0.0, nghost);
-    PrintLevelDdfChecksum("after_primary_state_ready", lev);
 }
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
                              const amrex::DistributionMapping& dm) { // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用
-    // amrex::AllPrint()<<"ReMakeLevel on " << lev <<std::endl;
-    amrex::MultiFab u_new(ba, dm, AMREX_SPACEDIM, nghost); // 按新 ba/dm 重建派生宏观场；density/velocity 后续由 DDF 重新计算。
+    amrex::MultiFab u_new(ba, dm, AMREX_SPACEDIM, nghost);           // 按新 ba/dm 重建派生宏观场；density/velocity 后续由 DDF 重新计算。
     amrex::MultiFab rho_new(ba, dm, 1, nghost);
     amrex::MultiFab vort_new(ba, dm, 2, nghost);
     amrex::MultiFab force_new(ba, dm, AMREX_SPACEDIM, nghost);
@@ -3818,7 +3781,6 @@ void AmrCoreLBM::FillOsiFinePatchFromCoarse(
         Geom(lev).periodicity());
 }
 void AmrCoreLBM::ClearLevel(int lev) {
-    // amrex::AllPrint()<<"ClearLevel on " << lev <<std::endl;
     osi_decode_tags[lev].undefine();
     osi_encode_tags[lev].undefine();
     f_old[lev].clear();
@@ -3932,7 +3894,6 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
 
 /*************************************第3版*ErrorEst***************************************/
 void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow) {
-    // amrex::AllPrint()<<"ErrorEst on " << lev <<std::endl;
 
     if (lev >= err.size()) {
         return;

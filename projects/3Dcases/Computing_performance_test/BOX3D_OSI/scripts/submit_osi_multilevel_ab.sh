@@ -39,8 +39,7 @@ run_case() {
         bash -lc 'export CUDA_VISIBLE_DEVICES=0; exec "$@"' bash \
         "${APP_EXE}" "${INPUTS}" \
         amr.max_level=3 amr.plot_int=-1 \
-        checkpoint.keep_latest_only=false checkpoint.write_particles=false \
-        verification.check_state_after_regrid=false "$@"
+        checkpoint.keep_latest_only=false checkpoint.write_particles=false "$@"
 }
 
 # Build one canonical four-level state, then branch both storage modes from

@@ -68,10 +68,6 @@ lbm.osi_sync_batch_components = 3
 # 2 = GPU 单元二次插值（CellQuadratic 的笛卡尔 ratio-2 路径）
 lbm.interp_mode = 0
 
-# 启动时总会检查一次全部 active level；正确性运行还在每次动态 regrid 后检查，
-# 以便新建/重构 fine level 出现 NaN、Inf 或非正密度时立即停止。
-verification.check_state_after_regrid = false
-verification.check_state_each_substep = false
 verification.convergence_enabled = true
 verification.convergence_check_int = 3200
 verification.convergence_trend_int = 1000

@@ -115,8 +115,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     void WriteVelocityFileWithParticle(const int step, const amrex::Real time);
     void WriteCheckpoint(int step, amrex::Real time) const;
     void ReadCheckpoint();
-    void CompareDdfCheckpoint(const std::string& checkpoint_path) const;
-    void PrintParticleChecksums(int step) const;
     void InitializeConvergence();
     [[nodiscard]] bool CheckConvergence(int step);
     const RuntimeParams& params() const {
@@ -175,14 +173,37 @@ class AmrCoreLBM : public amrex::AmrCore {
     void Stream(int lev, int n);
     void SwapLevel(int lev, int n);
     void ValidateConfiguration() const;
-    void ValidateInitializedState(const char* context = "Initialization");
-    [[nodiscard]] bool checkStateEachSubstep() const noexcept {
-        return check_state_each_substep;
-    }
     void AdvanceLevel(int lev);
-    void AdvanceAndCheckOsiReference(int lev, int step);
+
+    //********************************************************************//
+    //                         手动诊断函数                               //
+    //********************************************************************//
+    // 以下函数可能触发 GPU 同步、全局归约或设备到主机回拷，
+    // 正常时间推进不会自动调用。定位问题时可在目标阶段手动插入，
+    // 性能测试前应再移除调用。
+    // 检查所有 active level 的 DDF、密度和速度是否有限且物理可用。
+    void ValidateInitializedState(const char* context = "Manual diagnosis");
+    // 输出所有 level 的 valid/active DDF 总和及各方向分量和。
     void PrintDdfChecksums(int step);
-    void PrintLevelDdfChecksum(const char* stage, int lev, bool use_new = false);
+    // 输出指定 level 的 DDF 分量和；Stream 后、Swap 前检查 f_new 时
+    // 将 use_new 设为 true。
+    void PrintLevelDdfChecksum(const char* stage, int lev,
+                               bool use_new = false);
+    // 输出粗到细插值缓存布局以及代表性 DDF 分量范数，仅用于 A-B 路径。
+    void PrintInterpolationDiagnostics(const char* stage, int lev);
+    // 输出最新一次 regrid 后的 level、Box 和标记单元数。
+    void PrintRegridDiagnostics() const;
+    // 必须在 Stream(lev, n) 之后、Boundary(lev) 之前调用，检查 f_new
+    // 的非有限值、pull 源位置、ghost/Fab 边缘和粗细网格属性。
+    void DiagnoseStreamResult(int lev, int n);
+    // 必须在 Boundary(lev) 之后、SwapLevel(lev, n) 之前调用，
+    // 检查 f_new 中非有限值的边界、interface 和相邻单元分布。
+    void DiagnoseBoundaryResult(int lev);
+    // OSI A-B 对照、粒子 checksum 和 checkpoint DDF 对照仍由对应
+    // verification.* 参数显式启用，它们不属于生产性能路径。
+    void AdvanceAndCheckOsiReference(int lev, int step);
+    void PrintParticleChecksums(int step) const;
+    void CompareDdfCheckpoint(const std::string& checkpoint_path) const;
 
     void InterpScale(int lev, int n);
     void AverageScale(int lev, int n);
@@ -283,9 +304,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool osi_verification_pattern = false;
     // 仅在显式启用时分配 A-B 两数组并逐步比较；生产 OSI 模式保持单一体积级 DDF。
     bool osi_ab_check = false;
-    // 正确性运行可在每次 regrid 后重新检查所有 active level 的 valid DDF/宏观量。
-    bool check_state_after_regrid = false;
-    bool check_state_each_substep = false;
     // 验证粒子 checkpoint/restart 时输出全局粒子数、坐标与 SoA 属性和。
     bool particle_checksum = false;
     // canonical 通信缓冲一次处理的 DDF 分量数；增大它可减少 FillBoundary 调用次数，
