@@ -4562,7 +4562,7 @@ void AmrCoreLBM::ReadCheckpoint() {
             stored_old.nComp() == Q &&
                 stored_old.boxArray() == boxArray(lev),
             "Checkpoint canonical DDF does not match the level BoxArray");
-            
+
         MultiFab canonical(boxArray(lev), DistributionMap(lev), Q, 0);
         canonical.ParallelCopy(
             stored_old, 0, 0, Q, IntVect(0), IntVect(0),
@@ -4582,7 +4582,6 @@ void AmrCoreLBM::ReadCheckpoint() {
                 f_new[lev].define(
                     boxArray(lev), DistributionMap(lev), Q, nghost);
                 MultiFab::Copy(f_old[lev], canonical, 0, 0, Q, 0);
-                MultiFab::Copy(f_new[lev], canonical, 0, 0, Q, 0);
             }
         } else {
             f_old[lev].define(
@@ -4590,19 +4589,6 @@ void AmrCoreLBM::ReadCheckpoint() {
             f_new[lev].define(
                 boxArray(lev), DistributionMap(lev), Q, nghost);
             MultiFab::Copy(f_old[lev], canonical, 0, 0, Q, 0);
-
-            const std::string new_name = MultiFabFileFullPrefix(
-                lev, chkname, level_prefix, "f_new");
-            if (stored_layout == checkpoint_layout_ab &&
-                amrex::FileExists(new_name + "_H")) {
-                MultiFab stored_new;
-                VisMF::Read(stored_new, new_name);
-                f_new[lev].ParallelCopy(
-                    stored_new, 0, 0, Q, IntVect(0), IntVect(0),
-                    Geom(lev).periodicity());
-            } else {
-                MultiFab::Copy(f_new[lev], canonical, 0, 0, Q, 0);
-            }
         }
 
         velocity[lev].setVal(0.0, nghost);
