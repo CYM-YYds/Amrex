@@ -252,10 +252,11 @@ void compute_shear2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
 
 template <bool UseOsiAddress>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-amrex::Real load_ddf(
-    int i, int j, int k, int q,
-    amrex::Array4<amrex::Real> const& state, std::uint64_t phase,
-    box3d_osi::FabGeometry const& fab) noexcept {
+    amrex::Real
+    load_ddf(
+        int i, int j, int k, int q,
+        amrex::Array4<amrex::Real> const& state, std::uint64_t phase,
+        box3d_osi::FabGeometry const& fab) noexcept {
     if constexpr (UseOsiAddress) {
         const auto raw = box3d_osi::osi_address(
             {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
@@ -266,11 +267,10 @@ amrex::Real load_ddf(
 }
 
 template <bool UseOsiAddress>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void store_ddf(int i, int j, int k, int q, amrex::Real value,
-               amrex::Array4<amrex::Real> const& state,
-               std::uint64_t phase,
-               box3d_osi::FabGeometry const& fab) noexcept {
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_ddf(int i, int j, int k, int q, amrex::Real value,
+                                                   amrex::Array4<amrex::Real> const& state,
+                                                   std::uint64_t phase,
+                                                   box3d_osi::FabGeometry const& fab) noexcept {
     if constexpr (UseOsiAddress) {
         const auto raw = box3d_osi::osi_address(
             {i, j, k}, {e[q][0], e[q][1], e[q][2]}, phase, fab);
@@ -282,8 +282,7 @@ void store_ddf(int i, int j, int k, int q, amrex::Real value,
 
 // 两种存储布局共用同一份非平衡外推公式，仅 DDF 地址翻译不同。
 template <bool UseOsiAddress>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void fill_boundary_impl(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
     int i, int j, int k, amrex::Array4<amrex::Real> const& state,
     amrex::IntVect const& hi,
     amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic,
@@ -2208,8 +2207,7 @@ void swap_ddf(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 // A-B 与 OSI 共用 BGK 数学公式；模板参数只决定 DDF 的读写地址。
 // 编译期分叉可以避免一种存储布局增加另一种布局的运行时判断和寄存器压力。
 template <bool UseOsiAddress>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void collide_bgk_register_impl(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
     int i, int j, int k, amrex::Array4<amrex::Real> const& state,
     std::uint64_t phase, box3d_osi::FabGeometry const& fab,
     amrex::Real omega) noexcept {
@@ -2300,8 +2298,7 @@ void compute_macro_osi(
 }
 
 template <bool UseOsiAddress>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void store_interpolated_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_interpolated_d3q(
     int i, int j, int k, int q, amrex::Real value,
     amrex::Array4<amrex::Real> const& fine,
     box3d_osi::FabGeometry fine_fab,
@@ -2316,8 +2313,7 @@ void store_interpolated_d3q(
 }
 
 template <bool UseOsiAddress>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void interp_bilinear_d3q_impl(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q_impl(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     box3d_osi::FabGeometry fine_fab,
@@ -2348,15 +2344,13 @@ void interp_bilinear_d3q_impl(
     }
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void interp_bilinear_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse) noexcept {
     interp_bilinear_d3q_impl<false>(i, j, k, fine, coarse, {}, 0);
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void interp_bilinear_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     box3d_osi::FabGeometry fine_fab,
@@ -2402,8 +2396,7 @@ void interp_bilinear_osi_d3q(
 // 采用限制型单侧斜率，保证所有精细网格数值落在相邻粗网格单元取值区间内，
 // 同时维持粗网格单元平均值守恒。
 template <bool UseOsiAddress>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void interp_cell_cons_linear_children_d3q_impl(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q_impl(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,
@@ -2453,8 +2446,7 @@ void interp_cell_cons_linear_children_d3q_impl(
     }
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void interp_cell_cons_linear_children_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box) noexcept {
@@ -2462,8 +2454,7 @@ void interp_cell_cons_linear_children_d3q(
         ic, jc, kc, fine, coarse, fine_work_box, {}, 0);
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void interp_cell_cons_linear_children_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,
@@ -2477,8 +2468,7 @@ void interp_cell_cons_linear_children_d3q(
 // 融合设备实现。每个 coarse cell 只计算一次一阶、纯二阶和混合斜率，
 // 随后直接写入 fine_work_box 内的最多八个子单元。
 template <bool UseOsiAddress>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void interp_cell_quadratic_children_d3q_impl(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q_impl(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,
@@ -2545,8 +2535,7 @@ void interp_cell_quadratic_children_d3q_impl(
     }
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void interp_cell_quadratic_children_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box) noexcept {
@@ -2554,8 +2543,7 @@ void interp_cell_quadratic_children_d3q(
         ic, jc, kc, fine, coarse, fine_work_box, {}, 0);
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void interp_cell_quadratic_children_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,

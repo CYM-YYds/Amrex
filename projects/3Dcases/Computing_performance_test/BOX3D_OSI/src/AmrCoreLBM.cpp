@@ -2967,12 +2967,13 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
             "OSI collision requires lbm.collide_mode=1");
     }
 
-    const bool use_tiling = use_osi ? false : TilingIfNotGPU();
-    for (MFIter mfi(state_lev, use_tiling); mfi.isValid(); ++mfi) {
-        // 与 grown-Fab OSI 保持一致：周期域外 ghost 参与碰撞，非周期
-        // ghost 仍由物理边界条件负责，不进入碰撞 kernel。
+    AMREX_ALWAYS_ASSERT(n >= 0 && n <= state_lev.nGrow());
+    // GPU 上两种布局均按完整 Fab 发射 kernel，确保碰撞 cell 集合只由
+    // n 决定，与 DDF 的存储布局无关。
+    for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
         const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
-        const Box bx = (use_osi ? ring : mfi.growntilebox(n)) & collision_domain;
+        // 周期域外 ghost 可参与碰撞；非周期 ghost 由物理边界条件处理。
+        const Box bx = amrex::grow(mfi.validbox(), n) & collision_domain;
         const auto lo = ring.smallEnd();
         const box3d_osi::FabGeometry fab{
             {lo[0], lo[1], lo[2]},
