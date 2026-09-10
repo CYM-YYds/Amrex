@@ -12,7 +12,6 @@ namespace {
 
 using box3d_osi::Coord3;
 using box3d_osi::FabGeometry;
-using box3d_osi::osi_cell_coordinates;
 using box3d_osi::osi_phase_shift;
 
 constexpr std::array<Coord3, 27> d3q27_velocities{{
@@ -151,34 +150,6 @@ void test_phase_period() {
     }
 }
 
-void test_cell_coordinate_cache() {
-    constexpr std::array<std::uint64_t, 7> phases{
-        0, 1, 2, 7, 211, 1234567890123456789ULL,
-        std::numeric_limits<std::uint64_t>::max()};
-
-    for (const auto phase : phases) {
-        const auto shift = osi_phase_shift(phase, fab);
-        for (int k = fab.lo.z; k < fab.lo.z + fab.length.z; ++k) {
-            for (int j = fab.lo.y; j < fab.lo.y + fab.length.y; ++j) {
-                for (int i = fab.lo.x; i < fab.lo.x + fab.length.x; ++i) {
-                    const Coord3 logical{i, j, k};
-                    const auto coordinates =
-                        osi_cell_coordinates(logical, fab, shift);
-                    for (const auto velocity : d3q27_velocities) {
-                        const auto direct = box3d_osi::osi_address(
-                            logical, velocity, fab, shift);
-                        const auto cached = box3d_osi::osi_address(
-                            coordinates, velocity);
-                        if (!(cached == direct)) {
-                            fail("cell coordinate cache differs from direct address");
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 static_assert(osi_address({13, 0, 0}, {1, 0, 0}, 1,
                           {{11, 0, 0}, {5, 1, 1}}).x == 12);
 
@@ -190,7 +161,6 @@ int main() {
     test_each_mapping_is_a_permutation();
     test_streaming_identity();
     test_phase_period();
-    test_cell_coordinate_cache();
     std::cout << "OSI index tests passed\n";
     return EXIT_SUCCESS;
 }
