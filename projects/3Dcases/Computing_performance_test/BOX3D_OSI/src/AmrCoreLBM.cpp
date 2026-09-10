@@ -1673,6 +1673,11 @@ void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复
         amrex::MultiFab& state =
             layout == DdfLayout::Osi ? osi_state.at(lev) : f_old.at(lev);
         ApplyPhysicalBoundaryLevel(lev, state, layout, false);
+        if (osi_ab_check && layout == DdfLayout::Osi) {
+            // oracle 必须经历与 OSI 当前态相同的初始化/平均后边界修复。
+            ApplyPhysicalBoundaryLevel(
+                lev, f_old.at(lev), DdfLayout::Canonical, false);
+        }
     }
 }
 
@@ -2380,6 +2385,33 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         layout == DdfLayout::Canonical || osi_state.at(lev).isDefined(),
         "AdvanceLevel requires an initialized OSI state");
 
+    if (osi_ab_check) {
+        // 诊断模式下两种布局锁步推进，阶段结束后立即定位第一处分歧。
+        CompareOsiReferenceStage(lev, "Initial", f_old.at(lev), 0);
+        Collide(lev, nghost, DdfLayout::Osi);
+        Collide(lev, 0, DdfLayout::Canonical);
+        CompareOsiReferenceStage(lev, "Collision", f_old.at(lev), 0);
+
+        CommunicateLevel(lev, DdfLayout::Osi);
+        CommunicateLevel(lev, DdfLayout::Canonical);
+        CompareOsiReferenceStage(
+            lev, "Communication", f_old.at(lev), nghost);
+
+        Stream(lev, nghost, DdfLayout::Osi);
+        Stream(lev, 1, DdfLayout::Canonical);
+        CompareOsiReferenceStage(
+            lev, "Stream", f_new.at(lev), 0, true);
+
+        Boundary(lev, DdfLayout::Osi);
+        Boundary(lev, DdfLayout::Canonical);
+        CompareOsiReferenceStage(lev, "Boundary", f_new.at(lev), 0);
+
+        SwapLevel(lev, nghost, DdfLayout::Osi);
+        SwapLevel(lev, 1, DdfLayout::Canonical);
+        CompareOsiReferenceStage(lev, "Swap", f_old.at(lev), 0);
+        return;
+    }
+
     // 两种存储模式共享完全相同的物理阶段顺序；各阶段只在真正访问
     // DDF 或执行数据移动时选择 canonical/OSI 实现。
     Collide(lev, nghost, layout);
@@ -2389,31 +2421,38 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
     SwapLevel(lev, nghost, layout);
 }
 
-void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
+void AmrCoreLBM::CompareOsiReferenceStage(
+    int lev, const char* stage, const amrex::MultiFab& reference,
+    int compare_ngrow, bool exclude_physical_boundary) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         stream_mode == 1,
-        "AdvanceAndCheckOsiReference requires lbm.stream_mode=1");
+        "CompareOsiReferenceStage requires lbm.stream_mode=1");
     if (!osi_ab_check) {
         return;
     }
 
-    // 保留的 A-B 状态作为 OSI 逐步 oracle：valid collision、ghost 同步、
-    // 显式 pull、物理边界和 swap。
-    constexpr DdfLayout reference_layout = DdfLayout::Canonical;
-    Collide(lev, 0, reference_layout);
-    CommunicateLevel(lev, reference_layout);
-    Stream(lev, 1, reference_layout);
-    Boundary(lev, reference_layout);
-    SwapLevel(lev, 1, reference_layout);
-
-    amrex::MultiFab& difference = f_new[lev];
-    const amrex::MultiFab& reference = f_old[lev];
+    amrex::MultiFab difference(
+        reference.boxArray(), reference.DistributionMap(), Q,
+        compare_ngrow);
+    difference.setVal(0.0);
+    Box comparison_domain = Geom(lev).growPeriodicDomain(compare_ngrow);
+    if (exclude_physical_boundary) {
+        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+            if (!Geom(lev).isPeriodic(dir)) {
+                comparison_domain.grow(dir, -1);
+            }
+        }
+    }
     const amrex::MultiFab& state = osi_state[lev];
     const std::uint64_t phase = osi_phase[lev];
 
     for (MFIter mfi(reference, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const Box valid_box = mfi.validbox();
-        const Box ring_box = amrex::grow(valid_box, state.nGrowVect());
+        // 非周期域外 ghost 不属于 Communication 的有效同步语义。
+        const Box valid_box =
+            amrex::grow(mfi.validbox(), compare_ngrow) &
+            comparison_domain;
+        const Box ring_box =
+            amrex::grow(mfi.validbox(), state.nGrowVect());
         const auto fab_lo = ring_box.smallEnd();
         const OSI::FabGeometry fab{
             {fab_lo[0], fab_lo[1], fab_lo[2]},
@@ -2434,15 +2473,143 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
             });
     }
 
-    const Real linf = difference.norm0(0, Q, IntVect(0));
+    const Real linf =
+        difference.norm0(0, Q, IntVect(compare_ngrow));
     constexpr Real tolerance = 1.0e-12;
+    const bool comparison_failed =
+        !std::isfinite(linf) || linf > tolerance;
+    if (comparison_failed) {
+        // e 位于设备侧，主机诊断必须使用独立的同序速度表。
+        constexpr int ex[Q] = {
+            0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
+            1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
+        constexpr int ey[Q] = {
+            0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0,
+            0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
+        constexpr int ez[Q] = {
+            0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
+            1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+        bool found_nonfinite = false;
+        bool found_finite_mismatch = false;
+        Real local_max_error = 0.0;
+        IntVect local_max_iv(0);
+        IntVect local_max_raw(0);
+        int local_max_q = -1;
+        Real local_max_ab = 0.0;
+        Real local_max_osi = 0.0;
+
+        for (MFIter mfi(reference, false); mfi.isValid(); ++mfi) {
+            const Box valid_box =
+                amrex::grow(mfi.validbox(), compare_ngrow) &
+                comparison_domain;
+            const Box ring_box = state[mfi].box();
+            FArrayBox host_reference(
+                reference[mfi].box(), Q, The_Pinned_Arena());
+            FArrayBox host_state(
+                ring_box, Q, The_Pinned_Arena());
+            Gpu::dtoh_memcpy(
+                host_reference.dataPtr(), reference[mfi].dataPtr(),
+                host_reference.nBytes());
+            Gpu::dtoh_memcpy(
+                host_state.dataPtr(), state[mfi].dataPtr(),
+                host_state.nBytes());
+
+            const auto ab = host_reference.const_array();
+            const auto osi = host_state.const_array();
+            const auto fab_lo = ring_box.smallEnd();
+            const OSI::FabGeometry fab{
+                {fab_lo[0], fab_lo[1], fab_lo[2]},
+                {ring_box.length(0), ring_box.length(1),
+                 ring_box.length(2)}};
+            const auto phase_shift = OSI::osi_phase_shift(phase, fab);
+            const IntVect lo = valid_box.smallEnd();
+            const IntVect hi = valid_box.bigEnd();
+
+            for (int q = 0; q < Q; ++q) {
+                for (int k = lo[2]; k <= hi[2]; ++k) {
+                    for (int j = lo[1]; j <= hi[1]; ++j) {
+                        for (int i = lo[0]; i <= hi[0]; ++i) {
+                            const auto raw = OSI::osi_address(
+                                {i, j, k},
+                                {ex[q], ey[q], ez[q]}, fab,
+                                phase_shift);
+                            const Real ab_value = ab(i, j, k, q);
+                            const Real osi_value =
+                                osi(raw.x, raw.y, raw.z, q);
+                            const Real error =
+                                std::abs(ab_value - osi_value);
+                            const bool nonfinite =
+                                !std::isfinite(ab_value) ||
+                                !std::isfinite(osi_value) ||
+                                !std::isfinite(error);
+                            if (nonfinite && !found_nonfinite) {
+                                found_nonfinite = true;
+                                local_max_iv =
+                                    IntVect(AMREX_D_DECL(i, j, k));
+                                local_max_raw = IntVect(
+                                    AMREX_D_DECL(raw.x, raw.y, raw.z));
+                                local_max_q = q;
+                                local_max_ab = ab_value;
+                                local_max_osi = osi_value;
+                            } else if (!found_nonfinite &&
+                                       error > tolerance &&
+                                       (!found_finite_mismatch ||
+                                        error > local_max_error)) {
+                                found_finite_mismatch = true;
+                                local_max_error = error;
+                                local_max_iv =
+                                    IntVect(AMREX_D_DECL(i, j, k));
+                                local_max_raw = IntVect(
+                                    AMREX_D_DECL(raw.x, raw.y, raw.z));
+                                local_max_q = q;
+                                local_max_ab = ab_value;
+                                local_max_osi = osi_value;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        auto output = amrex::AllPrint();
+        output.SetPrecision(17);
+        output << "osi_ab_stage_failure: stage=" << stage
+               << " lev=" << lev
+               << " phase=" << phase
+               << " global_linf=" << linf
+               << " local_failure="
+               << ((found_nonfinite || found_finite_mismatch) ? 1 : 0);
+        if (found_nonfinite || found_finite_mismatch) {
+            output << " failure_kind="
+                   << (found_nonfinite ? "nonfinite" : "finite_mismatch")
+                   << " local_max_error=" << local_max_error
+                   << " logical=" << local_max_iv
+                   << " q=" << local_max_q
+                   << " velocity=(" << ex[local_max_q] << ','
+                   << ey[local_max_q] << ',' << ez[local_max_q] << ')'
+                   << " raw=" << local_max_raw
+                   << " ab=" << local_max_ab
+                   << " osi=" << local_max_osi;
+        }
+        output << '\n';
+    }
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        std::isfinite(linf) && linf <= tolerance,
-        "OSI differs from the A-B reference (linf > 1e-12)");
+        !comparison_failed,
+        "OSI differs from the A-B reference; see osi_ab_stage_failure above");
+    amrex::Print() << "osi_ab_stage: stage=" << stage
+                   << " lev=" << lev
+                   << " phase=" << osi_phase[lev]
+                   << " linf=" << linf << '\n';
+}
+
+void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        stream_mode == 1 && osi_ab_check,
+        "AdvanceAndCheckOsiReference requires the OSI oracle");
     ComputeMacroLevel(lev);
     amrex::Print() << "osi_ab: step=" << step
                    << " phase=" << osi_phase[lev]
-                   << " linf=" << linf << '\n';
+                   << " staged_check=passed\n";
 }
 
 void AmrCoreLBM::PrintDdfChecksums(int step) {
