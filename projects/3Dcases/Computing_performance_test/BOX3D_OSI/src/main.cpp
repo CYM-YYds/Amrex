@@ -389,7 +389,7 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.SwapLevel(lev, 2);
 
     if (lev < max_ref_level) {
-        lid.AverageDownGhostLevel(lev, 0);
+        lid.AverageDownInterfaceLevel(lev, 0);
     }
 
     if (lev == coarsest_level) {
@@ -414,7 +414,7 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.SwapLevel(lev, 2);
 
     if (lev < max_ref_level) {
-        lid.AverageDownGhostLevel(lev, 0);
+        lid.AverageDownInterfaceLevel(lev, 0);
     }
 }
 
@@ -441,7 +441,7 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     if (lev < max_ref_level) {
         JaberCycle(lev + 1, cur_time, lid);
-        lid.AverageDownGhostLevel(lev, 1);
+        lid.AverageDownInterfaceLevel(lev, 1);
     }
 
     if (lev == coarsest_level) {
@@ -468,7 +468,7 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     if (lev < max_ref_level) {
         JaberCycle(lev + 1, cur_time, lid);
-        lid.AverageDownGhostLevel(lev, 1);
+        lid.AverageDownInterfaceLevel(lev, 1);
     }
 }
 
@@ -496,7 +496,7 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
         Cycle2(lev + 1, cur_time + dt / 2.0, lid);
 
         // 4. 两个细步完成后，只平均一次
-        lid.AverageDownGhostLevel(lev, 1);
+        lid.AverageDownInterfaceLevel(lev, 1);
     }
 }
 
@@ -527,7 +527,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.SwapLevel(lev, 2);
 
     if (lev < max_ref_level) {
-        lid.AverageDownGhostLevel(lev, 0);
+        lid.AverageDownInterfaceLevel(lev, 0);
     }
 
     if (lev == coarsest_level) {
@@ -555,7 +555,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.SwapLevel(lev, 2);
 
     if (lev < max_ref_level) {
-        lid.AverageDownGhostLevel(lev, 0);
+        lid.AverageDownInterfaceLevel(lev, 0);
     }
 }
 
@@ -583,7 +583,7 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     if (lev < max_ref_level) {
         JaberCycleMultiParticle(lev + 1, cur_time, lid);
-        lid.AverageDownGhostLevel(lev, 1);
+        lid.AverageDownInterfaceLevel(lev, 1);
     }
 
     if (lev == coarsest_level) {
@@ -611,6 +611,6 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     if (lev < max_ref_level) {
         JaberCycleMultiParticle(lev + 1, cur_time, lid);
-        lid.AverageDownGhostLevel(lev, 1);
+        lid.AverageDownInterfaceLevel(lev, 1);
     }
 }

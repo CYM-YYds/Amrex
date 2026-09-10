@@ -166,8 +166,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ComputeShear();
     void AverageDownValidLevel(int lev, bool is_scale);
     void AverageDownValid();
-    void AverageDownGhostLevel(int lev, bool is_scale);
-    void AverageDownGhost();
+    void AverageDownInterfaceLevel(int lev, bool is_scale);
     void FillGhostLevel(int lev, amrex::Real time, bool is_scale);
     void FillMacroGhostLevel(int lev, amrex::Real time);
     void FillForceGhostLevel(int lev, amrex::Real time);

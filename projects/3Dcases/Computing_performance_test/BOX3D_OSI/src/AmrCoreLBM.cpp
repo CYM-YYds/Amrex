@@ -1201,10 +1201,6 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
         interface_mask[lev].define(
             state[lev].boxArray(), state[lev].DistributionMap(), 1, nghost);
         interface_mask[lev].setVal(0);
-        const Box covered_neighbor_domain =
-            Geom(lev).growPeriodicDomain(1);
-        const auto neighbor_lo = amrex::lbound(covered_neighbor_domain);
-        const auto neighbor_hi = amrex::ubound(covered_neighbor_domain);
 
         for (MFIter mfi(interface_mask[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
             // interface 的物理分类只在 valid 单元构造；其 ghost 随后由
@@ -1224,15 +1220,9 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
                             const int ni = i + di;
                             const int nj = j + dj;
                             const int nk = k + dk;
-                            const bool in_covered_neighbor_domain =
-                                (ni >= neighbor_lo.x &&
-                                 ni <= neighbor_hi.x) &&
-                                (nj >= neighbor_lo.y &&
-                                 nj <= neighbor_hi.y) &&
-                                (nk >= neighbor_lo.z &&
-                                 nk <= neighbor_hi.z);
-                            if (in_covered_neighbor_domain ||
-                                covered(ni, nj, nk) == 0) {
+                            // 非周期物理域外 ghost 的 covered 值为 0，故被
+                            // fine 覆盖且贴近物理边界的 coarse 单元也属 interface。
+                            if (covered(ni, nj, nk) == 0) {
                                 interface(i, j, k) = 1;
                                 return;
                             }
@@ -1663,34 +1653,7 @@ void AmrCoreLBM::AverageDownValid() {
     }
 }
 
-// void AmrCoreLBM::AverageDownGhostLevel(int lev)
-// {
-//     amrex::MultiFab& fine_mf = f_old[lev+1];
-//     amrex::MultiFab& crse_mf = f_old[lev];
-//     BoxArray fine_boundary_grids;
-
-//     BoxArray const& fbas = fine_mf.boxArray();
-//     BoxList bl;
-
-//     for(int i = 0; i < fbas.size(); ++i)
-//     {
-//         Box const& b = amrex::grow(fbas[i], 2);
-//         auto const& bltmp = fbas.complementIn(b);
-//         bl.join(bltmp);
-//     }
-
-//     fine_boundary_grids.define(std::move(bl));
-
-//     DistributionMapping fine_boundary_dmap(fine_boundary_grids);
-
-//     MultiFab fine_boundary_data(fine_boundary_grids, fine_boundary_dmap, Q, 0);
-
-//     fine_boundary_data.ParallelCopy(fine_mf, 0, 0, Q, 2, 0);
-
-//     amrex::average_down(fine_boundary_data, crse_mf, 0, Q, refRatio(lev));
-// }
-
-void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
+void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
     ScopedPerfTimer timer(perf_stats.average);
     ++perf_stats.avgdown_calls;
 
@@ -1783,9 +1746,6 @@ void AmrCoreLBM::AverageDownGhostLevel(int lev, bool is_scale) {
             crse_mf.ParallelCopy(interface_result, 0, 0, Q);
         }
     }
-}
-
-void AmrCoreLBM::AverageDownGhost() {
 }
 
 void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
