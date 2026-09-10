@@ -268,6 +268,20 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 }
 
 template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real load_ddf_cached(
+    int i, int j, int k, int q,
+    amrex::Array4<amrex::Real> const& state,
+    box3d_osi::CellCoordinates const& coordinates) noexcept {
+    if constexpr (UseOsiAddress) {
+        const auto raw = box3d_osi::osi_address(
+            coordinates, {e[q][0], e[q][1], e[q][2]});
+        return state(raw.x, raw.y, raw.z, q);
+    } else {
+        return state(i, j, k, q);
+    }
+}
+
+template <bool UseOsiAddress>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_ddf(int i, int j, int k, int q, amrex::Real value,
                                                    amrex::Array4<amrex::Real> const& state,
                                                    box3d_osi::FabGeometry const& fab,
@@ -275,6 +289,20 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_ddf(int i, int j, int k, int q, a
     if constexpr (UseOsiAddress) {
         const auto raw = box3d_osi::osi_address(
             {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab, phase_shift);
+        state(raw.x, raw.y, raw.z, q) = value;
+    } else {
+        state(i, j, k, q) = value;
+    }
+}
+
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_ddf_cached(
+    int i, int j, int k, int q, amrex::Real value,
+    amrex::Array4<amrex::Real> const& state,
+    box3d_osi::CellCoordinates const& coordinates) noexcept {
+    if constexpr (UseOsiAddress) {
+        const auto raw = box3d_osi::osi_address(
+            coordinates, {e[q][0], e[q][1], e[q][2]});
         state(raw.x, raw.y, raw.z, q) = value;
     } else {
         state(i, j, k, q) = value;
@@ -318,10 +346,19 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
     if (!boundary)
         return;
 
+    box3d_osi::CellCoordinates source_coordinates{};
+    box3d_osi::CellCoordinates destination_coordinates{};
+    if constexpr (UseOsiAddress) {
+        source_coordinates = box3d_osi::osi_cell_coordinates(
+            {x1, y1, z1}, fab, phase_shift);
+        destination_coordinates = box3d_osi::osi_cell_coordinates(
+            {i, j, k}, fab, phase_shift);
+    }
+
     Real rho1 = 0.0, ux1 = 0.0, uy1 = 0.0, uz1 = 0.0;
     for (int q = 0; q < Q; ++q) {
-        const Real fq = load_ddf<UseOsiAddress>(
-            x1, y1, z1, q, state, fab, phase_shift);
+        const Real fq = load_ddf_cached<UseOsiAddress>(
+            x1, y1, z1, q, state, source_coordinates);
         rho1 += fq;
         ux1 += fq * e[q][0];
         uy1 += fq * e[q][1];
@@ -340,9 +377,11 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
     for (int q = 0; q < Q; ++q) {
         const Real value =
             feqQian(rho1, {ux, uy, uz}, q) +
-            load_ddf<UseOsiAddress>(x1, y1, z1, q, state, fab, phase_shift) -
+            load_ddf_cached<UseOsiAddress>(
+                x1, y1, z1, q, state, source_coordinates) -
             feqQian(rho1, {ux1, uy1, uz1}, q);
-        store_ddf<UseOsiAddress>(i, j, k, q, value, state, fab, phase_shift);
+        store_ddf_cached<UseOsiAddress>(
+            i, j, k, q, value, state, destination_coordinates);
     }
 }
 

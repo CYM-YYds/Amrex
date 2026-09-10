@@ -39,6 +39,20 @@ struct PhaseShift3 {
     int z;
 };
 
+// 同一逻辑坐标在一个坐标轴上只有三种离散速度映射结果。热路径按 cell
+// 计算一次并在所有 D3Q27 方向及读写阶段复用，避免重复执行环绕判断。
+struct AxisCoordinates {
+    int negative_velocity;
+    int stationary;
+    int positive_velocity;
+};
+
+struct CellCoordinates {
+    AxisCoordinates x;
+    AxisCoordinates y;
+    AxisCoordinates z;
+};
+
 BOX3D_OSI_GPU_HOST_DEVICE
 constexpr PhaseShift3 osi_phase_shift(std::uint64_t phase,
                                       FabGeometry fab) noexcept {
@@ -59,6 +73,40 @@ constexpr int osi_coord_precomputed(int logical, int velocity, int lo,
         shifted -= length;
     }
     return lo + shifted;
+}
+
+BOX3D_OSI_GPU_HOST_DEVICE
+constexpr AxisCoordinates osi_axis_coordinates(
+    int logical, int lo, int length, int phase_shift) noexcept {
+    return {
+        osi_coord_precomputed(logical, -1, lo, length, phase_shift), logical,
+        osi_coord_precomputed(logical, 1, lo, length, phase_shift)};
+}
+
+BOX3D_OSI_GPU_HOST_DEVICE
+constexpr CellCoordinates osi_cell_coordinates(
+    Coord3 logical, FabGeometry fab, PhaseShift3 shift) noexcept {
+    return {
+        osi_axis_coordinates(logical.x, fab.lo.x, fab.length.x, shift.x),
+        osi_axis_coordinates(logical.y, fab.lo.y, fab.length.y, shift.y),
+        osi_axis_coordinates(logical.z, fab.lo.z, fab.length.z, shift.z)};
+}
+
+BOX3D_OSI_GPU_HOST_DEVICE
+constexpr int osi_select_axis_coordinate(AxisCoordinates coordinates,
+                                         int velocity) noexcept {
+    return velocity < 0 ? coordinates.negative_velocity
+                        : (velocity > 0 ? coordinates.positive_velocity
+                                        : coordinates.stationary);
+}
+
+BOX3D_OSI_GPU_HOST_DEVICE
+constexpr Coord3 osi_address(CellCoordinates coordinates,
+                             Coord3 velocity) noexcept {
+    return {
+        osi_select_axis_coordinate(coordinates.x, velocity.x),
+        osi_select_axis_coordinate(coordinates.y, velocity.y),
+        osi_select_axis_coordinate(coordinates.z, velocity.z)};
 }
 
 BOX3D_OSI_GPU_HOST_DEVICE
