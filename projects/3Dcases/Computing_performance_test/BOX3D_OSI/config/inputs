@@ -26,10 +26,10 @@ amr.blocking_factor_z = 32 32 32 32
 amr.plot_file  = data32to64_validation/case_Re1000_
 amr.plot_int   = 1000
 amr.begin_plot = 0
-# 每 8000 个 coarse 步分别输出：速度 ux/uy/uz、密度 rho、Q/Vorticity。
+# 每 1000 个 coarse 步分别输出：速度 ux/uy/uz、密度 rho、Q/Vorticity。
 # 可用于中心线速度、质量守恒和涡结构随时间的正确性/收敛验证。
 
-checkpoint.begin_step = 96000
+checkpoint.begin_step = 0
 checkpoint.chk_int = 32000
 checkpoint.chk_prefix = chk_osi_validation
 checkpoint.keep_latest_only = true
@@ -56,7 +56,7 @@ lbm.collide_mode = 1
 # 默认保持在已经通过逐单元 A/B 的两层范围。三层以上已解除编译硬限制，但当前
 # 四层 OSI/A-B 逐单元误差仍约 1e-4，且动态 regrid 冒烟在第 128 步捕获 NaN；
 # 仅通过诊断脚本显式覆盖 amr.max_level=3，不作为已确认的生产数值结果。
-lbm.stream_mode = 0
+lbm.stream_mode = 1
 
 # OSI canonical 通信缓冲一次处理的 DDF 分量数，范围 1..27。
 # 1 最省临时内存；3/9 可分别把每步 FillBoundary 次数降为 9/3。

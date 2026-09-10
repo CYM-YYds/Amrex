@@ -336,6 +336,7 @@ twisted(Addr(fab,q,target_phase,i,j,k),q) =
 
 ```text
 regrid 前完整 AverageDownValid
+        -> 按各层当前 phase 重建物理边界，包含 covered 边界单元
         -> Remake: 旧 fine valid 按 q 批次解码并 ParallelCopy 到新布局 phase 0
         -> Remake 新增区: coarse OSI -> 稀疏 coarse/fine patch -> 新 fine phase 0
         -> MakeNew: 刷新已有 coarse density/velocity，按 q 批次解码并缩放非平衡 DDF
@@ -345,6 +346,10 @@ regrid 前完整 AverageDownValid
         -> Cycle2 FillGhostLevel(fine): 只建立两步细层子循环需要的 coarse-fine ghost
         -> AdvanceOsiLevelImpl: 每层碰撞后、phase 提交前同步同层/周期 ghost
 ```
+
+宏观量路径也采用 `AverageDownValid() -> RepairCurrentStatePhysicalBoundary() ->
+ComputeMacroLevel()`，因此输出和收敛检查读取的是完整同步且重新满足物理边界条件的
+当前逻辑 DDF；这一步会修改当前 DDF 边界，不是纯只读诊断。
 
 重置 phase 不会改变物理解。若重构前有：
 

@@ -427,7 +427,8 @@ gather fine valid children
 
 - `osi_phase[lev]` 的增量与统一 `Cycle2()` 子循环次数一致；
 - 固定 BoxArray 下 A-B/OSI 每层 valid DDF 在容差内；
-- coarse-to-fine 使用 `interp_mode=0`，fine-to-coarse 使用 `average_mode=1`完成固定模式对照；
+- coarse-to-fine 使用 `interp_mode=0`，fine-to-coarse 使用当前固定的稀疏交界
+  restriction 完成对照；
 - coarse/fine 传输测试不依赖 raw twisted `ParallelCopy()`。
 
 ## 9. 阶段 6：动态 regrid
@@ -439,6 +440,7 @@ gather fine valid children
 
 ```text
 AverageDownValid()
+RepairCurrentStatePhysicalBoundary()
 RefineMesh()
     -> RemakeLevel: old phase 分批解码重叠 valid，并插值新增 fine patch
     -> ClearLevel: 删除消失层的 OSI 数据与 tags
@@ -591,7 +593,7 @@ coarse/fine 传输和 canonicalization 都必须计入端到端性能。
 每个实验至少记录：
 
 - git commit；
-- `stream_mode`、`collide_mode`、`interp_mode`、`average_mode`；
+- `stream_mode`、`collide_mode`、`interp_mode`；
 - 输入文件和 checkpoint；
 - GPU、MPI rank、BoxArray/active-cell 统计；
 - 编译是否成功；

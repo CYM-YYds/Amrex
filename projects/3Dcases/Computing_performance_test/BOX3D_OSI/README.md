@@ -6,7 +6,7 @@ one-step index（OSI）路径。
 
 ## 当前验证状态
 
-更新时间：2026-09-08。
+更新时间：2026-09-10。
 
 当前权威运行参数位于 `config/inputs`：
 
@@ -15,8 +15,9 @@ one-step index（OSI）路径。
 - `amr.blocking_factor_x/y/z=32`；
 - `lbm.stream_mode=0`，使用双 `MultiFab` pull-streaming A-B 路径；
 - `lbm.collide_mode=1`，使用 D3Q27 专用碰撞核。
+- `max_step=1000`、`amr.plot_int=1000`，当前输入已切换为短程验证配置。
 
-最新完整作业 `logs/submit/586660-out.log` 运行到 step 96000，正常完成，未观察到
+最近一次长程历史作业 `logs/submit/586660-out.log` 运行到 step 96000，正常完成，未观察到
 NaN、MPI abort 或异常终止。它证明当前配置在该运行窗口内稳定，但**尚未收敛**：
 
 ```text
@@ -28,6 +29,11 @@ tolerance=1e-12 consecutive=0/3 converged=0
 这也不是 BOX3D 与 BOX3D_OSI 的逐网格 A-B 等价证明。双网格正确性验收仍须在相同
 输入、BoxArray、MPI/GPU 配置和 regrid 时序下，从第一步开始逐 level、逐阶段、逐 cell
 比较 active DDF 和宏观量。`stream_mode=1` 不能用于解释 `stream_mode=0` 的差异。
+
+当前源码会在完整 `AverageDownValid()` 后对当前 DDF 重新施加非平衡外推边界：A-B
+修复 `f_old`，OSI 修复当前 phase 的 `osi_state`，并包含 covered 物理边界单元。该操作
+用于避免这些单元在重网格后重新暴露或参与插值时仍保留被平均后的边界值；目前仅完成
+CUDA+MPI 构建验证，尚无受控数值对照结论。
 
 完整状态和证据边界见 [当前交接状态](docs/current_status.md)。
 

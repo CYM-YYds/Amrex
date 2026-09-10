@@ -14,7 +14,7 @@
 FillGhostLevel -> FillDdfGhostFromCoarse
                  -> direct staging（正常时间推进）
                  -> FPinfo temporary patch（RemakeLevel 布局迁移）
-AverageDownGhostLevel -> 选定的 LBM restriction -> ParallelCopy
+AverageDownInterfaceLevel -> 固定的稀疏交界 restriction -> ParallelCopy
 ```
 
 算例级的详细计时器会标出高层子阶段；重构布局迁移走 FPinfo temporary patch，
@@ -115,7 +115,7 @@ python3 scripts/plot_run_performance.py logs/submit/571393-out.log \
 
 ### Jaber A6 对比的适用范围
 
-Jaber et al. 的 A6 cavity 测试与这个算例在大目标上相同：都是 `Re=1000`、`64^3`、D3Q27、双精度、四层 cavity 计算，并且每 32 个 coarse 步进行一次 regridding。两者都使用线性的 coarse-to-fine 空间插值。但它们并不是直接的性能对标对象：A6 是单 GPU、固定 `4^3` block、GPU 原生 octree 求解器，使用仅界面 restriction 和原地 shared-memory streaming。BOX3D 则使用 AMReX patch、通用 `FillPatchTwoLevels()`、coarse-level 的覆盖/界面 mask，以及双 MultiFab pull streaming。当前默认的 `average_mode=1` 使用的是针对 LBM 的融合 restriction，并基于缓存的 coarse-interface parent 列表；在 regridding 之前仍会执行完整的 fine-valid restriction。这些 mask 不是 Jaber 的 fine-level `cells_ID_mask`，而历史 job `571393` 也早于当前的仅界面路径。在比较 MLUPS 之前，应先匹配网格覆盖、马赫数、细化准则和 active-node 计数。
+Jaber et al. 的 A6 cavity 测试与这个算例在大目标上相同：都是 `Re=1000`、`64^3`、D3Q27、双精度、四层 cavity 计算，并且每 32 个 coarse 步进行一次 regridding。两者都使用线性的 coarse-to-fine 空间插值。但它们并不是直接的性能对标对象：A6 是单 GPU、固定 `4^3` block、GPU 原生 octree 求解器，使用仅界面 restriction 和原地 shared-memory streaming。BOX3D 则使用 AMReX patch、通用 `FillPatchTwoLevels()`、coarse-level 的覆盖/界面 mask，以及双 MultiFab pull streaming。当前普通推进固定使用针对 LBM 的融合交界 restriction，并基于缓存的 coarse-interface parent 列表；在 regridding 之前仍会执行完整的 fine-valid restriction 和当前态物理边界修复。这些 mask 不是 Jaber 的 fine-level `cells_ID_mask`，而历史 job `571393` 也早于当前的仅界面路径。在比较 MLUPS 之前，应先匹配网格覆盖、马赫数、细化准则和 active-node 计数。
 
 ### 专用 BGK 碰撞路径：Job 575206
 
@@ -197,7 +197,9 @@ job `572587`，模式 1，是修改前的基线。job `572591` 使用了融合 r
 
 ## 仅界面 restriction：Jobs 573417 和 573418
 
-`lbm.average_mode` 当前只保留两种 restriction 实现：
+以下模式编号仅描述 jobs `573417`/`573418` 所在的历史版本；当前源码已经删除
+`lbm.average_mode`，普通推进固定使用稀疏交界融合 restriction，重网格前固定使用
+`AverageDownValid()` 完整同步。
 
 | 模式 | 区域 | 实现 |
 |---:|---|---|
@@ -206,8 +208,7 @@ job `572587`，模式 1，是修改前的基线。job `572591` 使用了融合 r
 
 模式 1 使用缓存的 sparse coarse-parent Box 列表。该列表会在 regridding 后重建，并且必须与 coarse `interface_mask` 具有完全相同的单元数量。正常时间步中的 restriction 只更新这个 collar；而在每次 regrid 前的现有 `AverageDownValid()` 调用，会在覆盖的 coarse 单元暴露之前执行所需的完整同步。
 
-下面的 jobs `573417`/`573418` 仍作为历史优化记录；当时的模式 2 已删除，
-当时的模式 3 现已重编号为模式 1。当前可选值只有 0 和 1。
+下面的 jobs `573417`/`573418` 仍作为历史优化记录；其中模式编号不再对应当前配置项。
 
 jobs `573417`（模式 2）和 `573418`（模式 3）都是单 GPU、1000 步运行。两者处理了 274,898,288 个 coarse parents 和 2,199,186,304 个 fine children。它们的 31 组 regrid mesh-statistics 序列完全一致。
 

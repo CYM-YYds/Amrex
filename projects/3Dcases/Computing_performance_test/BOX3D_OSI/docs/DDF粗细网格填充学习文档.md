@@ -42,7 +42,9 @@ fine coarse-fine ghost
 f_old[lev] 的 ghost 可供后续计算使用
 ```
 
-`FillDdfGhostFromCoarse()` **不负责**碰撞、迁移和 fine-to-coarse 平均下传。平均下传由 `AverageDownGhostLevel()` 处理。
+`FillDdfGhostFromCoarse()` **不负责**碰撞、迁移和 fine-to-coarse 平均下传。普通推进的
+稀疏平均由 `AverageDownInterfaceLevel()` 处理；重网格或宏观量计算前的完整同步由
+`AverageDownValid()` 处理。
 
 ### 1.2 当前时间推进中的调用链
 
