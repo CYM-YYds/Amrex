@@ -12,11 +12,7 @@ namespace {
 
 using box3d_osi::Coord3;
 using box3d_osi::FabGeometry;
-using box3d_osi::osi_address;
-using box3d_osi::osi_address_precomputed;
-using box3d_osi::osi_coord;
 using box3d_osi::osi_phase_shift;
-using box3d_osi::positive_mod;
 
 constexpr std::array<Coord3, 27> d3q27_velocities{{
     {0, 0, 0},   {0, 1, 0},   {0, -1, 0},  {-1, 0, 0},
@@ -29,6 +25,14 @@ constexpr std::array<Coord3, 27> d3q27_velocities{{
 
 constexpr FabGeometry fab{{11, -7, 23}, {5, 6, 7}};
 
+constexpr Coord3 osi_address(Coord3 logical, Coord3 velocity,
+                             std::uint64_t phase,
+                             FabGeometry geometry) noexcept {
+    return box3d_osi::osi_address(
+        logical, velocity, geometry,
+        box3d_osi::osi_phase_shift(phase, geometry));
+}
+
 [[noreturn]] void fail(std::string_view message) {
     std::cerr << "OSI index test failed: " << message << '\n';
     std::exit(EXIT_FAILURE);
@@ -39,13 +43,6 @@ int linear_offset(Coord3 raw) {
     const int y = raw.y - fab.lo.y;
     const int z = raw.z - fab.lo.z;
     return (z * fab.length.y + y) * fab.length.x + x;
-}
-
-void test_positive_mod() {
-    if (positive_mod(0, 5) != 0 || positive_mod(7, 5) != 2 ||
-        positive_mod(-1, 5) != 4 || positive_mod(-11, 5) != 4) {
-        fail("positive_mod");
-    }
 }
 
 void test_phase_zero_and_stationary_direction() {
@@ -73,10 +70,11 @@ void test_phase_zero_and_stationary_direction() {
 }
 
 void test_velocity_signs() {
-    if (osi_coord(13, 1, 1, 11, 5) != 12 ||
-        osi_coord(13, -1, 1, 11, 5) != 14 ||
-        osi_coord(11, 1, 1, 11, 5) != 15 ||
-        osi_coord(15, -1, 1, 11, 5) != 11) {
+    constexpr FabGeometry line{{11, 0, 0}, {5, 1, 1}};
+    if (osi_address({13, 0, 0}, {1, 0, 0}, 1, line).x != 12 ||
+        osi_address({13, 0, 0}, {-1, 0, 0}, 1, line).x != 14 ||
+        osi_address({11, 0, 0}, {1, 0, 0}, 1, line).x != 15 ||
+        osi_address({15, 0, 0}, {-1, 0, 0}, 1, line).x != 11) {
         fail("velocity sign or wrap direction");
     }
 }
@@ -152,44 +150,17 @@ void test_phase_period() {
     }
 }
 
-void test_precomputed_address_equivalence() {
-    constexpr std::array<std::uint64_t, 7> phases{
-        0, 1, 2, 7, 211, 1234567890123456789ULL,
-        std::numeric_limits<std::uint64_t>::max()};
-
-    for (const auto phase : phases) {
-        const auto shift = osi_phase_shift(phase, fab);
-        for (const auto velocity : d3q27_velocities) {
-            for (int k = fab.lo.z; k < fab.lo.z + fab.length.z; ++k) {
-                for (int j = fab.lo.y; j < fab.lo.y + fab.length.y; ++j) {
-                    for (int i = fab.lo.x; i < fab.lo.x + fab.length.x; ++i) {
-                        const Coord3 logical{i, j, k};
-                        if (!(osi_address(logical, velocity, phase, fab) ==
-                              osi_address_precomputed(logical, velocity, fab,
-                                                      shift))) {
-                            fail("precomputed address differs from legacy address");
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-static_assert(positive_mod(-1, 5) == 4);
-static_assert(osi_coord(13, 1, 0, 11, 5) == 13);
-static_assert(osi_coord(13, 1, 1, 11, 5) == 12);
+static_assert(osi_address({13, 0, 0}, {1, 0, 0}, 1,
+                          {{11, 0, 0}, {5, 1, 1}}).x == 12);
 
 } // namespace
 
 int main() {
-    test_positive_mod();
     test_phase_zero_and_stationary_direction();
     test_velocity_signs();
     test_each_mapping_is_a_permutation();
     test_streaming_identity();
     test_phase_period();
-    test_precomputed_address_equivalence();
     std::cout << "OSI index tests passed\n";
     return EXIT_SUCCESS;
 }

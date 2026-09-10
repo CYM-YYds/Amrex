@@ -1,10 +1,10 @@
 # BOX3D_OSI 性能分析与历史 A-B 基线
 
-## 当前 OSI 碰撞地址实验
+## OSI 预计算地址实验
 
-jobs `589418` 与 `589419` 在同一算例、同一 1000 步工作量上分别使用
-`lbm.osi_collision_address_mode=0/1`。mode 0 在 device 中执行 legacy 动态模运算；
-mode 1 在 host 端预计算 `phase % Fab.length()`，device 端只做单次 wrap。
+jobs `589418` 与 `589419` 在同一算例、同一 1000 步工作量上分别测试
+legacy 动态取模和预计算位移。当前源码只保留后者，并已扩展到所有
+OSI 读写、边界、通信、插值、限制、诊断和检查点地址路径。
 
 | 指标 | legacy `589418` | optimized `589419` | optimized / legacy |
 |---|---:|---:|---:|

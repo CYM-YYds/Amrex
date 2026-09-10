@@ -50,10 +50,6 @@ lbm.cf_mask_mode = 1
 # 1 = 无外力/无 SGS 的 D3Q27 专用路径，寄存器复用 DDF 并合并 feq 公共项
 lbm.collide_mode = 1
 
-# OSI 碰撞地址路径：0 = 原始逐次 64 位取模基线；
-# 1 = 每个 Fab 预计算 phase 位移，设备端仅做加减和单次环绕（默认性能路径）。
-lbm.osi_collision_address_mode = 1
-
 # DDF 碰撞分布函数的流动/存储模式：
 # 0 = 保留的 A-B 数值基准模式
 # 1 = grown-Fab OSI 模式；支持编译配置内的多层 AMR、多 Fab/MPI，以及全周期或六面
@@ -63,7 +59,7 @@ lbm.osi_collision_address_mode = 1
 # 默认保持在已经通过逐单元 A/B 的两层范围。三层以上已解除编译硬限制，但当前
 # 四层 OSI/A-B 逐单元误差仍约 1e-4，且动态 regrid 冒烟在第 128 步捕获 NaN；
 # 仅通过诊断脚本显式覆盖 amr.max_level=3，不作为已确认的生产数值结果。
-lbm.stream_mode = 1
+lbm.stream_mode = 0
 
 # OSI canonical 通信缓冲一次处理的 DDF 分量数，范围 1..27。
 # 1 最省临时内存；3/9 可分别把每步 FillBoundary 次数降为 9/3。

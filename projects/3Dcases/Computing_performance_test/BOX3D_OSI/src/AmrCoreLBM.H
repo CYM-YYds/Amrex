@@ -268,7 +268,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void BuildBoundaryWorkBoxes();
     void BuildOsiCommunicationRegionCache(int lev);
     void BuildInterpolationCache();
-    void BuildRestrictionCache();
+    void BuildAverageCache();
     void BuildDirectInterpolationCache(int lev);
     amrex::Interpolater* DdfInterpolater() const;
     void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
@@ -311,7 +311,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 0：原始通用 BGK；1：无外力/无 SGS 的 D3Q27 寄存器复用路径。
     int collide_mode = 0;
     // 0：碰撞中逐次通用取模；1：每个 Fab 预计算 phase 位移并用单次环绕。
-    int osi_collision_address_mode = 1;
     // 0：现有 A-B；1：OSI 实验路径，当前允许单 level/全周期并支持多 Fab/MPI。
     int stream_mode = 0;
     // 仅用于 OSI A/B 验证：以确定性非均匀 DDF 覆盖均匀初值，暴露错误 halo 来源。

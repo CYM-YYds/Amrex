@@ -5,14 +5,14 @@
 ## 现役配置
 
 权威运行参数是 `config/inputs`：`amr.max_level=2`、`amr.regrid_int=32`、
-`lbm.stream_mode=1`、`lbm.collide_mode=1`、
-`lbm.osi_collision_address_mode=1`、`performance.report_int=1000`。
+`lbm.stream_mode=1`、`lbm.collide_mode=1`、`performance.report_int=1000`。
+OSI 地址只保留预计算 phase shift 路径。
 当前 `max_step=1000`，用于 OSI 性能和正确性诊断；A-B 对照必须显式覆盖
 `lbm.stream_mode=0`。
 
 ## 本轮已验证
 
-- `tests/run_osi_index_test.sh` 通过，覆盖 legacy modulo 与预计算 shift 地址等价性。
+- `tests/run_osi_index_test.sh` 通过，覆盖预计算 shift 的周期、方向和置换性质。
 - CUDA+MPI 完整构建通过；构建日志为
   `logs/compile/compile-20260910T113452.log`。
 - jobs `589418`/`589419` 使用相同 1000 步 OSI 工作量。预计算地址把 Collision 从

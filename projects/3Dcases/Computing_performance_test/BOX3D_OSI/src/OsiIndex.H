@@ -40,36 +40,6 @@ struct PhaseShift3 {
 };
 
 BOX3D_OSI_GPU_HOST_DEVICE
-constexpr int positive_mod(std::int64_t value, int length) noexcept {
-    // 先决条件：length > 0。每个非空的 AMReX Fab 都满足这一点。
-    const std::int64_t remainder = value % static_cast<std::int64_t>(length);
-    return static_cast<int>(remainder < 0 ? remainder + length : remainder);
-}
-
-// 将一个逻辑坐标映射到当前 OSI 相位下的原始坐标。
-// 在乘法前先对 phase 做模运算，可确保即使某层运行时间远长于本地 Fab 长度，也不会溢出或超出安全范围。
-BOX3D_OSI_GPU_HOST_DEVICE
-constexpr int osi_coord(int logical, int velocity, std::uint64_t phase,
-                        int lo, int length) noexcept {
-    const auto phase_mod = static_cast<std::int64_t>(
-        phase % static_cast<std::uint64_t>(length));
-    const auto logical_offset = static_cast<std::int64_t>(logical) - lo;
-    return lo + positive_mod(logical_offset - velocity * phase_mod, length);
-}
-
-// 单个 Fab 中的 A_q(x,p)。
-// velocity 是 e_q；q 本身被刻意省略，因此这个辅助函数独立于特定的格子排序方式。
-BOX3D_OSI_GPU_HOST_DEVICE
-constexpr Coord3 osi_address(Coord3 logical, Coord3 velocity,
-                             std::uint64_t phase,
-                             FabGeometry fab) noexcept {
-    return {
-        osi_coord(logical.x, velocity.x, phase, fab.lo.x, fab.length.x),
-        osi_coord(logical.y, velocity.y, phase, fab.lo.y, fab.length.y),
-        osi_coord(logical.z, velocity.z, phase, fab.lo.z, fab.length.z)};
-}
-
-BOX3D_OSI_GPU_HOST_DEVICE
 constexpr PhaseShift3 osi_phase_shift(std::uint64_t phase,
                                       FabGeometry fab) noexcept {
     return {
@@ -92,9 +62,8 @@ constexpr int osi_coord_precomputed(int logical, int velocity, int lo,
 }
 
 BOX3D_OSI_GPU_HOST_DEVICE
-constexpr Coord3 osi_address_precomputed(Coord3 logical, Coord3 velocity,
-                                         FabGeometry fab,
-                                         PhaseShift3 shift) noexcept {
+constexpr Coord3 osi_address(Coord3 logical, Coord3 velocity,
+                             FabGeometry fab, PhaseShift3 shift) noexcept {
     return {
         osi_coord_precomputed(logical.x, velocity.x, fab.lo.x, fab.length.x,
                               shift.x),

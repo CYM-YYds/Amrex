@@ -15,7 +15,7 @@ one-step index（OSI）路径。
 - `amr.blocking_factor_x/y/z=32`；
 - `lbm.stream_mode=1`，使用 grown-Fab OSI 单数组路径；
 - `lbm.collide_mode=1`，使用 D3Q27 专用碰撞核。
-- `lbm.osi_collision_address_mode=1`，使用预计算 phase shift 的 OSI 碰撞地址；
+- OSI 所有地址路径统一使用预计算 phase shift，不再提供 legacy 取模开关；
 - `performance.report_int=1000`，按窗口输出总阶段和逐 level 碰撞统计；
 - `max_step=1000`、`amr.plot_int=1000`，当前输入已切换为短程验证配置。
 
