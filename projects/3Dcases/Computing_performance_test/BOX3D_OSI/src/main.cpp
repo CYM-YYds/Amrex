@@ -115,6 +115,7 @@ int main(int argc, char* argv[]) {
         const int max_step = input.max_step;
         const Real stop_time = input.stop_time;
         int regrid_int, plot_int, begin_plot;
+        int perf_report_int = 1000;
         int chk_int = -1;
         int begin_step = 0;
         std::string ddf_reference_checkpoint;
@@ -166,6 +167,7 @@ int main(int argc, char* argv[]) {
         regrid_int = lid.params().regrid_int;
         plot_int = lid.params().plot_int;
         begin_plot = lid.params().begin_plot;
+        perf_report_int = lid.params().perf_report_int;
 
         amrex::Real cur_time = begin_step * grid.dt;
 
@@ -260,7 +262,7 @@ int main(int argc, char* argv[]) {
             //     lid.ComputeCp(max_ref_level, step);
             // }
 
-            if (step % 1000 == 0) {
+            if (step % perf_report_int == 0) {
                 const auto& perf = lid.GetPerfStats();
                 double total_s = static_cast<double>(compute_time) / 1000.0;
                 double solv_s = static_cast<double>(JaberCycle_time) / 1000.0;
@@ -295,6 +297,22 @@ int main(int argc, char* argv[]) {
                           << " MLUPS_solv=" << solv_mlups
                           << " MLUPS_total=" << total_mlups
                           << std::endl;
+                for (int lev = 0; lev <= lid.finestLevel(); ++lev) {
+                    const double level_seconds = perf.collide_level.at(lev);
+                    const long long launch_cells =
+                        perf.collide_level_launch_cells.at(lev);
+                    const double launch_mlups =
+                        level_seconds > 0.0
+                            ? static_cast<double>(launch_cells) / level_seconds / 1.0e6
+                            : 0.0;
+                    std::cout << "step" << step
+                              << " collide_level: lev=" << lev
+                              << " seconds=" << level_seconds
+                              << " calls=" << perf.collide_level_calls.at(lev)
+                              << " launch_cells=" << launch_cells
+                              << " launch_MLUPS=" << launch_mlups
+                              << std::endl;
+                }
                 std::cout << "step" << step
                           << " perf_detail(s): interp_cache_build=" << perf.interp_cache_build
                           << " interp_regrid_fill=" << perf.interp_regrid_fill

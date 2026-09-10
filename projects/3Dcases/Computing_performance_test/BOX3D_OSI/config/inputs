@@ -5,6 +5,9 @@
 max_step  = 1000
 stop_time = 2500000.0
 
+# 性能统计窗口；短测可通过 AMREX_RUN_ARGS 覆盖为 10 或 100。
+performance.report_int = 1000
+
 # *****************************************************************
 # mesh setting
 #
@@ -46,6 +49,10 @@ lbm.cf_mask_mode = 1
 # 0 = 原始通用路径（保留作为数值/性能基线）
 # 1 = 无外力/无 SGS 的 D3Q27 专用路径，寄存器复用 DDF 并合并 feq 公共项
 lbm.collide_mode = 1
+
+# OSI 碰撞地址路径：0 = 原始逐次 64 位取模基线；
+# 1 = 每个 Fab 预计算 phase 位移，设备端仅做加减和单次环绕（默认性能路径）。
+lbm.osi_collision_address_mode = 1
 
 # DDF 碰撞分布函数的流动/存储模式：
 # 0 = 保留的 A-B 数值基准模式

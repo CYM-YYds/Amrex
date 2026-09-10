@@ -45,6 +45,7 @@ class AmrCoreLBM : public amrex::AmrCore {
         int regrid_int = -1;
         int plot_int = -1;
         int begin_plot = 0;
+        int perf_report_int = 1000;
         int chk_int = -1;
         int begin_step = 0;
         std::string chk_prefix = "chk";
@@ -60,6 +61,9 @@ class AmrCoreLBM : public amrex::AmrCore {
         long long interp_regrid_fill_calls = 0;
         double interp_fillpatch = 0.0;
         double collide = 0.0;
+        std::array<double, max_ref_level + 1> collide_level{};
+        std::array<long long, max_ref_level + 1> collide_level_calls{};
+        std::array<long long, max_ref_level + 1> collide_level_launch_cells{};
         double stream = 0.0;
         double average = 0.0;
         double average_copy = 0.0;
@@ -306,6 +310,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     int cf_mask_mode = 1;
     // 0：原始通用 BGK；1：无外力/无 SGS 的 D3Q27 寄存器复用路径。
     int collide_mode = 0;
+    // 0：碰撞中逐次通用取模；1：每个 Fab 预计算 phase 位移并用单次环绕。
+    int osi_collision_address_mode = 1;
     // 0：现有 A-B；1：OSI 实验路径，当前允许单 level/全周期并支持多 Fab/MPI。
     int stream_mode = 0;
     // 仅用于 OSI A/B 验证：以确定性非均匀 DDF 覆盖均匀初值，暴露错误 halo 来源。

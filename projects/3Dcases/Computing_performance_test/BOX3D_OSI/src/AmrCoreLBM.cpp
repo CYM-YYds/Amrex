@@ -289,6 +289,7 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  U0     =" << std::setw(10) << std::right << U0 << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  cf_mask=" << std::setw(10) << std::right << cf_mask_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  col_mode=" << std::setw(10) << std::right << collide_mode << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  osi_col_addr=" << std::setw(10) << std::right << osi_collision_address_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  str_mode=" << std::setw(10) << std::right << stream_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  int_mode=" << std::setw(10) << std::right << interp_mode << std::endl;
 
@@ -300,6 +301,13 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::endl;
 }
 void AmrCoreLBM::ReadParameters() {
+    {
+        ParmParse pp_performance("performance");
+        pp_performance.query("report_int", params_.perf_report_int);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            params_.perf_report_int > 0,
+            "performance.report_int must be positive");
+    }
     {
         ParmParse pp("lbm");
         pp.query("interp_mode", interp_mode);
@@ -498,6 +506,10 @@ void AmrCoreLBM::ReadParameters() {
         pp.query("collide_mode", collide_mode);
         if (collide_mode < 0 || collide_mode > 1) {
             amrex::Abort("lbm.collide_mode must be 0 or 1");
+        }
+        pp.query("osi_collision_address_mode", osi_collision_address_mode);
+        if (osi_collision_address_mode < 0 || osi_collision_address_mode > 1) {
+            amrex::Abort("lbm.osi_collision_address_mode must be 0 (legacy modulo) or 1 (precomputed shift)");
         }
         pp.query("stream_mode", stream_mode);
         if (stream_mode < 0 || stream_mode > 1) {
@@ -2943,7 +2955,7 @@ void AmrCoreLBM::DiagnoseBoundaryResult(int lev) {
 }
 
 void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
-    ScopedPerfTimer timer(perf_stats.collide);
+    const double collide_start = amrex::second();
 
     const bool use_osi = layout == DdfLayout::Osi;
     const Box domain = Geom(lev).Domain();
@@ -2960,6 +2972,7 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
     const Box collision_domain = Geom(lev).growPeriodicDomain(n);
     const bool has_fine_level = lev < finest_level && cf_mask_mode == 1;
     const std::uint64_t phase = use_osi ? osi_phase.at(lev) : 0;
+    long long level_launch_cells = 0;
 
     if (use_osi) {
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
@@ -2974,6 +2987,7 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
         const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
         // 周期域外 ghost 可参与碰撞；非周期 ghost 由物理边界条件处理。
         const Box bx = amrex::grow(mfi.validbox(), n) & collision_domain;
+        level_launch_cells += bx.numPts();
         const auto lo = ring.smallEnd();
         const box3d_osi::FabGeometry fab{
             {lo[0], lo[1], lo[2]},
@@ -2996,15 +3010,28 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
         // 模式判断停留在 host 启动层，避免把运行时分支和另一种存储路径的
         // 寄存器需求带入同一个 GPU kernel。
         if (use_osi) {
-            amrex::ParallelFor(
-                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    if (has_fine_level && covered(i, j, k) != 0 &&
-                        interface(i, j, k) == 0) {
-                        return;
-                    }
-                    collide_bgk_register_osi(
-                        i, j, k, state, phase, fab, omega_lev);
-                });
+            if (osi_collision_address_mode == 1) {
+                const auto phase_shift = box3d_osi::osi_phase_shift(phase, fab);
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        if (has_fine_level && covered(i, j, k) != 0 &&
+                            interface(i, j, k) == 0) {
+                            return;
+                        }
+                        collide_bgk_register_osi_precomputed(
+                            i, j, k, state, fab, phase_shift, omega_lev);
+                    });
+            } else {
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        if (has_fine_level && covered(i, j, k) != 0 &&
+                            interface(i, j, k) == 0) {
+                            return;
+                        }
+                        collide_bgk_register_osi(
+                            i, j, k, state, phase, fab, omega_lev);
+                    });
+            }
         } else if (collide_mode == 0) {
             amrex::ParallelFor(
                 bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
@@ -3025,6 +3052,12 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
                 });
         }
     }
+    amrex::Gpu::streamSynchronize();
+    const double collide_elapsed = amrex::second() - collide_start;
+    perf_stats.collide += collide_elapsed;
+    perf_stats.collide_level.at(lev) += collide_elapsed;
+    ++perf_stats.collide_level_calls.at(lev);
+    perf_stats.collide_level_launch_cells.at(lev) += level_launch_cells;
 }
 
 void AmrCoreLBM::Stream(int lev, int n, DdfLayout layout) {

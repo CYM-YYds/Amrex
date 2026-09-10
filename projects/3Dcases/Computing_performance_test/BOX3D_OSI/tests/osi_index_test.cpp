@@ -13,7 +13,9 @@ namespace {
 using box3d_osi::Coord3;
 using box3d_osi::FabGeometry;
 using box3d_osi::osi_address;
+using box3d_osi::osi_address_precomputed;
 using box3d_osi::osi_coord;
+using box3d_osi::osi_phase_shift;
 using box3d_osi::positive_mod;
 
 constexpr std::array<Coord3, 27> d3q27_velocities{{
@@ -150,6 +152,30 @@ void test_phase_period() {
     }
 }
 
+void test_precomputed_address_equivalence() {
+    constexpr std::array<std::uint64_t, 7> phases{
+        0, 1, 2, 7, 211, 1234567890123456789ULL,
+        std::numeric_limits<std::uint64_t>::max()};
+
+    for (const auto phase : phases) {
+        const auto shift = osi_phase_shift(phase, fab);
+        for (const auto velocity : d3q27_velocities) {
+            for (int k = fab.lo.z; k < fab.lo.z + fab.length.z; ++k) {
+                for (int j = fab.lo.y; j < fab.lo.y + fab.length.y; ++j) {
+                    for (int i = fab.lo.x; i < fab.lo.x + fab.length.x; ++i) {
+                        const Coord3 logical{i, j, k};
+                        if (!(osi_address(logical, velocity, phase, fab) ==
+                              osi_address_precomputed(logical, velocity, fab,
+                                                      shift))) {
+                            fail("precomputed address differs from legacy address");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 static_assert(positive_mod(-1, 5) == 4);
 static_assert(osi_coord(13, 1, 0, 11, 5) == 13);
 static_assert(osi_coord(13, 1, 1, 11, 5) == 12);
@@ -163,6 +189,7 @@ int main() {
     test_each_mapping_is_a_permutation();
     test_streaming_identity();
     test_phase_period();
+    test_precomputed_address_equivalence();
     std::cout << "OSI index tests passed\n";
     return EXIT_SUCCESS;
 }

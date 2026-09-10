@@ -2206,11 +2206,12 @@ void swap_ddf(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 
 // A-B 与 OSI 共用 BGK 数学公式；模板参数只决定 DDF 的读写地址。
 // 编译期分叉可以避免一种存储布局增加另一种布局的运行时判断和寄存器压力。
-template <bool UseOsiAddress>
+template <bool UseOsiAddress, bool UsePrecomputedOsiAddress = false>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
     int i, int j, int k, amrex::Array4<amrex::Real> const& state,
     std::uint64_t phase, box3d_osi::FabGeometry const& fab,
-    amrex::Real omega) noexcept {
+    amrex::Real omega,
+    box3d_osi::PhaseShift3 phase_shift = {}) noexcept {
     Real fq[Q];
     Real rho = 0.0;
     Real uxt = 0.0;
@@ -2219,8 +2220,14 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
 
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
-        const Real ft = load_ddf<UseOsiAddress>(
-            i, j, k, q, state, phase, fab);
+        Real ft;
+        if constexpr (UsePrecomputedOsiAddress) {
+            const auto raw = box3d_osi::osi_address_precomputed(
+                {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab, phase_shift);
+            ft = state(raw.x, raw.y, raw.z, q);
+        } else {
+            ft = load_ddf<UseOsiAddress>(i, j, k, q, state, phase, fab);
+        }
         fq[q] = ft;
         rho += ft;
         uxt += ft * e[q][0];
@@ -2241,9 +2248,14 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
         const Real eu = e[q][0] * ux + e[q][1] * uy + e[q][2] * uz;
         const Real feq = w[q] * rho *
                          (equilibrium_common + 3.0 * eu + 4.5 * eu * eu);
-        store_ddf<UseOsiAddress>(
-            i, j, k, q, keep * fq[q] + omega * feq,
-            state, phase, fab);
+        const Real value = keep * fq[q] + omega * feq;
+        if constexpr (UsePrecomputedOsiAddress) {
+            const auto raw = box3d_osi::osi_address_precomputed(
+                {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab, phase_shift);
+            state(raw.x, raw.y, raw.z, q) = value;
+        } else {
+            store_ddf<UseOsiAddress>(i, j, k, q, value, state, phase, fab);
+        }
     }
 }
 
@@ -2263,6 +2275,16 @@ void collide_bgk_register_osi(
     amrex::Real omega) noexcept {
     collide_bgk_register_impl<true>(
         i, j, k, state, phase, fab, omega);
+}
+
+AMREX_GPU_DEVICE
+AMREX_FORCE_INLINE
+void collide_bgk_register_osi_precomputed(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& state,
+    box3d_osi::FabGeometry fab, box3d_osi::PhaseShift3 phase_shift,
+    amrex::Real omega) noexcept {
+    collide_bgk_register_impl<true, true>(
+        i, j, k, state, 0, fab, omega, phase_shift);
 }
 
 // 直接从 twisted OSI 存储计算 logical valid cell 的宏观量。宏观场随后使用
