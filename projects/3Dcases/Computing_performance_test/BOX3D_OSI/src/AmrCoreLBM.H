@@ -25,7 +25,7 @@
 #include "AuxiliaryPointContainer.H"
 #include "OsiIndex.H"
 
-namespace box3d_osi {
+namespace OSI {
 struct CommunicationTag {
     amrex::Array4<const amrex::Real> src;
     amrex::Array4<amrex::Real> dst;
@@ -36,7 +36,7 @@ struct CommunicationTag {
         return region;
     }
 };
-} // namespace box3d_osi
+} // namespace OSI
 
 class AmrCoreLBM : public amrex::AmrCore {
 
@@ -351,8 +351,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> osi_encode_boxes;
     // 将一个 rank 上的全部稀疏 Box 融合为每批各一个 GPU launch，避免区域裁剪
     // 因大量小 kernel 启动而得不偿失。tag 中的 Array4 指针随 level 布局重建。
-    amrex::Vector<amrex::TagVector<box3d_osi::CommunicationTag>> osi_decode_tags;
-    amrex::Vector<amrex::TagVector<box3d_osi::CommunicationTag>> osi_encode_tags;
+    amrex::Vector<amrex::TagVector<OSI::CommunicationTag>> osi_decode_tags;
+    amrex::Vector<amrex::TagVector<OSI::CommunicationTag>> osi_encode_tags;
     // 模式 1 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
     amrex::Vector<amrex::MultiFab> average_interface_buffer;
     // 将每个稀疏交界 Box 映射到包含其全部子单元的细层 Fab。

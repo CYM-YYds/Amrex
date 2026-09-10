@@ -1361,10 +1361,10 @@ void AmrCoreLBM::ComputeMacroLevel(int lev) {
             const Box& bx = mfi.tilebox();
             const Box ring_box = amrex::grow(mfi.validbox(), state.nGrowVect());
             const auto fab_lo = ring_box.smallEnd();
-            const box3d_osi::FabGeometry fab{
+            const OSI::FabGeometry fab{
                 {fab_lo[0], fab_lo[1], fab_lo[2]},
                 {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
-            const auto phase_shift = box3d_osi::osi_phase_shift(phase, fab);
+            const auto phase_shift = OSI::osi_phase_shift(phase, fab);
             const Array4<const Real>& ddf = state.const_array(mfi);
             const Array4<Real>& rho = rho_lev.array(mfi);
             const Array4<Real>& u = u_lev.array(mfi);
@@ -1631,17 +1631,17 @@ void AmrCoreLBM::AverageDownOsiValidLevel(int lev, bool is_scale) {
         const Box bx = mfi.validbox();
         const Box ring = amrex::grow(bx, coarse_state.nGrowVect());
         const auto lo = ring.smallEnd();
-        const box3d_osi::FabGeometry coarse_fab{
+        const OSI::FabGeometry coarse_fab{
             {lo[0], lo[1], lo[2]},
             {ring.length(0), ring.length(1), ring.length(2)}};
         const auto coarse_shift =
-            box3d_osi::osi_phase_shift(coarse_phase, coarse_fab);
+            OSI::osi_phase_shift(coarse_phase, coarse_fab);
         const auto src = coarse_canonical.const_array(mfi);
         const auto dst = coarse_state.array(mfi);
         amrex::ParallelFor(
             bx, Q,
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                const auto raw = box3d_osi::osi_address(
+                const auto raw = OSI::osi_address(
                     {i, j, k}, {e[q][0], e[q][1], e[q][2]},
                     coarse_fab, coarse_shift);
                 dst(raw.x, raw.y, raw.z, q) = src(i, j, k, q);
@@ -1821,11 +1821,11 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
                 amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
             const auto lo = ring.smallEnd();
 
-            const box3d_osi::FabGeometry fab{
+            const OSI::FabGeometry fab{
                 {lo[0], lo[1], lo[2]},
                 {ring.length(0), ring.length(1), ring.length(2)}};
             const auto coarse_shift =
-                box3d_osi::osi_phase_shift(coarse_phase, fab);
+                OSI::osi_phase_shift(coarse_phase, fab);
 
             for (const Box& bx :
                  osi_interp_decode_boxes.at(lev).at(mfi.index())) {
@@ -1833,7 +1833,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
                     bx, ncomp,
                     [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
                         const int q = q0 + n;
-                        const auto raw = box3d_osi::osi_address(
+                        const auto raw = OSI::osi_address(
                             {i, j, k},
                             {e[q][0], e[q][1], e[q][2]},
                             fab, coarse_shift);
@@ -1862,11 +1862,11 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
         const Box fine_ring = amrex::grow(
             fine_state.boxArray()[fine_index], fine_state.nGrowVect());
         const auto fine_lo = fine_ring.smallEnd();
-        const box3d_osi::FabGeometry fine_fab{
+        const OSI::FabGeometry fine_fab{
             {fine_lo[0], fine_lo[1], fine_lo[2]},
             {fine_ring.length(0), fine_ring.length(1), fine_ring.length(2)}};
         const auto fine_shift =
-            box3d_osi::osi_phase_shift(fine_phase, fine_fab);
+            OSI::osi_phase_shift(fine_phase, fine_fab);
 
         const auto fine = fine_state.array(fine_index);
         const auto coarse_const = coarse_stage.const_array(mfi);
@@ -1923,11 +1923,11 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         const Box fine_ring = amrex::grow(
             fine_state.boxArray()[fine_index], fine_state.nGrowVect());
         const auto fine_lo = fine_ring.smallEnd();
-        const box3d_osi::FabGeometry fine_fab{
+        const OSI::FabGeometry fine_fab{
             {fine_lo[0], fine_lo[1], fine_lo[2]},
             {fine_ring.length(0), fine_ring.length(1), fine_ring.length(2)}};
         const auto fine_shift =
-            box3d_osi::osi_phase_shift(fine_phase, fine_fab);
+            OSI::osi_phase_shift(fine_phase, fine_fab);
         const Box bx = mfi.validbox();
         const auto coarse = interface_result.array(mfi);
         const auto fine = fine_state.const_array(fine_index);
@@ -1988,11 +1988,11 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
             const Box ring =
                 amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
             const auto lo = ring.smallEnd();
-            const box3d_osi::FabGeometry coarse_fab{
+            const OSI::FabGeometry coarse_fab{
                 {lo[0], lo[1], lo[2]},
                 {ring.length(0), ring.length(1), ring.length(2)}};
             const auto coarse_shift =
-                box3d_osi::osi_phase_shift(coarse_phase, coarse_fab);
+                OSI::osi_phase_shift(coarse_phase, coarse_fab);
             const Box bx = mfi.validbox();
             const auto mask = interface_mask.at(lev).const_array(mfi);
             const auto src = transfer_batch.const_array(mfi);
@@ -2004,7 +2004,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
                         return;
                     }
                     const int q = q0 + n;
-                    const auto raw = box3d_osi::osi_address(
+                    const auto raw = OSI::osi_address(
                         {i, j, k}, {e[q][0], e[q][1], e[q][2]},
                         coarse_fab, coarse_shift);
                     dst(raw.x, raw.y, raw.z, q) = src(i, j, k, n);
@@ -2230,11 +2230,11 @@ void AmrCoreLBM::CommunicateOsiLevel(int lev) {
                 osi_decode_tags.at(lev), batch_size,
                 [=] AMREX_GPU_DEVICE(
                     int i, int j, int k, int n,
-                    const box3d_osi::CommunicationTag& tag) noexcept {
+                    const OSI::CommunicationTag& tag) noexcept {
                     const int q = q0 + n;
                     const auto phase_shift =
-                        box3d_osi::osi_phase_shift(phase, tag.fab);
-                    const auto raw = box3d_osi::osi_address(
+                        OSI::osi_phase_shift(phase, tag.fab);
+                    const auto raw = OSI::osi_address(
                         {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
                         phase_shift);
                     tag.dst(i, j, k, n) = tag.src(raw.x, raw.y, raw.z, q);
@@ -2255,11 +2255,11 @@ void AmrCoreLBM::CommunicateOsiLevel(int lev) {
                 osi_encode_tags.at(lev), batch_size,
                 [=] AMREX_GPU_DEVICE(
                     int i, int j, int k, int n,
-                    const box3d_osi::CommunicationTag& tag) noexcept {
+                    const OSI::CommunicationTag& tag) noexcept {
                     const int q = q0 + n;
                     const auto phase_shift =
-                        box3d_osi::osi_phase_shift(phase, tag.fab);
-                    const auto raw = box3d_osi::osi_address(
+                        OSI::osi_phase_shift(phase, tag.fab);
+                    const auto raw = OSI::osi_address(
                         {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
                         phase_shift);
                     tag.dst(raw.x, raw.y, raw.z, q) = tag.src(i, j, k, n);
@@ -2337,8 +2337,8 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
         }
     }
 
-    Vector<box3d_osi::CommunicationTag> decode_tags;
-    Vector<box3d_osi::CommunicationTag> encode_tags;
+    Vector<OSI::CommunicationTag> decode_tags;
+    Vector<OSI::CommunicationTag> encode_tags;
     decode_tags.reserve(static_cast<std::size_t>(decode_box_count)); // 预留空间
     encode_tags.reserve(static_cast<std::size_t>(encode_box_count));
     MultiFab& state = osi_state.at(lev);
@@ -2347,7 +2347,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
         const int ibox = mfi.index();
         const Box ring_box = amrex::grow(ba[ibox], ng);
         const auto fab_lo = ring_box.smallEnd();
-        const box3d_osi::FabGeometry fab{
+        const OSI::FabGeometry fab{
             {fab_lo[0], fab_lo[1], fab_lo[2]},
             {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
         const Array4<const Real> state_src = state.const_array(ibox);
@@ -2415,10 +2415,10 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
         const Box valid_box = mfi.validbox();
         const Box ring_box = amrex::grow(valid_box, state.nGrowVect());
         const auto fab_lo = ring_box.smallEnd();
-        const box3d_osi::FabGeometry fab{
+        const OSI::FabGeometry fab{
             {fab_lo[0], fab_lo[1], fab_lo[2]},
             {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
-        const auto phase_shift = box3d_osi::osi_phase_shift(phase, fab);
+        const auto phase_shift = OSI::osi_phase_shift(phase, fab);
         const Array4<const Real>& ab = reference.const_array(mfi);
         const Array4<const Real>& osi = state.const_array(mfi);
         const Array4<Real>& diff = difference.array(mfi);
@@ -2426,7 +2426,7 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
         amrex::ParallelFor(
             valid_box, Q,
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                const auto raw = box3d_osi::osi_address(
+                const auto raw = OSI::osi_address(
                     {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab,
                     phase_shift);
                 diff(i, j, k, q) =
@@ -2466,18 +2466,18 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
                     const Box ring =
                         amrex::grow(bx, state.nGrowVect());
                     const auto lo = ring.smallEnd();
-                    const box3d_osi::FabGeometry fab{
+                    const OSI::FabGeometry fab{
                         {lo[0], lo[1], lo[2]},
                         {ring.length(0), ring.length(1), ring.length(2)}};
                     const auto phase_shift =
-                        box3d_osi::osi_phase_shift(phase, fab);
+                        OSI::osi_phase_shift(phase, fab);
                     const auto src = state.const_array(mfi);
                     const auto dst = batch.array(mfi);
                     amrex::ParallelFor(
                         bx, ncomp,
                         [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
                             const int q = q0 + n;
-                            const auto raw = box3d_osi::osi_address(
+                            const auto raw = OSI::osi_address(
                                 {i, j, k},
                                 {e[q][0], e[q][1], e[q][2]}, fab,
                                 phase_shift);
@@ -2778,11 +2778,11 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
     for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
         const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
         const auto lo = ring.smallEnd();
-        const box3d_osi::FabGeometry fab{
+        const OSI::FabGeometry fab{
             {lo[0], lo[1], lo[2]},
             {ring.length(0), ring.length(1), ring.length(2)}};
         const auto phase_shift =
-            box3d_osi::osi_phase_shift(phase, fab);
+            OSI::osi_phase_shift(phase, fab);
         const Array4<Real> state = state_lev.array(mfi);
         const Array4<const int> covered =
             has_fine_level ? covered_mask[lev].const_array(mfi)
@@ -3007,7 +3007,7 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
         const Box bx = amrex::grow(mfi.validbox(), n) & collision_domain;
         level_launch_cells += bx.numPts();
         const auto lo = ring.smallEnd();
-        const box3d_osi::FabGeometry fab{
+        const OSI::FabGeometry fab{
             {lo[0], lo[1], lo[2]},
             {ring.length(0), ring.length(1), ring.length(2)}};
         const Array4<Real> state = state_lev.array(mfi);
@@ -3028,7 +3028,7 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
         // 模式判断停留在 host 启动层，避免把运行时分支和另一种存储路径的
         // 寄存器需求带入同一个 GPU kernel。
         if (use_osi) {
-            const auto phase_shift = box3d_osi::osi_phase_shift(phase, fab);
+            const auto phase_shift = OSI::osi_phase_shift(phase, fab);
             amrex::ParallelFor(
                 bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                     if (has_fine_level && covered(i, j, k) != 0 &&
@@ -3645,17 +3645,17 @@ void AmrCoreLBM::DecodeOsiValidBatch(
         const Box bx = mfi.validbox();
         const Box ring = amrex::grow(bx, state.nGrowVect());
         const auto lo = ring.smallEnd();
-        const box3d_osi::FabGeometry fab{
+        const OSI::FabGeometry fab{
             {lo[0], lo[1], lo[2]},
             {ring.length(0), ring.length(1), ring.length(2)}};
-        const auto phase_shift = box3d_osi::osi_phase_shift(phase, fab);
+        const auto phase_shift = OSI::osi_phase_shift(phase, fab);
         const auto src = state.const_array(mfi);
         const auto dst = batch.array(mfi);
         amrex::ParallelFor(
             bx, ncomp,
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
                 const int q = q0 + n;
-                const auto raw = box3d_osi::osi_address(
+                const auto raw = OSI::osi_address(
                     {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab,
                     phase_shift);
                 dst(i, j, k, n) = src(raw.x, raw.y, raw.z, q);
@@ -4002,17 +4002,17 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             const Box bx = mfi.validbox();
             const Box ring = amrex::grow(bx, state.nGrowVect());
             const auto lo = ring.smallEnd();
-            const box3d_osi::FabGeometry fab{
+            const OSI::FabGeometry fab{
                 {lo[0], lo[1], lo[2]},
                 {ring.length(0), ring.length(1), ring.length(2)}};
-            const auto phase_shift = box3d_osi::osi_phase_shift(phase, fab);
+            const auto phase_shift = OSI::osi_phase_shift(phase, fab);
             const auto src = state.const_array(mfi);
             const auto dst = canonical.array(mfi);
             amrex::ParallelFor(
                 bx, Q,
                 [=] AMREX_GPU_DEVICE(
                     int i, int j, int k, int q) noexcept {
-                    const auto raw = box3d_osi::osi_address(
+                    const auto raw = OSI::osi_address(
                         {i, j, k},
                         {e[q][0], e[q][1], e[q][2]}, fab, phase_shift);
                     dst(i, j, k, q) = src(raw.x, raw.y, raw.z, q);

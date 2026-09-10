@@ -256,10 +256,10 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     load_ddf(
         int i, int j, int k, int q,
         amrex::Array4<amrex::Real> const& state,
-        box3d_osi::FabGeometry const& fab,
-        box3d_osi::PhaseShift3 const& phase_shift) noexcept {
+        OSI::FabGeometry const& fab,
+        OSI::PhaseShift3 const& phase_shift) noexcept {
     if constexpr (UseOsiAddress) {
-        const auto raw = box3d_osi::osi_address(
+        const auto raw = OSI::osi_address(
             {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab, phase_shift);
         return state(raw.x, raw.y, raw.z, q);
     } else {
@@ -270,11 +270,39 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 template <bool UseOsiAddress>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_ddf(int i, int j, int k, int q, amrex::Real value,
                                                    amrex::Array4<amrex::Real> const& state,
-                                                   box3d_osi::FabGeometry const& fab,
-                                                   box3d_osi::PhaseShift3 const& phase_shift) noexcept {
+                                                   OSI::FabGeometry const& fab,
+                                                   OSI::PhaseShift3 const& phase_shift) noexcept {
     if constexpr (UseOsiAddress) {
-        const auto raw = box3d_osi::osi_address(
+        const auto raw = OSI::osi_address(
             {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab, phase_shift);
+        state(raw.x, raw.y, raw.z, q) = value;
+    } else {
+        state(i, j, k, q) = value;
+    }
+}
+
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real load_ddf_cached(
+    int i, int j, int k, int q,
+    amrex::Array4<amrex::Real> const& state,
+    OSI::CellCoordinates const& coordinates) noexcept {
+    if constexpr (UseOsiAddress) {
+        const auto raw = OSI::osi_address(
+            coordinates, {e[q][0], e[q][1], e[q][2]});
+        return state(raw.x, raw.y, raw.z, q);
+    } else {
+        return state(i, j, k, q);
+    }
+}
+
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_ddf_cached(
+    int i, int j, int k, int q, amrex::Real value,
+    amrex::Array4<amrex::Real> const& state,
+    OSI::CellCoordinates const& coordinates) noexcept {
+    if constexpr (UseOsiAddress) {
+        const auto raw = OSI::osi_address(
+            coordinates, {e[q][0], e[q][1], e[q][2]});
         state(raw.x, raw.y, raw.z, q) = value;
     } else {
         state(i, j, k, q) = value;
@@ -287,8 +315,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
     int i, int j, int k, amrex::Array4<amrex::Real> const& state,
     amrex::IntVect const& hi,
     amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic,
-    box3d_osi::FabGeometry const& fab,
-    box3d_osi::PhaseShift3 const& phase_shift) noexcept {
+    OSI::FabGeometry const& fab,
+    OSI::PhaseShift3 const& phase_shift) noexcept {
     int x1 = i, y1 = j, z1 = k;
     bool boundary = false;
     if (!is_periodic[0] && i == 0) {
@@ -318,10 +346,19 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
     if (!boundary)
         return;
 
+    OSI::CellCoordinates source_coordinates{};
+    OSI::CellCoordinates destination_coordinates{};
+    if constexpr (UseOsiAddress) {
+        source_coordinates = OSI::osi_cell_coordinates(
+            {x1, y1, z1}, fab, phase_shift);
+        destination_coordinates = OSI::osi_cell_coordinates(
+            {i, j, k}, fab, phase_shift);
+    }
+
     Real rho1 = 0.0, ux1 = 0.0, uy1 = 0.0, uz1 = 0.0;
     for (int q = 0; q < Q; ++q) {
-        const Real fq = load_ddf<UseOsiAddress>(
-            x1, y1, z1, q, state, fab, phase_shift);
+        const Real fq = load_ddf_cached<UseOsiAddress>(
+            x1, y1, z1, q, state, source_coordinates);
         rho1 += fq;
         ux1 += fq * e[q][0];
         uy1 += fq * e[q][1];
@@ -340,9 +377,11 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
     for (int q = 0; q < Q; ++q) {
         const Real value =
             feqQian(rho1, {ux, uy, uz}, q) +
-            load_ddf<UseOsiAddress>(x1, y1, z1, q, state, fab, phase_shift) -
+            load_ddf_cached<UseOsiAddress>(
+                x1, y1, z1, q, state, source_coordinates) -
             feqQian(rho1, {ux1, uy1, uz1}, q);
-        store_ddf<UseOsiAddress>(i, j, k, q, value, state, fab, phase_shift);
+        store_ddf_cached<UseOsiAddress>(
+            i, j, k, q, value, state, destination_coordinates);
     }
 }
 
@@ -361,8 +400,8 @@ void fill_boundary_osi_state(
     int i, int j, int k, amrex::Array4<amrex::Real> const& state,
     amrex::IntVect const& hi,
     amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic,
-    box3d_osi::FabGeometry const& fab,
-    box3d_osi::PhaseShift3 const& phase_shift) {
+    OSI::FabGeometry const& fab,
+    OSI::PhaseShift3 const& phase_shift) {
     fill_boundary_impl<true>(
         i, j, k, state, hi, is_periodic, fab, phase_shift);
 }
@@ -2212,8 +2251,8 @@ void swap_ddf(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 template <bool UseOsiAddress>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
     int i, int j, int k, amrex::Array4<amrex::Real> const& state,
-    box3d_osi::FabGeometry const& fab,
-    box3d_osi::PhaseShift3 const& phase_shift,
+    OSI::FabGeometry const& fab,
+    OSI::PhaseShift3 const& phase_shift,
     amrex::Real omega) noexcept {
     Real fq[Q];
     Real rho = 0.0;
@@ -2263,7 +2302,7 @@ AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void collide_bgk_register_osi(
     int i, int j, int k, amrex::Array4<amrex::Real> const& state,
-    box3d_osi::FabGeometry fab, box3d_osi::PhaseShift3 phase_shift,
+    OSI::FabGeometry fab, OSI::PhaseShift3 phase_shift,
     amrex::Real omega) noexcept {
     collide_bgk_register_impl<true>(
         i, j, k, state, fab, phase_shift, omega);
@@ -2276,8 +2315,8 @@ AMREX_FORCE_INLINE
 void compute_macro_osi(
     int i, int j, int k, amrex::Array4<const amrex::Real> const& state,
     amrex::Array4<amrex::Real> const& rho,
-    amrex::Array4<amrex::Real> const& u, box3d_osi::FabGeometry fab,
-    box3d_osi::PhaseShift3 phase_shift) noexcept {
+    amrex::Array4<amrex::Real> const& u, OSI::FabGeometry fab,
+    OSI::PhaseShift3 phase_shift) noexcept {
     Real rhot = 0.0;
     Real uxt = 0.0;
     Real uyt = 0.0;
@@ -2285,7 +2324,7 @@ void compute_macro_osi(
 
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
-        const auto raw = box3d_osi::osi_address(
+        const auto raw = OSI::osi_address(
             {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab, phase_shift);
         const Real ft = state(raw.x, raw.y, raw.z, q);
         rhot += ft;
@@ -2305,10 +2344,10 @@ template <bool UseOsiAddress>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_interpolated_d3q(
     int i, int j, int k, int q, amrex::Real value,
     amrex::Array4<amrex::Real> const& fine,
-    box3d_osi::FabGeometry fine_fab,
-    box3d_osi::PhaseShift3 fine_shift) noexcept {
+    OSI::FabGeometry fine_fab,
+    OSI::PhaseShift3 fine_shift) noexcept {
     if constexpr (UseOsiAddress) {
-        const auto dst = box3d_osi::osi_address(
+        const auto dst = OSI::osi_address(
             {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fine_fab, fine_shift);
         fine(dst.x, dst.y, dst.z, q) = value;
     } else {
@@ -2320,8 +2359,8 @@ template <bool UseOsiAddress>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q_impl(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
-    box3d_osi::FabGeometry fine_fab,
-    box3d_osi::PhaseShift3 fine_shift) noexcept {
+    OSI::FabGeometry fine_fab,
+    OSI::PhaseShift3 fine_shift) noexcept {
     const int ic = amrex::coarsen(i, 2);
     const int jc = amrex::coarsen(j, 2);
     const int kc = amrex::coarsen(k, 2);
@@ -2357,8 +2396,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q(
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
-    box3d_osi::FabGeometry fine_fab,
-    box3d_osi::PhaseShift3 fine_shift) noexcept {
+    OSI::FabGeometry fine_fab,
+    OSI::PhaseShift3 fine_shift) noexcept {
     interp_bilinear_d3q_impl<true>(
         i, j, k, fine, coarse, fine_fab, fine_shift);
 }
@@ -2370,9 +2409,9 @@ AMREX_FORCE_INLINE
 void interp_bilinear_osi_d3q(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
-    box3d_osi::FabGeometry fine_fab, box3d_osi::FabGeometry coarse_fab,
-    box3d_osi::PhaseShift3 fine_shift,
-    box3d_osi::PhaseShift3 coarse_shift) noexcept {
+    OSI::FabGeometry fine_fab, OSI::FabGeometry coarse_fab,
+    OSI::PhaseShift3 fine_shift,
+    OSI::PhaseShift3 coarse_shift) noexcept {
     const int ic = amrex::coarsen(i, 2);
     const int jc = amrex::coarsen(j, 2);
     const int kc = amrex::coarsen(k, 2);
@@ -2383,7 +2422,7 @@ void interp_bilinear_osi_d3q(
     constexpr Real w110 = Real(3.0 / 64.0), w111 = Real(1.0 / 64.0);
     for (int q = 0; q < Q; ++q) {
         const auto v = [&](int x, int y, int z) {
-            const auto a = box3d_osi::osi_address(
+            const auto a = OSI::osi_address(
                 {x, y, z}, {e[q][0], e[q][1], e[q][2]}, coarse_fab,
                 coarse_shift);
             return coarse(a.x, a.y, a.z, q);
@@ -2392,7 +2431,7 @@ void interp_bilinear_osi_d3q(
                            v(ic, jc + sy, kc) * w100 + v(ic + sx, jc + sy, kc) * w110 +
                            v(ic, jc, kc + sz) * w100 + v(ic + sx, jc, kc + sz) * w110 +
                            v(ic, jc + sy, kc + sz) * w110 + v(ic + sx, jc + sy, kc + sz) * w111;
-        const auto dst = box3d_osi::osi_address(
+        const auto dst = OSI::osi_address(
             {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fine_fab, fine_shift);
         fine(dst.x, dst.y, dst.z, q) = value;
     }
@@ -2406,8 +2445,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q_im
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,
-    box3d_osi::FabGeometry fine_fab,
-    box3d_osi::PhaseShift3 fine_shift) noexcept {
+    OSI::FabGeometry fine_fab,
+    OSI::PhaseShift3 fine_shift) noexcept {
     for (int q = 0; q < Q; ++q) {
         const Real center = coarse(ic, jc, kc, q);
         const Real dxp = coarse(ic + 1, jc, kc, q) - center;
@@ -2464,8 +2503,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,
-    box3d_osi::FabGeometry fine_fab,
-    box3d_osi::PhaseShift3 fine_shift) noexcept {
+    OSI::FabGeometry fine_fab,
+    OSI::PhaseShift3 fine_shift) noexcept {
     interp_cell_cons_linear_children_d3q_impl<true>(
         ic, jc, kc, fine, coarse, fine_work_box, fine_fab, fine_shift);
 }
@@ -2478,8 +2517,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q_impl
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,
-    box3d_osi::FabGeometry fine_fab,
-    box3d_osi::PhaseShift3 fine_shift) noexcept {
+    OSI::FabGeometry fine_fab,
+    OSI::PhaseShift3 fine_shift) noexcept {
     constexpr Real quarter = Real(0.25);
     constexpr Real half = Real(0.5);
 
@@ -2553,8 +2592,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,
-    box3d_osi::FabGeometry fine_fab,
-    box3d_osi::PhaseShift3 fine_shift) noexcept {
+    OSI::FabGeometry fine_fab,
+    OSI::PhaseShift3 fine_shift) noexcept {
     interp_cell_quadratic_children_d3q_impl<true>(
         ic, jc, kc, fine, coarse, fine_work_box, fine_fab, fine_shift);
 }
@@ -2612,22 +2651,22 @@ AMREX_FORCE_INLINE
 void average_down_osi_lbm(
     int i, int j, int k, amrex::Array4<amrex::Real> const& coarse,
     amrex::Array4<amrex::Real const> const& fine,
-    amrex::IntVect const& ratio, box3d_osi::FabGeometry coarse_fab,
-    box3d_osi::FabGeometry fine_fab,
-    box3d_osi::PhaseShift3 coarse_shift,
-    box3d_osi::PhaseShift3 fine_shift) noexcept {
+    amrex::IntVect const& ratio, OSI::FabGeometry coarse_fab,
+    OSI::FabGeometry fine_fab,
+    OSI::PhaseShift3 coarse_shift,
+    OSI::PhaseShift3 fine_shift) noexcept {
     const Real inv = Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
     for (int q = 0; q < Q; ++q) {
         Real sum = 0.0;
         for (int kr = 0; kr < ratio[2]; ++kr)
             for (int jr = 0; jr < ratio[1]; ++jr)
                 for (int ir = 0; ir < ratio[0]; ++ir) {
-                    const auto src = box3d_osi::osi_address(
+                    const auto src = OSI::osi_address(
                         {i * ratio[0] + ir, j * ratio[1] + jr, k * ratio[2] + kr},
                         {e[q][0], e[q][1], e[q][2]}, fine_fab, fine_shift);
                     sum += fine(src.x, src.y, src.z, q);
                 }
-        const auto dst = box3d_osi::osi_address(
+        const auto dst = OSI::osi_address(
             {i, j, k}, {e[q][0], e[q][1], e[q][2]}, coarse_fab,
             coarse_shift);
         coarse(dst.x, dst.y, dst.z, q) = sum * inv;
@@ -2641,8 +2680,8 @@ AMREX_FORCE_INLINE
 void average_down_osi_to_canonical(
     int i, int j, int k, amrex::Array4<amrex::Real> const& coarse,
     amrex::Array4<amrex::Real const> const& fine,
-    amrex::IntVect const& ratio, box3d_osi::FabGeometry fine_fab,
-    box3d_osi::PhaseShift3 fine_shift, amrex::Real scale,
+    amrex::IntVect const& ratio, OSI::FabGeometry fine_fab,
+    OSI::PhaseShift3 fine_shift, amrex::Real scale,
     bool apply_scale) noexcept {
     Real restricted[Q]{};
     const int fi = i * ratio[0];
@@ -2662,7 +2701,7 @@ void average_down_osi_to_canonical(
                 Real uz = 0.0;
 
                 for (int q = 0; q < Q; ++q) {
-                    const auto src = box3d_osi::osi_address(
+                    const auto src = OSI::osi_address(
                         {ii, jj, kk}, {e[q][0], e[q][1], e[q][2]},
                         fine_fab, fine_shift);
                     fq[q] = fine(src.x, src.y, src.z, q);
@@ -2704,8 +2743,8 @@ AMREX_FORCE_INLINE
 void average_down_osi_batch_to_canonical(
     int i, int j, int k, amrex::Array4<amrex::Real> const& coarse_batch,
     amrex::Array4<amrex::Real const> const& fine,
-    amrex::IntVect const& ratio, box3d_osi::FabGeometry fine_fab,
-    box3d_osi::PhaseShift3 fine_shift, amrex::Real scale, bool apply_scale,
+    amrex::IntVect const& ratio, OSI::FabGeometry fine_fab,
+    OSI::PhaseShift3 fine_shift, amrex::Real scale, bool apply_scale,
     int q0, int ncomp) noexcept {
     Real restricted[Q]{};
     const int fi = i * ratio[0];
@@ -2724,7 +2763,7 @@ void average_down_osi_batch_to_canonical(
                 Real uy = 0.0;
                 Real uz = 0.0;
                 for (int q = 0; q < Q; ++q) {
-                    const auto src = box3d_osi::osi_address(
+                    const auto src = OSI::osi_address(
                         {ii, jj, kk}, {e[q][0], e[q][1], e[q][2]},
                         fine_fab, fine_shift);
                     fq[q] = fine(src.x, src.y, src.z, q);
@@ -2827,8 +2866,8 @@ void average_down_osi_to_canonical_warp(
     int i, int j, int k, int q,
     amrex::Array4<amrex::Real> const& coarse,
     amrex::Array4<amrex::Real const> const& fine,
-    amrex::IntVect const& ratio, box3d_osi::FabGeometry fine_fab,
-    box3d_osi::PhaseShift3 fine_shift, amrex::Real scale,
+    amrex::IntVect const& ratio, OSI::FabGeometry fine_fab,
+    OSI::PhaseShift3 fine_shift, amrex::Real scale,
     bool apply_scale) noexcept {
     const int fi = i * ratio[0];
     const int fj = j * ratio[1];
@@ -2842,7 +2881,7 @@ void average_down_osi_to_canonical_warp(
             for (int ir = 0; ir < ratio[0]; ++ir) {
                 Real fq = 0.0;
                 if (q < Q) {
-                    const auto src = box3d_osi::osi_address(
+                    const auto src = OSI::osi_address(
                         {fi + ir, fj + jr, fk + kr},
                         {e[q][0], e[q][1], e[q][2]}, fine_fab,
                         fine_shift);
