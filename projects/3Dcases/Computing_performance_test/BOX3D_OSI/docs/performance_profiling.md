@@ -1,10 +1,28 @@
-# BOX3D A-B 基线：历史性能分析
+# BOX3D_OSI 性能分析与历史 A-B 基线
 
-> **BOX3D_OSI 继承资料。** 本文的 job、图表和性能数字来自原 BOX3D A-B 路径，
-> 不属于 BOX3D_OSI，也不能证明 OSI 已实现或更快。OSI 后续性能结果必须在本目录
-> 重新构建、运行并按
-> [OSI 实施与验证计划](osi_implementation_plan.md)记录 canonicalization、通信和
-> 端到端开销。
+## 当前 OSI 碰撞地址实验
+
+jobs `589418` 与 `589419` 在同一算例、同一 1000 步工作量上分别使用
+`lbm.osi_collision_address_mode=0/1`。mode 0 在 device 中执行 legacy 动态模运算；
+mode 1 在 host 端预计算 `phase % Fab.length()`，device 端只做单次 wrap。
+
+| 指标 | legacy `589418` | optimized `589419` | optimized / legacy |
+|---|---:|---:|---:|
+| Collision | 54.6415 s | 18.3701 s | 0.336x |
+| Solver | 93.2050 s | 57.6280 s | 0.618x |
+| `MLUPS_solv` | 407.13 | 658.48 | 1.617x |
+| level 0 Collision | 2.7085 s | 0.9165 s | 0.338x |
+| level 1 Collision | 6.7338 s | 2.3399 s | 0.347x |
+| level 2 Collision | 45.1992 s | 15.1138 s | 0.334x |
+
+该结果表明原 OSI Collision 的主要额外成本来自每个 cell、每个方向的整数取模，且
+不是某个 AMR level 独有。job `589420` 的单层非周期 64 步逐步 A-B 比较全部
+`linf=0`，证明这一地址替换在该范围内保持数值结果；job `589421` 在动态 regrid 后的
+step 32 触发 A-B 断言，因此尚不能外推到多层动态 AMR。公平的当前二进制 A-B 1000
+步 job `589457` 尚无可读取日志，不能据旧基线断言优化 OSI 仍慢 15%。
+
+以下章节是继承的 BOX3D A-B 历史资料；其中 job、图表和性能数字不能作为当前源码的
+直接基线。
 
 ## 目的
 

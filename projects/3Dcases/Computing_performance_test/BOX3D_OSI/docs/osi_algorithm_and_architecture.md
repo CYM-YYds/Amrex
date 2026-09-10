@@ -5,14 +5,14 @@
 
 ## 1. 状态与边界
 
-截至 2026-09-06：
+截至 2026-09-10：
 
 - 已确定采用 one-step index（OSI）单数组方案；
 - 已确定动态 AMR 布局变化时采用 canonicalize/rebuild/reset；
 - `src/OsiIndex.H` 已实现无状态 Fab-local OSI 地址 helper，并有独立 CPU 测试；
 - `lbm.stream_mode=1` 选择 OSI 单数组实现；BOX3D 的 A-B 双 `MultiFab`
-  路径由 `stream_mode=0` 保留为数值基线。当前 `config/inputs` 为三维方腔验证选择
-  `stream_mode=0`，而 `config/inputs_osi` 是单层 OSI 验证配置。OSI 已接入编译上限内的多层 AMR、
+  路径由 `stream_mode=0` 保留为数值基线。当前 `config/inputs` 选择
+  `stream_mode=1`；A-B 对照必须显式覆盖为 0。OSI 已接入编译上限内的多层 AMR、
   多 Fab/MPI、全周期或六面非周期边界；当前确认通过的范围仍是两层，三层以上为诊断路径；
 - 地址测试、37 步独立 CPU A/B 测试和 MPI+CUDA 构建已通过；job `581325` 在单 rank、
   单 level、单 Fab、全周期条件下完成 32 步生产 GPU A/B 逐步比较，最大 `linf` 为
@@ -499,9 +499,11 @@ kernel 内自行修改。
 - 物理边界在 phase commit 后读取迁移后内部值，并写同一新 phase；
 - compact boundary helper 的边、角覆盖优先级与 A-B 基线一致；
 - coarse/fine 各自的 phase 如何进入传输适配器已明确；
-- regrid 已有 direct OSI remap/reset 入口；restart canonicalization 入口仍待实现；
+- regrid 已有 direct OSI remap/reset 入口；canonical checkpoint/restart 已完成静态
+  两层跨 MPI 分解验证，dynamic-regrid restart 仍待验证；
 - A-B 路径仍可在同一源码树中运行；
-- 测试已覆盖地址置换、单层数值、MPI、AMR 和 regrid；restart 仍待覆盖。
+- 测试已覆盖地址置换、单层数值、MPI、AMR、regrid 和静态 restart；当前优化地址路径
+  的单层 64 步 A-B 为 `linf=0`，但多层动态 regrid 在 step 32 仍未通过。
 
 具体实施顺序和验收矩阵见
 [OSI 实施与验证计划](osi_implementation_plan.md)。

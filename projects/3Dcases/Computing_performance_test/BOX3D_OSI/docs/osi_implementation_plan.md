@@ -1,4 +1,7 @@
-# BOX3D_OSI 实施与验证计划
+# BOX3D_OSI 实施与验证计划（历史记录）
+
+> 本文保留阶段实施和历史验收证据，不再作为“当前状态”入口。现役配置、最新性能与
+> 未决验证以 [当前交接状态](current_status.md) 为准。
 
 本文把 [OSI 算法与 AMReX 集成架构](osi_algorithm_and_architecture.md) 转换为可执行的
 开发步骤，并在每阶段末保留验收记录。只有满足本节验收条件后，才能将对应状态改为完成。
@@ -50,8 +53,8 @@ canonical checkpoint/restart/宏观量 plotfile。当前仍没有：
 有限性，但在第 128 个 coarse step 的动态 regrid 后捕获 NaN，未通过验收。分层 job
 `585078` 中两层 active `Linf=4.996003611e-16`，三层中间层则为
 `7.530773731e-5`。因此这份 OSI 验收结论仍只覆盖两层；三层以上 OSI 仅保留为显式
-诊断路径。当前 `config/inputs` 后来改为四层 `stream_mode=0` 方腔验证配置，不能作为
-`stream_mode=1` 多层 OSI 已通过的证据。
+诊断路径。当前 `config/inputs` 已改为 level 0--2 的 `stream_mode=1` 性能诊断配置；
+它仍不能作为多层 OSI 逐网格正确性已经通过的证据。
 此前 A-B jobs `585096`、`585291` 属于 `MakeNewLevelFromCoarse()` 双重覆盖修复前的
 结果。修复后的 job `585390`（`stream_mode=0,max_level=3,regrid_int=32`）在 step 32
 确认 regrid 前、`ErrorEst(tag_cells=7942)`、`FillCoarsePatch()`、
@@ -101,7 +104,7 @@ uncovered NaN。因此旧的 300 步“发散”是将 covered 区域纳入 acti
 
 ```text
 lbm.stream_mode = 0  # A-B 数值基线
-lbm.stream_mode = 1  # OSI，当前默认；已验证范围为两层
+lbm.stream_mode = 1  # OSI，当前输入；多层动态 regrid 仍待逐网格验收
 ```
 
 开发顺序遵循：

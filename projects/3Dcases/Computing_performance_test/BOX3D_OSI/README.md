@@ -13,11 +13,13 @@ one-step index（OSI）路径。
 - `amr.max_level=2`，即 level 0--2 三个 AMR level；
 - `amr.regrid_int=32`；
 - `amr.blocking_factor_x/y/z=32`；
-- `lbm.stream_mode=0`，使用双 `MultiFab` pull-streaming A-B 路径；
+- `lbm.stream_mode=1`，使用 grown-Fab OSI 单数组路径；
 - `lbm.collide_mode=1`，使用 D3Q27 专用碰撞核。
+- `lbm.osi_collision_address_mode=1`，使用预计算 phase shift 的 OSI 碰撞地址；
+- `performance.report_int=1000`，按窗口输出总阶段和逐 level 碰撞统计；
 - `max_step=1000`、`amr.plot_int=1000`，当前输入已切换为短程验证配置。
 
-最近一次长程历史作业 `logs/submit/586660-out.log` 运行到 step 96000，正常完成，未观察到
+长程历史作业 `logs/submit/586660-out.log` 运行到 step 96000，正常完成，未观察到
 NaN、MPI abort 或异常终止。它证明当前配置在该运行窗口内稳定，但**尚未收敛**：
 
 ```text
@@ -29,6 +31,12 @@ tolerance=1e-12 consecutive=0/3 converged=0
 这也不是 BOX3D 与 BOX3D_OSI 的逐网格 A-B 等价证明。双网格正确性验收仍须在相同
 输入、BoxArray、MPI/GPU 配置和 regrid 时序下，从第一步开始逐 level、逐阶段、逐 cell
 比较 active DDF 和宏观量。`stream_mode=1` 不能用于解释 `stream_mode=0` 的差异。
+
+当前 OSI 性能对照 `589418`/`589419` 使用相同 1000 步工作量：预计算地址路径把
+Collision 从 `54.6415 s` 降到 `18.3701 s`，约为原来的 `0.336x`。job `589420`
+完成单层非周期 64 步逐步 A-B 对照，全部 `linf=0`；job `589421` 在动态 regrid
+创建 level 1 后的 step 32 触发 `linf > 1e-12` 断言，因此当前不能宣称多层动态 AMR
+逐网格等价。完整统计和适用边界见 [性能分析](docs/performance_profiling.md)。
 
 当前源码会在完整 `AverageDownValid()` 后对当前 DDF 重新施加非平衡外推边界：A-B
 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`，并包含 covered 物理边界单元。该操作
@@ -77,8 +85,7 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 - [当前交接状态](docs/current_status.md)：现役配置、最新运行结论和未决事项。
 - [OSI 算法与架构](docs/osi_algorithm_and_architecture.md)：地址映射、phase、通信、
   AMR 传输和 checkpoint 设计。
-- [OSI 实施与验证计划](docs/osi_implementation_plan.md)：阶段范围和历史验收记录。
-- [AMR 网格通信](docs/amr_grid_communication.md) 与
-  [DDF 粗细网格填充](docs/DDF粗细网格填充学习文档.md)：粗细层数据语义。
+- [OSI 实施与验证计划](docs/osi_implementation_plan.md)：历史阶段范围和验收记录。
+- [DDF 粗细网格填充](docs/DDF粗细网格填充学习文档.md)：粗细层数据语义。
 - [性能分析](docs/performance_profiling.md) 与 [MLUPS 记录](docs/MLUPS记录.md)：
   历史性能证据及其适用边界。
