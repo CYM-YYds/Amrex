@@ -209,6 +209,9 @@ int main(int argc, char* argv[]) {
                 if (lid.finestLevel() > 0) {
                     lid.AverageDownValid();
                 }
+                // 完整平均下传后，重新施加当前态物理边界；covered 边界单元也要修复，
+                // 因为它们可能在本次 regrid 后重新暴露或参与新细层插值。
+                lid.RepairCurrentStatePhysicalBoundary();
                 if (lid.streamMode() == 0 && lid.params().write_particles) {
                     lid.FindCentre();
                 }

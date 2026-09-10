@@ -166,6 +166,10 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ComputeShear();
     void AverageDownValidLevel(int lev, bool is_scale);
     void AverageDownValid();
+    void RepairCurrentStatePhysicalBoundary();
+    // CUDA 扩展设备 Lambda 要求该实现辅助函数保持 public。
+    void ApplyPhysicalBoundaryLevel(int lev, amrex::MultiFab& state,
+                                    DdfLayout layout, bool skip_covered);
     void AverageDownInterfaceLevel(int lev, bool is_scale);
     void FillGhostLevel(int lev, amrex::Real time, bool is_scale);
     void FillMacroGhostLevel(int lev, amrex::Real time);

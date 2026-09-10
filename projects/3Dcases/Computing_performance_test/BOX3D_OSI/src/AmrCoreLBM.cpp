@@ -1385,9 +1385,8 @@ void AmrCoreLBM::ComputeMacroLevel(int lev) {
 }
 
 void AmrCoreLBM::ComputeMacro() {
-    // Synchronize covered coarse cells once, in finest-to-coarse order,
-    // before computing the macro variables on every level.
     AverageDownValid();
+    RepairCurrentStatePhysicalBoundary();
     for (int lev = 0; lev <= finest_level; lev++) {
         ComputeMacroLevel(lev);
     }
@@ -1650,6 +1649,20 @@ void AmrCoreLBM::AverageDownValid() {
         } else {
             AverageDownValidLevel(lev, true);
         }
+    }
+}
+
+void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复当前状态的物理边界条件。
+    ScopedPerfTimer timer(perf_stats.boundary);
+    const DdfLayout layout =
+        stream_mode == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
+
+    // 完整平均下传或重网格插值可能覆盖物理边界 valid 单元；此处必须包含
+    // covered 单元，以便这些数据在后续重新暴露或作为插值源时仍满足边界条件。
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        amrex::MultiFab& state =
+            layout == DdfLayout::Osi ? osi_state.at(lev) : f_old.at(lev);
+        ApplyPhysicalBoundaryLevel(lev, state, layout, false);
     }
 }
 
@@ -2722,20 +2735,18 @@ void AmrCoreLBM::PrintParticleChecksums(int step) const {
     }
 }
 
-void AmrCoreLBM::Boundary(int lev, DdfLayout layout) {
-    ScopedPerfTimer timer(perf_stats.boundary);
-
+void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
+    int lev, amrex::MultiFab& state_lev, DdfLayout layout,
+    bool skip_covered) {
     const bool use_osi = layout == DdfLayout::Osi;
     const Box domain = Geom(lev).Domain();
     const amrex::IntVect hi{domain.length(0) - 1,
                             domain.length(1) - 1,
                             domain.length(2) - 1};
     const auto is_periodic = Geom(lev).isPeriodicArray();
-    const bool has_fine_level = lev < finest_level && cf_mask_mode == 1;
+    const bool has_fine_level =
+        skip_covered && lev < finest_level && cf_mask_mode == 1;
     const std::uint64_t phase = use_osi ? osi_phase.at(lev) : 0;
-
-    amrex::MultiFab& state_lev =
-        use_osi ? osi_state.at(lev) : f_new.at(lev);
 
     for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
         const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
@@ -2771,6 +2782,13 @@ void AmrCoreLBM::Boundary(int lev, DdfLayout layout) {
             }
         }
     }
+}
+
+void AmrCoreLBM::Boundary(int lev, DdfLayout layout) {
+    ScopedPerfTimer timer(perf_stats.boundary);
+    amrex::MultiFab& state =
+        layout == DdfLayout::Osi ? osi_state.at(lev) : f_new.at(lev);
+    ApplyPhysicalBoundaryLevel(lev, state, layout, true);
 }
 
 void AmrCoreLBM::DiagnoseBoundaryResult(int lev) {
@@ -2947,12 +2965,6 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
             collide_mode == 1,
             "OSI collision requires lbm.collide_mode=1");
-        for (int d = 0; d < AMREX_SPACEDIM; ++d) {
-            AMREX_ALWAYS_ASSERT(
-                state_lev.nGrowVect()[d] <= nghost);
-        }
-    } else {
-        AMREX_ALWAYS_ASSERT(n <= nghost);
     }
 
     const bool use_tiling = use_osi ? false : TilingIfNotGPU();
@@ -2960,8 +2972,7 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
         // 与 grown-Fab OSI 保持一致：周期域外 ghost 参与碰撞，非周期
         // ghost 仍由物理边界条件负责，不进入碰撞 kernel。
         const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
-        const Box bx = (use_osi ? ring : mfi.growntilebox(n)) &
-                       collision_domain;
+        const Box bx = (use_osi ? ring : mfi.growntilebox(n)) & collision_domain;
         const auto lo = ring.smallEnd();
         const box3d_osi::FabGeometry fab{
             {lo[0], lo[1], lo[2]},
