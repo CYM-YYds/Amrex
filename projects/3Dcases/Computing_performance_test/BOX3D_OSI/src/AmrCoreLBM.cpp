@@ -2280,6 +2280,7 @@ void AmrCoreLBM::CommunicateOsiLevel(int lev) {
 }
 
 void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
+    amrex::MultiFab& state = osi_state.at(lev);
     const BoxArray& ba = osi_state.at(lev).boxArray();
     const IntVect ng = osi_state.at(lev).nGrowVect();
     const auto shifts = Geom(lev).periodicity().shiftIntVect(ng);
@@ -2352,7 +2353,6 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     Vector<OSI::CommunicationTag> encode_tags;
     decode_tags.reserve(static_cast<std::size_t>(decode_box_count)); // 预留空间
     encode_tags.reserve(static_cast<std::size_t>(encode_box_count));
-    MultiFab& state = osi_state.at(lev);
     MultiFab& canonical = osi_sync_buffer.at(lev);
     for (MFIter mfi(canonical, false); mfi.isValid(); ++mfi) {
         const int ibox = mfi.index();
@@ -2378,7 +2378,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     // 保留 source/destination 配对，供 rank-local OSI direct copy 使用。
     Vector<OSI::LocalCopyTag> local_tags;
     for (int dst = 0; dst < ba.size(); ++dst) {
-        if (osi_state.DistributionMap()[dst] != ParallelDescriptor::MyProc()) {
+        if (state.DistributionMap()[dst] != ParallelDescriptor::MyProc()) {
             continue;
         }
         const BoxList ghost_pieces =
@@ -2393,7 +2393,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                 const Box source_query = dst_ghost - shift;
                 for (const auto& [src, exact_source] :
                      ba.intersections(source_query)) {
-                    if (osi_state.DistributionMap()[src] != ParallelDescriptor::MyProc()) {
+                    if (state.DistributionMap()[src] != ParallelDescriptor::MyProc()) {
                         continue;
                     }
                     const Box destination_box = exact_source + shift;
@@ -2403,7 +2403,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                         {slo[0], slo[1], slo[2]},
                         {ring_src.length(0), ring_src.length(1), ring_src.length(2)}};
                     local_tags.push_back({
-                        osi_state.const_array(src), osi_state.array(dst),
+                        state.const_array(src), state.array(dst),
                         exact_source, destination_box, src_fab, dst_fab});
                 }
             }
