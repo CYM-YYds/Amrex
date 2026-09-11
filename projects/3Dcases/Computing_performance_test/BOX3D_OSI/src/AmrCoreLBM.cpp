@@ -2433,12 +2433,10 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
         osi_local_copy_tags.at(lev),
         [=] AMREX_GPU_DEVICE(int i, int j, int k,
                              const OSI::LocalCopyTag& tag) noexcept {
-            const int di = i - tag.dst_box.smallEnd(0);
-            const int dj = j - tag.dst_box.smallEnd(1);
-            const int dk = k - tag.dst_box.smallEnd(2);
-            const int si = tag.src_box.smallEnd(0) + di;
-            const int sj = tag.src_box.smallEnd(1) + dj;
-            const int sk = tag.src_box.smallEnd(2) + dk;
+            const auto source = OSI::source_cell(tag, i, j, k);
+            const int si = source[0];
+            const int sj = source[1];
+            const int sk = source[2];
             const auto src_shift = OSI::osi_phase_shift(phase, tag.src_fab);
             const auto dst_shift = OSI::osi_phase_shift(phase, tag.dst_fab);
             for (int q = 0; q < Q; ++q) {

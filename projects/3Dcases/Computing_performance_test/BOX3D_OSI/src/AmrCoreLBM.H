@@ -24,6 +24,7 @@
 #include "LagrangeParticleContainer.H"
 #include "AuxiliaryPointContainer.H"
 #include "OsiIndex.H"
+#include "OsiCommunication.H"
 
 namespace OSI {
 struct CommunicationTag {
@@ -37,19 +38,6 @@ struct CommunicationTag {
     }
 };
 
-// 同一 rank 内直接进行 OSI raw-to-raw 拷贝的通信描述。
-struct LocalCopyTag {
-    amrex::Array4<const amrex::Real> src;
-    amrex::Array4<amrex::Real> dst;
-    amrex::Box src_box;
-    amrex::Box dst_box;
-    FabGeometry src_fab;
-    FabGeometry dst_fab;
-
-    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
-        return dst_box;
-    }
-};
 } // namespace OSI
 
 class AmrCoreLBM : public amrex::AmrCore {
