@@ -36,6 +36,20 @@ struct CommunicationTag {
         return region;
     }
 };
+
+// 同一 rank 内直接进行 OSI raw-to-raw 拷贝的通信描述。
+struct LocalCopyTag {
+    amrex::Array4<const amrex::Real> src;
+    amrex::Array4<amrex::Real> dst;
+    amrex::Box src_box;
+    amrex::Box dst_box;
+    FabGeometry src_fab;
+    FabGeometry dst_fab;
+
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
+        return dst_box;
+    }
+};
 } // namespace OSI
 
 class AmrCoreLBM : public amrex::AmrCore {
@@ -180,6 +194,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void FillForceGhostLevel(int lev, amrex::Real time);
     void CommunicateLevel(int lev,
                           DdfLayout layout = DdfLayout::Canonical);
+    void CommunicateOsiLevelLocalDirect(int lev);
     void Boundary(int lev, DdfLayout layout = DdfLayout::Canonical);
     void Collide(int lev, int n,
                  DdfLayout layout = DdfLayout::Canonical);
@@ -357,6 +372,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 因大量小 kernel 启动而得不偿失。tag 中的 Array4 指针随 level 布局重建。
     amrex::Vector<amrex::TagVector<OSI::CommunicationTag>> osi_decode_tags;
     amrex::Vector<amrex::TagVector<OSI::CommunicationTag>> osi_encode_tags;
+    amrex::Vector<amrex::TagVector<OSI::LocalCopyTag>> osi_local_copy_tags;
+    bool osi_local_direct = false;
     // 模式 1 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
     amrex::Vector<amrex::MultiFab> average_interface_buffer;
     // 将每个稀疏交界 Box 映射到包含其全部子单元的细层 Fab。

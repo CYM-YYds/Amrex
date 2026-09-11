@@ -83,6 +83,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     osi_encode_boxes.resize(nlevs_max);
     osi_decode_tags.resize(nlevs_max);
     osi_encode_tags.resize(nlevs_max);
+    osi_local_copy_tags.resize(nlevs_max);
     average_interface_buffer.resize(nlevs_max);
     average_interface_fine_box.resize(nlevs_max);
     covered_mask.resize(nlevs_max);
@@ -514,6 +515,7 @@ void AmrCoreLBM::ReadParameters() {
         if (osi_sync_batch_components < 1 || osi_sync_batch_components > Q) {
             amrex::Abort("lbm.osi_sync_batch_components must be in [1,Q]");
         }
+        pp.query("osi_local_direct", osi_local_direct);
         int n = pp.countval("err");
         if (n > 0) {
             pp.getarr("err", err, 0, n);
@@ -2045,7 +2047,11 @@ void AmrCoreLBM::FillForceGhostLevel(int lev, amrex::Real time) {
 void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
     ScopedPerfTimer timer(perf_stats.comm);
     if (layout == DdfLayout::Osi) {
-        CommunicateOsiLevel(lev);
+        if (osi_local_direct) {
+            CommunicateOsiLevelLocalDirect(lev);
+        } else {
+            CommunicateOsiLevel(lev);
+        }
         return;
     }
 
@@ -2369,6 +2375,42 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     osi_decode_tags.at(lev).define(decode_tags);
     osi_encode_tags.at(lev).define(encode_tags);
 
+    // 保留 source/destination 配对，供 rank-local OSI direct copy 使用。
+    Vector<OSI::LocalCopyTag> local_tags;
+    for (int dst = 0; dst < ba.size(); ++dst) {
+        if (osi_state.DistributionMap()[dst] != ParallelDescriptor::MyProc()) {
+            continue;
+        }
+        const BoxList ghost_pieces =
+            amrex::boxDiff(amrex::grow(ba[dst], ng), ba[dst]);
+        const Box ring_dst = amrex::grow(ba[dst], ng);
+        const auto dlo = ring_dst.smallEnd();
+        const OSI::FabGeometry dst_fab{
+            {dlo[0], dlo[1], dlo[2]},
+            {ring_dst.length(0), ring_dst.length(1), ring_dst.length(2)}};
+        for (const Box& dst_ghost : ghost_pieces) {
+            for (const IntVect& shift : shifts) {
+                const Box source_query = dst_ghost - shift;
+                for (const auto& [src, exact_source] :
+                     ba.intersections(source_query)) {
+                    if (osi_state.DistributionMap()[src] != ParallelDescriptor::MyProc()) {
+                        continue;
+                    }
+                    const Box destination_box = exact_source + shift;
+                    const Box ring_src = amrex::grow(ba[src], ng);
+                    const auto slo = ring_src.smallEnd();
+                    const OSI::FabGeometry src_fab{
+                        {slo[0], slo[1], slo[2]},
+                        {ring_src.length(0), ring_src.length(1), ring_src.length(2)}};
+                    local_tags.push_back({
+                        osi_state.const_array(src), osi_state.array(dst),
+                        exact_source, destination_box, src_fab, dst_fab});
+                }
+            }
+        }
+    }
+    osi_local_copy_tags.at(lev).define(local_tags);
+
     amrex::Print() << "[OSI comm cache] level=" << lev
                    << " decode_boxes=" << decode_box_count
                    << " decode_cells=" << decode_cells
@@ -2376,6 +2418,40 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                    << " encode_boxes=" << encode_box_count
                    << " encode_cells=" << encode_cells
                    << " full_encode_cells=" << full_encode_cells << '\n';
+}
+
+void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
+    // 第一阶段只覆盖单 rank；多 rank 必须保留原 MPI-safe 路径，避免遗漏远端 ghost。
+    if (ParallelDescriptor::NProcs() > 1) {
+        CommunicateOsiLevel(lev);
+        return;
+    }
+    ScopedPerfTimer timer(perf_stats.osi_fillboundary);
+    const std::uint64_t phase = osi_phase.at(lev);
+    amrex::ParallelFor(
+        osi_local_copy_tags.at(lev),
+        [=] AMREX_GPU_DEVICE(int i, int j, int k,
+                             const OSI::LocalCopyTag& tag) noexcept {
+            const int di = i - tag.dst_box.smallEnd(0);
+            const int dj = j - tag.dst_box.smallEnd(1);
+            const int dk = k - tag.dst_box.smallEnd(2);
+            const int si = tag.src_box.smallEnd(0) + di;
+            const int sj = tag.src_box.smallEnd(1) + dj;
+            const int sk = tag.src_box.smallEnd(2) + dk;
+            const auto src_shift = OSI::osi_phase_shift(phase, tag.src_fab);
+            const auto dst_shift = OSI::osi_phase_shift(phase, tag.dst_fab);
+            for (int q = 0; q < Q; ++q) {
+                const auto src_raw = OSI::osi_address(
+                    {si, sj, sk}, {e[q][0], e[q][1], e[q][2]},
+                    tag.src_fab, src_shift);
+                const auto dst_raw = OSI::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                    tag.dst_fab, dst_shift);
+                tag.dst(dst_raw.x, dst_raw.y, dst_raw.z, q) =
+                    tag.src(src_raw.x, src_raw.y, src_raw.z, q);
+            }
+        });
+    amrex::Gpu::streamSynchronize();
 }
 
 void AmrCoreLBM::AdvanceLevel(int lev) {
@@ -3927,6 +4003,7 @@ void AmrCoreLBM::FillOsiFinePatchFromCoarse(
 void AmrCoreLBM::ClearLevel(int lev) {
     osi_decode_tags[lev].undefine();
     osi_encode_tags[lev].undefine();
+    osi_local_copy_tags[lev].undefine();
     f_old[lev].clear();
     f_new[lev].clear();
     osi_state[lev].clear();

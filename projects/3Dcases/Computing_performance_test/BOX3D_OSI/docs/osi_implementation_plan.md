@@ -546,16 +546,52 @@ layout 标记的 checkpoint 当成 twisted 数据。
 
 阶段 3 已对同层通信做了为控制同步缓冲和 Decode/Encode 成本所必需的局部优化，包括
 分量分批、精确通信区域缓存和 rank-local `TagVector` 融合。这些结果只证明当前单层
-全周期路径可行，不代表阶段 8 的端到端优化已经开始或完成。跨物理边界、AMR、regrid
-和 restart 的整体优化仍须等阶段 1--7 的数值验证完成后再进行。
+全周期路径可行，不代表阶段 8 的端到端优化已经完成。当前 `589647` 的 OSI 通信
+计时为 Decode 3.214 s、`FillBoundary` 2.864 s、Encode 3.186 s（1000 步）；因此
+下一项重点是消除 canonical 中间层，而不是继续优化碰撞地址计算。
+
+### 11.1 OSI-aware FillBoundary 实施路线
+
+普通 `MultiFab::FillBoundary()` 假定所有 component 共享同一逻辑坐标。OSI 中每个
+方向 `q` 都有独立的 phase 位移，不能直接对 `osi_state` 调用该接口。目标是实现
+算例级 `FillBoundaryOsi()`，保持 AMReX 的逻辑 source/destination 语义，但在拷贝时
+分别把 source 和 destination logical 坐标映射到各自 Fab 的 raw 地址。
+
+依次实施：
+
+1. **批次基线**：在不改变语义的前提下测试 `osi_sync_batch_components=27`，与当前
+   默认 3 做受控 A/B，记录 FillBoundary 调用次数、Decode/Encode 和总通信时间。
+2. **成对通信计划**：扩展 `BuildOsiCommunicationRegionCache()`，保存 source Fab、
+   destination Fab、logical source/destination Box、周期平移和 q 方向的成对 tag。不能
+   对 decode/encode 区域独立去重后再恢复配对关系。
+3. **rank-local direct copy**：同一 rank 的 tag 直接执行
+   `OSI raw source -> OSI raw destination` 的 GPU copy，暂时保留跨 rank 的
+   Decode -> canonical `FillBoundary` -> Encode fallback。
+4. **环绕拆分**：phase 映射可能跨越 Fab 环首/环尾；构建阶段按三个轴切分 raw Box，
+   每个逻辑 Box 最多拆成 8 个矩形片段，热路径不执行 Box 运算。
+5. **跨 MPI 扩展**：在验证 rank-local 版本后，再实现 OSI-aware pack/unpack。优先
+   复用 AMReX 的通信拓扑和消息分组；若公共 `FillBoundary` API 无法注入映射函数，
+   使用算例级 MPI wrapper，不能把 raw OSI Box 直接交给普通 `ParallelCopy`。
+
+### 11.2 不变量与验收
+
+- 第一版保持当前 `nGrow=2`、27 个 q 和现有碰撞 cell 集合，不同时缩小 halo 或改变
+  `Collision/Stream` 范围。
+- source 和 destination 使用同一 level 的当前 phase，但各自使用本 Fab 的 geometry；
+  非周期域外 ghost 仍由物理边界语义处理，不纳入普通同层 copy。
+- 每次 regrid、define 或 BoxArray 改变后销毁并重建 OSI tags。
+- 单层单 Fab 64 步阶段 oracle 必须通过 Initial、Collision、Communication、Stream、
+  Boundary、Swap；随后增加多 Fab 单 rank、周期 MPI、非周期边界和动态 regrid。
+- 报告 direct-copy 相对于当前 Decode/FillBoundary/Encode 的分项时间，不能只报告
+  总 MLUPS；若跨 MPI 仍走 fallback，必须明确标注混合路径。
 
 依次评估：
 
 1. 保持当前条件分配：生产 OSI 路径不分配 `f_old/f_new`，同时保留可构建的 A-B
    对照模式；
-2. 评估是否将当前分批 canonical same-level communication 替换为 OSI-aware
-   pack/unpack，并用同一作业内的配对 A/B 验证收益；其范围包括 OSI-aware
-   `FillBoundary` 和 `ParallelCopy`，目标是同时减少 canonical 临时内存与通信转换；
+2. 按 11.1 的路线将当前分批 canonical same-level communication 替换为 OSI-aware
+   `FillBoundary`；先完成 rank-local direct copy，再扩展跨 rank pack/unpack。用同一
+   作业内的配对 A/B 验证收益，目标是同时减少 canonical 临时内存与通信转换；
 3. 将 coarse/fine gather/scatter 融合进现有 direct interpolation/restriction kernel；
 4. 用 per-direction head/offset 替代热路径中的整数 `%`；
 5. 检查 AMReX component layout、warp 合并访问、寄存器和 local-memory spill；
