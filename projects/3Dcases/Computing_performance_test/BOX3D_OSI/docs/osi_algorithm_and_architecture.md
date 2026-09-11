@@ -5,14 +5,14 @@
 
 ## 1. 状态与边界
 
-截至 2026-09-10：
+截至 2026-09-11：
 
 - 已确定采用 one-step index（OSI）单数组方案；
 - 已确定动态 AMR 布局变化时采用 canonicalize/rebuild/reset；
 - `src/OsiIndex.H` 已实现无状态 Fab-local OSI 地址 helper，并有独立 CPU 测试；
 - `lbm.stream_mode=1` 选择 OSI 单数组实现；BOX3D 的 A-B 双 `MultiFab`
   路径由 `stream_mode=0` 保留为数值基线。当前 `config/inputs` 选择
-  `stream_mode=1`；A-B 对照必须显式覆盖为 0。OSI 已接入编译上限内的多层 AMR、
+  `stream_mode=0`；OSI 性能运行必须显式覆盖为 1。OSI 已接入编译上限内的多层 AMR、
   多 Fab/MPI、全周期或六面非周期边界；当前确认通过的范围仍是两层，三层以上为诊断路径；
 - 地址测试、37 步独立 CPU A/B 测试和 MPI+CUDA 构建已通过；job `581325` 在单 rank、
   单 level、单 Fab、全周期条件下完成 32 步生产 GPU A/B 逐步比较，最大 `linf` 为
@@ -458,7 +458,7 @@ OSI 地址；后者绑定 `osi_state`、`osi_sync_buffer` 的 `Array4`，用于�
 | `Kernels.H` | fused OSI collision kernel 和 boundary accessor |
 | `AmrCoreLBM.cpp` | grown-Fab launch、通信区域/tag 生命周期、phase-aware ghost 同步、regrid/checkpoint 生命周期 |
 | `main.cpp` | 根据 stream mode 选择 A-B 或 OSI 推进；保持 AMR 调度一致 |
-| `config/inputs` | `lbm.stream_mode`；当前默认 1，双数组基线测试必须显式覆盖为 0 |
+| `config/inputs` | `lbm.stream_mode`；当前默认 0，OSI 性能测试必须显式覆盖为 1 |
 
 地址函数必须是无状态 device helper；phase 的所有权属于 level driver，不能在 device
 kernel 内自行修改。

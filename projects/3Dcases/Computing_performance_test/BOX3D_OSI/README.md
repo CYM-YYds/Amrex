@@ -6,14 +6,14 @@ one-step index（OSI）路径。
 
 ## 当前验证状态
 
-更新时间：2026-09-10。
+更新时间：2026-09-11。
 
 当前权威运行参数位于 `config/inputs`：
 
 - `amr.max_level=2`，即 level 0--2 三个 AMR level；
 - `amr.regrid_int=32`；
 - `amr.blocking_factor_x/y/z=32`；
-- `lbm.stream_mode=1`，使用 grown-Fab OSI 单数组路径；
+- `lbm.stream_mode=0`，默认使用 A-B 双数组数值基准；OSI 通过显式覆盖为 1 启用；
 - `lbm.collide_mode=1`，使用 D3Q27 专用碰撞核。
 - OSI 所有地址路径统一使用预计算 phase shift，不再提供 legacy 取模开关；
 - `performance.report_int=1000`，按窗口输出总阶段和逐 level 碰撞统计；

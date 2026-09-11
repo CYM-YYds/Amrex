@@ -10,8 +10,8 @@
 
 namespace {
 
-using box3d_osi::Coord3;
-using box3d_osi::FabGeometry;
+using OSI::Coord3;
+using OSI::FabGeometry;
 
 constexpr int q_count = 27;
 constexpr int nghost = 2;
@@ -31,9 +31,9 @@ constexpr int positive_mod(int value, int length) noexcept {
 constexpr Coord3 osi_address(Coord3 logical, Coord3 velocity,
                              std::uint64_t phase,
                              FabGeometry geometry) noexcept {
-    return box3d_osi::osi_address(
+    return OSI::osi_address(
         logical, velocity, geometry,
-        box3d_osi::osi_phase_shift(phase, geometry));
+        OSI::osi_phase_shift(phase, geometry));
 }
 
 constexpr std::array<Coord3, q_count> velocities{{

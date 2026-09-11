@@ -10,9 +10,9 @@
 
 namespace {
 
-using box3d_osi::Coord3;
-using box3d_osi::FabGeometry;
-using box3d_osi::osi_phase_shift;
+using OSI::Coord3;
+using OSI::FabGeometry;
+using OSI::osi_phase_shift;
 
 constexpr std::array<Coord3, 27> d3q27_velocities{{
     {0, 0, 0},   {0, 1, 0},   {0, -1, 0},  {-1, 0, 0},
@@ -28,9 +28,9 @@ constexpr FabGeometry fab{{11, -7, 23}, {5, 6, 7}};
 constexpr Coord3 osi_address(Coord3 logical, Coord3 velocity,
                              std::uint64_t phase,
                              FabGeometry geometry) noexcept {
-    return box3d_osi::osi_address(
+    return OSI::osi_address(
         logical, velocity, geometry,
-        box3d_osi::osi_phase_shift(phase, geometry));
+        OSI::osi_phase_shift(phase, geometry));
 }
 
 [[noreturn]] void fail(std::string_view message) {
