@@ -84,6 +84,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     osi_decode_tags.resize(nlevs_max);
     osi_encode_tags.resize(nlevs_max);
     osi_local_copy_tags.resize(nlevs_max);
+    osi_remote_copy_tags.resize(nlevs_max);
     average_interface_buffer.resize(nlevs_max);
     average_interface_fine_box.resize(nlevs_max);
     covered_mask.resize(nlevs_max);
@@ -2378,10 +2379,9 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
 
     // 保留 source/destination 配对，供 rank-local OSI direct copy 使用。
     Vector<OSI::LocalCopyTag> local_tags;
+    Vector<OSI::RemoteCopyTag> remote_tags;
     for (int dst = 0; dst < ba.size(); ++dst) {
-        if (state.DistributionMap()[dst] != ParallelDescriptor::MyProc()) {
-            continue;
-        }
+        const int dst_rank = state.DistributionMap()[dst];
         const BoxList ghost_pieces =
             amrex::boxDiff(amrex::grow(ba[dst], ng), ba[dst]);
         const Box ring_dst = amrex::grow(ba[dst], ng);
@@ -2394,10 +2394,15 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                 const Box source_query = dst_ghost - shift;
                 for (const auto& [src, exact_source] :
                      ba.intersections(source_query)) {
-                    if (state.DistributionMap()[src] != ParallelDescriptor::MyProc()) {
+                    const Box destination_box = exact_source + shift;
+                    const int src_rank = state.DistributionMap()[src];
+                    if (src_rank != ParallelDescriptor::MyProc() ||
+                        dst_rank != ParallelDescriptor::MyProc()) {
+                        remote_tags.push_back({src_rank, dst_rank, src, dst,
+                                               exact_source, destination_box,
+                                               shift});
                         continue;
                     }
-                    const Box destination_box = exact_source + shift;
                     const Box ring_src = amrex::grow(ba[src], ng);
                     const auto slo = ring_src.smallEnd();
                     const OSI::FabGeometry src_fab{
@@ -2411,6 +2416,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
         }
     }
     osi_local_copy_tags.at(lev).define(local_tags);
+    osi_remote_copy_tags.at(lev) = std::move(remote_tags);
 
     amrex::Print() << "[OSI comm cache] level=" << lev
                    << " decode_boxes=" << decode_box_count
@@ -2418,6 +2424,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                    << " full_decode_cells=" << full_decode_cells
                    << " encode_boxes=" << encode_box_count
                    << " encode_cells=" << encode_cells
+                   << " remote_pairs=" << osi_remote_copy_tags.at(lev).size()
                    << " full_encode_cells=" << full_encode_cells << '\n';
 }
 
@@ -4003,6 +4010,7 @@ void AmrCoreLBM::ClearLevel(int lev) {
     osi_decode_tags[lev].undefine();
     osi_encode_tags[lev].undefine();
     osi_local_copy_tags[lev].undefine();
+    osi_remote_copy_tags[lev].clear();
     f_old[lev].clear();
     f_new[lev].clear();
     osi_state[lev].clear();

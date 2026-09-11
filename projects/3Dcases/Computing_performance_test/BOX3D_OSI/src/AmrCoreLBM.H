@@ -361,6 +361,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::TagVector<OSI::CommunicationTag>> osi_decode_tags;
     amrex::Vector<amrex::TagVector<OSI::CommunicationTag>> osi_encode_tags;
     amrex::Vector<amrex::TagVector<OSI::LocalCopyTag>> osi_local_copy_tags;
+    amrex::Vector<amrex::Vector<OSI::RemoteCopyTag>> osi_remote_copy_tags;
     bool osi_local_direct = false;
     // 模式 1 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
     amrex::Vector<amrex::MultiFab> average_interface_buffer;

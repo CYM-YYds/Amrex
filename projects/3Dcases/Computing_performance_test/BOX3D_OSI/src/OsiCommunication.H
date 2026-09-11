@@ -22,6 +22,17 @@ struct LocalCopyTag {
     const amrex::Box& box() const noexcept { return dst_box; }
 };
 
+// 跨 MPI rank 的 logical 通信配对，供后续 pack/unpack 复用。
+struct RemoteCopyTag {
+    int src_rank = -1;
+    int dst_rank = -1;
+    int src_index = -1;
+    int dst_index = -1;
+    amrex::Box src_box;
+    amrex::Box dst_box;
+    amrex::IntVect periodic_shift{0};
+};
+
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::IntVect source_cell(LocalCopyTag const& tag, int i, int j, int k) noexcept
 {
