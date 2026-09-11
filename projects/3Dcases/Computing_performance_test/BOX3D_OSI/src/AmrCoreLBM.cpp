@@ -2301,7 +2301,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                 const Box source_query = dst_ghost - shift;
                 for (const auto& [src, exact_source] :
                      ba.intersections(source_query)) {
-                    const Box destination_box = exact_source + shift;
+                    const Box destination_box = exact_source + shift;// 一块dst_ghost可能对应多个source_box，而每个source_box对应的destination_box可能不同，所以需要用这种方式来得到destination_box
 
                     AMREX_ALWAYS_ASSERT(ba[src].contains(exact_source));
                     AMREX_ALWAYS_ASSERT(dst_ghost.contains(destination_box));
@@ -2353,6 +2353,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     Vector<OSI::CommunicationTag> encode_tags;
     decode_tags.reserve(static_cast<std::size_t>(decode_box_count)); // 预留空间
     encode_tags.reserve(static_cast<std::size_t>(encode_box_count));
+    // 为每个Box创建一个CommunicationTag，用于后续的通信操作
     MultiFab& canonical = osi_sync_buffer.at(lev);
     for (MFIter mfi(canonical, false); mfi.isValid(); ++mfi) {
         const int ibox = mfi.index();
