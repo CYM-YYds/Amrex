@@ -378,6 +378,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Gpu::PinnedVector<amrex::Real>> osi_mpi_recv_host;
     bool osi_local_direct = false;
     bool osi_mpi_direct = false;
+    // 仅在 AMReX 已确认 GPU-aware MPI 时，直接用 device staging buffer 通信。
+    bool osi_mpi_device_direct = false;
     // 模式 1 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
     amrex::Vector<amrex::MultiFab> average_interface_buffer;
     // 将每个稀疏交界 Box 映射到包含其全部子单元的细层 Fab。

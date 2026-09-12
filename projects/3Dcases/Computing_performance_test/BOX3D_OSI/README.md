@@ -35,8 +35,10 @@ tolerance=1e-12 consecutive=0/3 converged=0
 最新同层跨 MPI 对照使用 2 ranks、2 GPUs、单层 8 Fab 和全周期边界。job `591180`
 完成 64 步六阶段逐点 A-B，全部 `linf=0`；job `591181` 的同作业 1000 步对照中，
 A-B 为 4.981--4.989 s、420--421 MLUPS，OSI MPI direct 为 5.505--5.517 s、
-380--381 MLUPS。OSI 仍慢约 10.8%，但相较 `591174` 的约 31.7% 差距已缩小约
-三分之二。该结论只覆盖同层通信，不能外推到多层动态 AMR。完整统计和适用边界见
+380--381 MLUPS。进一步重叠本地 seam copy 与 MPI wait 后，job `591187` 将差距降到
+约 6.1%--6.5%。CUDA-aware device-buffer 路径已实现并有能力门禁，但当前 HMPI/UCX
+不支持 device pointer；`591185` 在强制开启时以 `process_vm_readv: Bad address` 失败。
+该结论只覆盖同层通信，不能外推到多层动态 AMR。完整统计和适用边界见
 [性能分析](docs/performance_profiling.md)。
 
 当前源码会在完整 `AverageDownValid()` 后对当前 DDF 重新施加非平衡外推边界：A-B

@@ -529,6 +529,7 @@ void AmrCoreLBM::ReadParameters() {
         }
         pp.query("osi_local_direct", osi_local_direct);
         pp.query("osi_mpi_direct", osi_mpi_direct);
+        pp.query("osi_mpi_device_direct", osi_mpi_device_direct);
         int n = pp.countval("err");
         if (n > 0) {
             pp.getarr("err", err, 0, n);
@@ -2083,6 +2084,13 @@ void AmrCoreLBM::ValidateConfiguration() const {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         collide_mode == 1,
         "OSI currently supports only lbm.collide_mode=1");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        !osi_mpi_device_direct || osi_mpi_direct,
+        "lbm.osi_mpi_device_direct requires lbm.osi_mpi_direct=1");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        !osi_mpi_device_direct || ParallelDescriptor::UseGpuAwareMpi(),
+        "lbm.osi_mpi_device_direct requires AMReX GPU-aware MPI support; "
+        "set amrex.use_gpu_aware_mpi=1 only when the MPI implementation supports device pointers");
     if (max_level > 1) {
         amrex::Print()
             << "[OSI validation warning] More than two AMR levels are enabled. "
@@ -2111,6 +2119,8 @@ void AmrCoreLBM::ValidateConfiguration() const {
                    << " sync_batches="
                    << ((Q + osi_sync_batch_components - 1) /
                        osi_sync_batch_components)
+                   << " mpi_transport="
+                   << (osi_mpi_device_direct ? "device" : "host-staging")
                    << " grown-fab overlap synchronization enabled\n";
 
     for (int lev = 0; lev <= finest_level; ++lev) {
@@ -2491,8 +2501,13 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     osi_mpi_unpack_tags.at(lev).define(unpack_tags);
     osi_mpi_send_device.at(lev).resize(send_total);
     osi_mpi_recv_device.at(lev).resize(recv_total);
-    osi_mpi_send_host.at(lev).resize(send_total);
-    osi_mpi_recv_host.at(lev).resize(recv_total);
+    if (osi_mpi_device_direct) {
+        osi_mpi_send_host.at(lev).clear();
+        osi_mpi_recv_host.at(lev).clear();
+    } else {
+        osi_mpi_send_host.at(lev).resize(send_total);
+        osi_mpi_recv_host.at(lev).resize(recv_total);
+    }
 
     amrex::Print() << "[OSI comm cache] level=" << lev
                    << " decode_boxes=" << decode_box_count
@@ -2516,31 +2531,34 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
     const IntVect ng = state.nGrowVect();
     const std::uint64_t phase = osi_phase.at(lev);
 
-    // 本 rank 的 Fab seam 始终直接执行 raw-to-raw copy。
-    amrex::ParallelFor(
-        osi_local_copy_tags.at(lev),
-        [=] AMREX_GPU_DEVICE(int i, int j, int k,
-                             const OSI::LocalCopyTag& tag) noexcept {
-            const auto source = OSI::source_cell(tag, i, j, k);
-            const int si = source[0];
-            const int sj = source[1];
-            const int sk = source[2];
-            const auto src_shift = OSI::osi_phase_shift(phase, tag.src_fab);
-            const auto dst_shift = OSI::osi_phase_shift(phase, tag.dst_fab);
-            for (int q = 0; q < Q; ++q) {
-                const auto src_raw = OSI::osi_address(
-                    {si, sj, sk}, {e[q][0], e[q][1], e[q][2]},
-                    tag.src_fab, src_shift);
-                const auto dst_raw = OSI::osi_address(
-                    {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                    tag.dst_fab, dst_shift);
-                tag.dst(dst_raw.x, dst_raw.y, dst_raw.z, q) =
-                    tag.src(src_raw.x, src_raw.y, src_raw.z, q);
-            }
-        });
-    amrex::Gpu::streamSynchronize();
+    // 多 rank 时在投递远端 MPI 后启动本地 seam copy，使 GPU 工作与 MPI wait 重叠。
+    const auto launch_local_copy = [&]() {
+        amrex::ParallelFor(
+            osi_local_copy_tags.at(lev),
+            [=] AMREX_GPU_DEVICE(int i, int j, int k,
+                                 const OSI::LocalCopyTag& tag) noexcept {
+                const auto source = OSI::source_cell(tag, i, j, k);
+                const int si = source[0];
+                const int sj = source[1];
+                const int sk = source[2];
+                const auto src_shift = OSI::osi_phase_shift(phase, tag.src_fab);
+                const auto dst_shift = OSI::osi_phase_shift(phase, tag.dst_fab);
+                for (int q = 0; q < Q; ++q) {
+                    const auto src_raw = OSI::osi_address(
+                        {si, sj, sk}, {e[q][0], e[q][1], e[q][2]},
+                        tag.src_fab, src_shift);
+                    const auto dst_raw = OSI::osi_address(
+                        {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                        tag.dst_fab, dst_shift);
+                    tag.dst(dst_raw.x, dst_raw.y, dst_raw.z, q) =
+                        tag.src(src_raw.x, src_raw.y, src_raw.z, q);
+                }
+            });
+    };
 
     if (ParallelDescriptor::NProcs() == 1) {
+        launch_local_copy();
+        amrex::Gpu::streamSynchronize();
         return;
     }
 
@@ -2575,7 +2593,7 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
                     tag.src(raw.x, raw.y, raw.z, q);
             });
         Gpu::streamSynchronize();
-        if (!send_device.empty()) {
+        if (!osi_mpi_device_direct && !send_device.empty()) {
             Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
                              send_device.size() * sizeof(Real));
         }
@@ -2590,18 +2608,25 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
         sends.reserve(nprocs);
         for (int peer = 0; peer < nprocs; ++peer) {
             if (recv_counts[peer] != 0) {
+                Real* recv_buffer = osi_mpi_device_direct
+                                        ? recv_device.data()
+                                        : recv_host.data();
                 receives.push_back(ParallelDescriptor::Arecv(
-                    recv_host.data() + recv_offsets[peer], recv_counts[peer],
+                    recv_buffer + recv_offsets[peer], recv_counts[peer],
                     peer, mpi_tag));
             }
         }
         for (int peer = 0; peer < nprocs; ++peer) {
             if (send_counts[peer] != 0) {
+                const Real* send_buffer = osi_mpi_device_direct
+                                              ? send_device.data()
+                                              : send_host.data();
                 sends.push_back(ParallelDescriptor::Asend(
-                    send_host.data() + send_offsets[peer], send_counts[peer],
+                    send_buffer + send_offsets[peer], send_counts[peer],
                     peer, mpi_tag));
             }
         }
+        launch_local_copy();
         for (auto& message : receives) {
             message.wait();
         }
@@ -2612,7 +2637,7 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
 
     {
         ScopedPerfTimer unpack_timer(perf_stats.osi_mpi_unpack);
-        if (!recv_device.empty()) {
+        if (!osi_mpi_device_direct && !recv_device.empty()) {
             Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
                              recv_device.size() * sizeof(Real));
         }

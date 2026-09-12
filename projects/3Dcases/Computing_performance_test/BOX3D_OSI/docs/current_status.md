@@ -8,7 +8,8 @@
 `amr.max_grid_size=128`、`lbm.stream_mode=1`、`lbm.collide_mode=1`、
 `lbm.osi_local_direct=1`、`lbm.osi_mpi_direct=0`、`performance.report_int=1000`、
 `max_step=1000`。默认是 OSI 单数组路径；A-B 基准需显式覆盖 `lbm.stream_mode=0`。
-跨 rank direct 路径需显式打开 `lbm.osi_mpi_direct=1`。OSI 地址使用预计算 phase shift；Boundary
+跨 rank direct 路径需显式打开 `lbm.osi_mpi_direct=1`；device-buffer 还需显式打开
+`lbm.osi_mpi_device_direct=1`，且 AMReX 必须检测到 GPU-aware MPI。OSI 地址使用预计算 phase shift；Boundary
 保留坐标缓存，碰撞显式坐标缓存和 branchless 分支均未保留。
 
 ## 最新验证
@@ -27,13 +28,21 @@
 - 同作业性能对照 `591181` 中，A-B 为 4.981--4.989 s、420--421 MLUPS，OSI MPI
   direct 为 5.505--5.517 s、380--381 MLUPS；OSI 慢约 10.8%。通信计划和 staging
   缓冲缓存化、pack/unpack kernel 融合后，相比 `591174` 的约 31.7% 差距缩小约三分之二。
+- 本地 seam copy 移到远端 MPI 投递之后，与 MPI wait 重叠。job `591186` 的双 GPU
+  64 步六阶段 A/B 全部 `linf=0`；job `591187` 中 A-B 为 5.027--5.035 s，OSI 为
+  5.342--5.354 s，OSI 差距进一步降到约 6.1%--6.5%。
+- CUDA-aware device-buffer 路径已实现并通过 CUDA+MPI 构建。当前 HMPI/UCX 没有可用
+  CUDA transport；job `591185` 强制 device pointer 后由 UCX `process_vm_readv`
+  报 `Bad address` 并终止。job `591188` 不再强制能力标志，程序在通信前由
+  `UseGpuAwareMpi()` 门禁安全拒绝启动，因此该路径在当前集群的运行验收保持 pending。
 
 ## 结论边界与待办
 
 同层跨 MPI direct 已在单层、多 Fab、2 ranks/2 GPUs 的全周期和六面非周期条件下通过
 逐阶段 A-B；它仍不能证明多层动态 regrid、restart 或运动 IBM 的逐点等价。当前性能
-差距主要位于 host staging 和 MPI wait，下一项优化是先验证目标 HMPI 的 CUDA-aware
-device-buffer 传输，再评估通信与 rank-local copy 的重叠。
+差距主要位于 host staging 和 MPI wait。当前集群若要继续 device-buffer 直传，需要换用
+支持 CUDA-aware MPI 的模块或由平台侧提供 CUDA UCX/BTL；代码不得用
+`amrex.use_gpu_aware_mpi=1` 绕过真实能力检测。
 
 当前节点没有 `ncu`/`nsys`，因此尚无硬件内存事务、occupancy 和分支效率计数器。历史
 日志、可执行文件和 checkpoint 均保留，未执行清理；当前算例根目录未发现

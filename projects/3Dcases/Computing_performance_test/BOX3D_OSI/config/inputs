@@ -56,6 +56,10 @@ lbm.osi_local_direct = 1
 # 对应算例的逐阶段对照后才通过命令行显式启用。
 lbm.osi_mpi_direct = 0
 
+# CUDA-aware MPI 的 device-buffer 直传路径。必须同时启用 osi_mpi_direct，且运行时
+# 需要 amrex.use_gpu_aware_mpi=1；默认关闭以保留 host-staging 回退。
+lbm.osi_mpi_device_direct = 0
+
 # DDF 碰撞分布函数的流动/存储模式：
 # 0 = 保留的 A-B 数值基准模式
 # 1 = grown-Fab OSI 模式；支持编译配置内的多层 AMR、多 Fab/MPI，以及全周期或六面

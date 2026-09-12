@@ -93,6 +93,12 @@ GPU raw state → device pack buffer → CUDA-aware MPI → device unpack buffer
 需要确认目标 HMPI 的 CUDA-aware 支持、MPI stream 同步语义和 device pointer 传递方式。
 若运行环境不稳定，保留阶段 B 作为 correctness fallback。
 
+代码已增加 `lbm.osi_mpi_device_direct` 实验开关，并要求 AMReX
+`UseGpuAwareMpi()` 返回真。当前 HMPI/UCX 在 job `591185` 中对 device pointer 仍走
+`process_vm_readv`，以 `Bad address` 失败；当前环境不得通过
+`amrex.use_gpu_aware_mpi=1` 强制绕过能力检测。实现可保留给支持 CUDA-aware MPI 的
+模块复测，但本集群上的阶段 C 运行验收为 pending。
+
 ### 阶段 D：混合路径与生产切换
 
 最终路径按通信类型选择：
@@ -182,3 +188,9 @@ commit 和输入覆盖参数。
   OSI MPI direct 为 5.505--5.517 s、380--381 MLUPS；OSI 总耗时差距约 10.8%；
 - 上一实现的同作业 `591174` 中，OSI 相对 AB 慢约 31.7%。本次优化把同作业内差距
   缩小约三分之二，但 OSI 仍未反超；剩余热点主要是 host staging 和 MPI wait。
+- overlap correctness job `591186`：双 GPU 64 步六阶段全部 `linf=0`；performance
+  job `591187`：OSI 相对 A-B 的总耗时差距进一步降至约 6.1%--6.5%。
+- device job `591185`：当前 HMPI/UCX 对 device pointer 报 `process_vm_readv: Bad address`；
+  只证明当前 transport 不可用，不构成 OSI 数值失败。
+- capability-gate job `591188`：未伪造能力标志时，程序在进入时间推进前按预期拒绝
+  device transport，没有把不支持的指针交给 MPI。

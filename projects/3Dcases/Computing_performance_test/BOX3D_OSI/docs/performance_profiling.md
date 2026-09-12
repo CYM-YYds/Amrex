@@ -16,6 +16,26 @@ staging 缓冲缓存化、pack/unpack kernel 融合把差距缩小约三分之�
 使用相同双 GPU 拓扑完成 64 步六阶段逐点 A-B，全部 `linf=0`。该性能结论只覆盖单层
 同层通信；host staging 和 MPI wait 仍是下一阶段热点。
 
+## 2026-09-12 seam/MPI 重叠结果
+
+job `591187` 保持 `591181` 的 2 ranks、2 GPUs、单层 8 Fab、全周期和 1000 步配置，
+但在投递远端 MPI 后启动本地 seam copy，使其与 MPI wait 重叠：
+
+| 指标 | A-B | OSI host overlap | OSI / A-B |
+|---|---:|---:|---:|
+| solver | 5.027--5.035 s | 5.342--5.354 s | 1.061--1.065x |
+| `MLUPS_solv` | 416.53--417.18 | 391.71--392.60 | 0.939--0.943x |
+| communication | 4.128--4.133 s | 4.809--4.821 s | 1.164--1.168x |
+
+job `591186` 在相同双 GPU 拓扑完成 64 步六阶段逐点 A-B，全部 `linf=0`。相较
+`591181` 的约 10.8% 总耗时差距，本次降到约 6.1%--6.5%。
+
+CUDA-aware device-buffer 直传已实现为显式实验路径，并使用
+`ParallelDescriptor::UseGpuAwareMpi()` 做硬门禁。当前 HMPI/UCX 安装不提供可用的
+CUDA transport；job `591185` 强制声明支持后，UCX 对 device pointer 调用
+`process_vm_readv` 并报 `Bad address`。因此当前没有 device 直传性能数字，也不能把
+强制参数当成能力证明。
+
 ## 2026-09-11 地址与边界诊断结果
 
 当前 if/else 版本 `589647` 与 branchless 试验 `589649` 的 1000 步生产结果几乎相同：

@@ -242,6 +242,11 @@ Decode 只覆盖通信可能读取的 owner-valid 源区；valid 不会从 canon
 偏移和缓冲随布局一次构建，pack/unpack 各由一个 `TagVector` kernel 完成。不能直接对
 twisted `osi_state` 调用 `FillBoundary()`。
 
+实验开关 `osi_mpi_device_direct` 将 MPI 指针从 pinned host 缓冲切换为 device 缓冲，
+并要求 AMReX 已确认 GPU-aware MPI。远端请求投递后才启动本地 seam copy，使该 kernel
+与 MPI wait 重叠；unpack 仍排在同一 CUDA stream 后方，保持本地和远端 ghost 写入顺序。
+当前 HMPI/UCX 不支持该 device transport，因此默认和当前可运行路径仍是 host staging。
+
 这些源区和目标区由独立的逻辑 `Box` 缓存构造：目标 grown ghost 反向周期平移后与
 `BoxArray` valid 相交，得到 source box，再平移回 destination ghost。每个 Fab 的候选
 Box 必须先去重，否则同一 canonical cell 会被并发写入。缓存不保存 raw OSI 地址，

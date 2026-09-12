@@ -548,8 +548,9 @@ layout 标记的 checkpoint 当成 twisted 数据。
 融合。阶段 8 随后实现同 rank raw-to-raw copy 与跨 rank host-staging pack/unpack，并将
 通信计划、peer 偏移和 staging 缓冲缓存化，把 pack/unpack 各融合为一次 GPU launch。
 job `591180` 的双 GPU 六阶段 A-B 全部 `linf=0`；job `591181` 将 OSI 相对 A-B 的
-总耗时差距从 `591174` 的约 31.7% 缩小到约 10.8%。阶段 8 尚未完成，下一项重点是
-CUDA-aware device-buffer 传输和通信重叠。
+总耗时差距从 `591174` 的约 31.7% 缩小到约 10.8%。随后将本地 seam copy 与 MPI wait
+重叠，job `591186` 数值通过，job `591187` 将差距降到约 6.1%--6.5%。CUDA-aware
+device-buffer 路径已实现，但当前 HMPI/UCX 不支持 device pointer，运行验收 pending。
 
 ### 11.1 OSI-aware FillBoundary 实施路线
 
