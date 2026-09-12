@@ -1,10 +1,16 @@
 # OSI 跨 MPI 通信实施计划
 
-更新时间：2026-09-11
+更新时间：2026-09-12
 
 本文只描述 `BOX3D_OSI` 的跨 MPI OSI-aware same-level 通信，不改变现有
-`CommunicateOsiLevel()` 的行为。当前 rank-local direct copy 已单独实现并通过单 rank
-多 Fab 阶段 oracle；跨 MPI 仍自动回退 canonical 路径。
+`CommunicateOsiLevel()` 的行为。当前 rank-local direct copy 已单独实现；跨 MPI 的
+host-staging correctness 路径也已接入，但默认仍回退 canonical 路径。
+
+运行时开关为：
+
+- `lbm.osi_local_direct=1`：启用同 rank raw-to-raw copy；
+- `lbm.osi_mpi_direct=1`：在多 rank 下进一步启用 OSI-aware pack/unpack；
+- `lbm.osi_mpi_direct=0`：保留原 `CommunicateOsiLevel()` 作为 fallback。
 
 ## 1. 当前状态与目标
 
@@ -69,6 +75,11 @@ cell 的 raw 地址同时依赖：
    额外的动态元数据交换。
 
 该版本的目的只是验证地址、消息顺序和 ghost 结果，不预设一定比 canonical 路径更快。
+
+当前实现为每个 peer 聚合一条消息，GPU pack 后复制到 pinned host buffer，通过
+`ParallelDescriptor::Arecv/Asend` 交换，再复制回 device 并由 GPU unpack。已分别记录
+`osi_mpi_pack`、`osi_mpi_wait` 和 `osi_mpi_unpack`；buffer 仍在每次调用时分配，属于
+正确性版本，不是最终性能实现。
 
 ### 阶段 C：CUDA-aware MPI 优化
 
@@ -144,3 +155,19 @@ commit 和输入覆盖参数。
 
 在阶段 B 数值验收完成前，不得关闭原 `CommunicateOsiLevel()` fallback，也不能将
 单 rank direct copy 的性能结果外推到多 rank。
+
+## 7. 2026-09-12 验证记录
+
+- 编译日志 `compile-20260912T093450.log`：CUDA + MPI 构建和链接成功；
+- B1 job `591167`：2 ranks、2 GPUs、单层、8 Fab、全周期、64 步；六个阶段各
+  64 次检查全部 `linf=0`，周期 remote pair 数为 176；
+- B2 job `591170`：同样的两 rank/8 Fab 配置，改为六面非周期；六个阶段各
+  64 次检查全部 `linf=0`，remote pair 数降为 44；
+- B3 尚未验收：强制 level 0/1 全覆盖层级后，新路径 job `591172` 与 canonical
+  fallback job `591173` 都在第 1 步 `Communication` 后保持 `linf=0`，随后在
+  level 0 `Stream` 阶段以相同位置和相同 `linf=7.037037037037064e-4` 失败。
+  因为 fallback 能完全复现，该差异不能归因于本次 MPI pack/unpack；后续应使用
+  uncovered/active 范围的多层 oracle，或构造非全覆盖的静态 level 1 后再验收 B3。
+
+因此当前结论只覆盖单层、两 rank、多 Fab 的周期与非周期 same-level 通信；尚不宣称
+多层 AMR、regrid、restart 或 CUDA-aware MPI 已通过。

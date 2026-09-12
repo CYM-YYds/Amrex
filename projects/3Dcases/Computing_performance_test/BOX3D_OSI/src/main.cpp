@@ -289,6 +289,9 @@ int main(int argc, char* argv[]) {
                           << " osi_decode=" << perf.osi_decode
                           << " osi_fillboundary=" << perf.osi_fillboundary
                           << " osi_encode=" << perf.osi_encode
+                          << " osi_mpi_pack=" << perf.osi_mpi_pack
+                          << " osi_mpi_wait=" << perf.osi_mpi_wait
+                          << " osi_mpi_unpack=" << perf.osi_mpi_unpack
                           << " boundary=" << perf.boundary
                           << " swap=" << perf.swap
                           << " solv=" << solv_s

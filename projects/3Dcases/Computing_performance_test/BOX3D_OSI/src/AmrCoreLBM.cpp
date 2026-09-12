@@ -10,6 +10,7 @@
 #include <AMReX_Utility.H>
 #include <AMReX_VisMF.H>
 #include <AMReX_Gpu.H>
+#include <AMReX_GpuContainers.H>
 
 #include <algorithm>
 #include <cmath>
@@ -517,6 +518,7 @@ void AmrCoreLBM::ReadParameters() {
             amrex::Abort("lbm.osi_sync_batch_components must be in [1,Q]");
         }
         pp.query("osi_local_direct", osi_local_direct);
+        pp.query("osi_mpi_direct", osi_mpi_direct);
         int n = pp.countval("err");
         if (n > 0) {
             pp.getarr("err", err, 0, n);
@@ -2429,13 +2431,18 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
 }
 
 void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
-    // 第一阶段只覆盖单 rank；多 rank 必须保留原 MPI-safe 路径，避免遗漏远端 ghost。
-    if (ParallelDescriptor::NProcs() > 1) {
+    // 跨 rank direct 未显式启用时保留原 MPI-safe 路径。
+    if (ParallelDescriptor::NProcs() > 1 && !osi_mpi_direct) {
         CommunicateOsiLevel(lev);
         return;
     }
     ScopedPerfTimer timer(perf_stats.osi_fillboundary);
+    MultiFab& state = osi_state.at(lev);
+    const BoxArray& ba = state.boxArray();
+    const IntVect ng = state.nGrowVect();
     const std::uint64_t phase = osi_phase.at(lev);
+
+    // 本 rank 的 Fab seam 始终直接执行 raw-to-raw copy。
     amrex::ParallelFor(
         osi_local_copy_tags.at(lev),
         [=] AMREX_GPU_DEVICE(int i, int j, int k,
@@ -2458,6 +2465,161 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
             }
         });
     amrex::Gpu::streamSynchronize();
+
+    if (ParallelDescriptor::NProcs() == 1) {
+        return;
+    }
+
+#ifdef BL_USE_MPI
+    const int my_rank = ParallelDescriptor::MyProc();
+    const int nprocs = ParallelDescriptor::NProcs();
+    const auto& remote_tags = osi_remote_copy_tags.at(lev);
+    Vector<Vector<const OSI::RemoteCopyTag*>> outgoing(nprocs);
+    Vector<Vector<const OSI::RemoteCopyTag*>> incoming(nprocs);
+    for (const auto& tag : remote_tags) {
+        if (tag.src_rank == my_rank) {
+            outgoing[tag.dst_rank].push_back(&tag);
+        }
+        if (tag.dst_rank == my_rank) {
+            incoming[tag.src_rank].push_back(&tag);
+        }
+    }
+
+    Vector<Gpu::DeviceVector<Real>> send_device(nprocs);
+    Vector<Gpu::DeviceVector<Real>> recv_device(nprocs);
+    Vector<Gpu::PinnedVector<Real>> send_host(nprocs);
+    Vector<Gpu::PinnedVector<Real>> recv_host(nprocs);
+    Vector<std::size_t> send_count(nprocs, 0);
+    Vector<std::size_t> recv_count(nprocs, 0);
+
+    {
+        ScopedPerfTimer pack_timer(perf_stats.osi_mpi_pack);
+        for (int peer = 0; peer < nprocs; ++peer) {
+            for (const auto* tag : outgoing[peer]) {
+                send_count[peer] +=
+                    static_cast<std::size_t>(tag->src_box.numPts()) * Q;
+            }
+            if (send_count[peer] == 0) {
+                continue;
+            }
+            send_device[peer].resize(send_count[peer]);
+            send_host[peer].resize(send_count[peer]);
+            Real* buffer = send_device[peer].data();
+            std::size_t offset = 0;
+            for (const auto* tag : outgoing[peer]) {
+                const Box bx = tag->src_box;
+                const auto lo = bx.smallEnd();
+                const int nx = bx.length(0);
+                const int ny = bx.length(1);
+                const Array4<const Real> src = state.const_array(tag->src_index);
+                const Box ring = amrex::grow(ba[tag->src_index], ng);
+                const auto ring_lo = ring.smallEnd();
+                const OSI::FabGeometry fab{
+                    {ring_lo[0], ring_lo[1], ring_lo[2]},
+                    {ring.length(0), ring.length(1), ring.length(2)}};
+                const auto phase_shift = OSI::osi_phase_shift(phase, fab);
+                const std::size_t tag_offset = offset;
+                amrex::ParallelFor(
+                    bx, Q,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) noexcept {
+                        const std::size_t cell = static_cast<std::size_t>(
+                            ((k - lo[2]) * ny + (j - lo[1])) * nx +
+                            (i - lo[0]));
+                        const auto raw = OSI::osi_address(
+                            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab,
+                            phase_shift);
+                        buffer[tag_offset + cell * Q + q] =
+                            src(raw.x, raw.y, raw.z, q);
+                    });
+                offset += static_cast<std::size_t>(bx.numPts()) * Q;
+            }
+            Gpu::streamSynchronize();
+            Gpu::dtoh_memcpy(send_host[peer].data(), send_device[peer].data(),
+                             send_count[peer] * sizeof(Real));
+        }
+    }
+
+    for (int peer = 0; peer < nprocs; ++peer) {
+        for (const auto* tag : incoming[peer]) {
+            recv_count[peer] +=
+                static_cast<std::size_t>(tag->dst_box.numPts()) * Q;
+        }
+        if (recv_count[peer] != 0) {
+            recv_host[peer].resize(recv_count[peer]);
+            recv_device[peer].resize(recv_count[peer]);
+        }
+    }
+
+    {
+        ScopedPerfTimer wait_timer(perf_stats.osi_mpi_wait);
+        const int mpi_tag = ParallelDescriptor::SeqNum();
+        Vector<ParallelDescriptor::Message> receives;
+        Vector<ParallelDescriptor::Message> sends;
+        receives.reserve(nprocs);
+        sends.reserve(nprocs);
+        for (int peer = 0; peer < nprocs; ++peer) {
+            if (recv_count[peer] != 0) {
+                receives.push_back(ParallelDescriptor::Arecv(
+                    recv_host[peer].data(), recv_count[peer], peer, mpi_tag));
+            }
+        }
+        for (int peer = 0; peer < nprocs; ++peer) {
+            if (send_count[peer] != 0) {
+                sends.push_back(ParallelDescriptor::Asend(
+                    send_host[peer].data(), send_count[peer], peer, mpi_tag));
+            }
+        }
+        for (auto& message : receives) {
+            message.wait();
+        }
+        for (auto& message : sends) {
+            message.wait();
+        }
+    }
+
+    {
+        ScopedPerfTimer unpack_timer(perf_stats.osi_mpi_unpack);
+        for (int peer = 0; peer < nprocs; ++peer) {
+            if (recv_count[peer] == 0) {
+                continue;
+            }
+            Gpu::htod_memcpy(recv_device[peer].data(), recv_host[peer].data(),
+                             recv_count[peer] * sizeof(Real));
+            const Real* buffer = recv_device[peer].data();
+            std::size_t offset = 0;
+            for (const auto* tag : incoming[peer]) {
+                const Box bx = tag->dst_box;
+                const auto lo = bx.smallEnd();
+                const int nx = bx.length(0);
+                const int ny = bx.length(1);
+                const Array4<Real> dst = state.array(tag->dst_index);
+                const Box ring = amrex::grow(ba[tag->dst_index], ng);
+                const auto ring_lo = ring.smallEnd();
+                const OSI::FabGeometry fab{
+                    {ring_lo[0], ring_lo[1], ring_lo[2]},
+                    {ring.length(0), ring.length(1), ring.length(2)}};
+                const auto phase_shift = OSI::osi_phase_shift(phase, fab);
+                const std::size_t tag_offset = offset;
+                amrex::ParallelFor(
+                    bx, Q,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) noexcept {
+                        const std::size_t cell = static_cast<std::size_t>(
+                            ((k - lo[2]) * ny + (j - lo[1])) * nx +
+                            (i - lo[0]));
+                        const auto raw = OSI::osi_address(
+                            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab,
+                            phase_shift);
+                        dst(raw.x, raw.y, raw.z, q) =
+                            buffer[tag_offset + cell * Q + q];
+                    });
+                offset += static_cast<std::size_t>(bx.numPts()) * Q;
+            }
+        }
+        Gpu::streamSynchronize();
+    }
+#else
+    amrex::Abort("lbm.osi_mpi_direct requires an MPI build");
+#endif
 }
 
 void AmrCoreLBM::AdvanceLevel(int lev) {

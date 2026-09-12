@@ -78,6 +78,9 @@ class AmrCoreLBM : public amrex::AmrCore {
         double osi_decode = 0.0;
         double osi_fillboundary = 0.0;
         double osi_encode = 0.0;
+        double osi_mpi_pack = 0.0;
+        double osi_mpi_wait = 0.0;
+        double osi_mpi_unpack = 0.0;
         double boundary = 0.0;
         double swap = 0.0;
         long long fillghost_calls = 0;
@@ -363,6 +366,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::TagVector<OSI::LocalCopyTag>> osi_local_copy_tags;
     amrex::Vector<amrex::Vector<OSI::RemoteCopyTag>> osi_remote_copy_tags;
     bool osi_local_direct = false;
+    bool osi_mpi_direct = false;
     // 模式 1 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
     amrex::Vector<amrex::MultiFab> average_interface_buffer;
     // 将每个稀疏交界 Box 映射到包含其全部子单元的细层 Fab。

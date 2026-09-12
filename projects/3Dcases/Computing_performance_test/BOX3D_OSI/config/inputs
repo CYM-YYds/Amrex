@@ -52,6 +52,10 @@ lbm.collide_mode = 1
 
 lbm.osi_local_direct = 1
 
+# 跨 MPI 的 OSI-aware host-staging pack/unpack 路径。当前默认关闭，只有完成
+# 对应算例的逐阶段对照后才通过命令行显式启用。
+lbm.osi_mpi_direct = 0
+
 # DDF 碰撞分布函数的流动/存储模式：
 # 0 = 保留的 A-B 数值基准模式
 # 1 = grown-Fab OSI 模式；支持编译配置内的多层 AMR、多 Fab/MPI，以及全周期或六面
