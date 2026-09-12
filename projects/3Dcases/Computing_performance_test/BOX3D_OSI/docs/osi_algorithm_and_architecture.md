@@ -5,14 +5,14 @@
 
 ## 1. 状态与边界
 
-截至 2026-09-11：
+截至 2026-09-12：
 
 - 已确定采用 one-step index（OSI）单数组方案；
 - 已确定动态 AMR 布局变化时采用 canonicalize/rebuild/reset；
 - `src/OsiIndex.H` 已实现无状态 Fab-local OSI 地址 helper，并有独立 CPU 测试；
 - `lbm.stream_mode=1` 选择 OSI 单数组实现；BOX3D 的 A-B 双 `MultiFab`
   路径由 `stream_mode=0` 保留为数值基线。当前 `config/inputs` 选择
-  `stream_mode=0`；OSI 性能运行必须显式覆盖为 1。OSI 已接入编译上限内的多层 AMR、
+  `stream_mode=1`；A-B 对照必须显式覆盖为 0。OSI 已接入编译上限内的多层 AMR、
   多 Fab/MPI、全周期或六面非周期边界；当前确认通过的范围仍是两层，三层以上为诊断路径；
 - 地址测试、37 步独立 CPU A/B 测试和 MPI+CUDA 构建已通过；job `581325` 在单 rank、
   单 level、单 Fab、全周期条件下完成 32 步生产 GPU A/B 逐步比较，最大 `linf` 为
@@ -31,8 +31,9 @@
   再填 ghost”的生命周期，完成两层 D3Q27 逐单元
   active 范数比较，最大 `Linf=1.054711873e-15`、mean-L1
   `=1.492743922e-16`、relative-L2 `=2.417721326e-15`。canonical
-  checkpoint/restart 与宏观量 plotfile 已完成静态两层验证；dynamic-regrid restart、
-  multi-GPU/multi-node 和 AMR 受控性能 A/B 仍未完成。四层 OSI job `585083` 在第
+  checkpoint/restart 与宏观量 plotfile 已完成静态两层验证；单节点双 GPU 的同层
+  MPI direct 已完成受控正确性和性能 A-B，dynamic-regrid restart、multi-node 和动态
+  AMR 受控性能 A/B 仍未完成。四层 OSI job `585083` 在第
   128 个 coarse step 的 regrid 后捕获 NaN，因此不能外推两层结论。
 
 OSI 原论文和均匀网格原型位于
@@ -233,11 +234,13 @@ $$
 
 不能把 twisted `MultiFab` 直接交给普通 `FillBoundary()` 并期待正确结果，因为
 `FillBoundary()` 按相同 `(i,j,k,q)` 复制，而不知道发送和接收 Fab 各自的 OSI 映射。
-当前实现按 `lbm.osi_sync_batch_components` 将若干方向解码到 canonical `MultiFab`，
-调用普通 `FillBoundary()` 后，只把实际通信目标 ghost 编码回同一个 phase。Decode 也只
-覆盖通信可能读取的 owner-valid 源区；valid 不会从 canonical 缓冲重复回写。默认批大小 1；
-批大小 3/9 将每步通信轮数降为 9/3，但按比例增加临时内存。不能直接对 twisted
-`osi_state` 调用 `FillBoundary()`。
+fallback 路径按 `lbm.osi_sync_batch_components` 将若干方向解码到 canonical
+`MultiFab`，调用普通 `FillBoundary()` 后，只把实际通信目标 ghost 编码回同一个 phase。
+Decode 只覆盖通信可能读取的 owner-valid 源区；valid 不会从 canonical 缓冲重复回写。
+当前默认批大小为 3。启用 `osi_local_direct` 后，同 rank 配对直接 raw-to-raw 拷贝；再显式
+启用 `osi_mpi_direct` 时，跨 rank 使用按 peer 聚合的 host-staging pack/unpack。通信计划、
+偏移和缓冲随布局一次构建，pack/unpack 各由一个 `TagVector` kernel 完成。不能直接对
+twisted `osi_state` 调用 `FillBoundary()`。
 
 这些源区和目标区由独立的逻辑 `Box` 缓存构造：目标 grown ghost 反向周期平移后与
 `BoxArray` valid 相交，得到 source box，再平移回 destination ghost。每个 Fab 的候选
@@ -458,7 +461,7 @@ OSI 地址；后者绑定 `osi_state`、`osi_sync_buffer` 的 `Array4`，用于�
 | `Kernels.H` | fused OSI collision kernel 和 boundary accessor |
 | `AmrCoreLBM.cpp` | grown-Fab launch、通信区域/tag 生命周期、phase-aware ghost 同步、regrid/checkpoint 生命周期 |
 | `main.cpp` | 根据 stream mode 选择 A-B 或 OSI 推进；保持 AMR 调度一致 |
-| `config/inputs` | `lbm.stream_mode`；当前默认 0，OSI 性能测试必须显式覆盖为 1 |
+| `config/inputs` | `lbm.stream_mode`；当前默认 1，A-B 测试必须显式覆盖为 0 |
 
 地址函数必须是无状态 device helper；phase 的所有权属于 level driver，不能在 device
 kernel 内自行修改。
@@ -502,8 +505,9 @@ kernel 内自行修改。
 - regrid 已有 direct OSI remap/reset 入口；canonical checkpoint/restart 已完成静态
   两层跨 MPI 分解验证，dynamic-regrid restart 仍待验证；
 - A-B 路径仍可在同一源码树中运行；
-- 测试已覆盖地址置换、单层数值、MPI、AMR、regrid 和静态 restart；当前优化地址路径
-  的单层 64 步 A-B 为 `linf=0`，但多层动态 regrid 在 step 32 仍未通过。
+- 测试已覆盖地址置换、单层数值、MPI、AMR、regrid 和静态 restart；job `591180` 的
+  双 GPU、多 Fab、同层 MPI direct 六阶段 64 步 A-B 为 `linf=0`，但多层动态 regrid
+  仍未通过同等强度验收。
 
 具体实施顺序和验收矩阵见
 [OSI 实施与验证计划](osi_implementation_plan.md)。

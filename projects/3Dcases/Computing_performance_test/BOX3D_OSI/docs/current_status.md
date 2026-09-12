@@ -1,13 +1,14 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-09-11
+更新时间：2026-09-12
 
 ## 现役配置
 
 权威参数在 `config/inputs`：`amr.max_level=2`、`amr.regrid_int=32`、
-`amr.max_grid_size=128`、`lbm.stream_mode=0`、`lbm.collide_mode=1`、
-`performance.report_int=1000`、`max_step=1000`。默认是 A-B 数值基线；OSI
-运行需显式覆盖 `lbm.stream_mode=1`。OSI 地址使用预计算 phase shift；Boundary
+`amr.max_grid_size=128`、`lbm.stream_mode=1`、`lbm.collide_mode=1`、
+`lbm.osi_local_direct=1`、`lbm.osi_mpi_direct=0`、`performance.report_int=1000`、
+`max_step=1000`。默认是 OSI 单数组路径；A-B 基准需显式覆盖 `lbm.stream_mode=0`。
+跨 rank direct 路径需显式打开 `lbm.osi_mpi_direct=1`。OSI 地址使用预计算 phase shift；Boundary
 保留坐标缓存，碰撞显式坐标缓存和 branchless 分支均未保留。
 
 ## 最新验证
@@ -21,16 +22,22 @@
   34.2732 s，差异约 0.004%，且寄存器数由 34 增至 36，不构成收益。
 - Boundary 坐标缓存对照 `589544`→`589593` 将 Boundary 从 2.7042 s 降至 2.4847 s
   （约 8.1%），但 solver/total 基本不变；应视为局部 kernel 收益。
+- CUDA+MPI 构建 `compile-20260912T121424.log` 通过。job `591180` 在 2 ranks、2 GPUs、
+  单层 8 Fab、全周期条件下完成 64 步，六个阶段全部 `linf=0`。
+- 同作业性能对照 `591181` 中，A-B 为 4.981--4.989 s、420--421 MLUPS，OSI MPI
+  direct 为 5.505--5.517 s、380--381 MLUPS；OSI 慢约 10.8%。通信计划和 staging
+  缓冲缓存化、pack/unpack kernel 融合后，相比 `591174` 的约 31.7% 差距缩小约三分之二。
 
 ## 结论边界与待办
 
-上述阶段 oracle 只覆盖单层、单 Fab 的受控 64 步窗口；尚不能证明多 Fab/MPI、非周期
-外部 ghost、动态 regrid 下的逐点等价。下一项通信诊断是检查 `CommunicateLevel()` 的
-OSI encode/decode tag 是否覆盖下一 phase 的 valid logical box 映射到的 raw 区域，而
-不是只覆盖普通重叠 ghost。
+同层跨 MPI direct 已在单层、多 Fab、2 ranks/2 GPUs 的全周期和六面非周期条件下通过
+逐阶段 A-B；它仍不能证明多层动态 regrid、restart 或运动 IBM 的逐点等价。当前性能
+差距主要位于 host staging 和 MPI wait，下一项优化是先验证目标 HMPI 的 CUDA-aware
+device-buffer 传输，再评估通信与 rank-local copy 的重叠。
 
 当前节点没有 `ncu`/`nsys`，因此尚无硬件内存事务、occupancy 和分支效率计数器。历史
-日志、可执行文件、checkpoint 和 `Backtrace.0` 均保留，未执行清理。
+日志、可执行文件和 checkpoint 均保留，未执行清理；当前算例根目录未发现
+`Backtrace.0/1` 实体文件，IDE 标签页可能是已删除文件的缓存。
 
 ## 入口
 

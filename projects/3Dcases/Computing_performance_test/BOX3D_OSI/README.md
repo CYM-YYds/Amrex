@@ -6,14 +6,14 @@ one-step index（OSI）路径。
 
 ## 当前验证状态
 
-更新时间：2026-09-11。
+更新时间：2026-09-12。
 
 当前权威运行参数位于 `config/inputs`：
 
 - `amr.max_level=2`，即 level 0--2 三个 AMR level；
 - `amr.regrid_int=32`；
 - `amr.blocking_factor_x/y/z=32`；
-- `lbm.stream_mode=0`，默认使用 A-B 双数组数值基准；OSI 通过显式覆盖为 1 启用；
+- `lbm.stream_mode=1`，默认使用 OSI 单数组路径；A-B 基准通过显式覆盖为 0 启用；
 - `lbm.collide_mode=1`，使用 D3Q27 专用碰撞核。
 - OSI 所有地址路径统一使用预计算 phase shift，不再提供 legacy 取模开关；
 - `performance.report_int=1000`，按窗口输出总阶段和逐 level 碰撞统计；
@@ -32,11 +32,12 @@ tolerance=1e-12 consecutive=0/3 converged=0
 输入、BoxArray、MPI/GPU 配置和 regrid 时序下，从第一步开始逐 level、逐阶段、逐 cell
 比较 active DDF 和宏观量。`stream_mode=1` 不能用于解释 `stream_mode=0` 的差异。
 
-当前 OSI 性能对照 `589418`/`589419` 使用相同 1000 步工作量：预计算地址路径把
-Collision 从 `54.6415 s` 降到 `18.3701 s`，约为原来的 `0.336x`。job `589420`
-完成单层非周期 64 步逐步 A-B 对照，全部 `linf=0`；job `589421` 在动态 regrid
-创建 level 1 后的 step 32 触发 `linf > 1e-12` 断言，因此当前不能宣称多层动态 AMR
-逐网格等价。完整统计和适用边界见 [性能分析](docs/performance_profiling.md)。
+最新同层跨 MPI 对照使用 2 ranks、2 GPUs、单层 8 Fab 和全周期边界。job `591180`
+完成 64 步六阶段逐点 A-B，全部 `linf=0`；job `591181` 的同作业 1000 步对照中，
+A-B 为 4.981--4.989 s、420--421 MLUPS，OSI MPI direct 为 5.505--5.517 s、
+380--381 MLUPS。OSI 仍慢约 10.8%，但相较 `591174` 的约 31.7% 差距已缩小约
+三分之二。该结论只覆盖同层通信，不能外推到多层动态 AMR。完整统计和适用边界见
+[性能分析](docs/performance_profiling.md)。
 
 当前源码会在完整 `AverageDownValid()` 后对当前 DDF 重新施加非平衡外推边界：A-B
 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`，并包含 covered 物理边界单元。该操作
@@ -73,7 +74,7 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 
 ## 模式和验证边界
 
-- `stream_mode=0`：双数组数值基准路径，当前正确性工作的优先对象。
+- `stream_mode=0`：双数组数值基准路径，供正确性和性能 A-B 使用。
 - `stream_mode=1`：grown-Fab OSI 单数组路径；已有单层、两层、静态/动态 AMR 和
   canonical checkpoint 的历史测试，但不能外推为当前多层生产验收。
 - 静态 `ParticleContainer` 的 checkpoint/restart 已有跨 MPI 分解测试；运动刚体的

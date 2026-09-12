@@ -544,11 +544,12 @@ layout 标记的 checkpoint 当成 twisted 数据。
 
 ## 11. 阶段 8：端到端内存与性能优化
 
-阶段 3 已对同层通信做了为控制同步缓冲和 Decode/Encode 成本所必需的局部优化，包括
-分量分批、精确通信区域缓存和 rank-local `TagVector` 融合。这些结果只证明当前单层
-全周期路径可行，不代表阶段 8 的端到端优化已经完成。当前 `589647` 的 OSI 通信
-计时为 Decode 3.214 s、`FillBoundary` 2.864 s、Encode 3.186 s（1000 步）；因此
-下一项重点是消除 canonical 中间层，而不是继续优化碰撞地址计算。
+阶段 3 已对 fallback 通信实现分量分批、精确通信区域缓存和 rank-local `TagVector`
+融合。阶段 8 随后实现同 rank raw-to-raw copy 与跨 rank host-staging pack/unpack，并将
+通信计划、peer 偏移和 staging 缓冲缓存化，把 pack/unpack 各融合为一次 GPU launch。
+job `591180` 的双 GPU 六阶段 A-B 全部 `linf=0`；job `591181` 将 OSI 相对 A-B 的
+总耗时差距从 `591174` 的约 31.7% 缩小到约 10.8%。阶段 8 尚未完成，下一项重点是
+CUDA-aware device-buffer 传输和通信重叠。
 
 ### 11.1 OSI-aware FillBoundary 实施路线
 
@@ -557,19 +558,19 @@ layout 标记的 checkpoint 当成 twisted 数据。
 算例级 `FillBoundaryOsi()`，保持 AMReX 的逻辑 source/destination 语义，但在拷贝时
 分别把 source 和 destination logical 坐标映射到各自 Fab 的 raw 地址。
 
-依次实施：
+实施状态：
 
-1. **批次基线**：在不改变语义的前提下测试 `osi_sync_batch_components=27`，与当前
-   默认 3 做受控 A/B，记录 FillBoundary 调用次数、Decode/Encode 和总通信时间。
-2. **成对通信计划**：扩展 `BuildOsiCommunicationRegionCache()`，保存 source Fab、
+1. **批次基线（仅 fallback 候选）**：`osi_sync_batch_components=27` 尚未形成受控
+   A/B；direct 路径不使用该批次，因此不再是当前优化前置条件。
+2. **成对通信计划（已实现）**：扩展 `BuildOsiCommunicationRegionCache()`，保存 source Fab、
    destination Fab、logical source/destination Box、周期平移和 q 方向的成对 tag。不能
    对 decode/encode 区域独立去重后再恢复配对关系。
-3. **rank-local direct copy**：同一 rank 的 tag 直接执行
+3. **rank-local direct copy（已实现）**：同一 rank 的 tag 直接执行
    `OSI raw source -> OSI raw destination` 的 GPU copy，暂时保留跨 rank 的
    Decode -> canonical `FillBoundary` -> Encode fallback。
-4. **环绕拆分**：phase 映射可能跨越 Fab 环首/环尾；构建阶段按三个轴切分 raw Box，
-   每个逻辑 Box 最多拆成 8 个矩形片段，热路径不执行 Box 运算。
-5. **跨 MPI 扩展**：在验证 rank-local 版本后，再实现 OSI-aware pack/unpack。优先
+4. **环绕拆分（pending）**：当前融合 kernel 仍逐 cell 计算 OSI 地址；若后续 profile
+   证明地址映射占主导，再评估按三个轴拆分 raw Box。
+5. **跨 MPI host-staging 扩展（已实现）**：在验证 rank-local 版本后，实现 OSI-aware pack/unpack。优先
    复用 AMReX 的通信拓扑和消息分组；若公共 `FillBoundary` API 无法注入映射函数，
    使用算例级 MPI wrapper，不能把 raw OSI Box 直接交给普通 `ParallelCopy`。
 
@@ -663,10 +664,10 @@ faster            必须给出受控 A/B 配置和测量值
 4. A-B reference 仅由 `verification.osi_ab_check=true` 条件化分配。
 
 阶段 6 又收敛了两项选择：只有新建或布局改变的 level 重置 phase；动态两层逐单元
-DDF norm 已由 job `584617` 完成。仍待后续阶段收敛：
+DDF norm 已由 job `584617` 完成。阶段 8 已收敛单节点双 GPU 的同层 MPI host-staging
+实现和缓存生命周期。仍待后续阶段收敛：
 
-1. checkpoint 使用分块 canonical 输出还是保存 raw state、phase 与布局元数据；
-2. IBM 所需 Euler/Lagrange stencil 的可信 ghost 范围与同步时机；
-3. multi-GPU/multi-node 回归和受控动态 AMR 性能 A/B。
+1. IBM 所需 Euler/Lagrange stencil 的可信 ghost 范围与同步时机；
+2. multi-node 回归、CUDA-aware MPI 和受控动态 AMR 性能 A/B。
 
 在这些事项有实现证据前，应继续标记为“待验证设计选择”，不能写成当前行为。
