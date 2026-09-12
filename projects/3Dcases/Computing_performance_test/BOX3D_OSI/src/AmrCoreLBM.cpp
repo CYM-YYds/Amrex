@@ -86,6 +86,16 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     osi_encode_tags.resize(nlevs_max);
     osi_local_copy_tags.resize(nlevs_max);
     osi_remote_copy_tags.resize(nlevs_max);
+    osi_mpi_pack_tags.resize(nlevs_max);
+    osi_mpi_unpack_tags.resize(nlevs_max);
+    osi_mpi_send_offsets.resize(nlevs_max);
+    osi_mpi_recv_offsets.resize(nlevs_max);
+    osi_mpi_send_counts.resize(nlevs_max);
+    osi_mpi_recv_counts.resize(nlevs_max);
+    osi_mpi_send_device.resize(nlevs_max);
+    osi_mpi_recv_device.resize(nlevs_max);
+    osi_mpi_send_host.resize(nlevs_max);
+    osi_mpi_recv_host.resize(nlevs_max);
     average_interface_buffer.resize(nlevs_max);
     average_interface_fine_box.resize(nlevs_max);
     covered_mask.resize(nlevs_max);
@@ -2420,6 +2430,70 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     osi_local_copy_tags.at(lev).define(local_tags);
     osi_remote_copy_tags.at(lev) = std::move(remote_tags);
 
+    // 将本 rank 的远端配对按 peer 排列，并一次性建立融合 GPU tag 与 staging 缓冲。
+    const int my_rank = ParallelDescriptor::MyProc();
+    const int nprocs = ParallelDescriptor::NProcs();
+    auto& send_offsets = osi_mpi_send_offsets.at(lev);
+    auto& recv_offsets = osi_mpi_recv_offsets.at(lev);
+    auto& send_counts = osi_mpi_send_counts.at(lev);
+    auto& recv_counts = osi_mpi_recv_counts.at(lev);
+    send_offsets.assign(nprocs, 0);
+    recv_offsets.assign(nprocs, 0);
+    send_counts.assign(nprocs, 0);
+    recv_counts.assign(nprocs, 0);
+    for (const auto& tag : osi_remote_copy_tags.at(lev)) {
+        const std::size_t values =
+            static_cast<std::size_t>(tag.src_box.numPts()) * Q;
+        if (tag.src_rank == my_rank) {
+            send_counts[tag.dst_rank] += values;
+        }
+        if (tag.dst_rank == my_rank) {
+            recv_counts[tag.src_rank] += values;
+        }
+    }
+    std::size_t send_total = 0;
+    std::size_t recv_total = 0;
+    for (int peer = 0; peer < nprocs; ++peer) {
+        send_offsets[peer] = send_total;
+        recv_offsets[peer] = recv_total;
+        send_total += send_counts[peer];
+        recv_total += recv_counts[peer];
+    }
+    Vector<std::size_t> send_cursor = send_offsets;
+    Vector<std::size_t> recv_cursor = recv_offsets;
+    Vector<OSI::MpiPackTag> pack_tags;
+    Vector<OSI::MpiUnpackTag> unpack_tags;
+    for (const auto& tag : osi_remote_copy_tags.at(lev)) {
+        if (tag.src_rank == my_rank) {
+            const Box ring = amrex::grow(ba[tag.src_index], ng);
+            const auto lo = ring.smallEnd();
+            pack_tags.push_back({
+                state.const_array(tag.src_index), tag.src_box,
+                {{lo[0], lo[1], lo[2]},
+                 {ring.length(0), ring.length(1), ring.length(2)}},
+                send_cursor[tag.dst_rank]});
+            send_cursor[tag.dst_rank] +=
+                static_cast<std::size_t>(tag.src_box.numPts()) * Q;
+        }
+        if (tag.dst_rank == my_rank) {
+            const Box ring = amrex::grow(ba[tag.dst_index], ng);
+            const auto lo = ring.smallEnd();
+            unpack_tags.push_back({
+                state.array(tag.dst_index), tag.dst_box,
+                {{lo[0], lo[1], lo[2]},
+                 {ring.length(0), ring.length(1), ring.length(2)}},
+                recv_cursor[tag.src_rank]});
+            recv_cursor[tag.src_rank] +=
+                static_cast<std::size_t>(tag.dst_box.numPts()) * Q;
+        }
+    }
+    osi_mpi_pack_tags.at(lev).define(pack_tags);
+    osi_mpi_unpack_tags.at(lev).define(unpack_tags);
+    osi_mpi_send_device.at(lev).resize(send_total);
+    osi_mpi_recv_device.at(lev).resize(recv_total);
+    osi_mpi_send_host.at(lev).resize(send_total);
+    osi_mpi_recv_host.at(lev).resize(recv_total);
+
     amrex::Print() << "[OSI comm cache] level=" << lev
                    << " decode_boxes=" << decode_box_count
                    << " decode_cells=" << decode_cells
@@ -2471,82 +2545,39 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
     }
 
 #ifdef BL_USE_MPI
-    const int my_rank = ParallelDescriptor::MyProc();
     const int nprocs = ParallelDescriptor::NProcs();
-    const auto& remote_tags = osi_remote_copy_tags.at(lev);
-    Vector<Vector<const OSI::RemoteCopyTag*>> outgoing(nprocs);
-    Vector<Vector<const OSI::RemoteCopyTag*>> incoming(nprocs);
-    for (const auto& tag : remote_tags) {
-        if (tag.src_rank == my_rank) {
-            outgoing[tag.dst_rank].push_back(&tag);
-        }
-        if (tag.dst_rank == my_rank) {
-            incoming[tag.src_rank].push_back(&tag);
-        }
-    }
-
-    Vector<Gpu::DeviceVector<Real>> send_device(nprocs);
-    Vector<Gpu::DeviceVector<Real>> recv_device(nprocs);
-    Vector<Gpu::PinnedVector<Real>> send_host(nprocs);
-    Vector<Gpu::PinnedVector<Real>> recv_host(nprocs);
-    Vector<std::size_t> send_count(nprocs, 0);
-    Vector<std::size_t> recv_count(nprocs, 0);
+    const auto& send_offsets = osi_mpi_send_offsets.at(lev);
+    const auto& recv_offsets = osi_mpi_recv_offsets.at(lev);
+    const auto& send_counts = osi_mpi_send_counts.at(lev);
+    const auto& recv_counts = osi_mpi_recv_counts.at(lev);
+    auto& send_device = osi_mpi_send_device.at(lev);
+    auto& recv_device = osi_mpi_recv_device.at(lev);
+    auto& send_host = osi_mpi_send_host.at(lev);
+    auto& recv_host = osi_mpi_recv_host.at(lev);
 
     {
         ScopedPerfTimer pack_timer(perf_stats.osi_mpi_pack);
-        for (int peer = 0; peer < nprocs; ++peer) {
-            for (const auto* tag : outgoing[peer]) {
-                send_count[peer] +=
-                    static_cast<std::size_t>(tag->src_box.numPts()) * Q;
-            }
-            if (send_count[peer] == 0) {
-                continue;
-            }
-            send_device[peer].resize(send_count[peer]);
-            send_host[peer].resize(send_count[peer]);
-            Real* buffer = send_device[peer].data();
-            std::size_t offset = 0;
-            for (const auto* tag : outgoing[peer]) {
-                const Box bx = tag->src_box;
-                const auto lo = bx.smallEnd();
-                const int nx = bx.length(0);
-                const int ny = bx.length(1);
-                const Array4<const Real> src = state.const_array(tag->src_index);
-                const Box ring = amrex::grow(ba[tag->src_index], ng);
-                const auto ring_lo = ring.smallEnd();
-                const OSI::FabGeometry fab{
-                    {ring_lo[0], ring_lo[1], ring_lo[2]},
-                    {ring.length(0), ring.length(1), ring.length(2)}};
-                const auto phase_shift = OSI::osi_phase_shift(phase, fab);
-                const std::size_t tag_offset = offset;
-                amrex::ParallelFor(
-                    bx, Q,
-                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) noexcept {
-                        const std::size_t cell = static_cast<std::size_t>(
-                            ((k - lo[2]) * ny + (j - lo[1])) * nx +
-                            (i - lo[0]));
-                        const auto raw = OSI::osi_address(
-                            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab,
-                            phase_shift);
-                        buffer[tag_offset + cell * Q + q] =
-                            src(raw.x, raw.y, raw.z, q);
-                    });
-                offset += static_cast<std::size_t>(bx.numPts()) * Q;
-            }
-            Gpu::streamSynchronize();
-            Gpu::dtoh_memcpy(send_host[peer].data(), send_device[peer].data(),
-                             send_count[peer] * sizeof(Real));
-        }
-    }
-
-    for (int peer = 0; peer < nprocs; ++peer) {
-        for (const auto* tag : incoming[peer]) {
-            recv_count[peer] +=
-                static_cast<std::size_t>(tag->dst_box.numPts()) * Q;
-        }
-        if (recv_count[peer] != 0) {
-            recv_host[peer].resize(recv_count[peer]);
-            recv_device[peer].resize(recv_count[peer]);
+        Real* buffer = send_device.data();
+        amrex::ParallelFor(
+            osi_mpi_pack_tags.at(lev), Q,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                                 const OSI::MpiPackTag& tag) noexcept {
+                const auto lo = tag.region.smallEnd();
+                const int nx = tag.region.length(0);
+                const int ny = tag.region.length(1);
+                const std::size_t cell = static_cast<std::size_t>(
+                    ((k - lo[2]) * ny + (j - lo[1])) * nx + (i - lo[0]));
+                const auto phase_shift = OSI::osi_phase_shift(phase, tag.fab);
+                const auto raw = OSI::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                    phase_shift);
+                buffer[tag.offset + cell * Q + q] =
+                    tag.src(raw.x, raw.y, raw.z, q);
+            });
+        Gpu::streamSynchronize();
+        if (!send_device.empty()) {
+            Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
+                             send_device.size() * sizeof(Real));
         }
     }
 
@@ -2558,15 +2589,17 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
         receives.reserve(nprocs);
         sends.reserve(nprocs);
         for (int peer = 0; peer < nprocs; ++peer) {
-            if (recv_count[peer] != 0) {
+            if (recv_counts[peer] != 0) {
                 receives.push_back(ParallelDescriptor::Arecv(
-                    recv_host[peer].data(), recv_count[peer], peer, mpi_tag));
+                    recv_host.data() + recv_offsets[peer], recv_counts[peer],
+                    peer, mpi_tag));
             }
         }
         for (int peer = 0; peer < nprocs; ++peer) {
-            if (send_count[peer] != 0) {
+            if (send_counts[peer] != 0) {
                 sends.push_back(ParallelDescriptor::Asend(
-                    send_host[peer].data(), send_count[peer], peer, mpi_tag));
+                    send_host.data() + send_offsets[peer], send_counts[peer],
+                    peer, mpi_tag));
             }
         }
         for (auto& message : receives) {
@@ -2579,42 +2612,27 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
 
     {
         ScopedPerfTimer unpack_timer(perf_stats.osi_mpi_unpack);
-        for (int peer = 0; peer < nprocs; ++peer) {
-            if (recv_count[peer] == 0) {
-                continue;
-            }
-            Gpu::htod_memcpy(recv_device[peer].data(), recv_host[peer].data(),
-                             recv_count[peer] * sizeof(Real));
-            const Real* buffer = recv_device[peer].data();
-            std::size_t offset = 0;
-            for (const auto* tag : incoming[peer]) {
-                const Box bx = tag->dst_box;
-                const auto lo = bx.smallEnd();
-                const int nx = bx.length(0);
-                const int ny = bx.length(1);
-                const Array4<Real> dst = state.array(tag->dst_index);
-                const Box ring = amrex::grow(ba[tag->dst_index], ng);
-                const auto ring_lo = ring.smallEnd();
-                const OSI::FabGeometry fab{
-                    {ring_lo[0], ring_lo[1], ring_lo[2]},
-                    {ring.length(0), ring.length(1), ring.length(2)}};
-                const auto phase_shift = OSI::osi_phase_shift(phase, fab);
-                const std::size_t tag_offset = offset;
-                amrex::ParallelFor(
-                    bx, Q,
-                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) noexcept {
-                        const std::size_t cell = static_cast<std::size_t>(
-                            ((k - lo[2]) * ny + (j - lo[1])) * nx +
-                            (i - lo[0]));
-                        const auto raw = OSI::osi_address(
-                            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab,
-                            phase_shift);
-                        dst(raw.x, raw.y, raw.z, q) =
-                            buffer[tag_offset + cell * Q + q];
-                    });
-                offset += static_cast<std::size_t>(bx.numPts()) * Q;
-            }
+        if (!recv_device.empty()) {
+            Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
+                             recv_device.size() * sizeof(Real));
         }
+        const Real* buffer = recv_device.data();
+        amrex::ParallelFor(
+            osi_mpi_unpack_tags.at(lev), Q,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                                 const OSI::MpiUnpackTag& tag) noexcept {
+                const auto lo = tag.region.smallEnd();
+                const int nx = tag.region.length(0);
+                const int ny = tag.region.length(1);
+                const std::size_t cell = static_cast<std::size_t>(
+                    ((k - lo[2]) * ny + (j - lo[1])) * nx + (i - lo[0]));
+                const auto phase_shift = OSI::osi_phase_shift(phase, tag.fab);
+                const auto raw = OSI::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                    phase_shift);
+                tag.dst(raw.x, raw.y, raw.z, q) =
+                    buffer[tag.offset + cell * Q + q];
+            });
         Gpu::streamSynchronize();
     }
 #else
@@ -4173,6 +4191,16 @@ void AmrCoreLBM::ClearLevel(int lev) {
     osi_encode_tags[lev].undefine();
     osi_local_copy_tags[lev].undefine();
     osi_remote_copy_tags[lev].clear();
+    osi_mpi_pack_tags[lev].undefine();
+    osi_mpi_unpack_tags[lev].undefine();
+    osi_mpi_send_offsets[lev].clear();
+    osi_mpi_recv_offsets[lev].clear();
+    osi_mpi_send_counts[lev].clear();
+    osi_mpi_recv_counts[lev].clear();
+    osi_mpi_send_device[lev].clear();
+    osi_mpi_recv_device[lev].clear();
+    osi_mpi_send_host[lev].clear();
+    osi_mpi_recv_host[lev].clear();
     f_old[lev].clear();
     f_new[lev].clear();
     osi_state[lev].clear();

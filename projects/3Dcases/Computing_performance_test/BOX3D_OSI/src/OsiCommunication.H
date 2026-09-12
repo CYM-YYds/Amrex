@@ -5,6 +5,8 @@
 #include <AMReX_Box.H>
 #include <AMReX_GpuQualifiers.H>
 
+#include <cstddef>
+
 #include "OsiIndex.H"
 
 namespace OSI {
@@ -31,6 +33,28 @@ struct RemoteCopyTag {
     amrex::Box src_box;
     amrex::Box dst_box;
     amrex::IntVect periodic_shift{0};
+};
+
+// 跨 rank 通信的 GPU 融合打包描述；offset 指向聚合缓冲中的首元素。
+struct MpiPackTag {
+    amrex::Array4<const amrex::Real> src;
+    amrex::Box region;
+    FabGeometry fab;
+    std::size_t offset = 0;
+
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    const amrex::Box& box() const noexcept { return region; }
+};
+
+// 跨 rank 通信的 GPU 融合解包描述。
+struct MpiUnpackTag {
+    amrex::Array4<amrex::Real> dst;
+    amrex::Box region;
+    FabGeometry fab;
+    std::size_t offset = 0;
+
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    const amrex::Box& box() const noexcept { return region; }
 };
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE

@@ -365,6 +365,17 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::TagVector<OSI::CommunicationTag>> osi_encode_tags;
     amrex::Vector<amrex::TagVector<OSI::LocalCopyTag>> osi_local_copy_tags;
     amrex::Vector<amrex::Vector<OSI::RemoteCopyTag>> osi_remote_copy_tags;
+    // MPI 计划、偏移和 staging 缓冲随网格缓存重建，时间步内只复用。
+    amrex::Vector<amrex::TagVector<OSI::MpiPackTag>> osi_mpi_pack_tags;
+    amrex::Vector<amrex::TagVector<OSI::MpiUnpackTag>> osi_mpi_unpack_tags;
+    amrex::Vector<amrex::Vector<std::size_t>> osi_mpi_send_offsets;
+    amrex::Vector<amrex::Vector<std::size_t>> osi_mpi_recv_offsets;
+    amrex::Vector<amrex::Vector<std::size_t>> osi_mpi_send_counts;
+    amrex::Vector<amrex::Vector<std::size_t>> osi_mpi_recv_counts;
+    amrex::Vector<amrex::Gpu::DeviceVector<amrex::Real>> osi_mpi_send_device;
+    amrex::Vector<amrex::Gpu::DeviceVector<amrex::Real>> osi_mpi_recv_device;
+    amrex::Vector<amrex::Gpu::PinnedVector<amrex::Real>> osi_mpi_send_host;
+    amrex::Vector<amrex::Gpu::PinnedVector<amrex::Real>> osi_mpi_recv_host;
     bool osi_local_direct = false;
     bool osi_mpi_direct = false;
     // 模式 1 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。

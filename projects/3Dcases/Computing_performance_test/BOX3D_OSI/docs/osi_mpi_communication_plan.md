@@ -78,8 +78,9 @@ cell 的 raw 地址同时依赖：
 
 当前实现为每个 peer 聚合一条消息，GPU pack 后复制到 pinned host buffer，通过
 `ParallelDescriptor::Arecv/Asend` 交换，再复制回 device 并由 GPU unpack。已分别记录
-`osi_mpi_pack`、`osi_mpi_wait` 和 `osi_mpi_unpack`；buffer 仍在每次调用时分配，属于
-正确性版本，不是最终性能实现。
+`osi_mpi_pack`、`osi_mpi_wait` 和 `osi_mpi_unpack`。通信计划、peer 偏移和 staging buffer
+随网格缓存一次性建立；每步 pack/unpack 分别用一个 TagVector 融合 GPU kernel，避免
+逐 tag 启动和反复分配。
 
 ### 阶段 C：CUDA-aware MPI 优化
 
@@ -171,3 +172,13 @@ commit 和输入覆盖参数。
 
 因此当前结论只覆盖单层、两 rank、多 Fab 的周期与非周期 same-level 通信；尚不宣称
 多层 AMR、regrid、restart 或 CUDA-aware MPI 已通过。
+
+## 8. 2026-09-12 缓存与融合优化记录
+
+- CUDA + MPI 构建日志 `compile-20260912T121424.log` 成功；
+- correctness job `591180`：2 ranks、2 GPUs、单层、8 Fab、全周期、64 步，六个阶段
+  全部 `linf=0`；
+- performance job `591181`：同一作业内 AB 为 4.981--4.989 s、420--421 MLUPS，
+  OSI MPI direct 为 5.505--5.517 s、380--381 MLUPS；OSI 总耗时差距约 10.8%；
+- 上一实现的同作业 `591174` 中，OSI 相对 AB 慢约 31.7%。本次优化把同作业内差距
+  缩小约三分之二，但 OSI 仍未反超；剩余热点主要是 host staging 和 MPI wait。
