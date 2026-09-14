@@ -153,6 +153,46 @@ copy kernel。
 上述性能结论只覆盖单节点双 GPU、单层全周期固定网格；非周期仅完成正确性回归，
 多节点和动态 AMR 仍需分别验收，不能由这两次性能作业外推。
 
+### 阶段 F：使 OSI pack/unpack 接近 FillBoundary kernel
+
+这一阶段明确区分直接参考和 OSI 专用优化：
+
+- **直接参考 FillBoundary**：沿用 AMReX `Array4` 的 component-major 临时缓冲布局，
+  即固定 component（OSI 中为 `q`）时相邻 cell 连续；继续沿用按 peer 聚合、接收先投递、
+  非阻塞 send/recv、本地 copy 与通信重叠以及 nowait/finish 的生命周期思想；
+- **OSI 专用实现**：phase、`q` 和 Fab geometry 决定的 raw 地址投影、环绕拆分及相关
+  预计算不能由普通 `FillBoundary` 提供，必须保留在 OSI kernel/通信计划中；
+- **暂不采用**：按部分 pack 完成进度提前发送分块消息并非当前 AMReX
+  `FillBoundary` 的实现，而且会改变消息数量和同步关系，只有在前述低风险优化仍不足时
+  才单独实验。
+
+实施顺序：
+
+1. 已实验将 MPI 聚合缓冲由 `cell * Q + q` 改为 `q * tag_cells + cell`，并像 AMReX
+   pack 一样采用“一个 cell 线程内循环 component/q”；job `595943` 中 pack 增至约
+   1.15--1.16 s，说明 OSI 的 27 次 raw 投影串行成本超过合并访存收益，已回退；
+2. 周期 job `595942` 和非周期 job `595941` 均通过 384/384 次 `linf=0`；性能退化不是
+   数值错误，但不满足验收门槛，因此没有保留该布局；
+3. 下一项再按 phase 将 raw 环绕区预拆为连续片段，以移除热 kernel 中的逐 cell
+   环绕判断；每次只引入一个性能变量；
+4. 最后根据 profile 决定是否进一步复用 AMReX nowait/finish 请求管理。
+
+### 阶段 G：对齐 FillBoundary 的接收投递顺序（已实验并回退）
+
+当前 OSI 先完成 GPU pack 和 D2H，进入 wait 阶段后才投递 `Irecv/Isend`；AMReX
+`FBEP_nowait()` 则先 `PostRcvs()`，随后 pack、`PostSnds()` 和 local copy。阶段 G
+恢复已验证的 `(cell,q)`/cell-major kernel，只把 `Irecv` 移到 pack 之前，使接收进度
+可与 pack 和 D2H 重叠。消息大小、peer 顺序、send 时机和 unpack 均保持不变。
+
+job `595950` 的周期 64 步六阶段 oracle 为 384/384 次 `linf=0`；但性能 job
+`595951` 中 pack 增至约 1.23--1.24 s，OSI 总时间 5.248--5.259 s，而同作业 A-B 为
+5.012--5.018 s。推断提前接收使 MPI 接收进度与 pack/D2H 争用单节点 host-staging
+内存带宽，收益不足以抵消干扰，因此已恢复 pack 完成后再投递 recv/send 的顺序。
+
+阶段 F/G 表明不能只按普通 `FillBoundary` 的布局或时序逐项照搬。下一步应先把 pack
+kernel、D2H、MPI wait、H2D 和 unpack 拆成独立计时，并记录每 peer 字节数；随后再针对
+确认的主导项实验 raw 环绕拆分或异步 copy/stream，不能继续用聚合计时猜测瓶颈。
+
 ## 4. 正确性不变量
 
 - 通信使用当前 phase；不能使用下一次 Stream 提交后的 phase。
