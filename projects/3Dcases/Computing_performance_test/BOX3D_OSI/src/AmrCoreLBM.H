@@ -79,8 +79,12 @@ class AmrCoreLBM : public amrex::AmrCore {
         double osi_fillboundary = 0.0;
         double osi_encode = 0.0;
         double osi_mpi_pack = 0.0;
+        double osi_mpi_pack_kernel = 0.0;
+        double osi_mpi_dtoh = 0.0;
         double osi_mpi_wait = 0.0;
+        double osi_mpi_htod = 0.0;
         double osi_mpi_unpack = 0.0;
+        double osi_mpi_unpack_kernel = 0.0;
         double boundary = 0.0;
         double swap = 0.0;
         long long fillghost_calls = 0;

@@ -193,6 +193,25 @@ job `595950` 的周期 64 步六阶段 oracle 为 384/384 次 `linf=0`；但性�
 kernel、D2H、MPI wait、H2D 和 unpack 拆成独立计时，并记录每 peer 字节数；随后再针对
 确认的主导项实验 raw 环绕拆分或异步 copy/stream，不能继续用聚合计时猜测瓶颈。
 
+### 阶段 H：细分通信计时（实施中）
+
+保持阶段 E 的最佳通信算法不变，新增 `osi_mpi_pack_kernel`、`osi_mpi_dtoh`、
+`osi_mpi_htod` 和 `osi_mpi_unpack_kernel`；原 `osi_mpi_pack/osi_mpi_unpack` 继续作为
+包含子项的总时间，`osi_mpi_wait` 继续包含 MPI 请求与重叠的 local copy。通信计划构建
+时按 rank/level 输出 send/recv peer 数和实际 payload 字节数。该阶段只用于定位，必须
+先确认新增同步点没有改变原有执行时序或性能结论。
+
+job `596139` 的周期 oracle 为 384/384 次 `linf=0`。1000 步 job `596140` 显示每 rank
+每步收发各 15,980,544 bytes；pack kernel 约 0.142 s、D2H 约 0.640 s、H2D 约
+0.687 s、unpack kernel 约 0.061 s。显式 host staging copy 合计约占通信时间 35%，
+因此曾增加实验开关 `lbm.osi_mpi_pinned_direct=1`，让 GPU kernel 像非 GPU-aware
+`FillBoundary` 一样直接访问 pinned MPI buffer。
+
+实验 job `596141` 的 384 次阶段检查全部 `linf=0`，但 pack kernel 增至
+0.40--0.45 s/64 步，通信总计约 0.706 s，而 device staging 基线约 0.268 s。
+逐元素访问 PCIe 映射 pinned 内存的代价远大于批量 D2H/H2D，因此该代码路径与临时
+提交脚本均已删除。后续保留 device staging，优先评估异步批量 memcpy 的重叠空间。
+
 ## 4. 正确性不变量
 
 - 通信使用当前 phase；不能使用下一次 Stream 提交后的 phase。

@@ -290,8 +290,12 @@ int main(int argc, char* argv[]) {
                           << " osi_fillboundary=" << perf.osi_fillboundary
                           << " osi_encode=" << perf.osi_encode
                           << " osi_mpi_pack=" << perf.osi_mpi_pack
+                          << " osi_mpi_pack_kernel=" << perf.osi_mpi_pack_kernel
+                          << " osi_mpi_dtoh=" << perf.osi_mpi_dtoh
                           << " osi_mpi_wait=" << perf.osi_mpi_wait
+                          << " osi_mpi_htod=" << perf.osi_mpi_htod
                           << " osi_mpi_unpack=" << perf.osi_mpi_unpack
+                          << " osi_mpi_unpack_kernel=" << perf.osi_mpi_unpack_kernel
                           << " boundary=" << perf.boundary
                           << " swap=" << perf.swap
                           << " solv=" << solv_s
