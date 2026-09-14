@@ -577,6 +577,13 @@ MPI wait。因此 device-buffer 当前状态更新为“正确性通过、性能
 5. **跨 MPI host-staging 扩展（已实现）**：在验证 rank-local 版本后，实现 OSI-aware pack/unpack。优先
    复用 AMReX 的通信拓扑和消息分组；若公共 `FillBoundary` API 无法注入映射函数，
    使用算例级 MPI wrapper，不能把 raw OSI Box 直接交给普通 `ParallelCopy`。
+6. **AMReX 通信计划复用（已实现并完成首轮验收）**：本仓库使用的 AMReX 26.06 可由
+   `FabArrayBase::getFB()` 读取缓存后的 local/send/recv `CopyComTag`。direct 路径改为
+   从这些 tags 构造 OSI 地址投影，不再重复枚举周期像与 ghost 交集；第一轮保持现有
+   MPI transport 和融合 pack/unpack kernel 不变。job `595613` 的 384 次阶段检查全部
+   `linf=0`，非周期 job `595921` 的 384 次检查也全部 `linf=0`；jobs
+   `595615`/`595617` 中 OSI 比同作业 A-B 快约 5.28%--5.47%。该性能结论只覆盖
+   单节点双 GPU、单层全周期固定网格。
 
 ### 11.2 不变量与验收
 

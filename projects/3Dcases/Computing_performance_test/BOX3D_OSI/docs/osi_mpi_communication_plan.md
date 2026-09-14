@@ -1,6 +1,6 @@
 # OSI 跨 MPI 通信实施计划
 
-更新时间：2026-09-12
+更新时间：2026-09-14
 
 本文只描述 `BOX3D_OSI` 的跨 MPI OSI-aware same-level 通信，不改变现有
 `CommunicateOsiLevel()` 的行为。当前 rank-local direct copy 已单独实现；跨 MPI 的
@@ -113,6 +113,45 @@ coarse-fine   → 现有 AMR 专用传输
 ```
 
 原 `CommunicateOsiLevel()` 始终保留，并由运行时开关控制 fallback，便于逐作业 A/B。
+
+### 阶段 E：复用 AMReX FillBoundary 通信计划（已实现并完成首轮验收）
+
+当前 direct 路径已经与 `FillBoundary()` 语义等价，但通信计划仍由算例重复枚举
+`BoxArray`、周期像和 ghost 交集。下一轮优化直接复用 AMReX 为同一个 `MultiFab`
+生成并缓存的 `FB` 元数据：
+
+1. 通过 `FabArrayBase::getFB()` 获取 `m_LocTags`、`m_SndTags` 和 `m_RcvTags`；
+2. 同 rank copy 从 `m_LocTags` 构造 OSI raw-to-raw tag；
+3. 跨 rank pack/unpack 分别按 `m_SndTags`/`m_RcvTags` 的 peer 分组与既定排序构造，
+   不再由算例独立推导消息顺序；
+4. OSI 只保留 phase、方向 `q` 和 Fab geometry 对 logical 坐标的 raw 地址投影；
+5. 继续保留现有 fallback、host-staging/device-buffer 开关和分项计时，先完成逐阶段
+   数值回归，再进行与 job `591187` 相同配置的性能验收。
+
+第一步只替换计划来源，不同时改变 kernel、MPI transport 或缓冲布局。这样可以把
+性能变化归因于计划一致性，并避免把多个优化变量混在同一次验收中。后续若 profile
+仍显示可观的 CPU/MPI 调度成本，再评估复用 AMReX `FillBoundary_nowait/finish` 的
+请求生命周期；该步骤必须保留 OSI 自定义 pack/unpack，不能直接调用普通 component
+copy kernel。
+
+2026-09-14 首轮实施与验收记录：
+
+- direct 计划来源已替换为 `getFB()` 的 `m_LocTags/m_SndTags/m_RcvTags`，未修改共享
+  AMReX，也未改变 MPI transport、缓冲布局或 OSI pack/unpack kernel；
+- CUDA + MPI 编译日志 `compile-20260914T152040.log` 成功；
+- 周期正确性 job `595613`：2 ranks、2 GPUs、8 Fab、64 步，Initial、Collision、
+  Communication、Stream、Boundary、Swap 共 384 次逐点检查全部 `linf=0`；
+- 非周期正确性 job `595921`：相同 rank/GPU/Fab/步数，将六面改为非周期；384 次
+  逐点检查全部 `linf=0`，本 rank `remote_records` 由周期配置的 144 降为 32；
+- 性能 jobs `595615`/`595617`：同一作业内先运行 A-B、再运行 OSI direct，各 1000 步。
+  A-B rank 时间分别为 4.597--4.606 s 和 4.623--4.629 s；OSI 分别为
+  4.354--4.360 s 和 4.370--4.376 s。按对应作业/rank 计算，OSI 快约
+  5.28%--5.47%，此前 job `591187` 中慢 6.1%--6.5% 的差距已逆转；
+- 当前日志中的 `remote_records` 是本 rank 的 send 与 recv tag 记录总数，不再是旧手工
+  全局枚举的 `remote_pairs`，两者不能直接按数值比较。
+
+上述性能结论只覆盖单节点双 GPU、单层全周期固定网格；非周期仅完成正确性回归，
+多节点和动态 AMR 仍需分别验收，不能由这两次性能作业外推。
 
 ## 4. 正确性不变量
 

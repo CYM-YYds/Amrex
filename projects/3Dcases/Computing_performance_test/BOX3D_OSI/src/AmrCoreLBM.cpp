@@ -2399,48 +2399,45 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     osi_decode_tags.at(lev).define(decode_tags);
     osi_encode_tags.at(lev).define(encode_tags);
 
-    // 保留 source/destination 配对，供 rank-local OSI direct copy 使用。
+    // 直接复用 AMReX FillBoundary 已缓存的通信计划；OSI 只负责 raw 地址投影。
     Vector<OSI::LocalCopyTag> local_tags;
     Vector<OSI::RemoteCopyTag> remote_tags;
-    for (int dst = 0; dst < ba.size(); ++dst) {
-        const int dst_rank = state.DistributionMap()[dst];
-        const BoxList ghost_pieces =
-            amrex::boxDiff(amrex::grow(ba[dst], ng), ba[dst]);
-        const Box ring_dst = amrex::grow(ba[dst], ng);
-        const auto dlo = ring_dst.smallEnd();
-        const OSI::FabGeometry dst_fab{
-            {dlo[0], dlo[1], dlo[2]},
-            {ring_dst.length(0), ring_dst.length(1), ring_dst.length(2)}};
-        for (const Box& dst_ghost : ghost_pieces) {
-            for (const IntVect& shift : shifts) {
-                const Box source_query = dst_ghost - shift;
-                for (const auto& [src, exact_source] :
-                     ba.intersections(source_query)) {
-                    const Box destination_box = exact_source + shift;
-                    const int src_rank = state.DistributionMap()[src];
-                    if (src_rank != ParallelDescriptor::MyProc() ||
-                        dst_rank != ParallelDescriptor::MyProc()) {
-                        remote_tags.push_back({src_rank, dst_rank, src, dst,
-                                               exact_source, destination_box,
-                                               shift});
-                        continue;
-                    }
-                    const Box ring_src = amrex::grow(ba[src], ng);
-                    const auto slo = ring_src.smallEnd();
-                    const OSI::FabGeometry src_fab{
-                        {slo[0], slo[1], slo[2]},
-                        {ring_src.length(0), ring_src.length(1), ring_src.length(2)}};
-                    local_tags.push_back({state.const_array(src), state.array(dst),
-                                          exact_source, destination_box, src_fab, dst_fab});
-                }
-            }
+    const auto fab_geometry = [&](int index) {
+        const Box ring = amrex::grow(ba[index], ng);
+        const auto lo = ring.smallEnd();
+        return OSI::FabGeometry{
+            {lo[0], lo[1], lo[2]},
+            {ring.length(0), ring.length(1), ring.length(2)}};
+    };
+    const auto& fb = state.getFB(ng, Geom(lev).periodicity());
+    AMREX_ALWAYS_ASSERT(fb.m_LocTags && fb.m_SndTags && fb.m_RcvTags);
+    local_tags.reserve(fb.m_LocTags->size());
+    for (const auto& tag : *fb.m_LocTags) {
+        local_tags.push_back({state.const_array(tag.srcIndex),
+                              state.array(tag.dstIndex), tag.sbox, tag.dbox,
+                              fab_geometry(tag.srcIndex),
+                              fab_geometry(tag.dstIndex)});
+    }
+
+    const int my_rank = ParallelDescriptor::MyProc();
+    for (const auto& [peer, tags] : *fb.m_SndTags) {
+        for (const auto& tag : tags) {
+            remote_tags.push_back(
+                {my_rank, peer, tag.srcIndex, tag.dstIndex, tag.sbox, tag.dbox,
+                 tag.dbox.smallEnd() - tag.sbox.smallEnd()});
+        }
+    }
+    for (const auto& [peer, tags] : *fb.m_RcvTags) {
+        for (const auto& tag : tags) {
+            remote_tags.push_back(
+                {peer, my_rank, tag.srcIndex, tag.dstIndex, tag.sbox, tag.dbox,
+                 tag.dbox.smallEnd() - tag.sbox.smallEnd()});
         }
     }
     osi_local_copy_tags.at(lev).define(local_tags);
     osi_remote_copy_tags.at(lev) = std::move(remote_tags);
 
     // 将本 rank 的远端配对按 peer 排列，并一次性建立融合 GPU tag 与 staging 缓冲。
-    const int my_rank = ParallelDescriptor::MyProc();
     const int nprocs = ParallelDescriptor::NProcs();
     auto& send_offsets = osi_mpi_send_offsets.at(lev); // 发给 peer 的数据在总发送缓冲中的起点
     auto& recv_offsets = osi_mpi_recv_offsets.at(lev); // 从 peer 收到的数据在总接收缓冲中的起点
@@ -2506,7 +2503,8 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                    << " full_decode_cells=" << full_decode_cells
                    << " encode_boxes=" << encode_box_count
                    << " encode_cells=" << encode_cells
-                   << " remote_pairs=" << osi_remote_copy_tags.at(lev).size()
+                   << " amrex_plan=1"
+                   << " remote_records=" << osi_remote_copy_tags.at(lev).size()
                    << " full_encode_cells=" << full_encode_cells << '\n';
 }
 
