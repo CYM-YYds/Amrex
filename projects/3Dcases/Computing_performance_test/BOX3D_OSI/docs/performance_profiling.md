@@ -1,5 +1,25 @@
 # BOX3D_OSI 性能分析与历史 A-B 基线
 
+## 2026-09-14 CUDA-aware MPI 验收
+
+使用 CUDA-aware OpenMPI 4.1.5、UCX 1.12.1、2 ranks、2 GPUs、单层 8 Fab、全周期
+边界。job `595584` 的 64 步六阶段逐点 A-B 共 384 项全部 `linf=0`，证明 device-buffer
+通信在该范围数值正确。job `595585` 的 1000 步同作业对照如下：
+
+| 指标 | canonical A-B | OSI host overlap | OSI device overlap |
+|---|---:|---:|---:|
+| solver | 45.519--45.535 s | 4.128--4.140 s | 45.896--45.908 s |
+| `MLUPS_solv` | 46.06--46.07 | 506.56--508.09 | 45.68--45.69 |
+| communication | 44.470--44.496 s | 3.596--3.610 s | 45.145--45.156 s |
+| OSI MPI pack | 不适用 | 0.775--1.078 s | 0.201--0.202 s |
+| OSI MPI wait | 不适用 | 1.767--2.055 s | 44.846--44.860 s |
+| OSI MPI unpack | 不适用 | 0.762--0.764 s | 0.091--0.095 s |
+
+device-buffer 消除了 host staging，pack/unpack 明显缩短，但 MPI wait 增至约 44.85 s，
+使其比 host-overlap 慢约 11.1 倍。同一 OpenMPI/UCX 栈上的 canonical `FillBoundary`
+也出现约 44.5 s 通信耗时，因此瓶颈属于当前 CUDA-aware MPI transport，而不是 OSI
+地址映射。该结果不能与 HMPI job `591187` 的约 5 s A-B 基线混为同一软件栈比较。
+
 ## 2026-09-12 当前双 GPU 同层 MPI 基线
 
 job `591181` 在同一作业内使用 2 ranks、2 GPUs、单层 8 Fab、全周期边界和 1000 步，

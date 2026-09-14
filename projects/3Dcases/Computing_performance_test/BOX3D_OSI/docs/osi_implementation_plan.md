@@ -551,6 +551,9 @@ job `591180` 的双 GPU 六阶段 A-B 全部 `linf=0`；job `591181` 将 OSI 相
 总耗时差距从 `591174` 的约 31.7% 缩小到约 10.8%。随后将本地 seam copy 与 MPI wait
 重叠，job `591186` 数值通过，job `591187` 将差距降到约 6.1%--6.5%。CUDA-aware
 device-buffer 路径已实现，但当前 HMPI/UCX 不支持 device pointer，运行验收 pending。
+后续 CUDA-aware OpenMPI/UCX 作业 `595584` 已通过 64 步六阶段逐点正确性；性能作业
+`595585` 中 device-overlap 约 45.90 s、host-overlap 约 4.13 s，约 44.85 s 位于
+MPI wait。因此 device-buffer 当前状态更新为“正确性通过、性能不通过”。
 
 ### 11.1 OSI-aware FillBoundary 实施路线
 

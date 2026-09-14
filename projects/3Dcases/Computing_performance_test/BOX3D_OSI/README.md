@@ -6,7 +6,7 @@ one-step index（OSI）路径。
 
 ## 当前验证状态
 
-更新时间：2026-09-12。
+更新时间：2026-09-14。
 
 当前权威运行参数位于 `config/inputs`：
 
@@ -38,6 +38,10 @@ A-B 为 4.981--4.989 s、420--421 MLUPS，OSI MPI direct 为 5.505--5.517 s、
 380--381 MLUPS。进一步重叠本地 seam copy 与 MPI wait 后，job `591187` 将差距降到
 约 6.1%--6.5%。CUDA-aware device-buffer 路径已实现并有能力门禁，但当前 HMPI/UCX
 不支持 device pointer；`591185` 在强制开启时以 `process_vm_readv: Bad address` 失败。
+改用平台 CUDA-aware OpenMPI 4.1.5 与配套 UCX 后，job `595584` 的 device-buffer
+64 步六阶段 A-B 全部 `linf=0`。但 job `595585` 中 device-overlap 为约 45.90 s，
+而 host-overlap 为约 4.13 s；约 44.85 s 消耗在 MPI wait，因此当前 CUDA-aware
+transport 只通过正确性验收，不适合作为性能路径。
 该结论只覆盖同层通信，不能外推到多层动态 AMR。完整统计和适用边界见
 [性能分析](docs/performance_profiling.md)。
 

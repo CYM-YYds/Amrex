@@ -21,6 +21,9 @@ module load compilers/gcc/11.3.0
 # 该 OpenMPI 模块可重定位，但 wrapper 内保留了原安装前缀；显式设置后才能在计算节点
 # 正确找到运行时配置。该版本由 ompi_info 确认为 CUDA-aware 构建。
 export OPAL_PREFIX=/home/HPCBase/mpi/openmpi/4.1.5_cuda11.6
+# UCX 模块会强制加载 CUDA 11.8，与本算例的 CUDA 12.8 冲突；这里只加入其运行库。
+UCX_ROOT=/home/HPCBase/apps/ucx_1.12.1_cuda11.8
+export LD_LIBRARY_PATH="${UCX_ROOT}/lib:${UCX_ROOT}/lib/ucx:${LD_LIBRARY_PATH:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"

@@ -1,6 +1,6 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-09-12
+更新时间：2026-09-14
 
 ## 现役配置
 
@@ -34,15 +34,22 @@
 - CUDA-aware device-buffer 路径已实现并通过 CUDA+MPI 构建。当前 HMPI/UCX 没有可用
   CUDA transport；job `591185` 强制 device pointer 后由 UCX `process_vm_readv`
   报 `Bad address` 并终止。job `591188` 不再强制能力标志，程序在通信前由
-  `UseGpuAwareMpi()` 门禁安全拒绝启动，因此该路径在当前集群的运行验收保持 pending。
+  `UseGpuAwareMpi()` 门禁安全拒绝启动。
+- 改用 CUDA-aware OpenMPI 4.1.5，并补齐配套 UCX 1.12.1 运行库后，job `595584`
+  完成双 GPU 64 步六阶段 A-B，384 项全部 `linf=0`，device-buffer 正确性验收通过。
+  job `595585` 中 host-overlap solver 为 4.128--4.140 s，device-overlap 为
+  45.896--45.908 s；device 路径的 MPI wait 达 44.846--44.860 s。canonical A-B
+  在同一 CUDA-aware 栈上也为 45.519--45.535 s，说明退化属于该 MPI transport，
+  不能归因于 OSI 地址或 pack/unpack。
 
 ## 结论边界与待办
 
 同层跨 MPI direct 已在单层、多 Fab、2 ranks/2 GPUs 的全周期和六面非周期条件下通过
 逐阶段 A-B；它仍不能证明多层动态 regrid、restart 或运动 IBM 的逐点等价。当前性能
-差距主要位于 host staging 和 MPI wait。当前集群若要继续 device-buffer 直传，需要换用
-支持 CUDA-aware MPI 的模块或由平台侧提供 CUDA UCX/BTL；代码不得用
-`amrex.use_gpu_aware_mpi=1` 绕过真实能力检测。
+HMPI 下的性能差距主要位于 host staging 和 MPI wait。CUDA-aware OpenMPI 路径已经
+证明数值正确，但当前 transport 的 device MPI wait 比 host staging 路径高一个数量级，
+不得作为生产性能路径。后续需要排查 UCX CUDA transport、rendezvous 协议和 GPU Direct
+能力；代码仍不得在未确认 MPI 能力时用 `amrex.use_gpu_aware_mpi=1` 绕过门禁。
 
 当前节点没有 `ncu`/`nsys`，因此尚无硬件内存事务、occupancy 和分支效率计数器。历史
 日志、可执行文件和 checkpoint 均保留，未执行清理；当前算例根目录未发现
