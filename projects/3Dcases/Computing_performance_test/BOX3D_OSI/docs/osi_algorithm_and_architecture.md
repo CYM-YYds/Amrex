@@ -241,6 +241,11 @@ Decode 只覆盖通信可能读取的 owner-valid 源区；valid 不会从 canon
 启用 `osi_mpi_direct` 时，跨 rank 使用按 peer 聚合的 host-staging pack/unpack。通信计划、
 偏移和缓冲随布局一次构建，pack/unpack 各由一个 `TagVector` kernel 完成。不能直接对
 twisted `osi_state` 调用 `FillBoundary()`。
+可选的 `osi_mpi_pipeline_chunk_bytes` 将每个 peer 的 host-staging payload 分块：
+发送侧在一块 D2H 完成后立即投递非阻塞 send，与下一块 D2H 重叠；
+接收侧先投递全部 receive，每块到达后在独立 GPU stream 上 H2D，主机继续
+等待后续块。当前单 peer 性能算例的已测最佳值是 2 MiB，但开关默认
+为 0，多 peer、多节点和多层 AMR 必须重新验收。
 
 实验开关 `osi_mpi_device_direct` 将 MPI 指针从 pinned host 缓冲切换为 device 缓冲，
 并要求 AMReX 已确认 GPU-aware MPI。远端请求投递后才启动本地 seam copy，使该 kernel

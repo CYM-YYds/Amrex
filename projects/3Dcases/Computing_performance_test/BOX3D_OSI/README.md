@@ -32,11 +32,14 @@ tolerance=1e-12 consecutive=0/3 converged=0
 输入、BoxArray、MPI/GPU 配置和 regrid 时序下，从第一步开始逐 level、逐阶段、逐 cell
 比较 active DDF 和宏观量。`stream_mode=1` 不能用于解释 `stream_mode=0` 的差异。
 
-最新同层跨 MPI 对照使用 2 ranks、2 GPUs、单层 8 Fab 和全周期边界。job `591180`
-完成 64 步六阶段逐点 A-B，全部 `linf=0`；job `591181` 的同作业 1000 步对照中，
-A-B 为 4.981--4.989 s、420--421 MLUPS，OSI MPI direct 为 5.505--5.517 s、
-380--381 MLUPS。进一步重叠本地 seam copy 与 MPI wait 后，job `591187` 将差距降到
-约 6.1%--6.5%。CUDA-aware device-buffer 路径已实现并有能力门禁，但当前 HMPI/UCX
+最新同层跨 MPI 对照使用 2 ranks、2 GPUs、单层 8 Fab 和全周期边界。
+2 MiB host-staging 分块流水在 job `596145` 的 384 次六阶段检查中全部
+`linf=0`；job `596146` 中将 OSI communication 从 3.848--3.854 s 降至
+3.518--3.529 s，total 从 4.381--4.386 s 降至 4.045--4.049 s，比同作业
+FillBoundary 的 4.616--4.622 s 快约 12.3%--12.5%。六面非周期 job `596150`
+亦完成 384/384 次 `linf=0`。该结论仅覆盖单节点、单 peer、单层同层通信；
+`lbm.osi_mpi_pipeline_chunk_bytes` 默认仍为 0，已测最佳 2 MiB 需显式设为
+`2097152`。CUDA-aware device-buffer 路径已实现并有能力门禁，但当前 HMPI/UCX
 不支持 device pointer；`591185` 在强制开启时以 `process_vm_readv: Bad address` 失败。
 改用平台 CUDA-aware OpenMPI 4.1.5 与配套 UCX 后，job `595584` 的 device-buffer
 64 步六阶段 A-B 全部 `linf=0`。但 job `595585` 中 device-overlap 为约 45.90 s，

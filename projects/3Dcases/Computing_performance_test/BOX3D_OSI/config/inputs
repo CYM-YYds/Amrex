@@ -61,6 +61,10 @@ lbm.osi_mpi_direct = 0
 # 默认关闭以保留 host-staging 回退。
 lbm.osi_mpi_device_direct = 0
 
+# Host-staging 分块流水的每块字节数；0 保留整块同步路径。当前单 peer
+# 性能算例的已测最佳值为 2097152，仅在 osi_mpi_direct=1 时显式启用。
+lbm.osi_mpi_pipeline_chunk_bytes = 0
+
 # DDF 碰撞分布函数的流动/存储模式：
 # 0 = 保留的 A-B 数值基准模式
 # 1 = grown-Fab OSI 模式；支持编译配置内的多层 AMR、多 Fab/MPI，以及全周期或六面

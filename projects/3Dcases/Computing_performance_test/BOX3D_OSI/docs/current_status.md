@@ -9,10 +9,23 @@
 `lbm.osi_local_direct=1`、`lbm.osi_mpi_direct=0`、`performance.report_int=1000`、
 `max_step=1000`。默认是 OSI 单数组路径；A-B 基准需显式覆盖 `lbm.stream_mode=0`。
 跨 rank direct 路径需显式打开 `lbm.osi_mpi_direct=1`；device-buffer 还需显式打开
-`lbm.osi_mpi_device_direct=1`，且 AMReX 必须检测到 GPU-aware MPI。OSI 地址使用预计算 phase shift；Boundary
+`lbm.osi_mpi_device_direct=1`，且 AMReX 必须检测到 GPU-aware MPI。host-staging 分块
+流水通过 `lbm.osi_mpi_pipeline_chunk_bytes` 显式启用，默认为 0；当前已测最佳值
+为 2097152（2 MiB）。OSI 地址使用预计算 phase shift；Boundary
 保留坐标缓存，碰撞显式坐标缓存和 branchless 分支均未保留。
 
 ## 最新验证
+
+- CUDA+MPI 构建 `compile-20260914T194426.log` 通过。2 MiB 分块流水的全周期
+  job `596145` 和六面非周期 job `596150` 均完成 384/384 次六阶段
+  `linf=0`。
+- 同节点 1000 步 job `596146` 中，2 MiB 流水将 OSI communication 从
+  3.848--3.854 s 降至 3.518--3.529 s，total 从 4.381--4.386 s 降至
+  4.045--4.049 s；相比同作业 FillBoundary 的 4.616--4.622 s 快约
+  12.3%--12.5%。
+- chunk 扫描 jobs `596147`/`596148`/`596149` 分别覆盖 1/4/8 MiB；当前
+  单 peer、每 rank 约 16 MB payload 下 2 MiB 是已测最佳值。这是显式性能选项，
+  未改为生产默认。
 
 - `tests/run_osi_index_test.sh` 已修正为当前 `OSI` 命名空间，并通过。
 - CUDA+MPI 当前源码构建通过；阶段 oracle 作业 `589641`（A-B/OSI、单层非周期、64
@@ -45,8 +58,9 @@
 ## 结论边界与待办
 
 同层跨 MPI direct 已在单层、多 Fab、2 ranks/2 GPUs 的全周期和六面非周期条件下通过
-逐阶段 A-B；它仍不能证明多层动态 regrid、restart 或运动 IBM 的逐点等价。当前性能
-HMPI 下的性能差距主要位于 host staging 和 MPI wait。CUDA-aware OpenMPI 路径已经
+逐阶段 A-B；它仍不能证明多层动态 regrid、restart 或运动 IBM 的逐点等价。
+2 MiB 分块流水在已测单 peer 配置下已超过 FillBoundary，但多 peer、多节点和
+多层 AMR 的消息数、chunk 大小与重叠收益仍待重新验收。CUDA-aware OpenMPI 路径已经
 证明数值正确，但当前 transport 的 device MPI wait 比 host staging 路径高一个数量级，
 不得作为生产性能路径。后续需要排查 UCX CUDA transport、rendezvous 协议和 GPU Direct
 能力；代码仍不得在未确认 MPI 能力时用 `amrex.use_gpu_aware_mpi=1` 绕过门禁。

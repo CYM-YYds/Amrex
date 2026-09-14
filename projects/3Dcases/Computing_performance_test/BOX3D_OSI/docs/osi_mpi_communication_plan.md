@@ -189,11 +189,11 @@ job `595950` 的周期 64 步六阶段 oracle 为 384/384 次 `linf=0`；但性�
 5.012--5.018 s。推断提前接收使 MPI 接收进度与 pack/D2H 争用单节点 host-staging
 内存带宽，收益不足以抵消干扰，因此已恢复 pack 完成后再投递 recv/send 的顺序。
 
-阶段 F/G 表明不能只按普通 `FillBoundary` 的布局或时序逐项照搬。下一步应先把 pack
-kernel、D2H、MPI wait、H2D 和 unpack 拆成独立计时，并记录每 peer 字节数；随后再针对
-确认的主导项实验 raw 环绕拆分或异步 copy/stream，不能继续用聚合计时猜测瓶颈。
+阶段 F/G 表明不能只按普通 `FillBoundary` 的布局或时序逐项照搬。随后的
+阶段 H 将 pack kernel、D2H、MPI wait、H2D 和 unpack 拆成独立计时，
+并记录每 peer 字节数，再依据主导项实验异步 copy 和分块流水。
 
-### 阶段 H：细分通信计时（实施中）
+### 阶段 H：细分通信计时与 host-staging 分块流水（已验收）
 
 保持阶段 E 的最佳通信算法不变，新增 `osi_mpi_pack_kernel`、`osi_mpi_dtoh`、
 `osi_mpi_htod` 和 `osi_mpi_unpack_kernel`；原 `osi_mpi_pack/osi_mpi_unpack` 继续作为
@@ -224,6 +224,25 @@ correctness job `596142` 的 384 次六阶段检查全部 `linf=0`。同一资�
 H2D 的等待从 `osi_mpi_unpack` 转移到 `osi_mpi_wait`，但本地 seam copy 和 send 收尾
 都不足以遮蔽整块 staging copy。因此不将该开关改为默认；后续若继续优化，
 应评估 peer/chunk 级 D2H-MPI-H2D 流水或减少 payload，而不是只增加整块 memcpy stream。
+
+2026-09-14 随后增加了 `lbm.osi_mpi_pipeline_chunk_bytes` 实验开关。非零时，
+每个 peer 的 payload 按指定字节数分块：所有 receive 先投递，每个 send chunk
+完成 D2H 后立即进入 MPI，并与下一块 D2H 重叠；receive chunk 到达后立即
+在独立 stream 上 H2D，CPU 继续等待后续块。开关默认为 0，且与整块
+`osi_mpi_async_staging` 互斥。
+
+2 MiB correctness job `596145` 的 384 次六阶段检查全部 `linf=0`。同节点
+1000 步 job `596146` 中，2 MiB 流水将 OSI communication 从 3.848--3.854 s
+降至 3.518--3.529 s，降幅约 8.5%；total 从 4.381--4.386 s 降至
+4.045--4.049 s，并比同作业 FillBoundary 的 4.616--4.622 s 快约 12.3%--12.5%。
+
+chunk 扫描作业为 1 MiB `596147`、4 MiB `596148`、8 MiB `596149`。1 MiB
+的请求/同步开销过大，4 MiB 略慢于 2 MiB，8 MiB 的流水深度不足；当前
+单 peer、每 rank 约 16 MB payload 配置下，2 MiB 是已测最佳值。该值尚未外推到
+多 peer、多节点或多层 AMR，因此仍作为显式性能选项，不改生产默认。
+六面非周期 correctness job `596150` 亦在 2 MiB 分块下完成 384/384 次
+`linf=0`，因此当前已验收范围包含单层、两 rank、多 Fab 的全周期与六面
+非周期 same-level 通信。
 
 ## 4. 正确性不变量
 

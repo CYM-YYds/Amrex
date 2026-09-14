@@ -1,5 +1,25 @@
 # BOX3D_OSI 性能分析与历史 A-B 基线
 
+## 2026-09-14：host-staging 分块流水
+
+当前最新受控对照为 job `596146`：2 ranks、2 GPUs、单层 8 Fab、全周期、
+1000 步，同一资源分配内依次运行 FillBoundary、整块 OSI host-staging 和
+2 MiB chunk 流水。
+
+| 路径 | rank 0 total (s) | rank 1 total (s) | rank 0 comm (s) | rank 1 comm (s) |
+| --- | ---: | ---: | ---: | ---: |
+| FillBoundary | 4.62224 | 4.61639 | 3.72053 | 3.71359 |
+| OSI 整块 host-staging | 4.38567 | 4.38076 | 3.85391 | 3.84765 |
+| OSI 2 MiB 分块流水 | 4.04451 | 4.04935 | 3.51753 | 3.52852 |
+
+2 MiB 流水相比整块 OSI 将 communication 降低约 8.3%--8.7%，total 降低
+约 7.6%--7.8%；相比同作业 FillBoundary 的 total 快约 12.3%--12.5%。
+jobs `596147`/`596148`/`596149` 的 1/4/8 MiB 扫描中，2 MiB 为已测最佳。
+周期 job `596145` 和六面非周期 job `596150` 均完成 384/384 次六阶段
+`linf=0`。该结论仅覆盖单节点、单 peer、单层同层通信；运行参数
+`lbm.osi_mpi_pipeline_chunk_bytes` 默认为 0，不将 2 MiB 结论自动外推到多节点或
+多层 AMR。
+
 ## 2026-09-14 CUDA-aware MPI 验收
 
 使用 CUDA-aware OpenMPI 4.1.5、UCX 1.12.1、2 ranks、2 GPUs、单层 8 Fab、全周期

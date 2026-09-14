@@ -531,6 +531,10 @@ void AmrCoreLBM::ReadParameters() {
         pp.query("osi_mpi_direct", osi_mpi_direct);
         pp.query("osi_mpi_device_direct", osi_mpi_device_direct);
         pp.query("osi_mpi_async_staging", osi_mpi_async_staging);
+        pp.query("osi_mpi_pipeline_chunk_bytes", osi_mpi_pipeline_chunk_bytes);
+        if (osi_mpi_pipeline_chunk_bytes < 0) {
+            amrex::Abort("lbm.osi_mpi_pipeline_chunk_bytes must be non-negative");
+        }
         int n = pp.countval("err");
         if (n > 0) {
             pp.getarr("err", err, 0, n);
@@ -2098,6 +2102,12 @@ void AmrCoreLBM::ValidateConfiguration() const {
              Gpu::Device::numGpuStreams() > 1),
         "lbm.osi_mpi_async_staging requires host-staged lbm.osi_mpi_direct=1 "
         "and at least two AMReX GPU streams");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        osi_mpi_pipeline_chunk_bytes == 0 ||
+            (osi_mpi_direct && !osi_mpi_device_direct &&
+             !osi_mpi_async_staging && Gpu::Device::numGpuStreams() > 1),
+        "lbm.osi_mpi_pipeline_chunk_bytes requires host-staged "
+        "lbm.osi_mpi_direct=1, async_staging=0, and at least two GPU streams");
     if (max_level > 1) {
         amrex::Print()
             << "[OSI validation warning] More than two AMR levels are enabled. "
@@ -2129,6 +2139,8 @@ void AmrCoreLBM::ValidateConfiguration() const {
                    << " mpi_transport="
                    << (osi_mpi_device_direct ? "device" : "host-staging")
                    << " mpi_async_staging=" << (osi_mpi_async_staging ? 1 : 0)
+                   << " mpi_pipeline_chunk_bytes="
+                   << osi_mpi_pipeline_chunk_bytes
                    << " grown-fab overlap synchronization enabled\n";
 
     for (int lev = 0; lev <= finest_level; ++lev) {
@@ -2581,6 +2593,12 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
     auto& recv_device = osi_mpi_recv_device.at(lev);
     auto& send_host = osi_mpi_send_host.at(lev);
     auto& recv_host = osi_mpi_recv_host.at(lev);
+    const bool pipeline_staging = osi_mpi_pipeline_chunk_bytes > 0;
+    const std::size_t pipeline_chunk_reals = pipeline_staging
+                                                 ? std::max<std::size_t>(
+                                                       1, static_cast<std::size_t>(osi_mpi_pipeline_chunk_bytes) /
+                                                              sizeof(Real))
+                                                 : 0;
     bool local_copy_launched = false;
 
     {
@@ -2605,7 +2623,8 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
                         tag.src(raw.x, raw.y, raw.z, q);
                 });
         }
-        if (!osi_mpi_device_direct && !send_device.empty()) {
+        if (!osi_mpi_device_direct && !pipeline_staging &&
+            !send_device.empty()) {
             if (osi_mpi_async_staging) {
                 const double dtoh_start = amrex::second();
                 // stream 1 只承载 staging copy；stream 0 继续执行本地 seam copy。
@@ -2632,10 +2651,23 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
         const int mpi_tag = ParallelDescriptor::SeqNum();
         Vector<ParallelDescriptor::Message> receives;
         Vector<ParallelDescriptor::Message> sends;
+        Vector<std::size_t> recv_chunk_offsets;
+        Vector<std::size_t> recv_chunk_counts;
         receives.reserve(nprocs);
         sends.reserve(nprocs);
         for (int peer = 0; peer < nprocs; ++peer) {
-            if (recv_counts[peer] != 0) {
+            if (pipeline_staging) {
+                for (std::size_t done = 0; done < recv_counts[peer];
+                     done += pipeline_chunk_reals) {
+                    const std::size_t count = std::min(
+                        pipeline_chunk_reals, recv_counts[peer] - done);
+                    const std::size_t offset = recv_offsets[peer] + done;
+                    receives.push_back(ParallelDescriptor::Arecv(
+                        recv_host.data() + offset, count, peer, mpi_tag));
+                    recv_chunk_offsets.push_back(offset);
+                    recv_chunk_counts.push_back(count);
+                }
+            } else if (recv_counts[peer] != 0) {
                 Real* recv_buffer = osi_mpi_device_direct
                                         ? recv_device.data()
                                         : recv_host.data();
@@ -2644,8 +2676,30 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
                     peer, mpi_tag));
             }
         }
+        if (pipeline_staging && !local_copy_launched) {
+            launch_local_copy();
+            local_copy_launched = true;
+        }
         for (int peer = 0; peer < nprocs; ++peer) {
-            if (send_counts[peer] != 0) {
+            if (pipeline_staging) {
+                for (std::size_t done = 0; done < send_counts[peer];
+                     done += pipeline_chunk_reals) {
+                    const std::size_t count = std::min(
+                        pipeline_chunk_reals, send_counts[peer] - done);
+                    const std::size_t offset = send_offsets[peer] + done;
+                    const double dtoh_start = amrex::second();
+                    // 当前 chunk 搬运时，前一 chunk 已可在 MPI 中传输。
+                    Gpu::Device::setStreamIndex(1);
+                    Gpu::dtoh_memcpy_async(send_host.data() + offset,
+                                           send_device.data() + offset,
+                                           count * sizeof(Real));
+                    Gpu::streamSynchronize();
+                    Gpu::Device::resetStreamIndex();
+                    perf_stats.osi_mpi_dtoh += amrex::second() - dtoh_start;
+                    sends.push_back(ParallelDescriptor::Asend(
+                        send_host.data() + offset, count, peer, mpi_tag));
+                }
+            } else if (send_counts[peer] != 0) {
                 const Real* send_buffer = osi_mpi_device_direct
                                               ? send_device.data()
                                               : send_host.data();
@@ -2657,8 +2711,21 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
         if (!local_copy_launched) {
             launch_local_copy();
         }
-        for (auto& message : receives) {
-            message.wait();
+        double pipeline_htod_start = 0.0;
+        for (std::size_t i = 0; i < receives.size(); ++i) {
+            receives[i].wait();
+            if (pipeline_staging) {
+                if (pipeline_htod_start == 0.0) {
+                    pipeline_htod_start = amrex::second();
+                }
+                // 已到达 chunk 回传时，CPU 继续等待后续 receive。
+                Gpu::Device::setStreamIndex(1);
+                Gpu::htod_memcpy_async(
+                    recv_device.data() + recv_chunk_offsets[i],
+                    recv_host.data() + recv_chunk_offsets[i],
+                    recv_chunk_counts[i] * sizeof(Real));
+                Gpu::Device::resetStreamIndex();
+            }
         }
         double htod_start = 0.0;
         if (osi_mpi_async_staging && !recv_device.empty()) {
@@ -2672,6 +2739,12 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
         for (auto& message : sends) {
             message.wait();
         }
+        if (pipeline_staging && pipeline_htod_start != 0.0) {
+            Gpu::Device::setStreamIndex(1);
+            Gpu::streamSynchronize();
+            Gpu::Device::resetStreamIndex();
+            perf_stats.osi_mpi_htod += amrex::second() - pipeline_htod_start;
+        }
         if (osi_mpi_async_staging && !recv_device.empty()) {
             Gpu::Device::setStreamIndex(1);
             Gpu::streamSynchronize();
@@ -2683,6 +2756,7 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
     {
         ScopedPerfTimer unpack_timer(perf_stats.osi_mpi_unpack);
         if (!osi_mpi_device_direct && !osi_mpi_async_staging &&
+            !pipeline_staging &&
             !recv_device.empty()) {
             ScopedPerfTimer htod_timer(perf_stats.osi_mpi_htod);
             Gpu::htod_memcpy(recv_device.data(), recv_host.data(),

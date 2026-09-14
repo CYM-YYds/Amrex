@@ -387,6 +387,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     // host staging 实验路径：用独立 GPU stream 将批量 D2H/H2D 与本地
     // seam copy 和 MPI send 收尾重叠；默认关闭，便于与同步基线直接对照。
     bool osi_mpi_async_staging = false;
+    // 非零时将每个 peer 的 host staging payload 按字节上限分块，
+    // 形成 D2H/MPI/H2D 流水；默认 0 保留整块通信基线。
+    int osi_mpi_pipeline_chunk_bytes = 0;
     // 模式 1 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
     amrex::Vector<amrex::MultiFab> average_interface_buffer;
     // 将每个稀疏交界 Box 映射到包含其全部子单元的细层 Fab。

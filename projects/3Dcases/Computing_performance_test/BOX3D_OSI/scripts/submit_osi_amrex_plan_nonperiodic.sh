@@ -49,4 +49,5 @@ mpirun \
     'geometry.is_periodic=0 0 0' amr.regrid_int=-1 amr.plot_int=-1 \
     checkpoint.chk_int=-1 verification.convergence_enabled=false \
     verification.osi_seed_pattern=true verification.osi_ab_check=true \
-    lbm.stream_mode=1 lbm.osi_local_direct=1 lbm.osi_mpi_direct=1
+    lbm.stream_mode=1 lbm.osi_local_direct=1 lbm.osi_mpi_direct=1 \
+    ${AMREX_RUN_ARGS:-}
