@@ -295,7 +295,9 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  NZ     =" << std::setw(10) << std::right << Geom(0).Domain().length(2) << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  dx_0   =" << std::setw(10) << std::right << grid_.dx << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  dx_min =" << std::setw(10) << std::right << grid_.dx_min << std::endl;
-    amrex::Print() << std::setw(15) << std::left << "  Re     =" << std::setw(10) << std::right << Re << std::endl;
+    const amrex::Real reynolds_number =
+        U0 * grid_.x_length / grid_.viscosity;
+    amrex::Print() << std::setw(15) << std::left << "  Re     =" << std::setw(10) << std::right << reynolds_number << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  cs2    =" << std::setw(10) << std::right << cs2 << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  p0     =" << std::setw(10) << std::right << p0 << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  Ma     =" << std::setw(10) << std::right << Ma << std::endl;

@@ -23,6 +23,7 @@ namespace {
 struct InputConfig {
     int max_step;
     Real stop_time;
+    Real reynolds_number;
     int max_level;
     Vector<int> n_cell;
     Vector<Real> prob_lo;
@@ -40,6 +41,9 @@ InputConfig ReadInputConfig() {
     ParmParse pp;
     pp.get("max_step", config.max_step);
     pp.get("stop_time", config.stop_time);
+
+    ParmParse pp_lbm("lbm");
+    pp_lbm.get("reynolds_number", config.reynolds_number);
 
     ParmParse pp_amr("amr");
     pp_amr.get("max_level", config.max_level);
@@ -67,6 +71,9 @@ InputConfig ReadInputConfig() {
         config.max_step >= 0, "max_step must be non-negative");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         config.stop_time >= 0.0, "stop_time must be non-negative");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        std::isfinite(config.reynolds_number) && config.reynolds_number > 0.0,
+        "lbm.reynolds_number must be finite and positive");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         config.max_level >= 0 && config.max_level <= max_ref_level,
         "amr.max_level must be within the compiled AMR level range");
@@ -137,7 +144,7 @@ int main(int argc, char* argv[]) {
         const LbmGridParams grid{
             input.n_cell[0], input.n_cell[1], input.n_cell[2],
             x_length, y_length, z_length, dx, dx, dx / rate, dx / rate,
-            U0 * x_length / Re};
+            U0 * x_length / input.reynolds_number};
         const std::array<int, AMREX_SPACEDIM> is_periodic{
             AMREX_D_DECL(periodic_input[0], periodic_input[1], periodic_input[2])};
 
