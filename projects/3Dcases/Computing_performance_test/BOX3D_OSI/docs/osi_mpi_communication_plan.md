@@ -212,6 +212,19 @@ job `596139` 的周期 oracle 为 384/384 次 `linf=0`。1000 步 job `596140` �
 逐元素访问 PCIe 映射 pinned 内存的代价远大于批量 D2H/H2D，因此该代码路径与临时
 提交脚本均已删除。后续保留 device staging，优先评估异步批量 memcpy 的重叠空间。
 
+2026-09-14 继续增加了默认关闭的 `lbm.osi_mpi_async_staging=1` 实验路径：
+D2H 在 AMReX stream 1 上执行，同时 stream 0 执行 rank-local seam copy；远端
+receive 完成后，H2D 在 stream 1 上与 MPI send 收尾重叠。该开关只允许用于
+host-staged MPI direct 且要求至少两个 GPU stream，同步路径仍是默认基线。
+
+correctness job `596142` 的 384 次六阶段检查全部 `linf=0`。同一资源分配内的
+1000 步 job `596144` 显示，同步 OSI 的两 rank total 为 4.33145/4.33630 s，
+异步 OSI 为 4.33274/4.32664 s，分别变化 +0.03%/-0.22%；communication 分别变化
++0.18%/-0.14%。这与运行波动同量级，不能认定为性能改善。异步路径主要把
+H2D 的等待从 `osi_mpi_unpack` 转移到 `osi_mpi_wait`，但本地 seam copy 和 send 收尾
+都不足以遮蔽整块 staging copy。因此不将该开关改为默认；后续若继续优化，
+应评估 peer/chunk 级 D2H-MPI-H2D 流水或减少 payload，而不是只增加整块 memcpy stream。
+
 ## 4. 正确性不变量
 
 - 通信使用当前 phase；不能使用下一次 Stream 提交后的 phase。

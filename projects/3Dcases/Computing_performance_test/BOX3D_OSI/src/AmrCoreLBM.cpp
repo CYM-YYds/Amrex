@@ -530,6 +530,7 @@ void AmrCoreLBM::ReadParameters() {
         pp.query("osi_local_direct", osi_local_direct);
         pp.query("osi_mpi_direct", osi_mpi_direct);
         pp.query("osi_mpi_device_direct", osi_mpi_device_direct);
+        pp.query("osi_mpi_async_staging", osi_mpi_async_staging);
         int n = pp.countval("err");
         if (n > 0) {
             pp.getarr("err", err, 0, n);
@@ -2091,6 +2092,12 @@ void AmrCoreLBM::ValidateConfiguration() const {
         !osi_mpi_device_direct || ParallelDescriptor::UseGpuAwareMpi(),
         "lbm.osi_mpi_device_direct requires AMReX GPU-aware MPI support; "
         "set amrex.use_gpu_aware_mpi=1 only when the MPI implementation supports device pointers");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        !osi_mpi_async_staging ||
+            (osi_mpi_direct && !osi_mpi_device_direct &&
+             Gpu::Device::numGpuStreams() > 1),
+        "lbm.osi_mpi_async_staging requires host-staged lbm.osi_mpi_direct=1 "
+        "and at least two AMReX GPU streams");
     if (max_level > 1) {
         amrex::Print()
             << "[OSI validation warning] More than two AMR levels are enabled. "
@@ -2121,6 +2128,7 @@ void AmrCoreLBM::ValidateConfiguration() const {
                        osi_sync_batch_components)
                    << " mpi_transport="
                    << (osi_mpi_device_direct ? "device" : "host-staging")
+                   << " mpi_async_staging=" << (osi_mpi_async_staging ? 1 : 0)
                    << " grown-fab overlap synchronization enabled\n";
 
     for (int lev = 0; lev <= finest_level; ++lev) {
@@ -2573,6 +2581,7 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
     auto& recv_device = osi_mpi_recv_device.at(lev);
     auto& send_host = osi_mpi_send_host.at(lev);
     auto& recv_host = osi_mpi_recv_host.at(lev);
+    bool local_copy_launched = false;
 
     {
         ScopedPerfTimer pack_timer(perf_stats.osi_mpi_pack);
@@ -2597,9 +2606,24 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
                 });
         }
         if (!osi_mpi_device_direct && !send_device.empty()) {
-            ScopedPerfTimer dtoh_timer(perf_stats.osi_mpi_dtoh);
-            Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
-                             send_device.size() * sizeof(Real));
+            if (osi_mpi_async_staging) {
+                const double dtoh_start = amrex::second();
+                // stream 1 只承载 staging copy；stream 0 继续执行本地 seam copy。
+                Gpu::Device::setStreamIndex(1);
+                Gpu::dtoh_memcpy_async(send_host.data(), send_device.data(),
+                                       send_device.size() * sizeof(Real));
+                Gpu::Device::resetStreamIndex();
+                launch_local_copy();
+                local_copy_launched = true;
+                Gpu::Device::setStreamIndex(1);
+                Gpu::streamSynchronize();
+                Gpu::Device::resetStreamIndex();
+                perf_stats.osi_mpi_dtoh += amrex::second() - dtoh_start;
+            } else {
+                ScopedPerfTimer dtoh_timer(perf_stats.osi_mpi_dtoh);
+                Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
+                                 send_device.size() * sizeof(Real));
+            }
         }
     }
 
@@ -2630,18 +2654,36 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
                     peer, mpi_tag));
             }
         }
-        launch_local_copy();
+        if (!local_copy_launched) {
+            launch_local_copy();
+        }
         for (auto& message : receives) {
             message.wait();
         }
+        double htod_start = 0.0;
+        if (osi_mpi_async_staging && !recv_device.empty()) {
+            htod_start = amrex::second();
+            // recv 完成后立即回传，CPU 同时等待非阻塞 send 收尾。
+            Gpu::Device::setStreamIndex(1);
+            Gpu::htod_memcpy_async(recv_device.data(), recv_host.data(),
+                                   recv_device.size() * sizeof(Real));
+            Gpu::Device::resetStreamIndex();
+        }
         for (auto& message : sends) {
             message.wait();
+        }
+        if (osi_mpi_async_staging && !recv_device.empty()) {
+            Gpu::Device::setStreamIndex(1);
+            Gpu::streamSynchronize();
+            Gpu::Device::resetStreamIndex();
+            perf_stats.osi_mpi_htod += amrex::second() - htod_start;
         }
     }
 
     {
         ScopedPerfTimer unpack_timer(perf_stats.osi_mpi_unpack);
-        if (!osi_mpi_device_direct && !recv_device.empty()) {
+        if (!osi_mpi_device_direct && !osi_mpi_async_staging &&
+            !recv_device.empty()) {
             ScopedPerfTimer htod_timer(perf_stats.osi_mpi_htod);
             Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
                              recv_device.size() * sizeof(Real));

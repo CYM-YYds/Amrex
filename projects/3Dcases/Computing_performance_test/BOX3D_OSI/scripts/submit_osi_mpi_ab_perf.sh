@@ -24,6 +24,11 @@ APP_EXE="${CASE_DIR}/main3d.gnu.TPROF.MPI.CUDA.ex"
 INPUTS="${CASE_DIR}/config/inputs"
 cd "${CASE_DIR}"
 
+EXPERIMENT_ARGS=()
+if [[ -n "${AMREX_RUN_ARGS:-}" ]]; then
+    read -r -a EXPERIMENT_ARGS <<< "${AMREX_RUN_ARGS}"
+fi
+
 if [[ ! -x "${APP_EXE}" ]]; then
     echo "ERROR: ${APP_EXE} is missing; compile BOX3D_OSI first." >&2
     exit 1
@@ -77,3 +82,11 @@ run_case OSI_MPI_DIRECT \
     lbm.stream_mode=1 \
     lbm.osi_local_direct=1 \
     lbm.osi_mpi_direct=1
+
+if (( ${#EXPERIMENT_ARGS[@]} != 0 )); then
+    run_case OSI_MPI_EXPERIMENT \
+        lbm.stream_mode=1 \
+        lbm.osi_local_direct=1 \
+        lbm.osi_mpi_direct=1 \
+        "${EXPERIMENT_ARGS[@]}"
+fi
