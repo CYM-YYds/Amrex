@@ -2324,7 +2324,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                 const Box source_query = dst_ghost - shift;
                 for (const auto& [src, exact_source] :
                      ba.intersections(source_query)) {
-                    const Box destination_box = exact_source + shift;// 一块dst_ghost可能对应多个source_box，而每个source_box对应的destination_box可能不同，所以需要用这种方式来得到destination_box
+                    const Box destination_box = exact_source + shift; // 一块dst_ghost可能对应多个source_box，而每个source_box对应的destination_box可能不同，所以需要用这种方式来得到destination_box
 
                     AMREX_ALWAYS_ASSERT(ba[src].contains(exact_source));
                     AMREX_ALWAYS_ASSERT(dst_ghost.contains(destination_box));
@@ -2430,9 +2430,8 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                     const OSI::FabGeometry src_fab{
                         {slo[0], slo[1], slo[2]},
                         {ring_src.length(0), ring_src.length(1), ring_src.length(2)}};
-                    local_tags.push_back({
-                        state.const_array(src), state.array(dst),
-                        exact_source, destination_box, src_fab, dst_fab});
+                    local_tags.push_back({state.const_array(src), state.array(dst),
+                                          exact_source, destination_box, src_fab, dst_fab});
                 }
             }
         }
@@ -2443,10 +2442,10 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     // 将本 rank 的远端配对按 peer 排列，并一次性建立融合 GPU tag 与 staging 缓冲。
     const int my_rank = ParallelDescriptor::MyProc();
     const int nprocs = ParallelDescriptor::NProcs();
-    auto& send_offsets = osi_mpi_send_offsets.at(lev);
-    auto& recv_offsets = osi_mpi_recv_offsets.at(lev);
-    auto& send_counts = osi_mpi_send_counts.at(lev);
-    auto& recv_counts = osi_mpi_recv_counts.at(lev);
+    auto& send_offsets = osi_mpi_send_offsets.at(lev); // 发给 peer 的数据在总发送缓冲中的起点
+    auto& recv_offsets = osi_mpi_recv_offsets.at(lev); // 从 peer 收到的数据在总接收缓冲中的起点
+    auto& send_counts = osi_mpi_send_counts.at(lev);   // 发给 peer 的 Real 元素总数
+    auto& recv_counts = osi_mpi_recv_counts.at(lev);   // 从 peer 接收的 Real 元素总数
     send_offsets.assign(nprocs, 0);
     recv_offsets.assign(nprocs, 0);
     send_counts.assign(nprocs, 0);
@@ -2477,22 +2476,14 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
         if (tag.src_rank == my_rank) {
             const Box ring = amrex::grow(ba[tag.src_index], ng);
             const auto lo = ring.smallEnd();
-            pack_tags.push_back({
-                state.const_array(tag.src_index), tag.src_box,
-                {{lo[0], lo[1], lo[2]},
-                 {ring.length(0), ring.length(1), ring.length(2)}},
-                send_cursor[tag.dst_rank]});
+            pack_tags.push_back({state.const_array(tag.src_index), tag.src_box, {{lo[0], lo[1], lo[2]}, {ring.length(0), ring.length(1), ring.length(2)}}, send_cursor[tag.dst_rank]});
             send_cursor[tag.dst_rank] +=
                 static_cast<std::size_t>(tag.src_box.numPts()) * Q;
         }
         if (tag.dst_rank == my_rank) {
             const Box ring = amrex::grow(ba[tag.dst_index], ng);
             const auto lo = ring.smallEnd();
-            unpack_tags.push_back({
-                state.array(tag.dst_index), tag.dst_box,
-                {{lo[0], lo[1], lo[2]},
-                 {ring.length(0), ring.length(1), ring.length(2)}},
-                recv_cursor[tag.src_rank]});
+            unpack_tags.push_back({state.array(tag.dst_index), tag.dst_box, {{lo[0], lo[1], lo[2]}, {ring.length(0), ring.length(1), ring.length(2)}}, recv_cursor[tag.src_rank]});
             recv_cursor[tag.src_rank] +=
                 static_cast<std::size_t>(tag.dst_box.numPts()) * Q;
         }
