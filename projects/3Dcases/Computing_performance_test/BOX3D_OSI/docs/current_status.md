@@ -76,9 +76,8 @@
 日志、可执行文件和 checkpoint 均保留，未执行清理；当前算例根目录未发现
 `Backtrace.0/1` 实体文件，IDE 标签页可能是已删除文件的缓存。
 
-主提交入口尚未提供独立的 restart-source 参数。当前 `checkpoint.chk_prefix` 同时用于
-读取和写入，因此不能直接指向旧运行目录后继续生产写出；需要先实现“在新运行目录链接
-只读源 checkpoint、后续仍以本地 `chk` 前缀写出”的提交脚本门禁。
+主提交入口现通过 `RESTART_CHECKPOINT` 接收只读源 checkpoint，并在新运行目录创建
+本地 `chk<step>` 符号链接；程序后续仍以本地 `chk` 前缀写出，因此不会回写源目录。
 
 ## 入口
 

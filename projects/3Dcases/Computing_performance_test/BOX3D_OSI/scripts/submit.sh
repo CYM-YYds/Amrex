@@ -36,6 +36,25 @@ if [[ -e "${RUN_DIR}" ]]; then
 fi
 mkdir -p "${RUN_DIR}"
 
+# 续跑时只把历史 checkpoint 作为只读入口链接到新运行目录；后续 checkpoint
+# 仍使用本地 chk 前缀写出，避免覆盖或清理历史运行目录中的源数据。
+RESTART_CHECKPOINT="${RESTART_CHECKPOINT:-}"
+if [[ -n "${RESTART_CHECKPOINT}" ]]; then
+    RESTART_CHECKPOINT="$(realpath "${RESTART_CHECKPOINT}")"
+    if [[ ! -f "${RESTART_CHECKPOINT}/Header" ]]; then
+        echo "ERROR: restart checkpoint Header not found: ${RESTART_CHECKPOINT}/Header" >&2
+        exit 1
+    fi
+    RESTART_STEP="$(sed -n '3p' "${RESTART_CHECKPOINT}/Header")"
+    if [[ ! "${RESTART_STEP}" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: invalid restart step in ${RESTART_CHECKPOINT}/Header: ${RESTART_STEP}" >&2
+        exit 1
+    fi
+    RESTART_LINK="${RUN_DIR}/chk$(printf '%08d' "${RESTART_STEP}")"
+    ln -s "${RESTART_CHECKPOINT}" "${RESTART_LINK}"
+    AMREX_RUN_ARGS="${AMREX_RUN_ARGS:-} checkpoint.begin_step=${RESTART_STEP} checkpoint.chk_prefix=chk"
+fi
+
 # 冻结当前输入和命令行覆盖；历史运行目录中的这两份记录不得回写。
 cp "${SOURCE_INPUTS}" "${RUN_DIR}/inputs"
 chmod a-w "${RUN_DIR}/inputs"
@@ -48,6 +67,7 @@ printf '%s\n' "${AMREX_RUN_ARGS:-}" >> "${RUN_DIR}/command.txt"
     echo "job_id=${CCS_JOB_ID:-manual}"
     echo "created_at=$(date --iso-8601=seconds)"
     echo "source_inputs=${SOURCE_INPUTS}"
+    echo "restart_checkpoint=${RESTART_CHECKPOINT:-none}"
     echo "git_commit=$(git -C "${CASE_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
     if [[ -n "$(git -C "${CASE_DIR}" status --short 2>/dev/null)" ]]; then
         echo "git_worktree=dirty"

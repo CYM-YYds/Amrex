@@ -77,9 +77,10 @@ dsub -s ./scripts/submit.sh
 会把原始字符串写入 `overrides.txt`，但它仍不如独立算例定义直观。
 
 现有 `scripts/submit_*.sh` 是专项验证入口，各自管理工作目录和输出，不自动采用上述
-`runs/` 快照流程。从历史 checkpoint 重启到新的独立运行目录也尚未由主提交脚本自动
-处理；在补充显式的重启源参数前，不应把旧 checkpoint 的绝对前缀直接写入生产配置，
-否则后续 checkpoint 可能写回旧目录。
+`runs/` 快照流程。从历史 checkpoint 续跑时，通过 `RESTART_CHECKPOINT` 指定完整的
+checkpoint 目录；主提交脚本会在新运行目录创建本地 `chk<step>` 只读符号链接，并自动
+覆盖 `checkpoint.begin_step` 和 `checkpoint.chk_prefix=chk`。后续 checkpoint 仍写在新
+运行目录，不会写回或清理历史源目录。
 
 构建选项以 `config/GNUmakefile` 为准；当前使用 AMReX 26.06、MPI、CUDA 和
 TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本。专项复现入口位于
