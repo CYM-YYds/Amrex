@@ -2442,7 +2442,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     }
 
     const int my_rank = ParallelDescriptor::MyProc();
-    for (const auto& [peer, tags] : *fb.m_SndTags) {
+    for (const auto& [peer, tags] : *fb.m_SndTags) { // peer表示目标MPI rank
         for (const auto& tag : tags) {
             remote_tags.push_back(
                 {my_rank, peer, tag.srcIndex, tag.dstIndex, tag.sbox, tag.dbox,
