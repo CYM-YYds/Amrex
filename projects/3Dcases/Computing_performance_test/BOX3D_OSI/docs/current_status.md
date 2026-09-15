@@ -1,18 +1,25 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-09-14
+更新时间：2026-09-15
 
 ## 现役配置
 
 权威参数在 `config/inputs`：`amr.max_level=2`、`amr.regrid_int=32`、
 `amr.max_grid_size=128`、`lbm.stream_mode=1`、`lbm.collide_mode=1`、
 `lbm.osi_local_direct=1`、`lbm.osi_mpi_direct=0`、`performance.report_int=1000`、
-`max_step=1000`。默认是 OSI 单数组路径；A-B 基准需显式覆盖 `lbm.stream_mode=0`。
+`max_step=96000`。默认是 OSI 单数组路径；A-B 基准需显式覆盖 `lbm.stream_mode=0`。
 跨 rank direct 路径需显式打开 `lbm.osi_mpi_direct=1`；device-buffer 还需显式打开
 `lbm.osi_mpi_device_direct=1`，且 AMReX 必须检测到 GPU-aware MPI。host-staging 分块
 流水通过 `lbm.osi_mpi_pipeline_chunk_bytes` 显式启用，默认为 0；当前已测最佳值
 为 2097152（2 MiB）。OSI 地址使用预计算 phase shift；Boundary
 保留坐标缓存，碰撞显式坐标缓存和 branchless 分支均未保留。
+
+主提交入口 `scripts/submit.sh` 以 `config/inputs` 为唯一当前工作配置，并在启动前复制
+到 `runs/<timestamp>_job<job-id>/inputs`。程序从该独立目录运行，PlotFile 使用 `plt_`
+前缀，checkpoint 使用 `chk` 前缀；同目录还记录命令行覆盖、完整命令、Git commit、
+可执行文件 SHA256 和运行日志。当前输出间隔为 `amr.plot_int=3200`、
+`checkpoint.chk_int=32000`。专项 `submit_*.sh` 仍采用各自的历史工作目录约定，不属于
+主入口的运行快照合同。
 
 ## 最新验证
 
@@ -68,6 +75,10 @@
 当前节点没有 `ncu`/`nsys`，因此尚无硬件内存事务、occupancy 和分支效率计数器。历史
 日志、可执行文件和 checkpoint 均保留，未执行清理；当前算例根目录未发现
 `Backtrace.0/1` 实体文件，IDE 标签页可能是已删除文件的缓存。
+
+主提交入口尚未提供独立的 restart-source 参数。当前 `checkpoint.chk_prefix` 同时用于
+读取和写入，因此不能直接指向旧运行目录后继续生产写出；需要先实现“在新运行目录链接
+只读源 checkpoint、后续仍以本地 `chk` 前缀写出”的提交脚本门禁。
 
 ## 入口
 

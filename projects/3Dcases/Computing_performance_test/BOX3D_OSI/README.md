@@ -6,7 +6,7 @@ one-step index（OSI）路径。
 
 ## 当前验证状态
 
-更新时间：2026-09-14。
+更新时间：2026-09-15。
 
 当前工作配置位于 `config/inputs`。每次提交时，脚本会把它冻结到独立运行目录，
 因此后续修改当前配置不会改变任何历史运行记录。
@@ -18,7 +18,8 @@ one-step index（OSI）路径。
 - `lbm.collide_mode=1`，使用 D3Q27 专用碰撞核。
 - OSI 所有地址路径统一使用预计算 phase shift，不再提供 legacy 取模开关；
 - `performance.report_int=1000`，按窗口输出总阶段和逐 level 碰撞统计；
-- `max_step=1000`、`amr.plot_int=1000`，当前输入已切换为短程验证配置。
+- `max_step=96000`、`amr.plot_int=3200`、`checkpoint.chk_int=32000`；
+- PlotFile 使用 `plt_` 前缀，checkpoint 使用 `chk` 前缀，均相对于本次运行目录。
 
 长程历史作业 `logs/submit/586660-out.log` 运行到 step 96000，正常完成，未观察到
 NaN、MPI abort 或异常终止。它证明当前配置在该运行窗口内稳定，但**尚未收敛**：
@@ -65,7 +66,7 @@ CUDA+MPI 构建验证，尚无受控数值对照结论。
 dsub -s ./scripts/submit.sh
 ```
 
-每次作业都会创建 `runs/<timestamp>_job<job-id>/`，并在其中保存只读
+通过 `scripts/submit.sh` 提交的作业会创建 `runs/<timestamp>_job<job-id>/`，并在其中保存只读
 `inputs` 快照、`overrides.txt`、`command.txt`、`manifest.txt`、`run.log`、PlotFile
 和 checkpoint。程序从该目录启动，因此所有相对输出路径都与本次输入绑定。
 
@@ -74,6 +75,11 @@ dsub -s ./scripts/submit.sh
 
 正式生产计算建议不使用 `AMREX_RUN_ARGS` 临时改变物理或网格参数；确需覆盖时，脚本
 会把原始字符串写入 `overrides.txt`，但它仍不如独立算例定义直观。
+
+现有 `scripts/submit_*.sh` 是专项验证入口，各自管理工作目录和输出，不自动采用上述
+`runs/` 快照流程。从历史 checkpoint 重启到新的独立运行目录也尚未由主提交脚本自动
+处理；在补充显式的重启源参数前，不应把旧 checkpoint 的绝对前缀直接写入生产配置，
+否则后续 checkpoint 可能写回旧目录。
 
 构建选项以 `config/GNUmakefile` 为准；当前使用 AMReX 26.06、MPI、CUDA 和
 TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本。专项复现入口位于
