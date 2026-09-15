@@ -8,7 +8,8 @@ one-step index（OSI）路径。
 
 更新时间：2026-09-14。
 
-当前权威运行参数位于 `config/inputs`：
+当前默认生产算例定义位于 `cases/re3200_osi/inputs`。`config/inputs` 暂时保留给
+历史专项脚本兼容使用，不应再通过反复覆盖它来管理多组生产算例。
 
 - `amr.max_level=2`，即 level 0--2 三个 AMR level；
 - `amr.regrid_int=32`；
@@ -64,13 +65,32 @@ CUDA+MPI 构建验证，尚无受控数值对照结论。
 dsub -s ./scripts/submit.sh
 ```
 
+默认提交 `cases/re3200_osi/inputs`。选择其他算例时通过环境变量指定：
+
+```bash
+BOX3D_CASE_NAME=re1000_ab dsub -s ./scripts/submit.sh
+```
+
+可用以下命令从默认定义创建新算例，然后编辑生成的独立 `inputs`：
+
+```bash
+./scripts/create_case.sh re1000_ab
+```
+
+每次作业都会创建 `runs/<case-name>/<timestamp>_job<job-id>/`，并在其中保存只读
+`inputs` 快照、`overrides.txt`、`command.txt`、`manifest.txt`、`run.log`、PlotFile
+和 checkpoint。程序从该目录启动，因此所有相对输出路径都与本次输入绑定。
+
+正式生产计算建议不使用 `AMREX_RUN_ARGS` 临时改变物理或网格参数；确需覆盖时，脚本
+会把原始字符串写入 `overrides.txt`，但它仍不如独立算例定义直观。
+
 构建选项以 `config/GNUmakefile` 为准；当前使用 AMReX 26.06、MPI、CUDA 和
 TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本。专项复现入口位于
 `scripts/submit_*.sh`，对应日志检查位于 `tests/`。
 
 ## 运行时网格参数
 
-`config/inputs` 是网格和物理域的唯一运行时入口：
+各 `cases/<case-name>/inputs` 是网格和物理域的运行时入口：
 
 - `amr.n_cell` 设置 level-0 的 `NX/NY/NZ`；
 - `geometry.prob_lo`、`geometry.prob_hi` 设置物理域边界；
