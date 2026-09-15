@@ -1737,7 +1737,7 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
         AMREX_ALWAYS_ASSERT(interface_result.size() == fine_box_indices.size());
 
         {
-            // 缩放与限制融合，不写回完整的缩放后 DDF 中间数据。
+            // 缩放与插值融合，不写回完整的缩放后 DDF 中间数据。
             ScopedPerfTimer fused_timer(perf_stats.average_fused);
             for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
                 const int fine_index = fine_box_indices[mfi.index()];
