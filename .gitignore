@@ -21,6 +21,7 @@ compile_commands.json
 # Generated directories
 **/data/
 **/tmp_build_dir/
+**/tmp/
 **/case_*/
 **/plt*/
 **/.cache/
