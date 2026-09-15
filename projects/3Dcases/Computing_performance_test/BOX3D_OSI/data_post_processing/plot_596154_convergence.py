@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""绘制作业 596154（Re=3200）的 level-0 速度收敛趋势。"""
+"""绘制作业 596154 和续跑作业 596532（Re=3200）的收敛趋势。"""
 
 import csv
 import re
@@ -9,7 +9,10 @@ import matplotlib.pyplot as plt
 
 
 CASE = Path(__file__).resolve().parents[1]
-LOG = CASE / "logs" / "submit" / "596154-out.log"
+LOGS = [
+    CASE / "logs" / "submit" / "596154-out.log",
+    CASE / "logs" / "submit" / "596532-out.log",
+]
 OUT = CASE / "data_post_processing" / "596154_Re3200_convergence.png"
 CSV_OUT = CASE / "data_post_processing" / "596154_Re3200_convergence.csv"
 
@@ -27,27 +30,31 @@ FORMAL = re.compile(
 
 
 def read_records():
-    trend_records = []
-    formal_records = []
-    for line in LOG.read_text(errors="replace").splitlines():
-        match = TREND.search(line)
-        if match:
-            step, interval, relative, velocity, delta = match.groups()
-            trend_records.append(
-                (int(step), int(interval), float(relative), float(velocity), float(delta))
-            )
-        match = FORMAL.search(line)
-        if match:
-            step, interval, relative, velocity, delta, tolerance, count, required, converged = match.groups()
-            formal_records.append(
-                (
+    # 续跑日志可能与前一段在重启步附近重叠，按绝对 step 去重。
+    trend_by_step = {}
+    formal_by_step = {}
+    for log in LOGS:
+        if not log.exists():
+            raise SystemExit(f"Missing log: {log}")
+        for line in log.read_text(errors="replace").splitlines():
+            match = TREND.search(line)
+            if match:
+                step, interval, relative, velocity, delta = match.groups()
+                trend_by_step[int(step)] = (
+                    int(step), int(interval), float(relative), float(velocity), float(delta)
+                )
+            match = FORMAL.search(line)
+            if match:
+                step, interval, relative, velocity, delta, tolerance, count, required, converged = match.groups()
+                formal_by_step[int(step)] = (
                     int(step), int(interval), float(relative), float(velocity),
                     float(delta), float(tolerance), int(count), int(required),
                     bool(int(converged)),
                 )
-            )
+    trend_records = [trend_by_step[step] for step in sorted(trend_by_step)]
+    formal_records = [formal_by_step[step] for step in sorted(formal_by_step)]
     if not trend_records or not formal_records:
-        raise SystemExit(f"No convergence records found in {LOG}")
+        raise SystemExit("No convergence records found")
     return trend_records, formal_records
 
 
@@ -79,6 +86,10 @@ ax_change.axhline(
     tolerance, color="#333333", linestyle="--", linewidth=1.1,
     label=f"Tolerance = {tolerance:.0e} (3 consecutive checks)",
 )
+ax_change.axvline(
+    96000, color="#777777", linestyle=":", linewidth=1.1,
+    label="Restart at step 96000",
+)
 ax_change.set_ylabel(r"Relative change $\|u^n-u^{n-k}\|_2/\|u^n\|_2$")
 ax_change.grid(True, which="both", alpha=0.25)
 ax_change.legend(fontsize=9)
@@ -91,10 +102,11 @@ ax_norm.set_xlabel("Coarse step")
 ax_norm.set_ylabel(r"Level-0 velocity $L_2$ norm")
 ax_norm.grid(True, alpha=0.25)
 
-fig.suptitle("BOX3D_OSI Re=3200 convergence trend — job 596154")
+fig.suptitle("BOX3D_OSI Re=3200 convergence trend — jobs 596154 + 596532")
 fig.text(
     0.5, 0.012,
-    "Source: logs/submit/596154-out.log; non-periodic; levels 0–2; "
+    "Sources: logs/submit/596154-out.log + 596532-out.log; steps 0–192000; "
+    "non-periodic; levels 0–2; "
     "relative changes use 1000/3200-step intervals",
     ha="center", fontsize=8,
 )
