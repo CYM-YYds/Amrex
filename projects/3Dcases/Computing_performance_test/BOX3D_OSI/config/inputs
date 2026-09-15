@@ -101,7 +101,8 @@ performance.report_int = 1000
 # 每 amr.plot_int 个 coarse step 输出速度、密度、Q 和 Vorticity；
 # step 小于 amr.begin_plot 时不输出。
 # =============================================================================
-amr.plot_file  = data32to128_validation/case_Re3200_
+# 输出相对于本次独立运行目录；速度、密度和涡量文件会共享此前缀。
+amr.plot_file  = plt_
 amr.plot_int   = 3200
 amr.begin_plot = 0
 
@@ -112,7 +113,8 @@ amr.begin_plot = 0
 # =============================================================================
 checkpoint.begin_step = 0
 checkpoint.chk_int = 32000
-checkpoint.chk_prefix = chk_osi_validation
+# checkpoint 保持在运行目录顶层，以兼容 keep_latest_only 的现有清理逻辑。
+checkpoint.chk_prefix = chk
 checkpoint.keep_latest_only = true
 checkpoint.write_particles = false
 
