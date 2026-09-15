@@ -59,7 +59,7 @@ amr.blocking_factor_y = 32  32  32  32
 amr.blocking_factor_z = 32  32  32  32
 
 # 各层基于涡量的加密阈值；第 lev 项由 ErrorEst() 在该层使用。
-lbm.err = 0.005 0.01 0.02 0.04
+lbm.err = 0.64   1.28  2.56  5.12
 
 # OSI 在多层 AMR、多 Fab/MPI、全周期和六面非周期边界下均有实现。
 # max_level > 1 时程序仍会给出验证警告：四层 OSI/A-B 逐单元等价尚未达到
