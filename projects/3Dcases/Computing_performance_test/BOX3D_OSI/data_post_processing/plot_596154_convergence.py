@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""绘制作业 596154 和续跑作业 596532（Re=3200）的收敛趋势。"""
+"""绘制 Re=3200 三段连续计算到 288000 步的收敛趋势。"""
 
 import csv
 import re
@@ -12,6 +12,7 @@ CASE = Path(__file__).resolve().parents[1]
 LOGS = [
     CASE / "logs" / "submit" / "596154-out.log",
     CASE / "logs" / "submit" / "596532-out.log",
+    CASE / "runs" / "20260915_210444_job596888" / "run.log",
 ]
 OUT = CASE / "data_post_processing" / "596154_Re3200_convergence.png"
 CSV_OUT = CASE / "data_post_processing" / "596154_Re3200_convergence.csv"
@@ -86,10 +87,14 @@ ax_change.axhline(
     tolerance, color="#333333", linestyle="--", linewidth=1.1,
     label=f"Tolerance = {tolerance:.0e} (3 consecutive checks)",
 )
-ax_change.axvline(
-    96000, color="#777777", linestyle=":", linewidth=1.1,
-    label="Restart at step 96000",
-)
+for restart_step, label in (
+    (96000, "Restart: 596532 at step 96000"),
+    (192000, "Restart: 596888 at step 192000"),
+):
+    ax_change.axvline(
+        restart_step, color="#777777", linestyle=":", linewidth=1.1,
+        label=label,
+    )
 ax_change.set_ylabel(r"Relative change $\|u^n-u^{n-k}\|_2/\|u^n\|_2$")
 ax_change.grid(True, which="both", alpha=0.25)
 ax_change.legend(fontsize=9)
@@ -102,10 +107,10 @@ ax_norm.set_xlabel("Coarse step")
 ax_norm.set_ylabel(r"Level-0 velocity $L_2$ norm")
 ax_norm.grid(True, alpha=0.25)
 
-fig.suptitle("BOX3D_OSI Re=3200 convergence trend — jobs 596154 + 596532")
+fig.suptitle("BOX3D_OSI Re=3200 convergence trend — steps 0–288000")
 fig.text(
     0.5, 0.012,
-    "Sources: logs/submit/596154-out.log + 596532-out.log; steps 0–192000; "
+    "Sources: jobs 596154 + 596532 + 596888; steps 0–288000; "
     "non-periodic; levels 0–2; "
     "relative changes use 1000/3200-step intervals",
     ha="center", fontsize=8,
