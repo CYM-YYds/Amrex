@@ -30,7 +30,7 @@ Implementation and GPU Optimization of the One-Step Index Algorithm for Block-St
 
 ## 中文摘要
 
-针对块结构自适应网格（adaptive mesh refinement，AMR）中格子 Boltzmann 方法（lattice Boltzmann method，LBM）存在的离散分布函数双数组存储、粗细网格数据传输及多 GPU 通信开销，本文在 Wang 等基于 AMReX 建立的浸入边界 LBM-AMR 框架基础上，对三维 D3Q27 流体求解核心进行重构与优化，并据我们所知首次将单步索引（one-step index，OSI）算法扩展至块结构动态 AMR。该方法以 AMReX Fab 为局部寻址单元，通过随时间推进的相位地址映射隐式实现迁移，使体积级离散分布函数主状态由 A-B 双数组缩减为单数组。针对多层级、多网块及 MPI 域分解，进一步设计了相位感知的粗到细网格插值与细到粗网格平均、动态重网格数据迁移、物理边界处理、统一逻辑布局的检查点/重启及同层幽灵单元交换机制。为降低 GPU 访存和核函数启动开销，采用预计算相位位移、稀疏边界工作区、精确插值源区、融合式细到粗网格平均以及通信与局部拷贝重叠等优化。三维顶盖驱动方腔测试表明，相较包含动态取模的初始 OSI 实现，预计算相位位移使求解吞吐率提高 61.7%。在双 GPU 单层测试中，2 MiB 分块主机暂存通信相较 AMReX `FillBoundary` 路径的总耗时降低 12.3%～12.5%。结果表明，该实现有效降低了动态 AMR-LBM 的存储和数据搬运开销，为复杂颗粒流的高分辨率、多 GPU 浸入边界计算提供了高效流体求解基础。
+针对块结构自适应网格（adaptive mesh refinement，AMR）中格子 Boltzmann 方法（lattice Boltzmann method，LBM）存在的离散分布函数双数组存储、粗细网格数据传输及多 GPU 通信开销，本文在 Wang 等基于 AMReX 建立的浸入边界 LBM-AMR 框架基础上，对三维 D3Q27 流体求解核心进行重构与优化，并据我们所知首次将单步索引（one-step index，OSI）算法扩展至块结构动态 AMR。该方法以 AMReX Fab 为局部寻址单元，通过随时间推进的相位地址映射隐式实现迁移，使体积级离散分布函数主状态由 A-B 双数组缩减为单数组。针对多层级、多网块及 MPI 域分解，进一步设计了相位感知的粗到细网格插值与细到粗网格平均、动态重网格数据迁移、物理边界处理、统一逻辑布局的检查点/重启及同层幽灵单元交换机制。为降低 GPU 访存和核函数启动开销，采用预计算相位位移、稀疏边界工作区、精确插值源区、融合式细到粗网格平均以及通信与局部拷贝重叠等优化。三维顶盖驱动方腔测试表明，相较包含动态取模的初始 OSI 实现，预计算相位位移使求解吞吐率提高 61.7%。在单 GPU、Re=1000 的三级动态 AMR、128000 步测试中，相较 A-B 模式，OSI 模式的全程平均计算吞吐率提高 16.6%，累计计算耗时降低 14.2%，AMReX 设备 Arena 峰值有效使用量降低 36.9%。结果表明，该实现有效降低了动态 AMR-LBM 的存储和数据搬运开销，为复杂颗粒流的高分辨率、多 GPU 浸入边界计算提供了高效流体求解基础。
 
 ## 关键词
 
@@ -53,13 +53,15 @@ Implementation and GPU Optimization of the One-Step Index Algorithm for Block-St
 
 - 专用 D3Q27 碰撞核：碰撞耗时降低 50.05%，求解吞吐率提高 28.19%；64 步 valid-DDF 对照为 `rel_l2=1.0699e-15`、`linf=1.3878e-15`。
 - OSI 相位位移预计算：相较动态取模实现，`MLUPS_solv` 从 407.13 提升至 658.48，提高 61.7%。该结果尚不能外推为多层动态 AMR 的严格逐点等价证明。
-- 双 GPU 单层通信：2 MiB 分块 host-staging 相较同作业 `FillBoundary` 路径的总耗时降低约 12.3%～12.5%。
+- 单 GPU、Re=1000、三级动态 AMR、128000 步完整算例：OSI 与 A-B 的 40 个统计窗口具有相同的网格规模，全程平均 `MLUPS_total` 由 934.77 提升至 1089.99，提高 16.6%；累计计算耗时由 5273.57 s 降至 4522.74 s，降低 14.2%；AMReX 设备 Arena 峰值有效使用量由 14410 MB 降至 9091 MB，降低 36.9%。本次测试未执行终态 DDF 逐点误差比较。
 - 周期和六面非周期双 GPU 单层测试分别完成 384/384 次六阶段对照，均为 `linf=0`。
 
 详细记录见：
 
 - `projects/3Dcases/Computing_performance_test/BOX3D_OSI/docs/performance_profiling.md`
 - `projects/3Dcases/Computing_performance_test/BOX3D_OSI/docs/current_status.md`
+- `projects/3Dcases/Computing_performance_test/BOX3D_OSI/logs/submit/596890-re1000-128k-ab.log`
+- `projects/3Dcases/Computing_performance_test/BOX3D_OSI/logs/submit/596891-re1000-128k-osi.log`
 
 ## 投稿前必须核对
 
