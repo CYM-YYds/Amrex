@@ -122,23 +122,9 @@ for name, style in REFERENCE_STYLE.items():
         label=f"{style['label']} ({len(points)} pts)",
     )
 
-metric_lines = ["Interpolated errors in $u/u_{lid}$:"]
-for name in REFERENCE_STYLE:
-    values = metrics[name]
-    metric_lines.append(
-        f"{REFERENCE_STYLE[name]['label']}: "
-        f"MAE={values['mae']:.3f}, RMSE={values['rmse']:.3f}"
-    )
-ax.text(
-    0.03, 0.03, "\n".join(metric_lines), transform=ax.transAxes,
-    fontsize=8.2, va="bottom", ha="left",
-    bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85,
-          "edgecolor": "#aaaaaa"},
-)
-
 ax.set_xlabel(r"$u/u_{lid}$")
 ax.set_ylabel(r"$z/H$")
-ax.set_xlim(-0.35, 1.05)
+ax.set_xlim(-1, 1)
 ax.set_ylim(0.0, 1.0)
 ax.set_title("BOX3D_OSI step 288000 vs Jaber Fig.18(b) (Re=3200)")
 ax.grid(True, alpha=0.3)

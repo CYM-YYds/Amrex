@@ -53,7 +53,7 @@ for step, path, color in STEPS:
 
 ax.set_xlabel(r"$u/u_{lid}$")
 ax.set_ylabel(r"$z/H$")
-ax.set_xlim(-0.35, 1.05)
+ax.set_xlim(-1, 1)
 ax.set_ylim(0.0, 1.0)
 ax.set_title("BOX3D_OSI centerline $u_x$ profile (Re=1000)\n"
              "steps 64000 / 96000 / 160000")
