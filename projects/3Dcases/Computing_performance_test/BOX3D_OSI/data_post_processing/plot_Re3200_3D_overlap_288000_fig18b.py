@@ -129,12 +129,12 @@ ax.set_ylim(0.0, 1.0)
 ax.set_title("BOX3D_OSI step 288000 vs Jaber Fig.18(b) (Re=3200)")
 ax.grid(True, alpha=0.3)
 ax.legend(fontsize=8.7, loc="upper left")
-fig.text(
-    0.5, 0.012,
-    "Simulation: Re3200_288000.csv; normalization: z/H = Points_2/128, "
-    "u/u_lid = ux/0.05",
-    ha="center", fontsize=7.8,
-)
+# fig.text(
+#     0.5, 0.012,
+#     "Simulation: Re3200_288000.csv; normalization: z/H = Points_2/128, "
+#     "u/u_lid = ux/0.05",
+#     ha="center", fontsize=7.8,
+# )
 fig.tight_layout(rect=(0, 0.035, 1, 1))
 fig.savefig(OUT, dpi=300)
 
