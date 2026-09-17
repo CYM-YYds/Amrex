@@ -135,7 +135,7 @@ ax.legend(fontsize=8.7, loc="upper left")
 #     "u/u_lid = ux/0.05",
 #     ha="center", fontsize=7.8,
 # )
-fig.tight_layout(rect=(0, 0.035, 1, 1))
+fig.tight_layout()
 fig.savefig(OUT, dpi=300)
 
 print(f"wrote: {OUT}")
