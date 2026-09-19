@@ -1,6 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
-  <title id="title">BOX3D_OSI 一步索引 OSI 算法原理</title>
-  <desc id="desc">展示碰撞、ghost 同步、phase 提交和物理边界重建，以及逻辑坐标到 Fab-local 存储坐标的 OSI 映射。</desc>
+  <title id="title">BOX3D_OSI 一步索引 OSI 算法原理
+  </title>
+  <desc id="desc">展示碰撞、ghost 同步、phase 提交和物理边界重建，以及逻辑坐标到 Fab-local 存储坐标的 OSI 映射。
+  </desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#f7fafc"/>
@@ -44,66 +46,106 @@
       .math { font-family: "STIX Two Math", "Times New Roman", serif; font-size: 25px; fill: #0f172a; }
     </style>
   </defs>
-
   <rect width="1600" height="1000" fill="url(#bg)"/>
-  <text x="80" y="70" class="sans title">BOX3D_OSI：One-Step Index（OSI）算法原理</text>
-  <text x="80" y="105" class="sans subtitle">用一个 grown-Fab 数组保存 DDF；通过 phase-aware 地址映射，让原位碰撞 + phase 提交完成 streaming</text>
-
+  <text x="80" y="70" class="sans title">BOX3D_OSI：One-Step Index（OSI）算法原理
+  </text>
+  <text x="80" y="105" class="sans subtitle">用一个 grown-Fab 数组保存 DDF；通过 phase-aware 地址映射，让原位碰撞 + phase 提交完成 streaming
+  </text>
   <rect x="70" y="145" width="1460" height="470" rx="18" fill="#fff" stroke="#cbd5e1" stroke-width="2" filter="url(#shadow)"/>
-  <text x="105" y="185" class="sans section">一个 level 的时间推进（当前 phase = p）</text>
-
+  <text x="105" y="185" class="sans section">一个 level 的时间推进（当前 phase = p）
+  </text>
   <rect x="105" y="230" width="245" height="205" rx="14" fill="url(#blue)"/>
-  <text x="130" y="270" class="sans label">1  碰撞 Collision</text>
-  <text x="130" y="310" class="sans bodyLight">对逻辑 cell x、方向 q：</text>
-  <text x="130" y="348" class="sans codeLight">读 M[Aq(x,p)]</text>
-  <text x="130" y="384" class="sans bodyLight">恢复宏观量并碰撞</text>
-  <text x="130" y="420" class="sans codeLight">原位写回 post-collision</text>
-
+  <text x="130" y="270" class="sans label">1  碰撞 Collision
+  </text>
+  <text x="130" y="310" class="sans bodyLight">对逻辑 cell x、方向 q：
+  </text>
+  <text x="130" y="348" class="sans codeLight">读 M[Aq(x,p)]
+  </text>
+  <text x="130" y="384" class="sans bodyLight">恢复宏观量并碰撞
+  </text>
+  <text x="130" y="420" class="sans codeLight">原位写回 post-collision
+  </text>
   <path d="M350 332 H425" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
-
   <rect x="430" y="230" width="300" height="205" rx="14" fill="url(#teal)"/>
-  <text x="455" y="270" class="sans label">2  同层 ghost 同步</text>
-  <text x="455" y="308" class="sans bodyTeal">同一逻辑坐标的副本同步</text>
-  <text x="455" y="345" class="sans bodyTeal">rank 内：local direct copy</text>
-  <text x="455" y="381" class="sans bodyTeal">rank 间：pack → MPI → unpack</text>
-  <text x="455" y="417" class="sans smallLight">接收端按自己的 Fab 重新计算地址</text>
-
+  <text x="455" y="270" class="sans label">2  同层 ghost 同步
+  </text>
+  <text x="455" y="308" class="sans bodyTeal">同一逻辑坐标的副本同步
+  </text>
+  <text x="455" y="345" class="sans bodyTeal">rank 内：local direct copy
+  </text>
+  <text x="455" y="381" class="sans bodyTeal">rank 间：pack → MPI → unpack
+  </text>
+  <text x="455" y="417" class="sans smallLight">接收端按自己的 Fab 重新计算地址
+  </text>
   <path d="M730 332 H805" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
-
   <rect x="810" y="230" width="245" height="205" rx="14" fill="url(#amber)"/>
-  <text x="835" y="270" class="sans label">3  phase 提交</text>
-  <text x="835" y="315" class="sans bodyAmber">所有 Fab / rank 完成后</text>
-  <text x="835" y="355" class="sans code" fill="#fff">p → p + 1</text>
-  <text x="835" y="395" class="sans bodyAmber">逻辑上完成 streaming</text>
-  <text x="835" y="421" class="sans smallLight">不再执行完整 f_old → f_new 拷贝</text>
-
+  <text x="835" y="270" class="sans label">3  phase 提交
+  </text>
+  <text x="835" y="315" class="sans bodyAmber">所有 Fab / rank 完成后
+  </text>
+  <text x="835" y="355" class="sans code" fill="#fff">p → p + 1
+  </text>
+  <text x="835" y="395" class="sans bodyAmber">逻辑上完成 streaming
+  </text>
+  <text x="835" y="421" class="sans smallLight">不再执行完整 f_old → f_new 拷贝
+  </text>
   <path d="M1055 332 H1130" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
-
   <rect x="1135" y="230" width="350" height="205" rx="14" fill="#475569"/>
-  <text x="1160" y="270" class="sans label">4  物理边界重建 Boundary</text>
-  <text x="1160" y="310" class="sans bodyLight">从新 phase 的内部值读取参考</text>
-  <text x="1160" y="347" class="sans bodyLight">按边界模型重建完整 DDF</text>
-  <text x="1160" y="384" class="sans codeLight">写入 Aq(xb, p+1)</text>
-  <text x="1160" y="420" class="sans smallLight">边界处理仍由 Boundary() 负责</text>
-
+  <text x="1160" y="270" class="sans label">4  物理边界重建 Boundary
+  </text>
+  <text x="1160" y="310" class="sans bodyLight">从新 phase 的内部值读取参考
+  </text>
+  <text x="1160" y="347" class="sans bodyLight">按边界模型重建完整 DDF
+  </text>
+  <text x="1160" y="384" class="sans codeLight">写入 Aq(xb, p+1)
+  </text>
+  <text x="1160" y="420" class="sans smallLight">边界处理仍由 Boundary() 负责
+  </text>
   <path d="M1485 465 C1485 535, 1280 560, 1080 560 H300 C205 560, 150 520, 150 460" fill="none" stroke="#94a3b8" stroke-width="2.5" stroke-dasharray="9 8" marker-end="url(#arrowLight)"/>
-  <text x="560" y="580" class="sans small">离开推进函数：storage 再次表示“迁移 + 边界处理”后的 incoming DDF</text>
-
+  <text x="560" y="580" class="sans small">离开推进函数：storage 再次表示“迁移 + 边界处理”后的 incoming DDF
+  </text>
   <rect x="70" y="655" width="920" height="285" rx="18" fill="#fff" stroke="#cbd5e1" stroke-width="2" filter="url(#shadow)"/>
-  <text x="105" y="695" class="sans section">OSI 地址映射：逻辑坐标 ≠ 存储坐标</text>
-  <text x="105" y="745" class="sans math">A<tspan baseline-shift="sub" font-size="17">q</tspan>(x,p) = (x − p e<tspan baseline-shift="sub" font-size="17">q</tspan>) mod L</text>
-  <text x="105" y="790" class="sans body">x = 逻辑网格坐标；q = 离散速度方向；p = 当前 level phase</text>
-  <text x="105" y="824" class="sans body">L = 当前 Fab 的循环区域长度（valid + ghost 的 Fab-local Box）</text>
-  <text x="105" y="870" class="sans body">关键恒等式：</text>
-  <text x="250" y="870" class="sans math">A<tspan baseline-shift="sub" font-size="17">q</tspan>(x,p+1) = A<tspan baseline-shift="sub" font-size="17">q</tspan>(x − e<tspan baseline-shift="sub" font-size="17">q</tspan>,p)</text>
-  <text x="105" y="910" class="sans small">因此 phase 加一后，cell x 自动读到上游 x−e<tspan baseline-shift="sub" font-size="12">q</tspan> 的碰撞结果。</text>
-
+  <text x="105" y="695" class="sans section">OSI 地址映射：逻辑坐标 ≠ 存储坐标
+  </text>
+  <text x="105" y="745" class="sans math">A
+    <tspan baseline-shift="sub" font-size="17">q
+    </tspan>(x,p) = (x − p e
+    <tspan baseline-shift="sub" font-size="17">q
+    </tspan>) mod L
+  </text>
+  <text x="105" y="790" class="sans body">x = 逻辑网格坐标；q = 离散速度方向；p = 当前 level phase
+  </text>
+  <text x="105" y="824" class="sans body">L = 当前 Fab 的循环区域长度（valid + ghost 的 Fab-local Box）
+  </text>
+  <text x="105" y="870" class="sans body">关键恒等式：
+  </text>
+  <text x="250" y="870" class="sans math">A
+    <tspan baseline-shift="sub" font-size="17">q
+    </tspan>(x,p+1) = A
+    <tspan baseline-shift="sub" font-size="17">q
+    </tspan>(x − e
+    <tspan baseline-shift="sub" font-size="17">q
+    </tspan>,p)
+  </text>
+  <text x="105" y="910" class="sans small">因此 phase 加一后，cell x 自动读到上游 x−e
+    <tspan baseline-shift="sub" font-size="12">q
+    </tspan> 的碰撞结果。
+  </text>
   <rect x="1020" y="655" width="510" height="285" rx="18" fill="#0f172a" filter="url(#shadow)"/>
-  <text x="1055" y="695" class="sans section" fill="#fff">实现要点</text>
-  <circle cx="1062" cy="745" r="6" fill="#38bdf8"/><text x="1082" y="751" class="sans body" fill="#e2e8f0">每个 Fab 独立维护循环置换</text>
-  <circle cx="1062" cy="790" r="6" fill="#2dd4bf"/><text x="1082" y="796" class="sans body" fill="#e2e8f0">MPI 传逻辑语义值，不传发送端地址</text>
-  <circle cx="1062" cy="835" r="6" fill="#fbbf24"/><text x="1082" y="841" class="sans body" fill="#e2e8f0">phase 只能在整层通信完成后提交</text>
-  <circle cx="1062" cy="880" r="6" fill="#fb7185"/><text x="1082" y="886" class="sans body" fill="#e2e8f0">OSI 与 A-B 是两种布局，stream_mode=1 选择 OSI</text>
-
-  <text x="80" y="978" class="sans small">BOX3D_OSI · D3Q27 · grown-Fab OSI · 示意图依据当前 src/OsiIndex.H、OsiCommunication.H 与 AmrCoreLBM.cpp</text>
+  <text x="1055" y="695" class="sans section" fill="#fff">实现要点
+  </text>
+  <circle cx="1062" cy="745" r="6" fill="#38bdf8"/>
+  <text x="1082" y="751" class="sans body" fill="#e2e8f0">每个 Fab 独立维护循环置换
+  </text>
+  <circle cx="1062" cy="790" r="6" fill="#2dd4bf"/>
+  <text x="1082" y="796" class="sans body" fill="#e2e8f0">MPI 传逻辑语义值，不传发送端地址
+  </text>
+  <circle cx="1062" cy="835" r="6" fill="#fbbf24"/>
+  <text x="1082" y="841" class="sans body" fill="#e2e8f0">phase 只能在整层通信完成后提交
+  </text>
+  <circle cx="1062" cy="880" r="6" fill="#fb7185"/>
+  <text x="1082" y="886" class="sans body" fill="#e2e8f0">OSI 与 A-B 是两种布局，stream_mode=1 选择 OSI
+  </text>
+  <text x="80" y="978" class="sans small">BOX3D_OSI · D3Q27 · grown-Fab OSI · 示意图依据当前 src/OsiIndex.H、OsiCommunication.H 与 AmrCoreLBM.cpp
+  </text>
 </svg>
