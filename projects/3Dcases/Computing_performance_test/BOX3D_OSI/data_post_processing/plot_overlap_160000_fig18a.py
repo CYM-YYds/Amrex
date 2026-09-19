@@ -76,7 +76,7 @@ for series, style in REF_STYLE.items():
         continue
     pts = refs[series]
     z_h, u_ul = zip(*pts)
-    ax.plot(u_ul, z_h, "-o", color=style["color"], ms=3.5, lw=1.0,
+    ax.plot(u_ul, z_h, "-o", color=style["color"], ms=6.0, lw=1.5,
             alpha=0.85, label=f"{style['label']} ({len(pts)} pts)")
 
 ax.set_xlabel(r"$u/u_{lid}$")

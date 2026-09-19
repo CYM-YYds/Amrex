@@ -116,8 +116,8 @@ for name, style in REFERENCE_STYLE.items():
     points = references[name]
     z_h, u_ulid = zip(*points)
     ax.plot(
-        u_ulid, z_h, linestyle="-", linewidth=0.9,
-        color=style["color"], marker=style["marker"], markersize=4.2,
+        u_ulid, z_h, linestyle="-", linewidth=1.4,
+        color=style["color"], marker=style["marker"], markersize=6.5,
         fillstyle=style["fillstyle"], markeredgewidth=1.0, alpha=0.9,
         label=f"{style['label']} ({len(points)} pts)",
     )
