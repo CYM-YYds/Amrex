@@ -30,7 +30,7 @@ Implementation and GPU Optimization of the One-Step Index Algorithm for Block-St
 
 ## 中文摘要
 
-AMReX 是面向块结构自适应网格（adaptive mesh refinement，AMR）的高性能并行框架，已被用于构建浸入边界格子 Boltzmann 方法（lattice Boltzmann method，LBM）求解器。现有 AMR-LBM 实现通常采用 A–B 双分布函数数组完成碰撞和迁移；在多层动态网格及 GPU 并行场景下，双数组存储和状态搬运会增加显存占用与推进开销。本文在 Wang 等基于 AMReX 的浸入边界 LBM-AMR 框架基础上，引入 Ma 等提出的单步索引（one-step index，OSI）算法，并据我们所知首次将其扩展到块结构动态 AMR。OSI 采用单数组和固定存储地址，通过按时间步、空间位置及离散方向重计算索引隐式完成迁移；每步仅读写一次分布函数，避免了 A–B 双数组交换及奇偶步同步。针对 AMR，进一步使相位索引与粗细网格插值/平均、动态重网格和 MPI 通信相协调。三维顶盖驱动方腔测试中，预计算相位位移使 OSI 求解吞吐率较动态取模实现提高 61.7%。在单 GPU、Re=1000、三级动态 AMR、128000 步对照中，OSI 相较 A–B 模式将全程平均吞吐率提高 16.6%，累计计算耗时降低 14.2%，AMReX 设备 Arena 峰值有效使用量降低 36.9%。结果表明，OSI 能够在保持 AMR 网格组织和并行执行模式的同时，减少 LBM 状态存储与数据搬运，为高分辨率、多 GPU 浸入边界流动模拟提供更紧凑的流体求解基础。
+AMReX 是面向块结构自适应网格（adaptive mesh refinement，AMR）的高性能并行框架，已被用于构建浸入边界格子 Boltzmann 方法（lattice Boltzmann method，LBM）求解器。现有 AMR-LBM 实现通常采用 A–B 双分布函数数组完成碰撞和迁移；在多层动态网格及 GPU 并行场景下，双数组存储和状态搬运会增加显存占用与推进开销。本文在 Wang 等基于 AMReX 的浸入边界 LBM-AMR 框架基础上，引入 Ma 等提出的单步索引（one-step index，OSI）算法，并据我们所知首次将其扩展到块结构动态 AMR。OSI 采用单数组和固定存储地址，通过按时间步、空间位置及离散方向重计算索引隐式完成迁移；每步仅读写一次分布函数，避免了 A–B 双数组交换及奇偶步同步。针对 AMR，进一步使相位索引与粗细网格插值/平均、动态重网格和 MPI 通信相协调。三维顶盖驱动方腔测试中，在单 GPU、Re=1000、三级动态 AMR、128000 步对照中，OSI 相较 A–B 模式将全程平均吞吐率提高 16.6%，累计计算耗时降低 14.2%，AMReX 设备 Arena 峰值有效使用量降低 36.9%。结果表明，OSI 能够在保持 AMR 网格组织和并行执行模式的同时，减少 LBM 状态存储与数据搬运，为高分辨率、多 GPU 浸入边界流动模拟提供更紧凑的流体求解基础。
 
 ## 关键词
 
