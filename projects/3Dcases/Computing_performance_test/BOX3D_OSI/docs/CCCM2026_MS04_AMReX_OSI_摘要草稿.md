@@ -30,7 +30,7 @@ GPU Optimization of Adaptive-Mesh Lattice Boltzmann Method
 
 ## 中文摘要
 
-复杂流动中的跨尺度局部结构需要精细分辨，而大规模、长时间模拟又受到计算资源和计算时间的限制，因此亟需兼具局部网格自适应能力与高计算效率的格子 Boltzmann 方法（lattice Boltzmann method，LBM）求解器。然而，现有自适应网格 LBM 多采用 A–B 双分布函数数组，在 GPU 上会产生额外的显存占用、数据搬运和同步开销，限制了细网格和大规模计算的效率。本文面向块结构动态自适应网格，基于 AMReX 实现并行 LBM 求解器，并引入 Ma 等提出的单步索引（one-step index，OSI）算法。据我们所知，这是 OSI 向动态自适应网格 LBM 的首次扩展。OSI 以单数组和隐式迁移替代双数组交换，使分布函数在每个时间步仅需一次读写，从而降低存储访问和推进开销。在单 GPU、Re=1000、三级动态自适应网格、128000 步的三维顶盖驱动方腔测试中，OSI 相较 A–B 模式使平均吞吐率提高 16.6%，累计计算耗时降低 14.2%，峰值设备内存有效使用量降低 36.9%。结果表明，OSI 为提升自适应网格 LBM 的 GPU 计算效率提供了有效途径。
+复杂流动中的跨尺度局部结构需要精细分辨，而大规模、长时间模拟又受到计算资源和计算时间的限制，因此亟需兼具局部网格自适应能力与高计算效率的格子 Boltzmann 方法（lattice Boltzmann method，LBM）求解器。Wang 等基于 AMReX 构建的块结构动态自适应网格 LBM 采用 A–B 双分布函数数组，其双数组存储与交换在 GPU 上带来额外的显存占用和数据搬运开销。针对这一问题，本文引入 Ma 等提出的单步索引（one-step index，OSI）算法，并据我们所知首次将其扩展到动态自适应网格 LBM。OSI 以单数组和隐式迁移替代双数组交换，使分布函数在每个时间步仅需一次读写，从而降低存储访问和推进开销。在单 GPU、Re=1000、三级动态自适应网格、128000 步的三维顶盖驱动方腔测试中，OSI 相较 A–B 模式使平均吞吐率提高 16.6%，累计计算耗时降低 14.2%，峰值设备内存有效使用量降低 36.9%。结果表明，OSI 为提升自适应网格 LBM 的 GPU 计算效率提供了有效途径。
 
 # 关键词
 
@@ -70,8 +70,10 @@ GPU Optimization of Adaptive-Mesh Lattice Boltzmann Method
 3. 当前 Re=1000、160000 步速度剖面对应的检查点布局为 `canonical_ab_two_array_v1`，不能作为 OSI 物理验证结果。
 4. 当前 Re=3200、192000 步检查点为 `canonical_osi_single_array_v1`，但尚未达到设定的速度场收敛判据，不应写成“已收敛稳态解”。
 5. 多层动态重网格下的 OSI/A-B 严格逐网格等价，以及 OSI 与浸入边界力的完整耦合，仍是正式论文投稿前需要补充的关键验证。
+6. Jaber 等已将基于 Esoteric Twist 的原位单数组迁移用于 GPU 原生动态 AMR-LBM，因此不能声称本文首次实现“单数组 AMR-LBM”；本文的首次性仅限定为 OSI 向动态 AMR-LBM 的扩展。
 
 ## 主要参考文献
 
 1. Wang, Y., Wu, Y., Zeng, Y., Jiang, M., Liu, Z. An immersed boundary lattice Boltzmann method on block-structured adaptive grids for the simulation of particle-laden flows on CPUs/GPUs. *Computer Physics Communications*, 314 (2025), 109674. [https://doi.org/10.1016/j.cpc.2025.109674](https://doi.org/10.1016/j.cpc.2025.109674)
 2. Ma, K., Wang, Y., Jiang, M., Liu, Z. A simple one-step index algorithm for implementation of lattice Boltzmann method on GPU. *Computer Physics Communications*, 283 (2023), 108603. [https://doi.org/10.1016/j.cpc.2022.108603](https://doi.org/10.1016/j.cpc.2022.108603)
+3. Jaber, K., Essel, E. E., Sullivan, P. E. GPU-native adaptive mesh refinement with application to lattice Boltzmann simulations. *Computer Physics Communications*, 311 (2025), 109543. [https://doi.org/10.1016/j.cpc.2025.109543](https://doi.org/10.1016/j.cpc.2025.109543)
