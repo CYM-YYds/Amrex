@@ -1,6 +1,6 @@
 # BOX3D_OSI 性能分析与历史 A-B 基线
 
-## 2026-09-14：host-staging 分块流水
+## 2026-09-14：最新受控通信对照：host-staging 分块流水
 
 当前最新受控对照为 job `596146`：2 ranks、2 GPUs、单层 8 Fab、全周期、
 1000 步，同一资源分配内依次运行 FillBoundary、整块 OSI host-staging 和
