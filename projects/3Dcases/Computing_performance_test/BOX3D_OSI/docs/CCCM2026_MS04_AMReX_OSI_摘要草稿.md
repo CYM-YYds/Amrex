@@ -13,11 +13,11 @@
 
 ## 中文题目
 
-基于 AMReX 的自适应网格 LBM GPU 优化
+自适应网格 LBM 的 GPU 优化
 
 ## 英文题目
 
-GPU Optimization of Adaptive-Mesh Lattice Boltzmann Simulations on AMReX
+GPU Optimization of Adaptive-Mesh Lattice Boltzmann Method
 
 ## 作者与单位
 
@@ -30,7 +30,7 @@ GPU Optimization of Adaptive-Mesh Lattice Boltzmann Simulations on AMReX
 
 ## 中文摘要
 
-AMReX 是面向块结构自适应网格（adaptive mesh refinement，AMR）的高性能并行框架，已被用于构建浸入边界格子 Boltzmann 方法（lattice Boltzmann method，LBM）求解器。现有 AMR-LBM 实现通常采用 A–B 双分布函数数组完成碰撞和迁移；在多层动态网格及 GPU 并行场景下，双数组存储和状态搬运会增加显存占用与推进开销。本文在 Wang 等基于 AMReX 的浸入边界 LBM-AMR 框架基础上，引入 Ma 等提出的单步索引（one-step index，OSI）算法，并据我们所知首次将其扩展到块结构动态 AMR。OSI 采用单数组和固定存储地址，通过按时间步、空间位置及离散方向重计算索引隐式完成迁移；每步仅读写一次分布函数。针对 AMR，进一步使相位索引与粗细网格插值/平均、动态重网格和 MPI 通信相协调。在单 GPU、Re=1000、三级动态 AMR 的三维顶盖驱动方腔 128000 步对照测试中，OSI 相较 A–B 模式将全程平均吞吐率提高 16.6%，累计计算耗时降低 14.2%，AMReX 设备 Arena 峰值有效使用量降低 36.9%。结果表明，OSI 能够在保持 AMR 网格组织和并行执行模式的同时，减少 LBM 状态存储与数据搬运，为高分辨率、多 GPU 浸入边界流动模拟提供更紧凑的流体求解基础。
+复杂流动模拟需要在保证局部精度的同时控制计算规模，高效的自适应网格格子 Boltzmann 方法（lattice Boltzmann method，LBM）因此具有重要工程需求。然而，现有自适应网格 LBM 多采用 A–B 双分布函数数组，在 GPU 上会产生额外的显存占用、数据搬运和同步开销，限制了细网格和大规模计算的效率。本文面向块结构动态自适应网格，基于 AMReX 实现并行 LBM 求解器，并引入 Ma 等提出的单步索引（one-step index，OSI）算法。据我们所知，这是 OSI 向动态自适应网格 LBM 的首次扩展。OSI 以单数组和隐式迁移替代双数组交换，使分布函数在每个时间步仅需一次读写，从而降低存储访问和推进开销。在单 GPU、Re=1000、三级动态自适应网格、128000 步的三维顶盖驱动方腔测试中，OSI 相较 A–B 模式使平均吞吐率提高 16.6%，累计计算耗时降低 14.2%，峰值设备内存有效使用量降低 36.9%。结果表明，OSI 为提升自适应网格 LBM 的 GPU 计算效率提供了有效途径。
 
 # 关键词
 
