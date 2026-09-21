@@ -1,13 +1,15 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-09-20
+更新时间：2026-09-21
 
 ## 现役配置
 
 权威参数在 `config/inputs`：`amr.max_level=2`、`amr.regrid_int=32`、
 `amr.max_grid_size=128`、`lbm.stream_mode=1`、`lbm.collide_mode=1`、
-`lbm.osi_local_direct=1`、`lbm.osi_mpi_direct=0`、`performance.report_int=1000`、
-`max_step=96000`。默认是 OSI 单数组路径；A-B 基准需显式覆盖 `lbm.stream_mode=0`。
+`lbm.osi_local_direct=1`、`lbm.osi_parallel_copy=0`、`lbm.osi_mpi_direct=0`、
+`performance.report_int=1000`、`max_step=128000`。默认是 OSI 单数组路径；A-B 基准
+需显式覆盖 `lbm.stream_mode=0`。将 `lbm.osi_parallel_copy=1` 仅用于单 MPI rank 的
+插值/平均 direct path 验证，多 rank 会回退到原有传输路径。
 跨 rank direct 路径需显式打开 `lbm.osi_mpi_direct=1`；device-buffer 还需显式打开
 `lbm.osi_mpi_device_direct=1`，且 AMReX 必须检测到 GPU-aware MPI。host-staging 分块
 流水通过 `lbm.osi_mpi_pipeline_chunk_bytes` 显式启用，默认为 0；当前已测最佳值
@@ -94,3 +96,15 @@
 先读本文件和根目录 `README.md`，再读 `docs/osi_algorithm_and_architecture.md`、
 `src/main.cpp`、`src/AmrCoreLBM.H/.cpp` 与 `config/inputs`。性能数字必须同时注明
 源码、输入、可执行文件、GPU 和日志；历史 job 不自动等于当前基线。
+
+## OSI ParallelCopy 阶段性状态（2026-09-21）
+
+候选提交 `21a1bab` 已将单 rank 插值和平均接口的 OSI raw direct copy 接入，并把
+Q=27 分量合并为单次 kernel。真实 GPU 作业 `601985`（A-B）与 `601991`（OSI direct）
+在相同 128^3、36 步、部分细化输入下，step 32 的插值/平均分别为
+`0.267/0.266 ms` 与 `0.314/0.274 ms`；step 36 分别为 `0.727/0.800 ms` 与
+`0.706/0.739 ms`。这只支持当前单 GPU 短窗口的阶段性性能结论。
+
+逐 cell/逐 q 正确性 artifact、跨 MPI rank 的 ParallelCopy raw pack/unpack，以及多 GPU
+插值/平均 direct path 仍为 pending；`lbm.osi_parallel_copy` 默认保持关闭。详细阶段
+设计和证据边界见 `docs/osi_parallelcopy_optimization_plan.md`。

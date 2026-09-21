@@ -18,7 +18,8 @@ one-step index（OSI）路径。
 - `lbm.collide_mode=1`，使用 D3Q27 专用碰撞核。
 - OSI 所有地址路径统一使用预计算 phase shift，不再提供 legacy 取模开关；
 - `performance.report_int=1000`，按窗口输出总阶段和逐 level 碰撞统计；
-- `max_step=96000`、`amr.plot_int=3200`、`checkpoint.chk_int=32000`；
+- 当前 `config/inputs` 为 `max_step=128000`、`amr.plot_int=3200`、
+  `checkpoint.chk_int=32000`；历史 96000 步结果仍按历史作业单独引用；
 - PlotFile 使用 `plt_` 前缀，checkpoint 使用 `chk` 前缀，均相对于本次运行目录。
 
 长程历史作业 `logs/submit/586660-out.log` 运行到 step 96000，正常完成，未观察到
@@ -104,6 +105,8 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 - `stream_mode=0`：双数组数值基准路径，供正确性和性能 A-B 使用。
 - `stream_mode=1`：grown-Fab OSI 单数组路径；已有单层、两层、静态/动态 AMR 和
   canonical checkpoint 的历史测试，但不能外推为当前多层生产验收。
+- `lbm.osi_parallel_copy=1`：在单 MPI rank 时启用插值和平均阶段的 OSI raw 直接复制；
+  默认值为 `0`，多 rank 自动保留原有 `ParallelCopy` 回退路径。
 - 静态 `ParticleContainer` 的 checkpoint/restart 已有跨 MPI 分解测试；运动刚体的
   质心、平动/角速度、力和力矩未持久化，尚不支持完整 IBM restart 结论。
 - 历史性能 job 和图片只代表当时的源码、输入和硬件，不是当前性能基线。

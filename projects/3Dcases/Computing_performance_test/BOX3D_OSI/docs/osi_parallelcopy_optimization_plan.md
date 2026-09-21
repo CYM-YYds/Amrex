@@ -89,7 +89,7 @@
    消除的是 canonical 临时对象和重复 decode/encode。
 4. **调用点**：优先替换 `FillOsiGhostFromCoarse` 和 `AverageDownInterfaceLevel`；
    `RemakeDdfState` 在独立 phase/address 测试通过后再启用。
-5. **回退**：所有阶段都以 `osi.parallel_copy=0/1` 控制；新路径遇到不支持的 layout
+5. **回退**：所有阶段都以 `lbm.osi_parallel_copy=0/1` 控制；新路径遇到不支持的 layout
    或 phase 时记录原因并回到旧实现，不改变数值结果。
 
 ## 正确性与性能验证
