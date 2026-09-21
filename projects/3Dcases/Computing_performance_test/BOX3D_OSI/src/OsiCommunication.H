@@ -57,6 +57,28 @@ struct MpiUnpackTag {
     const amrex::Box& box() const noexcept { return region; }
 };
 
+// 平均下传专用的 canonical 源打包描述。源数据来自 restriction 结果，
+// 因此不经过 OSI 地址解码。
+struct CanonicalPackTag {
+    amrex::Array4<const amrex::Real> src;
+    amrex::Box region;
+    std::size_t offset = 0;
+
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    const amrex::Box& box() const noexcept { return region; }
+};
+
+// 平均下传专用的 raw 目标解包描述。收到 canonical 值后按目标 phase 写入 raw。
+struct CanonicalRawUnpackTag {
+    amrex::Array4<amrex::Real> dst;
+    amrex::Box region;
+    FabGeometry fab;
+    std::size_t offset = 0;
+
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    const amrex::Box& box() const noexcept { return region; }
+};
+
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::IntVect source_cell(LocalCopyTag const& tag, int i, int j, int k) noexcept
 {
