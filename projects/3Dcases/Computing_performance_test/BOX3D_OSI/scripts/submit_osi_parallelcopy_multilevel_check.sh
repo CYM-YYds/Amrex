@@ -63,13 +63,15 @@ ln -s "${RUN_DIR}/seed/chk00000032" "${RUN_DIR}/osi/osi_chk00000032"
 run_case OSI_PARALLELCOPY "${RUN_DIR}/osi" \
     max_step=40 performance.report_int=8 amr.regrid_int=-1 lbm.stream_mode=1 \
     lbm.osi_local_direct=1 lbm.osi_mpi_direct=1 lbm.osi_parallel_copy=1 \
-    lbm.osi_mpi_device_direct=0 lbm.osi_mpi_pipeline_chunk_bytes=0 \
+    lbm.osi_mpi_device_direct=1 amrex.use_gpu_aware_mpi=1 \
+    lbm.osi_mpi_pipeline_chunk_bytes=0 \
     verification.osi_ab_check=false verification.osi_seed_pattern=false \
     checkpoint.begin_step=32 checkpoint.chk_int=40 checkpoint.chk_prefix=osi_chk
 
 run_case COMPARE "${RUN_DIR}/osi" \
     max_step=40 performance.report_int=40 amr.regrid_int=-1 lbm.stream_mode=1 \
     lbm.osi_local_direct=1 lbm.osi_mpi_direct=1 lbm.osi_parallel_copy=1 \
+    lbm.osi_mpi_device_direct=1 amrex.use_gpu_aware_mpi=1 \
     checkpoint.begin_step=40 checkpoint.chk_int=-1 checkpoint.chk_prefix=osi_chk \
     verification.ddf_reference_checkpoint="${RUN_DIR}/ab/ab_chk00000040"
 
