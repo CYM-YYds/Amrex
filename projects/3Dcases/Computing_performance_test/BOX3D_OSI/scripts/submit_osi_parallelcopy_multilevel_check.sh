@@ -71,6 +71,6 @@ run_case COMPARE "${RUN_DIR}/osi" \
     max_step=40 performance.report_int=40 amr.regrid_int=-1 lbm.stream_mode=1 \
     lbm.osi_local_direct=1 lbm.osi_mpi_direct=1 lbm.osi_parallel_copy=1 \
     checkpoint.begin_step=40 checkpoint.chk_int=-1 checkpoint.chk_prefix=osi_chk \
-    ddf_reference_checkpoint="${RUN_DIR}/ab/ab_chk00000040"
+    verification.ddf_reference_checkpoint="${RUN_DIR}/ab/ab_chk00000040"
 
 echo "osi_parallelcopy_check_artifacts: run_dir=${RUN_DIR}"
