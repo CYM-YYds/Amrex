@@ -2059,10 +2059,8 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
     }
 
     // 多 rank direct 路径使用平均专用 CPC：canonical restriction 结果在源
-    // rank 打包，目标 rank 直接按 coarse phase 解包到 OSI raw。当前先使用
-    // 全 Q、host-staging 实现；device-direct 或构造失败时回退旧路径。
-    if (osi_parallel_copy && ParallelDescriptor::NProcs() > 1 &&
-        !osi_mpi_device_direct) {
+    // rank 打包，目标 rank 直接按 coarse phase 解包到 OSI raw。
+    if (osi_parallel_copy && ParallelDescriptor::NProcs() > 1) {
         ScopedPerfTimer direct_timer(perf_stats.osi_parallel_copy);
         const auto& cpc = coarse_state.getCPC(
             IntVect(0), interface_result, IntVect(0),
@@ -2150,8 +2148,20 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         recv_device.resize(recv_total);
         Gpu::PinnedVector<Real> send_host;
         Gpu::PinnedVector<Real> recv_host;
-        send_host.resize(send_total);
-        recv_host.resize(recv_total);
+        if (osi_mpi_device_direct) {
+            send_host.clear();
+            recv_host.clear();
+        } else {
+            send_host.resize(send_total);
+            recv_host.resize(recv_total);
+        }
+
+        amrex::Print(amrex::Print::AllProcs)
+            << "[OSI average mpi] level=" << lev
+            << " transport="
+            << (osi_mpi_device_direct ? "device-direct" : "host-staging")
+            << " send_bytes=" << send_total * sizeof(Real)
+            << " recv_bytes=" << recv_total * sizeof(Real) << '\n';
 
         {
             ScopedPerfTimer timer(perf_stats.osi_mpi_pack);
@@ -2168,7 +2178,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
                     buffer[tag.offset + cell * Q + q] = tag.src(i, j, k, q);
                 });
             Gpu::streamSynchronize();
-            if (send_total != 0) {
+            if (!osi_mpi_device_direct && send_total != 0) {
                 Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
                                  send_total * sizeof(Real));
             }
@@ -2181,8 +2191,11 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
             ScopedPerfTimer timer(perf_stats.osi_mpi_wait);
             for (int peer = 0; peer < nprocs; ++peer) {
                 if (recv_counts[peer] != 0) {
+                    Real* recv_buffer = osi_mpi_device_direct
+                                            ? recv_device.data()
+                                            : recv_host.data();
                     receives.push_back(ParallelDescriptor::Arecv(
-                        recv_host.data() + recv_offsets[peer],
+                        recv_buffer + recv_offsets[peer],
                         recv_counts[peer], peer, mpi_tag));
                 }
             }
@@ -2201,8 +2214,11 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
                 });
             for (int peer = 0; peer < nprocs; ++peer) {
                 if (send_counts[peer] != 0) {
+                    const Real* send_buffer = osi_mpi_device_direct
+                                                  ? send_device.data()
+                                                  : send_host.data();
                     sends.push_back(ParallelDescriptor::Asend(
-                        send_host.data() + send_offsets[peer],
+                        send_buffer + send_offsets[peer],
                         send_counts[peer], peer, mpi_tag));
                 }
             }
@@ -2215,7 +2231,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         }
         {
             ScopedPerfTimer timer(perf_stats.osi_mpi_unpack);
-            if (recv_total != 0) {
+            if (!osi_mpi_device_direct && recv_total != 0) {
                 Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
                                  recv_total * sizeof(Real));
             }
