@@ -85,6 +85,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     osi_decode_tags.resize(nlevs_max);
     osi_encode_tags.resize(nlevs_max);
     osi_local_copy_tags.resize(nlevs_max);
+    osi_interp_local_copy_tags.resize(nlevs_max);
     osi_remote_copy_tags.resize(nlevs_max);
     osi_mpi_pack_tags.resize(nlevs_max);
     osi_mpi_unpack_tags.resize(nlevs_max);
@@ -530,6 +531,7 @@ void AmrCoreLBM::ReadParameters() {
             amrex::Abort("lbm.osi_sync_batch_components must be in [1,Q]");
         }
         pp.query("osi_local_direct", osi_local_direct);
+        pp.query("osi_parallel_copy", osi_parallel_copy);
         pp.query("osi_mpi_direct", osi_mpi_direct);
         pp.query("osi_mpi_device_direct", osi_mpi_device_direct);
         pp.query("osi_mpi_async_staging", osi_mpi_async_staging);
@@ -803,6 +805,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     fine_indices.clear();
     needs_physical_fill.clear();
     osi_decode_regions.clear();
+    osi_interp_local_copy_tags.at(lev).undefine();
 
     for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
         const Box target =
@@ -839,6 +842,35 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
             coarse_boxes.data(), static_cast<int>(coarse_boxes.size()));
         DistributionMapping coarse_stage_dm(std::move(coarse_owners));
         coarse_stage.define(coarse_stage_ba, coarse_stage_dm, Q, 0);
+    }
+    if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1 &&
+        !coarse_boxes.empty()) {
+        // 复用 AMReX ParallelCopy 的 CPC 本地 tag，只替换数据地址为 OSI raw 映射。
+        Vector<OSI::LocalCopyTag> direct_tags;
+        const auto& source_state = osi_state.at(lev - 1);
+        const auto& cpc = coarse_stage.getCPC(
+            IntVect(0), source_state, IntVect(0),
+            Geom(lev - 1).periodicity());
+        AMREX_ALWAYS_ASSERT(cpc.m_LocTags);
+        direct_tags.reserve(cpc.m_LocTags->size());
+        for (const auto& tag : *cpc.m_LocTags) {
+            const Box source_ring = amrex::grow(
+                source_state.boxArray()[tag.srcIndex],
+                source_state.nGrowVect());
+            const Box destination_box = coarse_stage.boxArray()[tag.dstIndex];
+            const auto source_lo = source_ring.smallEnd();
+            const auto destination_lo = destination_box.smallEnd();
+            direct_tags.push_back({
+                source_state.const_array(tag.srcIndex),
+                coarse_stage.array(tag.dstIndex), tag.sbox, tag.dbox,
+                {{source_lo[0], source_lo[1], source_lo[2]},
+                 {source_ring.length(0), source_ring.length(1),
+                  source_ring.length(2)}},
+                {{destination_lo[0], destination_lo[1], destination_lo[2]},
+                 {destination_box.length(0), destination_box.length(1),
+                  destination_box.length(2)}}});
+        }
+        osi_interp_local_copy_tags.at(lev).define(direct_tags);
     }
     // ParallelCopy 只会从 coarse valid 读取与 coarse_stage 相交的区域。
     // 在这里一次性反查这些 source boxes，避免每个时间步解码整层 valid。
@@ -1834,6 +1866,28 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
         return;
     }
 
+    if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1 &&
+        osi_interp_local_copy_tags.at(lev).ntags != 0) {
+        ScopedPerfTimer timer(perf_stats.osi_parallel_copy);
+        for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+            const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+            amrex::ParallelFor(
+                osi_interp_local_copy_tags.at(lev), ncomp,
+                [=] AMREX_GPU_DEVICE(int i, int j, int k, int n,
+                                     const OSI::LocalCopyTag& tag) noexcept {
+                    const auto source = OSI::source_cell(tag, i, j, k);
+                    const int q = q0 + n;
+                    const auto phase_shift =
+                        OSI::osi_phase_shift(coarse_phase, tag.src_fab);
+                    const auto raw = OSI::osi_address(
+                        {source[0], source[1], source[2]},
+                        {e[q][0], e[q][1], e[q][2]}, tag.src_fab,
+                        phase_shift);
+                    tag.dst(i, j, k, n) = tag.src(raw.x, raw.y, raw.z, q);
+                });
+        }
+    } else {
+
     // 分批把粗层 valid 区从 OSI raw 地址解码到现有通信缓冲区，再只复制
     // 实际插值 stencil 到 sparse coarse_stage。这里不再构造整层 Q 分量
     // 后续需要优化,实现OSI适配版的ParallelCopy函数
@@ -1873,6 +1927,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
         coarse_stage.ParallelCopy(
             decode_batch, 0, q0, ncomp, IntVect(0), IntVect(0),
             Geom(lev - 1).periodicity());
+    }
     }
 
     FillCoarseInterpolationStagePhysicalBoundary(lev);

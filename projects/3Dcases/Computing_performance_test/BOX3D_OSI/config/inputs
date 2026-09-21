@@ -73,6 +73,9 @@ lbm.err = 0.64   1.28  2.56  5.12
 # 同一 MPI rank 内直接复制 grown-Fab 重叠区。
 lbm.osi_local_direct = 1
 
+# 粗到细插值在单 rank 时直接从 OSI raw state 写入 staging Fab；不支持的布局自动回退。
+lbm.osi_parallel_copy = 0
+
 # 跨 MPI rank 使用 OSI-aware pack/unpack；0 使用原有通信回退路径。
 lbm.osi_mpi_direct = 0
 

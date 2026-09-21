@@ -294,6 +294,7 @@ int main(int argc, char* argv[]) {
                           << " average=" << perf.average
                           << " comm=" << perf.comm
                           << " osi_decode=" << perf.osi_decode
+                          << " osi_parallel_copy=" << perf.osi_parallel_copy
                           << " osi_fillboundary=" << perf.osi_fillboundary
                           << " osi_encode=" << perf.osi_encode
                           << " osi_mpi_pack=" << perf.osi_mpi_pack

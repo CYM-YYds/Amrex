@@ -76,6 +76,7 @@ class AmrCoreLBM : public amrex::AmrCore {
         double average_copyback = 0.0;
         double comm = 0.0;
         double osi_decode = 0.0;
+        double osi_parallel_copy = 0.0;
         double osi_fillboundary = 0.0;
         double osi_encode = 0.0;
         double osi_mpi_pack = 0.0;
@@ -381,6 +382,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Gpu::PinnedVector<amrex::Real>> osi_mpi_send_host;
     amrex::Vector<amrex::Gpu::PinnedVector<amrex::Real>> osi_mpi_recv_host;
     bool osi_local_direct = false;
+    // 粗到细插值阶段使用 OSI raw-to-canonical 的直接复制；不支持时回退旧路径。
+    bool osi_parallel_copy = false;
     bool osi_mpi_direct = false;
     // 仅在 AMReX 已确认 GPU-aware MPI 时，直接用 device staging buffer 通信。
     bool osi_mpi_device_direct = false;
@@ -412,6 +415,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>>
         osi_interp_decode_boxes;
     amrex::Vector<unsigned char> interp_direct_cache_ready;
+    // 单 rank 插值目标与 OSI 粗层 raw source 的直接复制计划。
+    amrex::Vector<amrex::TagVector<OSI::LocalCopyTag>>
+        osi_interp_local_copy_tags;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; // boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box
 
     amrex::Vector<amrex::Real> tau;
