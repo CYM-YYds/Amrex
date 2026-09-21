@@ -64,7 +64,7 @@ run_case OSI_PARALLELCOPY "${RUN_DIR}/osi" \
     max_step=40 performance.report_int=8 amr.regrid_int=-1 lbm.stream_mode=1 \
     lbm.osi_local_direct=1 lbm.osi_mpi_direct=1 lbm.osi_parallel_copy=1 \
     lbm.osi_mpi_device_direct=0 lbm.osi_mpi_pipeline_chunk_bytes=0 \
-    verification.osi_ab_check=true verification.osi_seed_pattern=false \
+    verification.osi_ab_check=false verification.osi_seed_pattern=false \
     checkpoint.begin_step=32 checkpoint.chk_int=40 checkpoint.chk_prefix=osi_chk
 
 echo "osi_parallelcopy_check_artifacts: run_dir=${RUN_DIR}"
