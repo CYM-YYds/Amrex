@@ -5087,15 +5087,31 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                     for (MFIter mfi(difference_batch, false);
                          mfi.isValid(); ++mfi) {
                         const Box bx = mfi.validbox();
-                        FArrayBox host_diff(mfi.validbox(), difference_batch.nComp(), The_Pinned_Arena());
-                        Gpu::dtoh_memcpy(host_diff.dataPtr(), difference_batch[mfi].dataPtr(), host_diff.nBytes());
+                        FArrayBox host_diff(difference_batch[mfi].box(),
+                                            difference_batch.nComp(),
+                                            The_Pinned_Arena());
+                        Gpu::dtoh_memcpy(host_diff.dataPtr(),
+                                         difference_batch[mfi].dataPtr(),
+                                         host_diff.nBytes());
+                        IArrayBox host_covered(
+                            has_fine ? covered_mask.at(lev)[mfi].box() : bx,
+                            1, The_Pinned_Arena());
+                        IArrayBox host_interface(
+                            has_fine ? interface_mask.at(lev)[mfi].box() : bx,
+                            1, The_Pinned_Arena());
+                        if (has_fine) {
+                            Gpu::dtoh_memcpy(
+                                host_covered.dataPtr(),
+                                covered_mask.at(lev)[mfi].dataPtr(),
+                                host_covered.nBytes());
+                            Gpu::dtoh_memcpy(
+                                host_interface.dataPtr(),
+                                interface_mask.at(lev)[mfi].dataPtr(),
+                                host_interface.nBytes());
+                        }
                         const auto diff = host_diff.const_array();
-                        const auto covered = has_fine
-                                                 ? covered_mask.at(lev).const_array(mfi)
-                                                 : Array4<const int>{};
-                        const auto interface = has_fine
-                                                   ? interface_mask.at(lev).const_array(mfi)
-                                                   : Array4<const int>{};
+                        const auto covered = host_covered.const_array();
+                        const auto interface = host_interface.const_array();
                         const IntVect lo = bx.smallEnd();
                         const IntVect hi = bx.bigEnd();
                         for (int k = lo[2]; k <= hi[2]; ++k) {
