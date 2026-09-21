@@ -1869,23 +1869,22 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
     if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1 &&
         osi_interp_local_copy_tags.at(lev).ntags != 0) {
         ScopedPerfTimer timer(perf_stats.osi_parallel_copy);
-        for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
-            const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
-            amrex::ParallelFor(
-                osi_interp_local_copy_tags.at(lev), ncomp,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int n,
-                                     const OSI::LocalCopyTag& tag) noexcept {
-                    const auto source = OSI::source_cell(tag, i, j, k);
-                    const int q = q0 + n;
-                    const auto phase_shift =
-                        OSI::osi_phase_shift(coarse_phase, tag.src_fab);
-                    const auto raw = OSI::osi_address(
-                        {source[0], source[1], source[2]},
-                        {e[q][0], e[q][1], e[q][2]}, tag.src_fab,
-                        phase_shift);
-                    tag.dst(i, j, k, n) = tag.src(raw.x, raw.y, raw.z, q);
-                });
-        }
+        // direct 路径无需遵循通信缓冲的分批限制，一次处理全部 Q 分量，
+        // 避免把本地 raw-to-canonical 复制拆成 9 次 kernel launch。
+        amrex::ParallelFor(
+            osi_interp_local_copy_tags.at(lev), Q,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int n,
+                                 const OSI::LocalCopyTag& tag) noexcept {
+                const auto source = OSI::source_cell(tag, i, j, k);
+                const int q = n;
+                const auto phase_shift =
+                    OSI::osi_phase_shift(coarse_phase, tag.src_fab);
+                const auto raw = OSI::osi_address(
+                    {source[0], source[1], source[2]},
+                    {e[q][0], e[q][1], e[q][2]}, tag.src_fab,
+                    phase_shift);
+                tag.dst(i, j, k, n) = tag.src(raw.x, raw.y, raw.z, q);
+            });
     } else {
 
     // 分批把粗层 valid 区从 OSI raw 地址解码到现有通信缓冲区，再只复制
@@ -2062,10 +2061,18 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
     // 单 rank 时 interface_result 与 coarse_state 同属本 rank，直接从
     // canonical restriction 结果写入 coarse OSI raw state，跳过 transfer_batch。
     // 多 rank 或开关关闭时保留原有 ParallelCopy 回退路径。
+    const bool direct_copy =
+        osi_parallel_copy && ParallelDescriptor::NProcs() == 1;
     for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
-        const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+        // direct 路径不受通信 staging 分批限制，只启动一次 Q 分量 kernel。
+        if (direct_copy && q0 != 0) {
+            break;
+        }
+        const int ncomp = direct_copy
+                              ? Q
+                              : amrex::min(osi_sync_batch_components, Q - q0);
 
-        if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1) {
+        if (direct_copy) {
             ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy);
             for (MFIter src_mfi(interface_result, false); src_mfi.isValid();
                  ++src_mfi) {
