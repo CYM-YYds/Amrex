@@ -105,3 +105,12 @@
 通过条件是所有 REQ 均有绑定到最终源码的 diff、命令输出或 artifact；只有“编译成功”、
 “job 完成”、checksum 相同或总 MLUPS 变好均不足以单独判定通过。
 
+## 当前阶段状态（2026-09-21）
+
+- 已完成：单 rank 插值路径的 raw-to-canonical 直接复制（`FillOsiGhostFromCoarse`）。
+- 已完成：单 rank 平均接口结果直接写入 coarse OSI raw state；多 rank 保留
+  `transfer_batch.ParallelCopy` 回退。
+- 已验证：候选版本通过 `BOX3D_OSI/scripts/compile.sh` 的 CUDA/MPI 编译。
+- 未完成：跨 rank raw pack/unpack、平均阶段的多 GPU 直通信、逐 cell/逐 q 正确性
+  artifact，以及单 GPU/多 GPU 与 A-B 的分项性能验收。
+- 当前 `lbm.osi_parallel_copy` 默认仍为 `0`；打开该开关只启用单 rank 的两处直接路径。
