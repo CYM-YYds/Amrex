@@ -108,3 +108,15 @@ Q=27 分量合并为单次 kernel。真实 GPU 作业 `601985`（A-B）与 `6019
 逐 cell/逐 q 正确性 artifact、跨 MPI rank 的 ParallelCopy raw pack/unpack，以及多 GPU
 插值/平均 direct path 仍为 pending；`lbm.osi_parallel_copy` 默认保持关闭。详细阶段
 设计和证据边界见 `docs/osi_parallelcopy_optimization_plan.md`。
+
+### 2026-09-21 新增多 GPU 证据
+
+- 作业 `602046`：2 ranks/2 GPUs、六面非周期、64 步，A-B oracle 共 384 次阶段检查，
+  全部 `linf=0`；逐阶段记录在
+  `logs/validation/osi_ab_stage_602046.jsonl`。
+- 作业 `602047`：2 ranks/2 GPUs、8 Fab、1000 步同层 A-B/OSI MPI direct 对照；OSI
+  communication 约 `4.21--4.23 s`，A-B 约 `4.03--4.06 s`。
+- 作业 `602049`：2 ranks/2 GPUs、三层 AMR、1000 步 A-B/OSI 对照；OSI 的
+  `interp/average` 约 `3.70/2.28 s`，A-B 约 `2.54/1.25 s`。此作业中
+  `osi_parallel_copy=0`，因此它验证的是当前跨 rank 回退链，不是平均 raw direct。
+  分项记录在 `logs/validation/mpi_parallelcopy_perf_602047_602049.jsonl`。
