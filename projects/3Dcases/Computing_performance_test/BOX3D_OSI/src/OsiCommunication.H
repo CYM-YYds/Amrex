@@ -4,6 +4,7 @@
 #include <AMReX_Array4.H>
 #include <AMReX_Box.H>
 #include <AMReX_GpuQualifiers.H>
+#include <AMReX_Vector.H>
 
 #include <cstddef>
 
@@ -46,16 +47,8 @@ struct MpiPackTag {
     const amrex::Box& box() const noexcept { return region; }
 };
 
-// 插值阶段从 OSI raw 源打包到跨 rank 缓冲区的描述。
-struct RawPackTag {
-    amrex::Array4<const amrex::Real> src;
-    amrex::Box region;
-    FabGeometry fab;
-    std::size_t offset = 0;
-
-    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-    const amrex::Box& box() const noexcept { return region; }
-};
+// 插值阶段沿用同一套 pack 描述；保留别名便于区分调用语义。
+using RawPackTag = MpiPackTag;
 
 // 跨 rank 通信的 GPU 融合解包描述。
 struct MpiUnpackTag {
@@ -99,6 +92,49 @@ struct CanonicalUnpackTag {
     [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
     const amrex::Box& box() const noexcept { return region; }
 };
+
+// 一次 CPC 交换的聚合缓冲布局。插值和平均只需分别构造自己的
+// pack/unpack tag，peer 计数与 offset 统一由这里生成。
+struct MpiPlan {
+    amrex::Vector<std::size_t> send_counts;
+    amrex::Vector<std::size_t> recv_counts;
+    amrex::Vector<std::size_t> send_offsets;
+    amrex::Vector<std::size_t> recv_offsets;
+    std::size_t send_total = 0;
+    std::size_t recv_total = 0;
+};
+
+template <typename SendTagMap, typename RecvTagMap>
+MpiPlan make_mpi_plan(const SendTagMap& send_tags,
+                      const RecvTagMap& recv_tags,
+                      int nprocs, int ncomp)
+{
+    MpiPlan plan;
+    plan.send_counts.assign(nprocs, 0);
+    plan.recv_counts.assign(nprocs, 0);
+    plan.send_offsets.assign(nprocs, 0);
+    plan.recv_offsets.assign(nprocs, 0);
+
+    for (const auto& [peer, tags] : send_tags) {
+        for (const auto& tag : tags) {
+            plan.send_counts[peer] +=
+                static_cast<std::size_t>(tag.sbox.numPts()) * ncomp;
+        }
+    }
+    for (const auto& [peer, tags] : recv_tags) {
+        for (const auto& tag : tags) {
+            plan.recv_counts[peer] +=
+                static_cast<std::size_t>(tag.dbox.numPts()) * ncomp;
+        }
+    }
+    for (int peer = 0; peer < nprocs; ++peer) {
+        plan.send_offsets[peer] = plan.send_total;
+        plan.recv_offsets[peer] = plan.recv_total;
+        plan.send_total += plan.send_counts[peer];
+        plan.recv_total += plan.recv_counts[peer];
+    }
+    return plan;
+}
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::IntVect source_cell(LocalCopyTag const& tag, int i, int j, int k) noexcept

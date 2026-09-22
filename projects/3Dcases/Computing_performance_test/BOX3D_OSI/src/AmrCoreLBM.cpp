@@ -1893,31 +1893,14 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
         TagVector<OSI::LocalCopyTag> local_tv(local_tags);
 
         const int nprocs = ParallelDescriptor::NProcs();
-        Vector<std::size_t> send_counts(nprocs, 0);
-        Vector<std::size_t> recv_counts(nprocs, 0);
-        for (const auto& [peer, tags] : *cpc.m_SndTags) {
-            for (const auto& tag : tags) {
-                send_counts[peer] +=
-                    static_cast<std::size_t>(tag.sbox.numPts()) * Q;
-            }
-        }
-        for (const auto& [peer, tags] : *cpc.m_RcvTags) {
-            for (const auto& tag : tags) {
-                recv_counts[peer] +=
-                    static_cast<std::size_t>(tag.dbox.numPts()) * Q;
-            }
-        }
-
-        Vector<std::size_t> send_offsets(nprocs, 0);
-        Vector<std::size_t> recv_offsets(nprocs, 0);
-        std::size_t send_total = 0;
-        std::size_t recv_total = 0;
-        for (int peer = 0; peer < nprocs; ++peer) {
-            send_offsets[peer] = send_total;
-            recv_offsets[peer] = recv_total;
-            send_total += send_counts[peer];
-            recv_total += recv_counts[peer];
-        }
+        const auto plan = OSI::make_mpi_plan(
+            *cpc.m_SndTags, *cpc.m_RcvTags, nprocs, Q);
+        const auto& send_counts = plan.send_counts;
+        const auto& recv_counts = plan.recv_counts;
+        const auto& send_offsets = plan.send_offsets;
+        const auto& recv_offsets = plan.recv_offsets;
+        const auto send_total = plan.send_total;
+        const auto recv_total = plan.recv_total;
 
         Vector<OSI::RawPackTag> pack_tags;
         Vector<OSI::CanonicalUnpackTag> unpack_tags;
@@ -2273,32 +2256,15 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         }
         TagVector<OSI::LocalCopyTag> local_tv(local_tags);
 
-        const int my_rank = ParallelDescriptor::MyProc();
         const int nprocs = ParallelDescriptor::NProcs();
-        Vector<std::size_t> send_counts(nprocs, 0);
-        Vector<std::size_t> recv_counts(nprocs, 0);
-        for (const auto& [peer, tags] : *cpc.m_SndTags) {
-            for (const auto& tag : tags) {
-                send_counts[peer] +=
-                    static_cast<std::size_t>(tag.sbox.numPts()) * Q;
-            }
-        }
-        for (const auto& [peer, tags] : *cpc.m_RcvTags) {
-            for (const auto& tag : tags) {
-                recv_counts[peer] +=
-                    static_cast<std::size_t>(tag.dbox.numPts()) * Q;
-            }
-        }
-        Vector<std::size_t> send_offsets(nprocs, 0);
-        Vector<std::size_t> recv_offsets(nprocs, 0);
-        std::size_t send_total = 0;
-        std::size_t recv_total = 0;
-        for (int peer = 0; peer < nprocs; ++peer) {
-            send_offsets[peer] = send_total;
-            recv_offsets[peer] = recv_total;
-            send_total += send_counts[peer];
-            recv_total += recv_counts[peer];
-        }
+        const auto plan = OSI::make_mpi_plan(
+            *cpc.m_SndTags, *cpc.m_RcvTags, nprocs, Q);
+        const auto& send_counts = plan.send_counts;
+        const auto& recv_counts = plan.recv_counts;
+        const auto& send_offsets = plan.send_offsets;
+        const auto& recv_offsets = plan.recv_offsets;
+        const auto send_total = plan.send_total;
+        const auto recv_total = plan.recv_total;
 
         Vector<OSI::CanonicalPackTag> pack_tags;
         Vector<OSI::CanonicalRawUnpackTag> unpack_tags;
