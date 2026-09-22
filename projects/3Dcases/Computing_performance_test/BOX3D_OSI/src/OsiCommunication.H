@@ -24,8 +24,9 @@ struct LocalCopyTag {
     FabGeometry src_fab;
     FabGeometry dst_fab;
 
-    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-    const amrex::Box& box() const noexcept { return dst_box; }
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
+        return dst_box;
+    }
 };
 
 // 跨 MPI rank 的 logical 通信配对，供后续 pack/unpack 复用。
@@ -46,8 +47,9 @@ struct MpiPackTag {
     FabGeometry fab;
     std::size_t offset = 0;
 
-    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-    const amrex::Box& box() const noexcept { return region; }
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
+        return region;
+    }
 };
 
 // 插值阶段沿用同一套 pack 描述；保留别名便于区分调用语义。
@@ -60,8 +62,9 @@ struct MpiUnpackTag {
     FabGeometry fab;
     std::size_t offset = 0;
 
-    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-    const amrex::Box& box() const noexcept { return region; }
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
+        return region;
+    }
 };
 
 // 平均下传专用的 canonical 源打包描述。源数据来自 restriction 结果，
@@ -71,8 +74,9 @@ struct CanonicalPackTag {
     amrex::Box region;
     std::size_t offset = 0;
 
-    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-    const amrex::Box& box() const noexcept { return region; }
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
+        return region;
+    }
 };
 
 // 平均下传专用的 raw 目标解包描述。收到 canonical 值后按目标 phase 写入 raw。
@@ -82,8 +86,9 @@ struct CanonicalRawUnpackTag {
     FabGeometry fab;
     std::size_t offset = 0;
 
-    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-    const amrex::Box& box() const noexcept { return region; }
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
+        return region;
+    }
 };
 
 // 插值阶段从跨 rank 缓冲区解包到 canonical coarse stencil 的描述。
@@ -92,8 +97,9 @@ struct CanonicalUnpackTag {
     amrex::Box region;
     std::size_t offset = 0;
 
-    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-    const amrex::Box& box() const noexcept { return region; }
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
+        return region;
+    }
 };
 
 // 一次 CPC 交换的聚合缓冲布局。插值和平均只需分别构造自己的
@@ -114,8 +120,7 @@ struct MpiBuffers {
     amrex::Gpu::PinnedVector<amrex::Real> send_host;
     amrex::Gpu::PinnedVector<amrex::Real> recv_host;
 
-    void resize(const MpiPlan& plan, bool device_direct)
-    {
+    void resize(const MpiPlan& plan, bool device_direct) {
         send_device.resize(plan.send_total);
         recv_device.resize(plan.recv_total);
         if (device_direct) {
@@ -133,8 +138,7 @@ template <typename MessageVector, typename BufferPtr>
 void post_receives(MessageVector& receives,
                    const amrex::Vector<std::size_t>& recv_counts,
                    const amrex::Vector<std::size_t>& recv_offsets,
-                   BufferPtr recv_buffer, int nprocs, int mpi_tag)
-{
+                   BufferPtr recv_buffer, int nprocs, int mpi_tag) {
     for (int peer = 0; peer < nprocs; ++peer) {
         if (recv_counts[peer] != 0) {
             receives.push_back(amrex::ParallelDescriptor::Arecv(
@@ -148,8 +152,7 @@ template <typename MessageVector, typename BufferPtr>
 void post_sends(MessageVector& sends,
                 const amrex::Vector<std::size_t>& send_counts,
                 const amrex::Vector<std::size_t>& send_offsets,
-                BufferPtr send_buffer, int nprocs, int mpi_tag)
-{
+                BufferPtr send_buffer, int nprocs, int mpi_tag) {
     for (int peer = 0; peer < nprocs; ++peer) {
         if (send_counts[peer] != 0) {
             sends.push_back(amrex::ParallelDescriptor::Asend(
@@ -160,8 +163,7 @@ void post_sends(MessageVector& sends,
 }
 
 template <typename MessageVector>
-void wait_messages(MessageVector& messages)
-{
+void wait_messages(MessageVector& messages) {
     for (auto& message : messages) {
         message.wait();
     }
@@ -170,8 +172,7 @@ void wait_messages(MessageVector& messages)
 template <typename SendTagMap, typename RecvTagMap>
 MpiPlan make_mpi_plan(const SendTagMap& send_tags,
                       const RecvTagMap& recv_tags,
-                      int nprocs, int ncomp)
-{
+                      int nprocs, int ncomp) {
     MpiPlan plan;
     plan.send_counts.assign(nprocs, 0);
     plan.recv_counts.assign(nprocs, 0);
@@ -200,12 +201,12 @@ MpiPlan make_mpi_plan(const SendTagMap& send_tags,
 }
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-amrex::IntVect source_cell(LocalCopyTag const& tag, int i, int j, int k) noexcept
-{
+    amrex::IntVect
+    source_cell(LocalCopyTag const& tag, int i, int j, int k) noexcept {
     return tag.src_box.smallEnd() + amrex::IntVect(
-        AMREX_D_DECL(i - tag.dst_box.smallEnd(0),
-                     j - tag.dst_box.smallEnd(1),
-                     k - tag.dst_box.smallEnd(2)));
+                                        AMREX_D_DECL(i - tag.dst_box.smallEnd(0),
+                                                     j - tag.dst_box.smallEnd(1),
+                                                     k - tag.dst_box.smallEnd(2)));
 }
 
 } // namespace OSI
