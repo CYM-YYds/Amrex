@@ -5,9 +5,11 @@
 #include <AMReX_Box.H>
 #include <AMReX_GpuQualifiers.H>
 #include <AMReX_GpuContainers.H>
+#include <AMReX_ParallelDescriptor.H>
 #include <AMReX_Vector.H>
 
 #include <cstddef>
+#include <utility>
 
 #include "OsiIndex.H"
 
@@ -125,6 +127,45 @@ struct MpiBuffers {
         }
     }
 };
+
+// 按 peer 提交非阻塞接收，保持与本地 GPU 操作的重叠。
+template <typename MessageVector, typename BufferPtr>
+void post_receives(MessageVector& receives,
+                   const amrex::Vector<std::size_t>& recv_counts,
+                   const amrex::Vector<std::size_t>& recv_offsets,
+                   BufferPtr recv_buffer, int nprocs, int mpi_tag)
+{
+    for (int peer = 0; peer < nprocs; ++peer) {
+        if (recv_counts[peer] != 0) {
+            receives.push_back(amrex::ParallelDescriptor::Arecv(
+                recv_buffer + recv_offsets[peer], recv_counts[peer], peer,
+                mpi_tag));
+        }
+    }
+}
+
+template <typename MessageVector, typename BufferPtr>
+void post_sends(MessageVector& sends,
+                const amrex::Vector<std::size_t>& send_counts,
+                const amrex::Vector<std::size_t>& send_offsets,
+                BufferPtr send_buffer, int nprocs, int mpi_tag)
+{
+    for (int peer = 0; peer < nprocs; ++peer) {
+        if (send_counts[peer] != 0) {
+            sends.push_back(amrex::ParallelDescriptor::Asend(
+                send_buffer + send_offsets[peer], send_counts[peer], peer,
+                mpi_tag));
+        }
+    }
+}
+
+template <typename MessageVector>
+void wait_messages(MessageVector& messages)
+{
+    for (auto& message : messages) {
+        message.wait();
+    }
+}
 
 template <typename SendTagMap, typename RecvTagMap>
 MpiPlan make_mpi_plan(const SendTagMap& send_tags,

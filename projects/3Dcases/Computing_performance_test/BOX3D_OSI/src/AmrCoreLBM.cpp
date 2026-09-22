@@ -1978,16 +1978,11 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
         const int mpi_tag = ParallelDescriptor::SeqNum();
         Vector<ParallelDescriptor::Message> receives;
         Vector<ParallelDescriptor::Message> sends;
-        for (int peer = 0; peer < nprocs; ++peer) {
-            if (recv_counts[peer] != 0) {
-                Real* recv_buffer = osi_mpi_device_direct
-                                        ? recv_device.data()
-                                        : recv_host.data();
-                receives.push_back(ParallelDescriptor::Arecv(
-                    recv_buffer + recv_offsets[peer], recv_counts[peer], peer,
-                    mpi_tag));
-            }
-        }
+        Real* recv_buffer = osi_mpi_device_direct
+                                ? recv_device.data()
+                                : recv_host.data();
+        OSI::post_receives(receives, recv_counts, recv_offsets, recv_buffer,
+                           nprocs, mpi_tag);
         amrex::ParallelFor(
             local_tv, Q,
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
@@ -2001,22 +1996,13 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
                     phase_shift);
                 tag.dst(i, j, k, q) = tag.src(raw.x, raw.y, raw.z, q);
             });
-        for (int peer = 0; peer < nprocs; ++peer) {
-            if (send_counts[peer] != 0) {
-                const Real* send_buffer = osi_mpi_device_direct
-                                              ? send_device.data()
-                                              : send_host.data();
-                sends.push_back(ParallelDescriptor::Asend(
-                    send_buffer + send_offsets[peer], send_counts[peer], peer,
-                    mpi_tag));
-            }
-        }
-        for (auto& message : receives) {
-            message.wait();
-        }
-        for (auto& message : sends) {
-            message.wait();
-        }
+        const Real* send_buffer = osi_mpi_device_direct
+                                      ? send_device.data()
+                                      : send_host.data();
+        OSI::post_sends(sends, send_counts, send_offsets, send_buffer, nprocs,
+                        mpi_tag);
+        OSI::wait_messages(receives);
+        OSI::wait_messages(sends);
 
         if (!osi_mpi_device_direct && recv_total != 0) {
             Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
@@ -2330,16 +2316,11 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         Vector<ParallelDescriptor::Message> sends;
         {
             ScopedPerfTimer timer(perf_stats.osi_mpi_wait);
-            for (int peer = 0; peer < nprocs; ++peer) {
-                if (recv_counts[peer] != 0) {
-                    Real* recv_buffer = osi_mpi_device_direct
-                                            ? recv_device.data()
-                                            : recv_host.data();
-                    receives.push_back(ParallelDescriptor::Arecv(
-                        recv_buffer + recv_offsets[peer],
-                        recv_counts[peer], peer, mpi_tag));
-                }
-            }
+            Real* recv_buffer = osi_mpi_device_direct
+                                    ? recv_device.data()
+                                    : recv_host.data();
+            OSI::post_receives(receives, recv_counts, recv_offsets,
+                               recv_buffer, nprocs, mpi_tag);
             amrex::ParallelFor(
                 local_tv, Q,
                 [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
@@ -2353,22 +2334,13 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
                     tag.dst(raw.x, raw.y, raw.z, q) =
                         tag.src(source[0], source[1], source[2], q);
                 });
-            for (int peer = 0; peer < nprocs; ++peer) {
-                if (send_counts[peer] != 0) {
-                    const Real* send_buffer = osi_mpi_device_direct
-                                                  ? send_device.data()
-                                                  : send_host.data();
-                    sends.push_back(ParallelDescriptor::Asend(
-                        send_buffer + send_offsets[peer],
-                        send_counts[peer], peer, mpi_tag));
-                }
-            }
-            for (auto& message : receives) {
-                message.wait();
-            }
-            for (auto& message : sends) {
-                message.wait();
-            }
+            const Real* send_buffer = osi_mpi_device_direct
+                                          ? send_device.data()
+                                          : send_host.data();
+            OSI::post_sends(sends, send_counts, send_offsets, send_buffer,
+                            nprocs, mpi_tag);
+            OSI::wait_messages(receives);
+            OSI::wait_messages(sends);
         }
         {
             ScopedPerfTimer timer(perf_stats.osi_mpi_unpack);
