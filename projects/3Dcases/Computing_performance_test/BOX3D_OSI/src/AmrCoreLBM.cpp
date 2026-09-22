@@ -1934,17 +1934,12 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
 
         TagVector<OSI::RawPackTag> pack_tv(pack_tags);
         TagVector<OSI::CanonicalUnpackTag> unpack_tv(unpack_tags);
-        Gpu::DeviceVector<Real> send_device(send_total);
-        Gpu::DeviceVector<Real> recv_device(recv_total);
-        Gpu::PinnedVector<Real> send_host;
-        Gpu::PinnedVector<Real> recv_host;
-        if (osi_mpi_device_direct) {
-            send_host.clear();
-            recv_host.clear();
-        } else {
-            send_host.resize(send_total);
-            recv_host.resize(recv_total);
-        }
+        OSI::MpiBuffers buffers;
+        buffers.resize(plan, osi_mpi_device_direct);
+        auto& send_device = buffers.send_device;
+        auto& recv_device = buffers.recv_device;
+        auto& send_host = buffers.send_host;
+        auto& recv_host = buffers.recv_host;
 
         amrex::Print(amrex::Print::AllProcs)
             << "[OSI interpolation mpi] level=" << lev
@@ -2295,19 +2290,12 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         }
         TagVector<OSI::CanonicalPackTag> pack_tv(pack_tags);
         TagVector<OSI::CanonicalRawUnpackTag> unpack_tv(unpack_tags);
-        Gpu::DeviceVector<Real> send_device;
-        Gpu::DeviceVector<Real> recv_device;
-        send_device.resize(send_total);
-        recv_device.resize(recv_total);
-        Gpu::PinnedVector<Real> send_host;
-        Gpu::PinnedVector<Real> recv_host;
-        if (osi_mpi_device_direct) {
-            send_host.clear();
-            recv_host.clear();
-        } else {
-            send_host.resize(send_total);
-            recv_host.resize(recv_total);
-        }
+        OSI::MpiBuffers buffers;
+        buffers.resize(plan, osi_mpi_device_direct);
+        auto& send_device = buffers.send_device;
+        auto& recv_device = buffers.recv_device;
+        auto& send_host = buffers.send_host;
+        auto& recv_host = buffers.recv_host;
 
         amrex::Print(amrex::Print::AllProcs)
             << "[OSI average mpi] level=" << lev

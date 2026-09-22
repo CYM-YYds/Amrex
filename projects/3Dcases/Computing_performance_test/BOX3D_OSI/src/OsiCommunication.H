@@ -4,6 +4,7 @@
 #include <AMReX_Array4.H>
 #include <AMReX_Box.H>
 #include <AMReX_GpuQualifiers.H>
+#include <AMReX_GpuContainers.H>
 #include <AMReX_Vector.H>
 
 #include <cstddef>
@@ -102,6 +103,27 @@ struct MpiPlan {
     amrex::Vector<std::size_t> recv_offsets;
     std::size_t send_total = 0;
     std::size_t recv_total = 0;
+};
+
+// CPC 交换使用的 GPU 聚合缓冲和可选 pinned host staging 缓冲。
+struct MpiBuffers {
+    amrex::Gpu::DeviceVector<amrex::Real> send_device;
+    amrex::Gpu::DeviceVector<amrex::Real> recv_device;
+    amrex::Gpu::PinnedVector<amrex::Real> send_host;
+    amrex::Gpu::PinnedVector<amrex::Real> recv_host;
+
+    void resize(const MpiPlan& plan, bool device_direct)
+    {
+        send_device.resize(plan.send_total);
+        recv_device.resize(plan.recv_total);
+        if (device_direct) {
+            send_host.clear();
+            recv_host.clear();
+        } else {
+            send_host.resize(plan.send_total);
+            recv_host.resize(plan.recv_total);
+        }
+    }
 };
 
 template <typename SendTagMap, typename RecvTagMap>
