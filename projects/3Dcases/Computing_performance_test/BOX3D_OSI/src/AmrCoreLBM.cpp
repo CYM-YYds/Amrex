@@ -1648,26 +1648,16 @@ void AmrCoreLBM::AverageDownOsiValidLevel(int lev, bool is_scale) {
     const auto coarse_phase = osi_phase.at(lev);
     const Real scale = Real(2.0) * tau.at(lev) / tau.at(lev + 1);
 
-    // This path is used only for an intermediate AMR level.  Decode complete
-    // canonical valid arrays and deliberately reuse the exact A-B scaling and
-    // AMReX average_down operation.  The temporary storage is more expensive
-    // than the interface-only OSI path, but avoids a different restriction
-    // implementation becoming part of the four-level correctness result.
+    // 这里使用函数局部 canonical 工作区，不再占用共享 osi_sync_buffer。
+    // 该路径只服务于完整 valid restriction，避免污染后续通信阶段的状态。
     MultiFab fine_canonical(
         fine_state.boxArray(), fine_state.DistributionMap(), Q, 0);
     MultiFab coarse_canonical(
         coarse_state.boxArray(), coarse_state.DistributionMap(), Q, 0);
 
-    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
-        const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
-        MultiFab& fine_batch = osi_sync_buffer.at(lev + 1);
-        MultiFab& coarse_batch = osi_sync_buffer.at(lev);
-        DecodeOsiValidBatch(
-            fine_state, fine_phase, fine_batch, q0, ncomp);
-        DecodeOsiValidBatch(
-            coarse_state, coarse_phase, coarse_batch, q0, ncomp);
-        MultiFab::Copy(fine_canonical, fine_batch, 0, q0, ncomp, 0);
-        MultiFab::Copy(coarse_canonical, coarse_batch, 0, q0, ncomp, 0);
+    for (int q = 0; q < Q; ++q) {
+        DecodeOsiValidBatch(fine_state, fine_phase, fine_canonical, q, 1);
+        DecodeOsiValidBatch(coarse_state, coarse_phase, coarse_canonical, q, 1);
     }
 
     if (is_scale) {
@@ -2689,59 +2679,9 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
 }
 
 void AmrCoreLBM::CommunicateOsiLevel(int lev) {
-    amrex::MultiFab& state = osi_state.at(lev);
-    amrex::MultiFab& canonical = osi_sync_buffer.at(lev);
-    const std::uint64_t phase = osi_phase.at(lev);
-    const Periodicity& periodicity = geom[lev].periodicity();
-    const IntVect ng = state.nGrowVect();
-
-    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
-        const int batch_size = std::min(osi_sync_batch_components, Q - q0);
-
-        {
-            ScopedPerfTimer timer(perf_stats.osi_decode);
-            // Decode：只解码 FillBoundary 会读取的 owner-valid 源区。缓存 Box
-            // 已去重，并通过 TagVector 合并为本 rank 每批一次 GPU launch。
-            amrex::ParallelFor(
-                osi_decode_tags.at(lev), batch_size,
-                [=] AMREX_GPU_DEVICE(
-                    int i, int j, int k, int n,
-                    const OSI::CommunicationTag& tag) noexcept {
-                    const int q = q0 + n;
-                    const auto phase_shift =
-                        OSI::osi_phase_shift(phase, tag.fab);
-                    const auto raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
-                        phase_shift);
-                    tag.dst(i, j, k, n) = tag.src(raw.x, raw.y, raw.z, q);
-                });
-        }
-
-        // 同 rank、跨 rank 和周期像均按“同一逻辑坐标的副本”同步。
-        {
-            ScopedPerfTimer timer(perf_stats.osi_fillboundary);
-            canonical.FillBoundary(0, batch_size, ng, periodicity);
-        }
-
-        {
-            ScopedPerfTimer timer(perf_stats.osi_encode);
-            // Encode：只回写 FillBoundary 实际更新的目标 ghost。valid 已在碰撞
-            // 后保存在 state 中，既不需要也不应从 canonical 重复写回。
-            amrex::ParallelFor(
-                osi_encode_tags.at(lev), batch_size,
-                [=] AMREX_GPU_DEVICE(
-                    int i, int j, int k, int n,
-                    const OSI::CommunicationTag& tag) noexcept {
-                    const int q = q0 + n;
-                    const auto phase_shift =
-                        OSI::osi_phase_shift(phase, tag.fab);
-                    const auto raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
-                        phase_shift);
-                    tag.dst(raw.x, raw.y, raw.z, q) = tag.src(i, j, k, n);
-                });
-        }
-    }
+    // 即使调用者未打开 local-direct，也统一走 OSI raw 通信实现；这样
+    // normal OSI 路径不再把整层数据解码到共享 canonical 缓冲。
+    CommunicateOsiLevelLocalDirect(lev);
 }
 
 void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
@@ -2963,11 +2903,6 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
 }
 
 void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
-    // 跨 rank direct 未显式启用时保留原 MPI-safe 路径。
-    if (ParallelDescriptor::NProcs() > 1 && !osi_mpi_direct) {
-        CommunicateOsiLevel(lev);
-        return;
-    }
     ScopedPerfTimer timer(perf_stats.osi_fillboundary);
     MultiFab& state = osi_state.at(lev);
     const BoxArray& ba = state.boxArray();
