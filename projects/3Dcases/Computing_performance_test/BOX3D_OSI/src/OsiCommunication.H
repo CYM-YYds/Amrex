@@ -46,6 +46,17 @@ struct MpiPackTag {
     const amrex::Box& box() const noexcept { return region; }
 };
 
+// 插值阶段从 OSI raw 源打包到跨 rank 缓冲区的描述。
+struct RawPackTag {
+    amrex::Array4<const amrex::Real> src;
+    amrex::Box region;
+    FabGeometry fab;
+    std::size_t offset = 0;
+
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    const amrex::Box& box() const noexcept { return region; }
+};
+
 // 跨 rank 通信的 GPU 融合解包描述。
 struct MpiUnpackTag {
     amrex::Array4<amrex::Real> dst;
@@ -73,6 +84,16 @@ struct CanonicalRawUnpackTag {
     amrex::Array4<amrex::Real> dst;
     amrex::Box region;
     FabGeometry fab;
+    std::size_t offset = 0;
+
+    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    const amrex::Box& box() const noexcept { return region; }
+};
+
+// 插值阶段从跨 rank 缓冲区解包到 canonical coarse stencil 的描述。
+struct CanonicalUnpackTag {
+    amrex::Array4<amrex::Real> dst;
+    amrex::Box region;
     std::size_t offset = 0;
 
     [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE

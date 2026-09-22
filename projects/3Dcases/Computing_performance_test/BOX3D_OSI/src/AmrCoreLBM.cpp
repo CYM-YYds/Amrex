@@ -860,15 +860,16 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
             const Box destination_box = coarse_stage.boxArray()[tag.dstIndex];
             const auto source_lo = source_ring.smallEnd();
             const auto destination_lo = destination_box.smallEnd();
-            direct_tags.push_back({
-                source_state.const_array(tag.srcIndex),
-                coarse_stage.array(tag.dstIndex), tag.sbox, tag.dbox,
-                {{source_lo[0], source_lo[1], source_lo[2]},
-                 {source_ring.length(0), source_ring.length(1),
-                  source_ring.length(2)}},
-                {{destination_lo[0], destination_lo[1], destination_lo[2]},
-                 {destination_box.length(0), destination_box.length(1),
-                  destination_box.length(2)}}});
+            direct_tags.push_back({source_state.const_array(tag.srcIndex),
+                                   coarse_stage.array(tag.dstIndex),
+                                   tag.sbox,
+                                   tag.dbox,
+                                   {{source_lo[0], source_lo[1], source_lo[2]},
+                                    {source_ring.length(0), source_ring.length(1),
+                                     source_ring.length(2)}},
+                                   {{destination_lo[0], destination_lo[1], destination_lo[2]},
+                                    {destination_box.length(0), destination_box.length(1),
+                                     destination_box.length(2)}}});
         }
         osi_interp_local_copy_tags.at(lev).define(direct_tags);
     }
@@ -1854,7 +1855,6 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
 
     auto& coarse_state = osi_state.at(lev - 1);
     auto& fine_state = osi_state.at(lev);
-    auto& decode_batch = osi_sync_buffer.at(lev - 1);
     auto& coarse_stage = interp_direct_coarse_stage.at(lev);
     const auto& fine_work_boxes = interp_direct_fine_boxes.at(lev);
     const auto& fine_indices = interp_direct_fine_index.at(lev);
@@ -1866,8 +1866,200 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
         return;
     }
 
-    if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1 &&
-        osi_interp_local_copy_tags.at(lev).ntags != 0) {
+    if (osi_parallel_copy && ParallelDescriptor::NProcs() > 1) {
+        ScopedPerfTimer timer(perf_stats.osi_parallel_copy);
+        // CPC 的目标是 sparse coarse_stage，源是 coarse OSI raw；本路径只
+        // 复用 CPC 的空间/归属配对，不让 AMReX 直接解释 OSI raw 分量。
+        const auto& cpc = coarse_stage.getCPC(
+            IntVect(0), coarse_state, IntVect(0),
+            Geom(lev - 1).periodicity());
+        AMREX_ALWAYS_ASSERT(cpc.m_LocTags && cpc.m_SndTags && cpc.m_RcvTags);
+
+        Vector<OSI::LocalCopyTag> local_tags;
+        local_tags.reserve(cpc.m_LocTags->size());
+        for (const auto& tag : *cpc.m_LocTags) {
+            const Box source_ring = amrex::grow(
+                coarse_state.boxArray()[tag.srcIndex],
+                coarse_state.nGrowVect());
+            const auto source_lo = source_ring.smallEnd();
+            const OSI::FabGeometry source_fab{
+                {source_lo[0], source_lo[1], source_lo[2]},
+                {source_ring.length(0), source_ring.length(1),
+                 source_ring.length(2)}};
+            local_tags.push_back({coarse_state.const_array(tag.srcIndex),
+                                  coarse_stage.array(tag.dstIndex), tag.sbox,
+                                  tag.dbox, source_fab, OSI::FabGeometry{}});
+        }
+        TagVector<OSI::LocalCopyTag> local_tv(local_tags);
+
+        const int nprocs = ParallelDescriptor::NProcs();
+        Vector<std::size_t> send_counts(nprocs, 0);
+        Vector<std::size_t> recv_counts(nprocs, 0);
+        for (const auto& [peer, tags] : *cpc.m_SndTags) {
+            for (const auto& tag : tags) {
+                send_counts[peer] +=
+                    static_cast<std::size_t>(tag.sbox.numPts()) * Q;
+            }
+        }
+        for (const auto& [peer, tags] : *cpc.m_RcvTags) {
+            for (const auto& tag : tags) {
+                recv_counts[peer] +=
+                    static_cast<std::size_t>(tag.dbox.numPts()) * Q;
+            }
+        }
+
+        Vector<std::size_t> send_offsets(nprocs, 0);
+        Vector<std::size_t> recv_offsets(nprocs, 0);
+        std::size_t send_total = 0;
+        std::size_t recv_total = 0;
+        for (int peer = 0; peer < nprocs; ++peer) {
+            send_offsets[peer] = send_total;
+            recv_offsets[peer] = recv_total;
+            send_total += send_counts[peer];
+            recv_total += recv_counts[peer];
+        }
+
+        Vector<OSI::RawPackTag> pack_tags;
+        Vector<OSI::CanonicalUnpackTag> unpack_tags;
+        Vector<std::size_t> send_cursor = send_offsets;
+        Vector<std::size_t> recv_cursor = recv_offsets;
+        for (const auto& [peer, tags] : *cpc.m_SndTags) {
+            for (const auto& tag : tags) {
+                const Box source_ring = amrex::grow(
+                    coarse_state.boxArray()[tag.srcIndex],
+                    coarse_state.nGrowVect());
+                const auto source_lo = source_ring.smallEnd();
+                const OSI::FabGeometry source_fab{
+                    {source_lo[0], source_lo[1], source_lo[2]},
+                    {source_ring.length(0), source_ring.length(1),
+                     source_ring.length(2)}};
+                pack_tags.push_back({coarse_state.const_array(tag.srcIndex),
+                                     tag.sbox, source_fab,
+                                     send_cursor[peer]});
+                send_cursor[peer] +=
+                    static_cast<std::size_t>(tag.sbox.numPts()) * Q;
+            }
+        }
+        for (const auto& [peer, tags] : *cpc.m_RcvTags) {
+            for (const auto& tag : tags) {
+                unpack_tags.push_back({coarse_stage.array(tag.dstIndex),
+                                       tag.dbox, recv_cursor[peer]});
+                recv_cursor[peer] +=
+                    static_cast<std::size_t>(tag.dbox.numPts()) * Q;
+            }
+        }
+
+        TagVector<OSI::RawPackTag> pack_tv(pack_tags);
+        TagVector<OSI::CanonicalUnpackTag> unpack_tv(unpack_tags);
+        Gpu::DeviceVector<Real> send_device(send_total);
+        Gpu::DeviceVector<Real> recv_device(recv_total);
+        Gpu::PinnedVector<Real> send_host;
+        Gpu::PinnedVector<Real> recv_host;
+        if (osi_mpi_device_direct) {
+            send_host.clear();
+            recv_host.clear();
+        } else {
+            send_host.resize(send_total);
+            recv_host.resize(recv_total);
+        }
+
+        amrex::Print(amrex::Print::AllProcs)
+            << "[OSI interpolation mpi] level=" << lev
+            << " transport="
+            << (osi_mpi_device_direct ? "device-direct" : "host-staging")
+            << " send_bytes=" << send_total * sizeof(Real)
+            << " recv_bytes=" << recv_total * sizeof(Real) << '\n';
+
+        {
+            Real* buffer = send_device.data();
+            amrex::ParallelFor(
+                pack_tv, Q,
+                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                                     const OSI::RawPackTag& tag) noexcept {
+                    const auto lo = tag.region.smallEnd();
+                    const int nx = tag.region.length(0);
+                    const int ny = tag.region.length(1);
+                    const std::size_t cell = static_cast<std::size_t>(
+                        ((k - lo[2]) * ny + (j - lo[1])) * nx +
+                        (i - lo[0]));
+                    const auto phase_shift =
+                        OSI::osi_phase_shift(coarse_phase, tag.fab);
+                    const auto raw = OSI::osi_address(
+                        {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                        phase_shift);
+                    buffer[tag.offset + cell * Q + q] =
+                        tag.src(raw.x, raw.y, raw.z, q);
+                });
+            Gpu::streamSynchronize();
+            if (!osi_mpi_device_direct && send_total != 0) {
+                Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
+                                 send_total * sizeof(Real));
+            }
+        }
+
+        const int mpi_tag = ParallelDescriptor::SeqNum();
+        Vector<ParallelDescriptor::Message> receives;
+        Vector<ParallelDescriptor::Message> sends;
+        for (int peer = 0; peer < nprocs; ++peer) {
+            if (recv_counts[peer] != 0) {
+                Real* recv_buffer = osi_mpi_device_direct
+                                        ? recv_device.data()
+                                        : recv_host.data();
+                receives.push_back(ParallelDescriptor::Arecv(
+                    recv_buffer + recv_offsets[peer], recv_counts[peer], peer,
+                    mpi_tag));
+            }
+        }
+        amrex::ParallelFor(
+            local_tv, Q,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                                 const OSI::LocalCopyTag& tag) noexcept {
+                const auto source = OSI::source_cell(tag, i, j, k);
+                const auto phase_shift =
+                    OSI::osi_phase_shift(coarse_phase, tag.src_fab);
+                const auto raw = OSI::osi_address(
+                    {source[0], source[1], source[2]},
+                    {e[q][0], e[q][1], e[q][2]}, tag.src_fab,
+                    phase_shift);
+                tag.dst(i, j, k, q) = tag.src(raw.x, raw.y, raw.z, q);
+            });
+        for (int peer = 0; peer < nprocs; ++peer) {
+            if (send_counts[peer] != 0) {
+                const Real* send_buffer = osi_mpi_device_direct
+                                              ? send_device.data()
+                                              : send_host.data();
+                sends.push_back(ParallelDescriptor::Asend(
+                    send_buffer + send_offsets[peer], send_counts[peer], peer,
+                    mpi_tag));
+            }
+        }
+        for (auto& message : receives) {
+            message.wait();
+        }
+        for (auto& message : sends) {
+            message.wait();
+        }
+
+        if (!osi_mpi_device_direct && recv_total != 0) {
+            Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
+                             recv_total * sizeof(Real));
+        }
+        const Real* buffer = recv_device.data();
+        amrex::ParallelFor(
+            unpack_tv, Q,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                                 const OSI::CanonicalUnpackTag& tag) noexcept {
+                const auto lo = tag.region.smallEnd();
+                const int nx = tag.region.length(0);
+                const int ny = tag.region.length(1);
+                const std::size_t cell = static_cast<std::size_t>(
+                    ((k - lo[2]) * ny + (j - lo[1])) * nx + (i - lo[0]));
+                tag.dst(i, j, k, q) =
+                    buffer[tag.offset + cell * Q + q];
+            });
+        Gpu::streamSynchronize();
+    } else if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1 &&
+               osi_interp_local_copy_tags.at(lev).ntags != 0) {
         ScopedPerfTimer timer(perf_stats.osi_parallel_copy);
         // direct 路径无需遵循通信缓冲的分批限制，一次处理全部 Q 分量，
         // 避免把本地 raw-to-canonical 复制拆成 9 次 kernel launch。
@@ -1886,47 +2078,45 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
                 tag.dst(i, j, k, n) = tag.src(raw.x, raw.y, raw.z, q);
             });
     } else {
+        auto& decode_batch = osi_sync_buffer.at(lev - 1);
+        // direct 关闭时保留原有分批解码和 ParallelCopy 回退路径。
+        for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+            const int ncomp =
+                amrex::min(osi_sync_batch_components, Q - q0);
 
-    // 分批把粗层 valid 区从 OSI raw 地址解码到现有通信缓冲区，再只复制
-    // 实际插值 stencil 到 sparse coarse_stage。这里不再构造整层 Q 分量
-    // 后续需要优化,实现OSI适配版的ParallelCopy函数
-    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
-        const int ncomp =
-            amrex::min(osi_sync_batch_components, Q - q0);
+            for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
+                const auto src = coarse_state.const_array(mfi);
+                const auto dst = decode_batch.array(mfi);
 
-        for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
-            const auto src = coarse_state.const_array(mfi);
-            const auto dst = decode_batch.array(mfi);
+                const Box ring =
+                    amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
+                const auto lo = ring.smallEnd();
 
-            const Box ring =
-                amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
-            const auto lo = ring.smallEnd();
+                const OSI::FabGeometry fab{
+                    {lo[0], lo[1], lo[2]},
+                    {ring.length(0), ring.length(1), ring.length(2)}};
+                const auto coarse_shift =
+                    OSI::osi_phase_shift(coarse_phase, fab);
 
-            const OSI::FabGeometry fab{
-                {lo[0], lo[1], lo[2]},
-                {ring.length(0), ring.length(1), ring.length(2)}};
-            const auto coarse_shift =
-                OSI::osi_phase_shift(coarse_phase, fab);
+                for (const Box& bx :
+                     osi_interp_decode_boxes.at(lev).at(mfi.index())) {
+                    amrex::ParallelFor(
+                        bx, ncomp,
+                        [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
+                            const int q = q0 + n;
+                            const auto raw = OSI::osi_address(
+                                {i, j, k},
+                                {e[q][0], e[q][1], e[q][2]},
+                                fab, coarse_shift);
 
-            for (const Box& bx :
-                 osi_interp_decode_boxes.at(lev).at(mfi.index())) {
-                amrex::ParallelFor(
-                    bx, ncomp,
-                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
-                        const int q = q0 + n;
-                        const auto raw = OSI::osi_address(
-                            {i, j, k},
-                            {e[q][0], e[q][1], e[q][2]},
-                            fab, coarse_shift);
-
-                        dst(i, j, k, n) = src(raw.x, raw.y, raw.z, q);
-                    });
+                            dst(i, j, k, n) = src(raw.x, raw.y, raw.z, q);
+                        });
+                }
             }
+            coarse_stage.ParallelCopy(
+                decode_batch, 0, q0, ncomp, IntVect(0), IntVect(0),
+                Geom(lev - 1).periodicity());
         }
-        coarse_stage.ParallelCopy(
-            decode_batch, 0, q0, ncomp, IntVect(0), IntVect(0),
-            Geom(lev - 1).periodicity());
-    }
     }
 
     FillCoarseInterpolationStagePhysicalBoundary(lev);
@@ -2077,10 +2267,9 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
             const OSI::FabGeometry dst_fab{
                 {lo[0], lo[1], lo[2]},
                 {ring.length(0), ring.length(1), ring.length(2)}};
-            local_tags.push_back({
-                interface_result.const_array(tag.srcIndex),
-                coarse_state.array(tag.dstIndex), tag.sbox, tag.dbox,
-                OSI::FabGeometry{}, dst_fab});
+            local_tags.push_back({interface_result.const_array(tag.srcIndex),
+                                  coarse_state.array(tag.dstIndex), tag.sbox, tag.dbox,
+                                  OSI::FabGeometry{}, dst_fab});
         }
         TagVector<OSI::LocalCopyTag> local_tv(local_tags);
 
@@ -2117,9 +2306,8 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         Vector<std::size_t> recv_cursor = recv_offsets;
         for (const auto& [peer, tags] : *cpc.m_SndTags) {
             for (const auto& tag : tags) {
-                pack_tags.push_back({
-                    interface_result.const_array(tag.srcIndex), tag.sbox,
-                    send_cursor[peer]});
+                pack_tags.push_back({interface_result.const_array(tag.srcIndex), tag.sbox,
+                                     send_cursor[peer]});
                 send_cursor[peer] +=
                     static_cast<std::size_t>(tag.sbox.numPts()) * Q;
             }
@@ -2133,9 +2321,8 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
                 const OSI::FabGeometry dst_fab{
                     {lo[0], lo[1], lo[2]},
                     {ring.length(0), ring.length(1), ring.length(2)}};
-                unpack_tags.push_back({
-                    coarse_state.array(tag.dstIndex), tag.dbox, dst_fab,
-                    recv_cursor[peer]});
+                unpack_tags.push_back({coarse_state.array(tag.dstIndex), tag.dbox, dst_fab,
+                                       recv_cursor[peer]});
                 recv_cursor[peer] +=
                     static_cast<std::size_t>(tag.dbox.numPts()) * Q;
             }
