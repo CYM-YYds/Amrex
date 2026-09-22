@@ -124,6 +124,24 @@ Q=27 分量合并为单次 kernel。真实 GPU 作业 `601985`（A-B）与 `6019
 
 ### 2026-09-22：平均 direct 路径及运行边界
 
+#### `osi_sync_buffer` 当前使用边界
+
+当前代码仍保留 `osi_sync_buffer`，但它不再是所有 OSI 通信阶段的必经中转：
+
+- 同 rank ghost copy、OSI 插值 direct 路径，以及已启用的同层 MPI raw pack/unpack
+  不需要先把整层 raw state 解码到该批次缓冲；
+- `CommunicateOsiLevel()` 仍把它作为 canonical fallback，供
+  `osi_local_direct=0` 或 direct 路径不可用时使用；
+- `AverageDownOsiValidLevel()` 仍在 restriction 前后将 fine/coarse valid DDF 分批
+  解码到 `osi_sync_buffer`，再调用 AMReX `average_down`，因此多层平均主路径尚未
+  完全 OSI-native；
+- regrid、checkpoint/state 重建和诊断中的批次缓冲使用属于独立生命周期，不能据此
+  宣称生产 OSI 路径已经彻底移除 `osi_sync_buffer`。
+
+因此，下一项代码工作应优先替换 `AverageDownOsiValidLevel()` 的 canonical
+restriction 中转；在该项完成并通过逐 cell/逐 q 验收前，不应删除成员或把文档写成
+“OSI 模式完全不使用 `osi_sync_buffer`”。
+
 - 提交 `f3ec9b7` 的作业 `602116`：2 ranks/2 GPUs、level 0/1、固定布局，
   从共同 step 32 checkpoint 续跑至 step 40；OSI host-staging direct 平均执行完成。
   与 A-B 的 canonical checkpoint 对比，54 个 `(level,q)` 的 active-cell

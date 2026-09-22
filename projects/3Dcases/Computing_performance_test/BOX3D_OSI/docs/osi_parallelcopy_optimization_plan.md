@@ -110,6 +110,9 @@
 - 已完成：单 rank 插值路径的 raw-to-canonical 直接复制（`FillOsiGhostFromCoarse`）。
 - 已完成：单 rank 平均接口直接写入 coarse OSI raw；多 rank 平均通过 CPC tags
   执行 canonical pack、MPI、按 phase 解包到 raw；开关关闭时保留原有回退。
+- 尚未完成：`AverageDownOsiValidLevel()` 内部仍通过 `osi_sync_buffer` 承载
+  fine/coarse valid DDF 的 canonical restriction；这与跨 rank 的 raw pack/unpack
+  是两个层次，不能把后者的完成表述为“平均路径已完全摆脱同步缓冲”。
 - 已验证：候选版本通过 `BOX3D_OSI/scripts/compile.sh` 的 CUDA/MPI 编译。
 - 已验证：2 ranks/2 GPUs、固定布局 host-staging 的 active-cell 54 个 `(level,q)`
   `Linf=0`，插值与平均 8 步短窗口接近 A-B；见 `current_status.md` 和
