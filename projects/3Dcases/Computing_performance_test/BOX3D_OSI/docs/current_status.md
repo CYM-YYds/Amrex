@@ -1,6 +1,6 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-09-21
+更新时间：2026-09-22
 
 ## 现役配置
 
@@ -8,8 +8,8 @@
 `amr.max_grid_size=128`、`lbm.stream_mode=1`、`lbm.collide_mode=1`、
 `lbm.osi_local_direct=1`、`lbm.osi_parallel_copy=0`、`lbm.osi_mpi_direct=0`、
 `performance.report_int=1000`、`max_step=128000`。默认是 OSI 单数组路径；A-B 基准
-需显式覆盖 `lbm.stream_mode=0`。将 `lbm.osi_parallel_copy=1` 仅用于单 MPI rank 的
-插值/平均 direct path 验证，多 rank 会回退到原有传输路径。
+需显式覆盖 `lbm.stream_mode=0`。`lbm.osi_parallel_copy=1` 在多 rank 下也会启用
+平均阶段的 CPC raw direct pack/unpack；当前已验证的传输是 host-staging。
 跨 rank direct 路径需显式打开 `lbm.osi_mpi_direct=1`；device-buffer 还需显式打开
 `lbm.osi_mpi_device_direct=1`，且 AMReX 必须检测到 GPU-aware MPI。host-staging 分块
 流水通过 `lbm.osi_mpi_pipeline_chunk_bytes` 显式启用，默认为 0；当前已测最佳值
@@ -105,9 +105,10 @@ Q=27 分量合并为单次 kernel。真实 GPU 作业 `601985`（A-B）与 `6019
 `0.267/0.266 ms` 与 `0.314/0.274 ms`；step 36 分别为 `0.727/0.800 ms` 与
 `0.706/0.739 ms`。这只支持当前单 GPU 短窗口的阶段性性能结论。
 
-逐 cell/逐 q 正确性 artifact、跨 MPI rank 的 ParallelCopy raw pack/unpack，以及多 GPU
-插值/平均 direct path 仍为 pending；`lbm.osi_parallel_copy` 默认保持关闭。详细阶段
-设计和证据边界见 `docs/osi_parallelcopy_optimization_plan.md`。
+`lbm.osi_parallel_copy` 默认保持关闭。跨 rank 平均 host-staging direct 已接入，
+下面的逐 q 与多 GPU 短窗口证据只覆盖固定网格、重启后 8 步的 active cells；
+动态 regrid、多节点及 device-direct 平均的运行验收仍为 pending。详细阶段设计
+见 `docs/osi_parallelcopy_optimization_plan.md`。
 
 ### 2026-09-21 新增多 GPU 证据
 
@@ -120,3 +121,21 @@ Q=27 分量合并为单次 kernel。真实 GPU 作业 `601985`（A-B）与 `6019
   `interp/average` 约 `3.70/2.28 s`，A-B 约 `2.54/1.25 s`。此作业中
   `osi_parallel_copy=0`，因此它验证的是当前跨 rank 回退链，不是平均 raw direct。
   分项记录在 `logs/validation/mpi_parallelcopy_perf_602047_602049.jsonl`。
+
+### 2026-09-22：平均 direct 路径及运行边界
+
+- 提交 `f3ec9b7` 的作业 `602116`：2 ranks/2 GPUs、level 0/1、固定布局，
+  从共同 step 32 checkpoint 续跑至 step 40；OSI host-staging direct 平均执行完成。
+  与 A-B 的 canonical checkpoint 对比，54 个 `(level,q)` 的 active-cell
+  `Linf=0`，global `Linf=0`；level 0 被细层覆盖的 valid storage 有非零差异，
+  不能称为所有 valid cells 位相同。证据：
+  `logs/validation/osi_parallelcopy_checkpoint_602116.jsonl` 和
+  `logs/submit/602116-osi-parallelcopy-check.log`。
+- 同作业每 rank 的 8 步短窗口均值：A-B/OSI 插值分别约 15.238/16.238 ms，
+  平均分别约 5.604/5.528 ms；这是固定布局短测，并非长期动态 AMR 性能承诺。
+  分项见 `logs/validation/osi_parallelcopy_perf_602116.jsonl`。
+- 提交 `bc26475` 实现平均阶段 GPU-aware device-direct 分支并通过 CUDA/MPI 编译。
+  提交 `9cac08a` 的作业 `602119` 在 HMPI/UCX 普通 OSI MPI 通信阶段报
+  `process_vm_readv: Bad address` / `MPI_ERR_INTERN`，未到达平均、也无逐 q
+  比较结果，不能宣称该分支运行正确。专项脚本现默认复现 host-staging；只有显式
+  设置 `OSI_AVERAGE_MPI_TRANSPORT=device-direct` 才会启用 device pointer 测试。

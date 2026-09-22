@@ -105,15 +105,19 @@
 通过条件是所有 REQ 均有绑定到最终源码的 diff、命令输出或 artifact；只有“编译成功”、
 “job 完成”、checksum 相同或总 MLUPS 变好均不足以单独判定通过。
 
-## 当前阶段状态（2026-09-21）
+## 当前阶段状态（2026-09-22）
 
 - 已完成：单 rank 插值路径的 raw-to-canonical 直接复制（`FillOsiGhostFromCoarse`）。
-- 已完成：单 rank 平均接口结果直接写入 coarse OSI raw state；多 rank 保留
-  `transfer_batch.ParallelCopy` 回退。
+- 已完成：单 rank 平均接口直接写入 coarse OSI raw；多 rank 平均通过 CPC tags
+  执行 canonical pack、MPI、按 phase 解包到 raw；开关关闭时保留原有回退。
 - 已验证：候选版本通过 `BOX3D_OSI/scripts/compile.sh` 的 CUDA/MPI 编译。
-- 未完成：跨 rank raw pack/unpack、平均阶段的多 GPU 直通信、逐 cell/逐 q 正确性
-  artifact，以及单 GPU/多 GPU 与 A-B 的分项性能验收。
-- 当前 `lbm.osi_parallel_copy` 默认仍为 `0`；打开该开关只启用单 rank 的两处直接路径。
+- 已验证：2 ranks/2 GPUs、固定布局 host-staging 的 active-cell 54 个 `(level,q)`
+  `Linf=0`，插值与平均 8 步短窗口接近 A-B；见 `current_status.md` 和
+  `logs/validation/osi_parallelcopy_{checkpoint,perf}_602116.jsonl`。
+- 未完成：dynamic regrid 的逐阶段严格比较、多节点性能和平均 device-direct 的
+  运行验收。后者在 HMPI/UCX 作业 `602119` 中于普通通信阶段先行失败，不能用
+  编译成功或已有 host-staging 结果替代。
+- 当前 `lbm.osi_parallel_copy` 默认仍为 `0`；device-direct 仅显式 opt-in。
 
 ## GPU 冒烟与阶段性性能证据（2026-09-21）
 

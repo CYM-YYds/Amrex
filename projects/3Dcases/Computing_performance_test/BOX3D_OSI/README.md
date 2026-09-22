@@ -105,8 +105,10 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 - `stream_mode=0`：双数组数值基准路径，供正确性和性能 A-B 使用。
 - `stream_mode=1`：grown-Fab OSI 单数组路径；已有单层、两层、静态/动态 AMR 和
   canonical checkpoint 的历史测试，但不能外推为当前多层生产验收。
-- `lbm.osi_parallel_copy=1`：在单 MPI rank 时启用插值和平均阶段的 OSI raw 直接复制；
-  默认值为 `0`，多 rank 自动保留原有 `ParallelCopy` 回退路径。
+- `lbm.osi_parallel_copy=1`：启用插值和平均阶段的 OSI direct 路径；多 rank
+  平均通过 CPC tags 将 canonical restriction 结果打包后直接写入 coarse OSI raw。
+  默认值为 `0`。已验证的多 rank 传输是 host-staging；device-direct 代码已编译，
+  但本机 HMPI/UCX 运行在到达平均阶段前失败，不能视作通过验收。
 - 静态 `ParticleContainer` 的 checkpoint/restart 已有跨 MPI 分解测试；运动刚体的
   质心、平动/角速度、力和力矩未持久化，尚不支持完整 IBM restart 结论。
 - 历史性能 job 和图片只代表当时的源码、输入和硬件，不是当前性能基线。
