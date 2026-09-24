@@ -38,7 +38,7 @@
   49,545,216 个 DDF 值仍全部相等；covered 存储已有 6,134,587 个值不同，
   最大差 `0.29309816067751038`。随后旧阶段比较在 level 0 `Stream`
   报告 uncovered 差异。covered 在推进后可与 oracle 不同，不能把其
-  全 valid 差值误作 uncovered 差值；真正的阶段边界还需逐点复测。
+  全 valid 差值误作 uncovered 差值；step 32 的 interface 阶段边界见下文。
 - 独立 A-B/OSI 作业 `603370`/`603371` 使用相同的 inputs 快照，在 step 33
   level 0 的 `Boundary` 返回后、`Swap` 前读取 uncovered 格点 `(1,111,111)`、q=18：
   A-B 为 `0.018777451872808406`，OSI 为 `0.018585093245395951`，差
@@ -71,8 +71,19 @@
   最大差仍为 `0.004901078005466977`，回退写回后为
   `0.2930981606775104`。源码中回退路径从稀疏 `interface_result` 拷入
   `transfer_batch`，却按全部 `interface_mask` 写回；这与额外改写的单元数
-  一致，是需要修复并复测的具体原因。调用前已存在的 interface 差异仍需
-  继续追溯，不能归因于这次平均。
+  一致，是需要修复并复测的具体原因。调用前已存在的 interface 差异
+  不能归因于这次平均。
+- job `603389` 临时将 interface 纳入锁步 A-B/OSI 阶段比较：step 32
+  `AfterRefineMesh` 的 level 0 全 valid 仍为零差；随后 level 0 的
+  `Initial`、`Collision`、`Communication` 均为零差，第一次失败发生在
+  `Stream` 后（phase=32，最大差 `0.00052852862318335594`，
+  `(1,18,112),q=18`）。旧阶段比较跳过全部 covered 单元，因而漏掉了
+  interface。A-B 的 `Stream` 跳过全部 covered（包括 interface），OSI
+  则递增 phase，故 covered/interface 存储可能分叉；这一阶段定位不等于
+  已证明 active 流场错误，也不支持把首差归咎于碰撞。该作业在首次差异处
+  按诊断设计中止；插桩随后撤回并重新构建，现役源码不提供
+  `verification.osi_ab_check_interface` 开关。证据见
+  `logs/submit/603389-out.log` 和 `runs/20260924_165902_job603389/`。
 - job `603355` 的新细层对照使用诊断内部构造的参考态，其 level 1 重构后
   `linf=0` 只证明两套初始化计算一致；后续锁步细层参考态产生 NaN，不能将
   该诊断当作独立 A-B 模式的完整步进结果。jobs `603362`、`603364`、
@@ -98,10 +109,10 @@
   保持三层；用户在 ParaView 中观察到 NaN。其总耗时不得与旧版
   `596890`/`596891` 当作同版本性能对照，NaN 的首次发生步数仍待定位。
 
-下一次诊断应使用完整有效的 A-B 细层参考态，在 step 33 的各阶段复用逐点
-比较，定位 uncovered 首次差异，并检查 covered 邻域数据是否被 streaming
-读取；同时核对旧 GPU 范数诊断的计算与归约实现。保留现有日志、
-PlotFile、checkpoint 和输入快照供复核。
+下一次诊断应先修正稀疏平均的回退写回范围并逐 cell/逐 q 复测；再使用
+完整有效的 A-B 细层参考态，在 step 33 的各阶段逐点比较 uncovered，
+检查 covered 邻域数据是否被 streaming 读取。旧 GPU 范数诊断的计算与归约
+实现也仍待核对。保留现有日志、PlotFile、checkpoint 和输入快照供复核。
 
 ## 历史验证（按原作业版本）
 
