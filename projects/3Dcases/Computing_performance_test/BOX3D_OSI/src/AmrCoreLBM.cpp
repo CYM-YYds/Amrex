@@ -20,6 +20,7 @@
 #include <iomanip>
 #include <optional>
 #include <sstream>
+#include <vector>
 
 #ifdef AMREX_MEM_PROFILING
 #include <AMReX_MemProfiler.H>
@@ -1856,6 +1857,89 @@ void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
         FillDdfGhostFromCoarse(lev, time);
     } else {
         FillPatch(lev, time, f_old.at(lev));
+    }
+    static const bool probe_first_fill = [] {
+        bool enabled = false;
+        ParmParse("verification").query("ghost_probe_first_fill", enabled);
+        return enabled;
+    }();
+    if (!probe_first_fill || lev != 1 || !is_scale) {
+        return;
+    }
+    static int level1_fill_count = 0;
+    if (++level1_fill_count == 1) {
+        // 首次重网格后，保存真正由粗层插值写入的 fine ghost，不含同层覆盖区。
+        constexpr int ex[Q] = {
+            0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
+            1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
+        constexpr int ey[Q] = {
+            0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0,
+            0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
+        constexpr int ez[Q] = {
+            0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
+            1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+        const MultiFab& state = stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
+        const std::string stem = "ghost_probe_mode" + std::to_string(stream_mode)
+            + "_rank" + std::to_string(ParallelDescriptor::MyProc());
+        std::ofstream meta(stem + ".meta");
+        std::ofstream binary(stem + ".bin", std::ios::binary);
+        AMREX_ALWAYS_ASSERT(meta && binary);
+        Long local_cells = 0;
+        const auto& work_boxes = interp_direct_fine_boxes.at(lev);
+        const auto& fine_indices = interp_direct_fine_index.at(lev);
+        Gpu::synchronize();
+        for (int n = 0; n < work_boxes.size(); ++n) {
+            const int fine_index = fine_indices[n];
+            if (state.DistributionMap()[fine_index] != ParallelDescriptor::MyProc()) {
+                continue;
+            }
+            const Box& work = work_boxes[n];
+            const Box& valid = state.boxArray()[fine_index];
+            const FArrayBox& device = state[fine_index];
+            FArrayBox host(device.box(), Q, The_Pinned_Arena());
+            Gpu::dtoh_memcpy(host.dataPtr(), device.dataPtr(), host.nBytes());
+            const Box ring = device.box();
+            const auto lo = ring.smallEnd();
+            const OSI::FabGeometry fab{
+                {lo[0], lo[1], lo[2]},
+                {ring.length(0), ring.length(1), ring.length(2)}};
+            const auto shift = OSI::osi_phase_shift(osi_phase.at(lev), fab);
+            const auto data = host.const_array();
+            meta << fine_index;
+            for (int d = 0; d < 3; ++d) {
+                meta << ' ' << work.smallEnd(d) << ' ' << work.bigEnd(d);
+            }
+            for (int d = 0; d < 3; ++d) {
+                meta << ' ' << valid.smallEnd(d) << ' ' << valid.bigEnd(d);
+            }
+            meta << '\n';
+            local_cells += work.numPts();
+            std::vector<Real> values;
+            values.reserve(static_cast<std::size_t>(work.numPts()) * Q);
+            for (int q = 0; q < Q; ++q) {
+                for (int k = work.smallEnd(2); k <= work.bigEnd(2); ++k) {
+                    for (int j = work.smallEnd(1); j <= work.bigEnd(1); ++j) {
+                        for (int i = work.smallEnd(0); i <= work.bigEnd(0); ++i) {
+                            IntVect address(AMREX_D_DECL(i, j, k));
+                            if (stream_mode == 1) {
+                                const auto raw = OSI::osi_address(
+                                    {i, j, k}, {ex[q], ey[q], ez[q]}, fab, shift);
+                                address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
+                            }
+                            values.push_back(data(address[0], address[1],
+                                                  address[2], q));
+                        }
+                    }
+                }
+            }
+            binary.write(reinterpret_cast<const char*>(values.data()),
+                         static_cast<std::streamsize>(values.size() * sizeof(Real)));
+        }
+        AMREX_ALWAYS_ASSERT(meta.good() && binary.good());
+        amrex::AllPrint() << "ghost_probe: mode=" << stream_mode
+                          << " lev=1 fill_count=1 boxes=" << work_boxes.size()
+                          << " local_cells=" << local_cells
+                          << " stem=" << stem << '\n';
     }
 }
 
