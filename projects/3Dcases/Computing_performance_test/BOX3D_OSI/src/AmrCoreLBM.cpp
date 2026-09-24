@@ -1748,6 +1748,38 @@ void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复
     ScopedPerfTimer timer(perf_stats.boundary);
     const DdfLayout layout =
         stream_mode == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
+    // 诊断重网格前后的同一份 level 0 valid 状态，避免把边界修复与 regrid 混为一谈。
+    const auto check_level0 = [&](const char* stage) {
+        if (!osi_ab_check || stream_mode != 1 ||
+            !f_old.at(0).isDefined()) {
+            return;
+        }
+        const MultiFab& state = osi_state.at(0);
+        MultiFab canonical(state.boxArray(), state.DistributionMap(),
+                           osi_sync_batch_components, 0);
+        Real linf = 0.0;
+        bool nonfinite = false;
+        for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+            const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+            DecodeOsiValidBatch(state, osi_phase.at(0), canonical, q0, ncomp);
+            nonfinite |= canonical.contains_nan(0, ncomp, 0) ||
+                         canonical.contains_inf(0, ncomp, 0);
+            MultiFab difference(state.boxArray(), state.DistributionMap(),
+                                ncomp, 0);
+            MultiFab::Copy(difference, canonical, 0, 0, ncomp, 0);
+            MultiFab::Subtract(difference, f_old.at(0), q0, 0, ncomp, 0);
+            const Real batch_linf = difference.norm0(0, ncomp, 0);
+            nonfinite |= !std::isfinite(batch_linf);
+            if (std::isfinite(batch_linf)) {
+                linf = amrex::max(linf, batch_linf);
+            }
+        }
+        amrex::Print() << "regrid_boundary_check stage=" << stage
+                       << " level=0 phase=" << osi_phase.at(0)
+                       << " all_valid_finite=" << (nonfinite ? 0 : 1)
+                       << " all_valid_ab_linf=" << linf << '\n';
+    };
+    check_level0("before_repair");
 
     // 完整平均下传或重网格插值可能覆盖物理边界 valid 单元；此处必须包含
     // covered 单元，以便这些数据在后续重新暴露或作为插值源时仍满足边界条件。
@@ -1761,6 +1793,7 @@ void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复
                 lev, f_old.at(lev), DdfLayout::Canonical, false);
         }
     }
+    check_level0("after_repair");
 }
 
 void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
