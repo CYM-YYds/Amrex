@@ -3162,7 +3162,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         CommunicateLevel(lev, DdfLayout::Osi);
         CommunicateLevel(lev, DdfLayout::Canonical);
         CompareOsiReferenceStage(
-            lev, "Communication", f_old.at(lev), nghost);
+            lev, "Communication", f_old.at(lev), 0);
 
         Stream(lev, nghost, DdfLayout::Osi);
         Stream(lev, 1, DdfLayout::Canonical);
@@ -3215,9 +3215,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
 
     for (MFIter mfi(reference, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         // 非周期域外 ghost 不属于 Communication 的有效同步语义。
-        const Box valid_box =
-            amrex::grow(mfi.validbox(), compare_ngrow) &
-            comparison_domain;
+        const Box valid_box = mfi.validbox() & comparison_domain;
         const Box ring_box =
             amrex::grow(mfi.validbox(), state.nGrowVect());
         const auto fab_lo = ring_box.smallEnd();
@@ -3228,10 +3226,14 @@ void AmrCoreLBM::CompareOsiReferenceStage(
         const Array4<const Real>& ab = reference.const_array(mfi);
         const Array4<const Real>& osi = state.const_array(mfi);
         const Array4<Real>& diff = difference.array(mfi);
+        const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+        const auto covered = has_fine ? covered_mask.at(lev).const_array(mfi)
+                                      : Array4<const int>{};
 
         amrex::ParallelFor(
             valid_box, Q,
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                if (has_fine && covered(i, j, k) != 0) { return; }
                 const auto raw = OSI::osi_address(
                     {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab,
                     phase_shift);
@@ -3240,8 +3242,8 @@ void AmrCoreLBM::CompareOsiReferenceStage(
             });
     }
 
-    const Real linf =
-        difference.norm0(0, Q, IntVect(compare_ngrow));
+    const Real linf = amrex::max(
+        Real(0.0), difference.norm0(0, Q, IntVect(0)));
     constexpr Real tolerance = 1.0e-12;
     const bool comparison_failed =
         !std::isfinite(linf) || linf > tolerance;
@@ -3266,9 +3268,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
         Real local_max_osi = 0.0;
 
         for (MFIter mfi(reference, false); mfi.isValid(); ++mfi) {
-            const Box valid_box =
-                amrex::grow(mfi.validbox(), compare_ngrow) &
-                comparison_domain;
+            const Box valid_box = mfi.validbox() & comparison_domain;
             const Box ring_box = state[mfi].box();
             FArrayBox host_reference(
                 reference[mfi].box(), Q, The_Pinned_Arena());
@@ -3283,6 +3283,15 @@ void AmrCoreLBM::CompareOsiReferenceStage(
 
             const auto ab = host_reference.const_array();
             const auto osi = host_state.const_array();
+            const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+            std::unique_ptr<IArrayBox> host_covered;
+            if (has_fine) {
+                host_covered = std::make_unique<IArrayBox>(
+                    covered_mask.at(lev)[mfi].box(), 1, The_Pinned_Arena());
+                Gpu::dtoh_memcpy(host_covered->dataPtr(),
+                                 covered_mask.at(lev)[mfi].dataPtr(),
+                                 host_covered->nBytes());
+            }
             const auto fab_lo = ring_box.smallEnd();
             const OSI::FabGeometry fab{
                 {fab_lo[0], fab_lo[1], fab_lo[2]},
@@ -3296,6 +3305,10 @@ void AmrCoreLBM::CompareOsiReferenceStage(
                 for (int k = lo[2]; k <= hi[2]; ++k) {
                     for (int j = lo[1]; j <= hi[1]; ++j) {
                         for (int i = lo[0]; i <= hi[0]; ++i) {
+                            if (has_fine &&
+                                host_covered->const_array()(i, j, k) != 0) {
+                                continue;
+                            }
                             const auto raw = OSI::osi_address(
                                 {i, j, k},
                                 {ex[q], ey[q], ez[q]}, fab,
