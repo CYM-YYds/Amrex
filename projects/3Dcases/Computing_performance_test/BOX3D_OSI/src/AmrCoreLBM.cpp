@@ -1190,6 +1190,42 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
         interp_direct_cache_ready.end(), 0);
     regrid(0, cur_time);
     RebuildCoarseFineCaches();
+    bool regrid_valid_check = false;
+    ParmParse("verification").query("regrid_valid_check", regrid_valid_check);
+    if (stream_mode == 1 && (osi_ab_check || regrid_valid_check)) {
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            const MultiFab& state = osi_state.at(lev);
+            MultiFab canonical(state.boxArray(), state.DistributionMap(),
+                               osi_sync_batch_components, 0);
+            bool nonfinite = false;
+            Real ab_linf = 0.0;
+            const bool has_ab_reference = lev == 0 && f_old.at(lev).isDefined();
+            for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+                const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+                DecodeOsiValidBatch(state, osi_phase.at(lev), canonical, q0, ncomp);
+                nonfinite |= canonical.contains_nan(0, ncomp, 0) ||
+                             canonical.contains_inf(0, ncomp, 0);
+                if (has_ab_reference && !nonfinite) {
+                    MultiFab difference(state.boxArray(), state.DistributionMap(),
+                                        ncomp, 0);
+                    MultiFab::Copy(difference, canonical, 0, 0, ncomp, 0);
+                    MultiFab::Subtract(difference, f_old.at(lev), q0, 0,
+                                       ncomp, 0);
+                    const Real batch_linf = difference.norm0(0, ncomp, 0);
+                    ab_linf = amrex::max(ab_linf, batch_linf);
+                    nonfinite |= !std::isfinite(batch_linf);
+                }
+            }
+            amrex::Print() << "regrid_valid_check level=" << lev
+                           << " boxes=" << state.boxArray().size()
+                           << " all_valid_finite=" << (nonfinite ? 0 : 1)
+                           << " ab_reference=" << (has_ab_reference ? 1 : 0)
+                           << " all_valid_ab_linf="
+                           << (has_ab_reference ? ab_linf : Real(-1.0)) << '\n';
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                !nonfinite, "Regrid produced nonfinite valid OSI DDF");
+        }
+    }
 }
 
 void AmrCoreLBM::RebuildCoarseFineCaches() {
