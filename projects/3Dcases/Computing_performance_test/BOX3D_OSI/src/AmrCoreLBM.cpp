@@ -1758,23 +1758,19 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
         return;
     }
 
-    const auto probe_after_average = [&] {
-        if (lev != 0 || !is_scale) {
+    static const bool average_probe_enabled = [] {
+        bool value = false;
+        ParmParse("verification").query("average_probe_first", value);
+        return value;
+    }();
+    static int level0_average_count = 0;
+    const bool probe_this_call = average_probe_enabled && lev == 0 && is_scale &&
+                                 ++level0_average_count == 1;
+    const auto probe_average = [&](const char* stage) {
+        if (!probe_this_call) {
             return;
         }
-        static const bool enabled = [] {
-            bool value = false;
-            ParmParse("verification").query("average_probe_first", value);
-            return value;
-        }();
-        if (!enabled) {
-            return;
-        }
-        static int level0_average_count = 0;
-        if (++level0_average_count != 1) {
-            return;
-        }
-        // 首次界面平均返回前，导出粗层全部 valid 及 uncovered/interface 掩码。
+        // 首次界面平均的入口和出口分别导出粗层 valid 及区域掩码。
         constexpr int ex[Q] = {
             0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
             1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
@@ -1785,7 +1781,8 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
             0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
             1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
         const MultiFab& state = stream_mode == 1 ? osi_state.at(0) : f_old.at(0);
-        const std::string stem = "average_probe_mode" + std::to_string(stream_mode)
+        const std::string stem = "average_probe_" + std::string(stage)
+            + "_mode" + std::to_string(stream_mode)
             + "_rank" + std::to_string(ParallelDescriptor::MyProc());
         std::ofstream meta(stem + ".meta");
         std::ofstream binary(stem + ".bin", std::ios::binary);
@@ -1855,14 +1852,17 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
             }
         }
         AMREX_ALWAYS_ASSERT(meta.good() && binary.good() && masks.good());
-        amrex::AllPrint() << "average_probe: mode=" << stream_mode
+        amrex::AllPrint() << "average_probe: stage=" << stage
+                          << " mode=" << stream_mode
                           << " lev=0 first_average=1 local_cells=" << local_cells
                           << " stem=" << stem << '\n';
     };
 
+    probe_average("before");
+
     if (stream_mode == 1) {
         AverageDownOsiLevel(lev, is_scale);
-        probe_after_average();
+        probe_average("after");
         return;
     }
 
@@ -1946,7 +1946,7 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
             crse_mf.ParallelCopy(interface_result, 0, 0, Q);
         }
     }
-    probe_after_average();
+    probe_average("after");
 }
 
 void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
