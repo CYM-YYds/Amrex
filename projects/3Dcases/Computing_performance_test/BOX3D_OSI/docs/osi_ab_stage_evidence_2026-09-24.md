@@ -15,6 +15,14 @@
 | step 33 level 0 `Boundary` 后 | 已知 uncovered 点 `(1,111,111), q=18` | **该点一致**：均为 `0.018585093245395951` | [A-B job 603478](../runs/20260924_210611_job603478/run.log) / [OSI job 603479](../runs/20260924_210617_job603479/run.log)。这是单点，不是全域结论。 |
 | step 250、500、750、1000 的 PlotFile | 速度、密度、涡量保存值逐值检查 | **出现严重数值错误**：A-B 三层均有限；OSI 从最早保存的 step 250 起仅剩 level 0，保存值全部为 NaN | 同一输入快照与可执行文件，仅 `lbm.stream_mode` 不同：[A-B job 603486](../runs/20260924_215616_job603486/finite_check.txt) / [OSI job 603487](../runs/20260924_215621_job603487/finite_check.txt)。首次产生 NaN 的具体步数、阶段尚未测出。 |
 
+## 独立 OSI 与锁步诊断中的 OSI
+
+| 时间与对象 | 结果 | 证据与限制 |
+| --- | --- | --- |
+| step 32 结束时，level 0/1 checkpoint 中的网格 Header 和全部已保存 valid DDF | **逐字节相同** | [独立 OSI job 603505](../runs/20260924_231932_job603505/) 与 [锁步诊断 job 603506 的对比记录](../runs/20260924_232007_job603506/osi_vs_oracle_checkpoint_comparison.txt)。两者输入快照、可执行文件相同，仅 `verification.osi_ab_check` 开关不同。checkpoint 不保存 ghost；此结论不覆盖 step 33 以后。 |
+
+源码中的锁步分支对 OSI 调用与独立模式相同的 `Collide`、`CommunicateLevel`、`Stream`、`Boundary`、`SwapLevel`；额外执行 A-B 参考态操作及逐阶段检查。上述 checkpoint 对比验证了 OSI 的已保存 valid 结果在首次重网格和两个细步后没有被诊断模式改变。它不能证明额外操作对后续所有步都没有影响，尤其锁步参考态的平均下传尚未全面对齐。
+
 ## 已修正的历史差异与无效报警
 
 | 观测 | 当时状态 | 当前解释 |
