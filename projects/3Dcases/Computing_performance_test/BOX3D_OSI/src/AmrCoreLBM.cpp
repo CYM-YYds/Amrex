@@ -3242,8 +3242,10 @@ void AmrCoreLBM::CompareOsiReferenceStage(
             });
     }
 
-    const Real linf = amrex::max(
-        Real(0.0), difference.norm0(0, Q, IntVect(0)));
+    const Real raw_linf = difference.norm0(0, Q, IntVect(0));
+    const Real linf = std::isfinite(raw_linf)
+                          ? amrex::max(Real(0.0), raw_linf)
+                          : raw_linf;
     constexpr Real tolerance = 1.0e-12;
     const bool comparison_failed =
         !std::isfinite(linf) || linf > tolerance;
