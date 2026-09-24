@@ -1401,12 +1401,40 @@ void AmrCoreLBM::BuildAverageCache() {
                 }
             }
 
+            // 非周期物理边界外的邻格也使 covered 单元成为 interface。
+            // 平均缓存必须覆盖这些 valid 边界单元，与 interface_mask 一致。
+            for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                if (Geom(lev).isPeriodic(dir)) {
+                    continue;
+                }
+                if (covered_box.smallEnd(dir) == domain.smallEnd(dir)) {
+                    Box face = covered_box;
+                    face.setBig(dir, face.smallEnd(dir));
+                    candidates.push_back(face);
+                }
+                if (covered_box.bigEnd(dir) == domain.bigEnd(dir)) {
+                    Box face = covered_box;
+                    face.setSmall(dir, face.bigEnd(dir));
+                    candidates.push_back(face);
+                }
+            }
+
             const BoxList disjoint = amrex::removeOverlap(candidates);
             for (const Box& interface_box : disjoint) {
                 interface_boxes.push_back(interface_box);
                 interface_owners.push_back(fine_dm[ibox]);
                 fine_box_indices.push_back(ibox);
             }
+        }
+
+        if (cf_mask_mode == 1) {
+            Long cached_cells = 0;
+            for (const Box& bx : interface_boxes) {
+                cached_cells += bx.numPts();
+            }
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                cached_cells == interface_cell_counts.at(lev),
+                "average interface boxes must cover every interface_mask valid cell");
         }
 
         BoxArray interface_ba(interface_boxes);
