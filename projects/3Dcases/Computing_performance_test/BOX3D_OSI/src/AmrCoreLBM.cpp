@@ -1984,6 +1984,10 @@ void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
     if (stream_mode == 1) {
         if (is_scale) {
             FillOsiGhostFromCoarse(lev, time);
+            if (osi_ab_check) {
+                // 锁步参考态必须与独立 A-B 一样填充粗到细 ghost。
+                FillDdfGhostFromCoarse(lev, time);
+            }
         }
     } else if (is_scale) {
         FillDdfGhostFromCoarse(lev, time);
@@ -3404,7 +3408,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         // 诊断模式下两种布局锁步推进，阶段结束后立即定位第一处分歧。
         CompareOsiReferenceStage(lev, "Initial", f_old.at(lev), 0);
         Collide(lev, nghost, DdfLayout::Osi);
-        Collide(lev, 0, DdfLayout::Canonical);
+        Collide(lev, nghost, DdfLayout::Canonical);
         CompareOsiReferenceStage(lev, "Collision", f_old.at(lev), 0);
 
         CommunicateLevel(lev, DdfLayout::Osi);
@@ -3413,7 +3417,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
             lev, "Communication", f_old.at(lev), 0);
 
         Stream(lev, nghost, DdfLayout::Osi);
-        Stream(lev, 1, DdfLayout::Canonical);
+        Stream(lev, nghost, DdfLayout::Canonical);
         CompareOsiReferenceStage(
             lev, "Stream", f_new.at(lev), 0, true);
 
@@ -3422,7 +3426,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         CompareOsiReferenceStage(lev, "Boundary", f_new.at(lev), 0);
 
         SwapLevel(lev, nghost, DdfLayout::Osi);
-        SwapLevel(lev, 1, DdfLayout::Canonical);
+        SwapLevel(lev, nghost, DdfLayout::Canonical);
         CompareOsiReferenceStage(lev, "Swap", f_old.at(lev), 0);
         return;
     }
