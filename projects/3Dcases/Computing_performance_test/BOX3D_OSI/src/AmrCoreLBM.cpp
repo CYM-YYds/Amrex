@@ -2640,22 +2640,28 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
                     {ring.length(0), ring.length(1), ring.length(2)}};
                 const auto coarse_shift =
                     OSI::osi_phase_shift(coarse_phase, coarse_fab);
-                const Box bx = mfi.validbox();
                 const auto mask = interface_mask.at(lev).const_array(mfi);
                 const auto src = transfer_batch.const_array(mfi);
                 const auto dst = coarse_state.array(mfi);
-                amrex::ParallelFor(
-                    bx, ncomp,
-                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
-                        if (mask(i, j, k) == 0) {
-                            return;
-                        }
-                        const int q = q0 + n;
-                        const auto raw = OSI::osi_address(
-                            {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                            coarse_fab, coarse_shift);
-                        dst(raw.x, raw.y, raw.z, q) = src(i, j, k, n);
-                    });
+                Vector<std::pair<int, Box>> intersections;
+                interface_result.boxArray().intersections(
+                    mfi.validbox(), intersections, false, IntVect(0));
+                // staging 只有稀疏结果覆盖处被填充，写回也必须限制到这些交集。
+                for (const auto& intersection : intersections) {
+                    const Box& bx = intersection.second;
+                    amrex::ParallelFor(
+                        bx, ncomp,
+                        [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
+                            if (mask(i, j, k) == 0) {
+                                return;
+                            }
+                            const int q = q0 + n;
+                            const auto raw = OSI::osi_address(
+                                {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                                coarse_fab, coarse_shift);
+                            dst(raw.x, raw.y, raw.z, q) = src(i, j, k, n);
+                        });
+                }
             }
         }
         amrex::Gpu::streamSynchronize();
