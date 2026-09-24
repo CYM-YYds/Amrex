@@ -3168,6 +3168,10 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
 }
 
 void AmrCoreLBM::AdvanceLevel(int lev) {
+    static int coarse_advance_count = 0;
+    if (lev == 0) {
+        ++coarse_advance_count;
+    }
     const DdfLayout layout =
         stream_mode == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
@@ -3207,6 +3211,48 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
     CommunicateLevel(lev, layout);
     Stream(lev, nghost, layout);
     Boundary(lev, layout);
+    int boundary_probe_step = -1;
+    ParmParse("verification").query("boundary_probe_step", boundary_probe_step);
+    if (lev == 0 && coarse_advance_count == boundary_probe_step) {
+        // 在第 33 步已知的 uncovered 格点读取 Boundary 返回后的当前 DDF。
+        const IntVect sample(AMREX_D_DECL(1, 111, 111));
+        constexpr int sample_q = 18;
+        const MultiFab& state = layout == DdfLayout::Osi
+                                    ? osi_state.at(0) : f_new.at(0);
+        for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+            if (!mfi.validbox().contains(sample)) {
+                continue;
+            }
+            const FArrayBox& device = state[mfi];
+            FArrayBox host(device.box(), Q, The_Pinned_Arena());
+            Gpu::dtoh_memcpy(host.dataPtr(), device.dataPtr(), host.nBytes());
+            IntVect address = sample;
+            if (layout == DdfLayout::Osi) {
+                const Box ring = device.box();
+                const auto lo = ring.smallEnd();
+                const OSI::FabGeometry fab{
+                    {lo[0], lo[1], lo[2]},
+                    {ring.length(0), ring.length(1), ring.length(2)}};
+                const auto shift = OSI::osi_phase_shift(osi_phase.at(0), fab);
+                const auto raw = OSI::osi_address(
+                    {sample[0], sample[1], sample[2]}, {1, 0, -1}, fab, shift);
+                address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
+            }
+            IArrayBox host_mask(covered_mask.at(0)[mfi].box(), 1,
+                                The_Pinned_Arena());
+            const auto& device_mask = covered_mask.at(0)[mfi];
+            Gpu::dtoh_memcpy(host_mask.dataPtr(), device_mask.dataPtr(),
+                             host_mask.nBytes());
+            auto output = amrex::AllPrint();
+            output.SetPrecision(17);
+            output << "boundary_probe: step=" << coarse_advance_count
+                   << " mode=" << stream_mode << " lev=0 logical=" << sample
+                   << " q=" << sample_q
+                   << " covered=" << host_mask.const_array()(sample[0], sample[1], sample[2])
+                   << " value=" << host.const_array()(address[0], address[1],
+                                                        address[2], sample_q) << '\n';
+        }
+    }
     SwapLevel(lev, nghost, layout);
 }
 
