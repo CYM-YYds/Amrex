@@ -1,19 +1,19 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-09-22
+更新时间：2026-09-24
 
 ## 现役配置
 
 权威参数在 `config/inputs`：`amr.max_level=2`、`amr.regrid_int=32`、
 `amr.max_grid_size=128`、`lbm.stream_mode=1`、`lbm.collide_mode=1`、
-`lbm.osi_local_direct=1`、`lbm.osi_parallel_copy=0`、`lbm.osi_mpi_direct=0`、
+`lbm.osi_local_direct=1`、`lbm.osi_parallel_copy=1`、`lbm.osi_mpi_direct=1`、
 `performance.report_int=1000`、`max_step=128000`。默认是 OSI 单数组路径；A-B 基准
-需显式覆盖 `lbm.stream_mode=0`。`lbm.osi_parallel_copy=1` 在多 rank 下也会启用
-平均阶段的 CPC raw direct pack/unpack；当前已验证的传输是 host-staging。
-跨 rank direct 路径需显式打开 `lbm.osi_mpi_direct=1`；device-buffer 还需显式打开
-`lbm.osi_mpi_device_direct=1`，且 AMReX 必须检测到 GPU-aware MPI。host-staging 分块
-流水通过 `lbm.osi_mpi_pipeline_chunk_bytes` 显式启用，默认为 0；当前已测最佳值
-为 2097152（2 MiB）。OSI 地址使用预计算 phase shift；Boundary
+需显式覆盖 `lbm.stream_mode=0`。这些是当前工作树中的未提交输入改动，
+不是已验收的生产默认值。当前还设有 `lbm.osi_mpi_device_direct=1` 和
+`lbm.osi_mpi_pipeline_chunk_bytes=1`；HMPI/UCX 上 device-direct 能力门禁会拒绝
+不支持的 GPU-aware MPI 配置。已有 host-staging 对照须按对应运行快照读取覆盖参数，
+不能直接用此工作配置复现。历史单 peer 测得较优 chunk 为 2097152（2 MiB），
+并非当前工作配置。OSI 地址使用预计算 phase shift；Boundary
 保留坐标缓存，碰撞显式坐标缓存和 branchless 分支均未保留。
 
 主提交入口 `scripts/submit.sh` 以 `config/inputs` 为唯一当前工作配置，并在启动前复制
@@ -23,7 +23,35 @@
 `checkpoint.chk_int=32000`。专项 `submit_*.sh` 仍采用各自的历史工作目录约定，不属于
 主入口的运行快照合同。
 
-## 最新验证
+## 最新诊断与未决矛盾（2026-09-24）
+
+- 当前 `CommunicateOsiLevel()` 直接调用 `CommunicateOsiLevelLocalDirect()`；
+  `osi_local_direct=0` 不会切回旧的整层 canonical 通信。当前
+  `AverageDownOsiValidLevel()` 用函数局部 Q 分量 canonical `MultiFab` 完成
+  restriction，已不使用共享 `osi_sync_buffer`；这也不等于整个 OSI 生命周期
+  完全不使用该缓冲。旧计划文档中的 fallback 叙述仅代表其编写时的实现。
+- job `603283` 的 level 0 全 valid 检查在 step 32 的
+  `RepairCurrentStatePhysicalBoundary()` 前、后，以及 `RefineMesh()` 后均得到
+  A-B/OSI `Linf=0.07579002442`。所以这次测量**不能**把差异归因于
+  boundary repair 或重网格；差异在这两个调用之前已经存在。
+- 同一作业中，step 31 `Swap` 阶段比较却报告 `linf=0`。它与上述全 valid
+  比较相矛盾；两种检查的比较域、取值路径和测点之间的状态变化尚未逐点核实。
+  因此“前 31 步所有 valid 完全一致”只能表述为阶段检查的报告，不能
+  当成已由独立全 valid 检查确认的事实。
+- job `603276` 在 step 32 重网格后报告 level 0/1 valid 有限；level 1
+  `ab_reference=0`，仅能证明 OSI 值有限。step 33 首个已记录的 uncovered
+  阶段失败发生在 level 0 `Stream`，位置 `(1,111,111)`、q=18，
+  `Linf=0.00016037875800784668`。job `603277` 在 step 32/64/96
+  重网格后的各层 valid 均报告有限；这不证明后续长程计算正确。
+- 新可执行文件的 128000 步 job `603093` 虽正常结束，后续网格层级没有
+  保持三层；用户在 ParaView 中观察到 NaN。其总耗时不得与旧版
+  `596890`/`596891` 当作同版本性能对照，NaN 的首次发生步数仍待定位。
+
+下一次诊断应在 step 31 `Swap` 后与 step 32 repair 前，使用**同一个**逐 cell/逐 q
+全 valid 读取和比较函数记录首个差异及值，再检查两测点间的调用。保留现有日志、
+PlotFile、checkpoint 和输入快照供复核。
+
+## 历史验证（按原作业版本）
 
 - 完整动态 AMR 性能记录已更新到 job `596888`：Re=3200 连续三段运行累计到
   step 288000，最后 1000 步窗口为 `MLUPS_solv=1128.94`、`MLUPS_total=1088.70`。
@@ -33,7 +61,8 @@
 - Re=1000 单 GPU、三层动态 AMR 的 128000 步 A-B/OSI 对照已由 jobs
   `596890`/`596891` 完成。全程 `total` 累计为 5273.57/4522.74 s；40 个窗口的
   平均 `MLUPS_total` 为 934.699/1090.556，最后 3200 步窗口为 935.75/1086.32。
-  该对照未执行终态 DDF 逐点误差比较，不作为多层动态网格严格等价证明。
+  这是同一旧可执行文件下的历史性能对照；未执行终态 DDF 逐点误差比较，
+  不作为当前源码性能基线或多层动态网格严格等价证明。
 
 - CUDA+MPI 构建 `compile-20260914T194426.log` 通过。2 MiB 分块流水的全周期
   job `596145` 和六面非周期 job `596150` 均完成 384/384 次六阶段
@@ -105,7 +134,8 @@ Q=27 分量合并为单次 kernel。真实 GPU 作业 `601985`（A-B）与 `6019
 `0.267/0.266 ms` 与 `0.314/0.274 ms`；step 36 分别为 `0.727/0.800 ms` 与
 `0.706/0.739 ms`。这只支持当前单 GPU 短窗口的阶段性性能结论。
 
-`lbm.osi_parallel_copy` 默认保持关闭。跨 rank 平均 host-staging direct 已接入，
+该日期的配置快照将 `lbm.osi_parallel_copy` 设为关闭；当前工作树已设为 1。
+跨 rank 平均 host-staging direct 已接入，
 下面的逐 q 与多 GPU 短窗口证据只覆盖固定网格、重启后 8 步的 active cells；
 动态 regrid、多节点及 device-direct 平均的运行验收仍为 pending。详细阶段设计
 见 `docs/osi_parallelcopy_optimization_plan.md`。
@@ -124,9 +154,10 @@ Q=27 分量合并为单次 kernel。真实 GPU 作业 `601985`（A-B）与 `6019
 
 ### 2026-09-22：平均 direct 路径及运行边界
 
-#### `osi_sync_buffer` 当前使用边界
+#### `osi_sync_buffer` 在 2026-09-22 的使用边界（历史）
 
-当前代码仍保留 `osi_sync_buffer`，但它不再是所有 OSI 通信阶段的必经中转：
+以下是当时的代码状态；现役函数行为以本文件顶部 2026-09-24 诊断为准。
+当时代码仍保留 `osi_sync_buffer`，但它不再是所有 OSI 通信阶段的必经中转：
 
 - 同 rank ghost copy、OSI 插值 direct 路径，以及已启用的同层 MPI raw pack/unpack
   不需要先把整层 raw state 解码到该批次缓冲；

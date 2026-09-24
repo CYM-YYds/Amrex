@@ -105,7 +105,12 @@
 通过条件是所有 REQ 均有绑定到最终源码的 diff、命令输出或 artifact；只有“编译成功”、
 “job 完成”、checksum 相同或总 MLUPS 变好均不足以单独判定通过。
 
-## 当前阶段状态（2026-09-22）
+## 2026-09-22 阶段状态（历史快照）
+
+本节的 `osi_sync_buffer` 和开关状态只记录当时的实现。现役
+`AverageDownOsiValidLevel()` 改用函数局部 Q 分量 canonical `MultiFab`，
+工作树 `config/inputs` 设 `osi_parallel_copy=1`；最新证据及未决问题见
+[当前交接状态](current_status.md)。
 
 - 已完成：单 rank 插值路径的 raw-to-canonical 直接复制（`FillOsiGhostFromCoarse`）。
 - 已完成：单 rank 平均接口直接写入 coarse OSI raw；多 rank 平均通过 CPC tags

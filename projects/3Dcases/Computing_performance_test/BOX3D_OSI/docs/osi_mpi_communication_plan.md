@@ -2,9 +2,13 @@
 
 更新时间：2026-09-14
 
-本文只描述 `BOX3D_OSI` 的跨 MPI OSI-aware same-level 通信，不改变现有
-`CommunicateOsiLevel()` 的行为。当前 rank-local direct copy 已单独实现；跨 MPI 的
-host-staging correctness 路径也已接入，但默认仍回退 canonical 路径。
+> 本文是通信改造的历史计划，下面的 canonical fallback 和默认开关叙述
+> 不代表当前源码。现役 `CommunicateOsiLevel()` 直接转发到
+> `CommunicateOsiLevelLocalDirect()`；工作配置及验证边界见
+> [当前交接状态](current_status.md)。
+
+本文记录 `BOX3D_OSI` 的跨 MPI OSI-aware same-level 通信改造方案。
+下面“当前状态与目标”一节是 2026-09-14 的起点，不代表现役调用链。
 
 运行时开关为：
 

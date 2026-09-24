@@ -3,6 +3,9 @@
 本文是 `BOX3D_OSI` 的权威设计说明。后续实现若改变这里定义的状态不变量、phase
 推进时机或 canonicalization 契约，必须同步修改本文。
 
+> 通信/平均的历史实现描述见相应日期；现役函数行为和最新逐点诊断以
+> [当前交接状态](current_status.md) 为准。
+
 ## 1. 状态与边界
 
 截至 2026-09-12：
@@ -17,9 +20,9 @@
 - 地址测试、37 步独立 CPU A/B 测试和 MPI+CUDA 构建已通过；job `581325` 在单 rank、
   单 level、单 Fab、全周期条件下完成 32 步生产 GPU A/B 逐步比较，最大 `linf` 为
   `5.551115123e-17`；
-- 当前采用 `nGrow=2 + grown-Fab OSI`。canonical 缓冲按可配置分量数分批复用，只
-  Decode 实际通信 source valid、由 `FillBoundary()` 同步同坐标 ghost，再把实际
-  destination ghost Encode 回当前 phase；
+- 当前采用 `nGrow=2 + grown-Fab OSI`。同层通信现走 OSI raw 路径；旧版
+  canonical fallback 曾按可配置分量数分批 Decode 通信 source valid、由
+  `FillBoundary()` 同步同坐标 ghost，再把目标 ghost Encode 回当前 phase；
 - jobs `582016`/`582017` 用非均匀初值和 64 Fab 完成单/双 rank 32 步 A/B，最大
   `linf=1.498801083e-15` 且逐步序列一致；
 - CPU A/B 额外验证两层 grown 保护环在只初始同步一次后可连续推进两步而不污染 valid；
@@ -234,11 +237,12 @@ $$
 
 不能把 twisted `MultiFab` 直接交给普通 `FillBoundary()` 并期待正确结果，因为
 `FillBoundary()` 按相同 `(i,j,k,q)` 复制，而不知道发送和接收 Fab 各自的 OSI 映射。
-fallback 路径按 `lbm.osi_sync_batch_components` 将若干方向解码到 canonical
+历史 fallback 路径按 `lbm.osi_sync_batch_components` 将若干方向解码到 canonical
 `MultiFab`，调用普通 `FillBoundary()` 后，只把实际通信目标 ghost 编码回同一个 phase。
 Decode 只覆盖通信可能读取的 owner-valid 源区；valid 不会从 canonical 缓冲重复回写。
-当前默认批大小为 3。启用 `osi_local_direct` 后，同 rank 配对直接 raw-to-raw 拷贝；再显式
-启用 `osi_mpi_direct` 时，跨 rank 使用按 peer 聚合的 host-staging pack/unpack。通信计划、
+该批大小配置为 3。现役 `CommunicateOsiLevel()` 直接调用 raw 通信实现；
+`osi_local_direct=0` 不会触发上述 fallback。跨 rank 启用 `osi_mpi_direct` 时，
+使用按 peer 聚合的 host-staging pack/unpack。通信计划、
 偏移和缓冲随布局一次构建，pack/unpack 各由一个 `TagVector` kernel 完成。不能直接对
 twisted `osi_state` 调用 `FillBoundary()`。
 可选的 `osi_mpi_pipeline_chunk_bytes` 将每个 peer 的 host-staging payload 分块：

@@ -6,7 +6,8 @@ one-step index（OSI）路径。
 
 ## 当前验证状态
 
-更新时间：2026-09-15。
+更新时间：2026-09-24。最新逐阶段/全 valid 矛盾与待测点见
+[当前交接状态](docs/current_status.md)。
 
 当前工作配置位于 `config/inputs`。每次提交时，脚本会把它冻结到独立运行目录，
 因此后续修改当前配置不会改变任何历史运行记录。
@@ -19,11 +20,13 @@ one-step index（OSI）路径。
 - OSI 所有地址路径统一使用预计算 phase shift，不再提供 legacy 取模开关；
 - `performance.report_int=1000`，按窗口输出总阶段和逐 level 碰撞统计；
 - 当前 `config/inputs` 为 `max_step=128000`、`amr.plot_int=3200`、
-  `checkpoint.chk_int=32000`；历史 96000 步结果仍按历史作业单独引用；
+  `checkpoint.chk_int=32000`；OSI 通信/插值开关含未提交实验改动，运行时
+  应核对快照和覆盖参数；历史 96000 步结果仍按历史作业单独引用；
 - PlotFile 使用 `plt_` 前缀，checkpoint 使用 `chk` 前缀，均相对于本次运行目录。
 
 长程历史作业 `logs/submit/586660-out.log` 运行到 step 96000，正常完成，未观察到
-NaN、MPI abort 或异常终止。它证明当前配置在该运行窗口内稳定，但**尚未收敛**：
+NaN、MPI abort 或异常终止。它只证明该历史源码与输入在该运行窗口内完成，
+但**尚未收敛**：
 
 ```text
 CONVERGENCE step=96000 interval=3200
@@ -41,7 +44,7 @@ tolerance=1e-12 consecutive=0/3 converged=0
 3.518--3.529 s，total 从 4.381--4.386 s 降至 4.045--4.049 s，比同作业
 FillBoundary 的 4.616--4.622 s 快约 12.3%--12.5%。六面非周期 job `596150`
 亦完成 384/384 次 `linf=0`。该结论仅覆盖单节点、单 peer、单层同层通信；
-`lbm.osi_mpi_pipeline_chunk_bytes` 默认仍为 0，已测最佳 2 MiB 需显式设为
+该历史作业的 `lbm.osi_mpi_pipeline_chunk_bytes` 为 0，已测最佳 2 MiB 需显式设为
 `2097152`。CUDA-aware device-buffer 路径已实现并有能力门禁，但当前 HMPI/UCX
 不支持 device pointer；`591185` 在强制开启时以 `process_vm_readv: Bad address` 失败。
 改用平台 CUDA-aware OpenMPI 4.1.5 与配套 UCX 后，job `595584` 的 device-buffer
@@ -53,8 +56,9 @@ transport 只通过正确性验收，不适合作为性能路径。
 
 当前源码会在完整 `AverageDownValid()` 后对当前 DDF 重新施加非平衡外推边界：A-B
 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`，并包含 covered 物理边界单元。该操作
-用于避免这些单元在重网格后重新暴露或参与插值时仍保留被平均后的边界值；目前仅完成
-CUDA+MPI 构建验证，尚无受控数值对照结论。
+用于避免这些单元在重网格后重新暴露或参与插值时仍保留被平均后的边界值。step 32
+前后定点诊断显示 level 0 全 valid 差值在调用它之前已存在，不能归因于该函数；
+与 step 31 阶段检查零差的矛盾尚未解决。
 
 完整状态和证据边界见 [当前交接状态](docs/current_status.md)。
 
@@ -107,7 +111,7 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
   canonical checkpoint 的历史测试，但不能外推为当前多层生产验收。
 - `lbm.osi_parallel_copy=1`：启用插值和平均阶段的 OSI direct 路径；多 rank
   平均通过 CPC tags 将 canonical restriction 结果打包后直接写入 coarse OSI raw。
-  默认值为 `0`。已验证的多 rank 传输是 host-staging；device-direct 代码已编译，
+  当前工作配置设为 `1`。已验证的多 rank 传输是 host-staging；device-direct 代码已编译，
   但本机 HMPI/UCX 运行在到达平均阶段前失败，不能视作通过验收。
 - 静态 `ParticleContainer` 的 checkpoint/restart 已有跨 MPI 分解测试；运动刚体的
   质心、平动/角速度、力和力矩未持久化，尚不支持完整 IBM restart 结论。
