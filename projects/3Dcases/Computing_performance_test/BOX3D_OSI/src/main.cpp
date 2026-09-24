@@ -125,11 +125,14 @@ int main(int argc, char* argv[]) {
         int perf_report_int = 1000;
         int chk_int = -1;
         int begin_step = 0;
+        int osi_step_entry_check_step = -1;
         std::string ddf_reference_checkpoint;
         {
             amrex::ParmParse pp_verify("verification");
             pp_verify.query(
                 "ddf_reference_checkpoint", ddf_reference_checkpoint);
+            pp_verify.query(
+                "osi_step_entry_check_step", osi_step_entry_check_step);
         }
 
         const int runtime_max_level = input.max_level;
@@ -212,6 +215,12 @@ int main(int argc, char* argv[]) {
             auto start_time_regrid_time = std::chrono::high_resolution_clock::now();
             // regrid_time_outer(me, f_array, indices, story);
 
+            // 按指定步数在重网格、完整平均和边界修复前检查现有 uncovered 区域。
+            if (step == osi_step_entry_check_step &&
+                lid.osiReferenceEnabled()) {
+                lid.CheckOsiReferenceLevel0(step, "StepEntry");
+            }
+
             if (step >= 0 && regrid_int > 0 && step % regrid_int == 0) {
                 // mode 1 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
                 // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
@@ -221,10 +230,18 @@ int main(int argc, char* argv[]) {
                 // 完整平均下传后，重新施加当前态物理边界；covered 边界单元也要修复，
                 // 因为它们可能在本次 regrid 后重新暴露或参与新细层插值。
                 lid.RepairCurrentStatePhysicalBoundary();
+                if (step == osi_step_entry_check_step &&
+                    lid.osiReferenceEnabled()) {
+                    lid.CheckOsiReferenceLevel0(step, "AfterRepair");
+                }
                 if (lid.streamMode() == 0 && lid.params().write_particles) {
                     lid.FindCentre();
                 }
                 lid.RefineMesh(cur_time);
+                if (step == osi_step_entry_check_step &&
+                    lid.osiReferenceEnabled()) {
+                    lid.CheckOsiReferenceLevel0(step, "AfterRefineMesh");
+                }
                 if (lid.params().write_particles) {
                     lid.RedistributeParticle();
                 }

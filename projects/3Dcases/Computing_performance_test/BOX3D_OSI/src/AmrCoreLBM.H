@@ -228,6 +228,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     // OSI A-B 对照、粒子 checksum 和 checkpoint DDF 对照仍由对应
     // verification.* 参数显式启用，它们不属于生产性能路径。
     void AdvanceAndCheckOsiReference(int lev, int step);
+    void CheckOsiReferenceLevel0(int step, const char* stage);
     void CompareOsiReferenceStage(
         int lev, const char* stage,
         const amrex::MultiFab& reference, int compare_ngrow,

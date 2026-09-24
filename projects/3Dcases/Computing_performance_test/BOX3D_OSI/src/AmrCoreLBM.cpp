@@ -1198,30 +1198,16 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
             MultiFab canonical(state.boxArray(), state.DistributionMap(),
                                osi_sync_batch_components, 0);
             bool nonfinite = false;
-            Real ab_linf = 0.0;
-            const bool has_ab_reference = lev == 0 && f_old.at(lev).isDefined();
             for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
                 const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
                 DecodeOsiValidBatch(state, osi_phase.at(lev), canonical, q0, ncomp);
                 nonfinite |= canonical.contains_nan(0, ncomp, 0) ||
                              canonical.contains_inf(0, ncomp, 0);
-                if (has_ab_reference && !nonfinite) {
-                    MultiFab difference(state.boxArray(), state.DistributionMap(),
-                                        ncomp, 0);
-                    MultiFab::Copy(difference, canonical, 0, 0, ncomp, 0);
-                    MultiFab::Subtract(difference, f_old.at(lev), q0, 0,
-                                       ncomp, 0);
-                    const Real batch_linf = difference.norm0(0, ncomp, 0);
-                    ab_linf = amrex::max(ab_linf, batch_linf);
-                    nonfinite |= !std::isfinite(batch_linf);
-                }
             }
             amrex::Print() << "regrid_valid_check level=" << lev
                            << " boxes=" << state.boxArray().size()
                            << " all_valid_finite=" << (nonfinite ? 0 : 1)
-                           << " ab_reference=" << (has_ab_reference ? 1 : 0)
-                           << " all_valid_ab_linf="
-                           << (has_ab_reference ? ab_linf : Real(-1.0)) << '\n';
+                           << '\n';
             AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
                 !nonfinite, "Regrid produced nonfinite valid OSI DDF");
         }
@@ -1748,38 +1734,6 @@ void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复
     ScopedPerfTimer timer(perf_stats.boundary);
     const DdfLayout layout =
         stream_mode == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
-    // 诊断重网格前后的同一份 level 0 valid 状态，避免把边界修复与 regrid 混为一谈。
-    const auto check_level0 = [&](const char* stage) {
-        if (!osi_ab_check || stream_mode != 1 ||
-            !f_old.at(0).isDefined()) {
-            return;
-        }
-        const MultiFab& state = osi_state.at(0);
-        MultiFab canonical(state.boxArray(), state.DistributionMap(),
-                           osi_sync_batch_components, 0);
-        Real linf = 0.0;
-        bool nonfinite = false;
-        for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
-            const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
-            DecodeOsiValidBatch(state, osi_phase.at(0), canonical, q0, ncomp);
-            nonfinite |= canonical.contains_nan(0, ncomp, 0) ||
-                         canonical.contains_inf(0, ncomp, 0);
-            MultiFab difference(state.boxArray(), state.DistributionMap(),
-                                ncomp, 0);
-            MultiFab::Copy(difference, canonical, 0, 0, ncomp, 0);
-            MultiFab::Subtract(difference, f_old.at(0), q0, 0, ncomp, 0);
-            const Real batch_linf = difference.norm0(0, ncomp, 0);
-            nonfinite |= !std::isfinite(batch_linf);
-            if (std::isfinite(batch_linf)) {
-                linf = amrex::max(linf, batch_linf);
-            }
-        }
-        amrex::Print() << "regrid_boundary_check stage=" << stage
-                       << " level=0 phase=" << osi_phase.at(0)
-                       << " all_valid_finite=" << (nonfinite ? 0 : 1)
-                       << " all_valid_ab_linf=" << linf << '\n';
-    };
-    check_level0("before_repair");
 
     // 完整平均下传或重网格插值可能覆盖物理边界 valid 单元；此处必须包含
     // covered 单元，以便这些数据在后续重新暴露或作为插值源时仍满足边界条件。
@@ -1793,7 +1747,6 @@ void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复
                 lev, f_old.at(lev), DdfLayout::Canonical, false);
         }
     }
-    check_level0("after_repair");
 }
 
 void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
@@ -3255,6 +3208,148 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
     Stream(lev, nghost, layout);
     Boundary(lev, layout);
     SwapLevel(lev, nghost, layout);
+}
+
+void AmrCoreLBM::CheckOsiReferenceLevel0(int step, const char* stage) {
+    if (!osi_ab_check || stream_mode != 1) {
+        return;
+    }
+    amrex::Print() << "osi_ab_pointwise_begin: step=" << step
+                   << " stage=" << stage
+                   << " finest_level=" << finest_level
+                   << " phase0=" << osi_phase.at(0) << '\n';
+    CompareOsiReferenceStage(0, stage, f_old.at(0), 0);
+
+    // 独立从设备拷回两份状态，逐 cell、逐 q 核对 level 0 全部 valid。
+    // 不使用 MultiFab 范数，以便检查已有 GPU 归约诊断的可信度。
+    constexpr int ex[Q] = {
+        0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
+        1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
+    constexpr int ey[Q] = {
+        0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0,
+        0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
+    constexpr int ez[Q] = {
+        0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
+        1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+    const auto& reference = f_old.at(0);
+    const auto& state = osi_state.at(0);
+    const auto phase = osi_phase.at(0);
+    Long local_values = 0;
+    Long local_unequal = 0;
+    Long local_above_tolerance = 0;
+    Long local_uncovered_values = 0;
+    Long local_uncovered_unequal = 0;
+    Long local_covered_unequal = 0;
+    bool local_nonfinite = false;
+    Real local_max_error = 0.0;
+    Real local_uncovered_max_error = 0.0;
+    Real local_covered_max_error = 0.0;
+    IntVect local_max_iv(0);
+    int local_max_q = -1;
+    Real local_max_ab = 0.0;
+    Real local_max_osi = 0.0;
+    Gpu::synchronize();
+    for (MFIter mfi(reference, false); mfi.isValid(); ++mfi) {
+        FArrayBox host_reference(
+            reference[mfi].box(), Q, The_Pinned_Arena());
+        FArrayBox host_state(
+            state[mfi].box(), Q, The_Pinned_Arena());
+        Gpu::dtoh_memcpy(host_reference.dataPtr(),
+                         reference[mfi].dataPtr(),
+                         host_reference.nBytes());
+        Gpu::dtoh_memcpy(host_state.dataPtr(), state[mfi].dataPtr(),
+                         host_state.nBytes());
+        const bool has_fine = finest_level > 0 && cf_mask_mode == 1;
+        std::unique_ptr<IArrayBox> host_covered;
+        if (has_fine) {
+            const auto& device_covered = covered_mask.at(0)[mfi];
+            host_covered = std::make_unique<IArrayBox>(
+                device_covered.box(), 1, The_Pinned_Arena());
+            Gpu::dtoh_memcpy(host_covered->dataPtr(),
+                             device_covered.dataPtr(),
+                             host_covered->nBytes());
+        }
+        const auto ab = host_reference.const_array();
+        const auto osi = host_state.const_array();
+        const Box bx = mfi.validbox();
+        const Box ring = state[mfi].box();
+        const auto lo = ring.smallEnd();
+        const OSI::FabGeometry fab{
+            {lo[0], lo[1], lo[2]},
+            {ring.length(0), ring.length(1), ring.length(2)}};
+        const auto shift = OSI::osi_phase_shift(phase, fab);
+        for (int q = 0; q < Q; ++q) {
+            for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
+                for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j) {
+                    for (int i = bx.smallEnd(0); i <= bx.bigEnd(0); ++i) {
+                        const auto raw = OSI::osi_address(
+                            {i, j, k}, {ex[q], ey[q], ez[q]}, fab, shift);
+                        const Real a = ab(i, j, k, q);
+                        const Real b = osi(raw.x, raw.y, raw.z, q);
+                        const bool covered = has_fine &&
+                            host_covered->const_array()(i, j, k) != 0;
+                        ++local_values;
+                        if (!covered) {
+                            ++local_uncovered_values;
+                        }
+                        if (!std::isfinite(a) || !std::isfinite(b)) {
+                            local_nonfinite = true;
+                        }
+                        if (a != b) {
+                            ++local_unequal;
+                            const Real error = std::abs(a - b);
+                            if (covered) {
+                                ++local_covered_unequal;
+                                if (std::isfinite(error)) {
+                                    local_covered_max_error =
+                                        amrex::max(local_covered_max_error, error);
+                                }
+                            } else {
+                                ++local_uncovered_unequal;
+                                if (std::isfinite(error)) {
+                                    local_uncovered_max_error =
+                                        amrex::max(local_uncovered_max_error, error);
+                                }
+                            }
+                            if (error > Real(1.0e-12)) {
+                                ++local_above_tolerance;
+                            }
+                            if (std::isfinite(error) &&
+                                error > local_max_error) {
+                                local_max_error = error;
+                                local_max_iv = IntVect(AMREX_D_DECL(i, j, k));
+                                local_max_q = q;
+                                local_max_ab = a;
+                                local_max_osi = b;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    auto output = amrex::AllPrint();
+    output.SetPrecision(17);
+    output << "osi_ab_level0_pointwise: step=" << step
+           << " stage=" << stage
+           << " lev=0 phase=" << phase
+           << " valid_values=" << local_values
+           << " unequal=" << local_unequal
+           << " uncovered_values=" << local_uncovered_values
+           << " uncovered_unequal=" << local_uncovered_unequal
+           << " covered_unequal=" << local_covered_unequal
+           << " above_1e-12=" << local_above_tolerance
+           << " nonfinite=" << (local_nonfinite ? 1 : 0)
+           << " linf=" << local_max_error
+           << " uncovered_linf=" << local_uncovered_max_error
+           << " covered_linf=" << local_covered_max_error;
+    if (local_max_q >= 0) {
+        output << " max_iv=" << local_max_iv
+               << " q=" << local_max_q
+               << " ab=" << local_max_ab
+               << " osi=" << local_max_osi;
+    }
+    output << '\n';
 }
 
 void AmrCoreLBM::CompareOsiReferenceStage(

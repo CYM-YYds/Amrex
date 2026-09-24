@@ -23,32 +23,46 @@
 `checkpoint.chk_int=32000`。专项 `submit_*.sh` 仍采用各自的历史工作目录约定，不属于
 主入口的运行快照合同。
 
-## 最新诊断与未决矛盾（2026-09-24）
+## 最新诊断（2026-09-24）
 
+- 修正主机逐点比较器的 D3Q27 速度表并与 `D3Q19.H` 逐项核对后，job
+  `603306` 在 step 32 入口、任何完整平均/边界修复/重网格之前，比较
+  level 0 全部 56,623,104 个 valid DDF 值：`unequal=0`、`nonfinite=0`。
+  此时只有 level 0，因此全部 valid 即全部 uncovered。
+- job `603307` 用**同一套** GPU→host 逐 cell、逐 q 比较，在 step 32 的
+  `StepEntry`、`AfterRepair`、`AfterRefineMesh` 三个测点均得 level 0
+  全 valid `unequal=0`、`linf=0`、`nonfinite=0`。重网格后
+  uncovered 的 49,545,216 个 DDF 值也全部相等；其余 covered 值亦相等。
+  因此本次初次重网格和边界修复没有引入 level 0 valid 差异。
+- 最终编译版本的 job `603308` 在 step 33 入口测得 level 0 uncovered
+  49,545,216 个 DDF 值仍全部相等；covered 存储已有 6,134,587 个值不同，
+  最大差 `0.29309816067751038`。随后旧阶段比较在 level 0 `Stream`
+  报告 uncovered 差异。covered 在推进后可与 oracle 不同，不能把其
+  全 valid 差值误作 uncovered 差值；真正的阶段边界还需逐点复测。
+- jobs `603298`/`603305` 的早期主机逐点结果**无效**：手写速度表的 q=22、q=26
+  z 分量有误，修正后才得到上述零差。旧批次范数诊断在相同测点报告的
+  `0.07579002442` 也是假差异：逐 q 范数曾给出 `DBL_MAX`，而同分量的
+  min/max 均为 0。其归约/比较路径仍待查；现已移除误导性的自动 A-B 范数输出。
 - 当前 `CommunicateOsiLevel()` 直接调用 `CommunicateOsiLevelLocalDirect()`；
   `osi_local_direct=0` 不会切回旧的整层 canonical 通信。当前
   `AverageDownOsiValidLevel()` 用函数局部 Q 分量 canonical `MultiFab` 完成
   restriction，已不使用共享 `osi_sync_buffer`；这也不等于整个 OSI 生命周期
   完全不使用该缓冲。旧计划文档中的 fallback 叙述仅代表其编写时的实现。
-- job `603283` 的 level 0 全 valid 检查在 step 32 的
-  `RepairCurrentStatePhysicalBoundary()` 前、后，以及 `RefineMesh()` 后均得到
-  A-B/OSI `Linf=0.07579002442`。所以这次测量**不能**把差异归因于
-  boundary repair 或重网格；差异在这两个调用之前已经存在。
-- 同一作业中，step 31 `Swap` 阶段比较却报告 `linf=0`。它与上述全 valid
-  比较相矛盾；两种检查的比较域、取值路径和测点之间的状态变化尚未逐点核实。
-  因此“前 31 步所有 valid 完全一致”只能表述为阶段检查的报告，不能
-  当成已由独立全 valid 检查确认的事实。
+- job `603283` 的旧 level 0 全 valid 范数在修复前、修复后、重网格后均报
+  `0.07579002442`，与可靠逐点结果冲突，不能作为数值差异证据。step 31
+  `Swap` 与 step 32 入口的零差已由 `603306`/`603307` 的主机比较交叉核对。
 - job `603276` 在 step 32 重网格后报告 level 0/1 valid 有限；level 1
   `ab_reference=0`，仅能证明 OSI 值有限。step 33 首个已记录的 uncovered
   阶段失败发生在 level 0 `Stream`，位置 `(1,111,111)`、q=18，
-  `Linf=0.00016037875800784668`。job `603277` 在 step 32/64/96
+  当时报告的 `Linf=0.00016037875800784668`。job `603277` 在 step 32/64/96
   重网格后的各层 valid 均报告有限；这不证明后续长程计算正确。
 - 新可执行文件的 128000 步 job `603093` 虽正常结束，后续网格层级没有
   保持三层；用户在 ParaView 中观察到 NaN。其总耗时不得与旧版
   `596890`/`596891` 当作同版本性能对照，NaN 的首次发生步数仍待定位。
 
-下一次诊断应在 step 31 `Swap` 后与 step 32 repair 前，使用**同一个**逐 cell/逐 q
-全 valid 读取和比较函数记录首个差异及值，再检查两测点间的调用。保留现有日志、
+下一次诊断应在 step 33 的 `Initial`、`Collision`、`Communication`、`Stream`
+后复用可靠的逐点比较，定位 uncovered 首次差异，并检查 covered 邻域数据
+是否被 streaming 读取；同时核对旧 GPU 范数诊断的计算与归约实现。保留现有日志、
 PlotFile、checkpoint 和输入快照供复核。
 
 ## 历史验证（按原作业版本）
