@@ -538,6 +538,18 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     //    fine substeps 共享这次时间插值，与既有两层 Jaber 调度一致。
     if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
+        static const bool check_first_fill = [] {
+            bool enabled = false;
+            ParmParse("verification").query("check_after_first_fill", enabled);
+            return enabled;
+        }();
+        static bool first_fill_checked = false;
+        if (lev == 0 && check_first_fill && !first_fill_checked &&
+            lid.osiReferenceEnabled()) {
+            // 首次粗到细插值返回后，立即核对所有现存层的 uncovered valid。
+            first_fill_checked = true;
+            lid.CheckOsiReferenceLevel0(-1, "AfterFirstFillGhost");
+        }
     }
 
     // 2. 当前层推进一个时间步
