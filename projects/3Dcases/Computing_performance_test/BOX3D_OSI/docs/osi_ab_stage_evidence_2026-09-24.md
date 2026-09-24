@@ -20,8 +20,10 @@
 | 时间与对象 | 结果 | 证据与限制 |
 | --- | --- | --- |
 | step 32 结束时，level 0/1 checkpoint 中的网格 Header 和全部已保存 valid DDF | **逐字节相同** | [独立 OSI job 603505](../runs/20260924_231932_job603505/) 与 [锁步诊断 job 603506 的对比记录](../runs/20260924_232007_job603506/osi_vs_oracle_checkpoint_comparison.txt)。两者输入快照、可执行文件相同，仅 `verification.osi_ab_check` 开关不同。checkpoint 不保存 ghost；此结论不覆盖 step 33 以后。 |
+| step 63 结束时，level 0/1 checkpoint | **逐字节相同**：Header、两层 `f_old_H` 和 DDF 数据文件全部一致 | [独立 OSI job 603514](../runs/20260924_233719_job603514/) 与 [锁步诊断 job 603515](../runs/20260924_233849_job603515/)；相同可执行文件和物理输入。该步在第二次重网格之前。 |
+| step 64 结束时，level 0/1/2 checkpoint | **level 0/1 不一致，level 2 一致**；三层 valid DDF 均有限 | [独立 OSI job 603512](../runs/20260924_233502_job603512/) 与 [锁步诊断 job 603513 的逐值统计](../runs/20260924_233513_job603513/osi_vs_independent_64_numeric.txt)，可执行文件 SHA256 均为 `e0ce43ece1bcc90a3c91fe816b5460169a40fdea9925a9e5dd1a6a7be7c480c6`。level 0 uncovered 有 156,600 个分量不同，最大差 `0.01317620816586777`；level 1 uncovered 有 1,797,012 个分量不同，最大差 `0.019716771881433615`。level 0 covered 最大差 `0.19430273742993873`。比较只覆盖 checkpoint 保存的 valid DDF，不含 ghost。诊断作业打开了 `verification.osi_ab_continue_on_mismatch`，所以其 A-B 参考态报警后仍写出 OSI checkpoint。 |
 
-源码中的锁步分支对 OSI 调用与独立模式相同的 `Collide`、`CommunicateLevel`、`Stream`、`Boundary`、`SwapLevel`；额外执行 A-B 参考态操作及逐阶段检查。上述 checkpoint 对比验证了 OSI 的已保存 valid 结果在首次重网格和两个细步后没有被诊断模式改变。它不能证明额外操作对后续所有步都没有影响，尤其锁步参考态的平均下传尚未全面对齐。
+源码中的锁步分支对 OSI 调用与独立模式相同的 `Collide`、`CommunicateLevel`、`Stream`、`Boundary`、`SwapLevel`；额外执行 A-B 参考态操作及逐阶段检查。step 32 和 63 的 checkpoint 相同，但 step 64 不同，因此**锁步开关并非无扰动观测**。第二次重网格入口的锁步内部比较显示 level 0 uncovered 与其 A-B 参考态一致，而 covered 已有最大差 `0.0060975739500264275`；完整平均与边界修复之后、`RefineMesh` 之前，参考态比较首次报最大差 `0.29356084050313658`（[job 603511 日志](../runs/20260924_233131_job603511/run.log)）。这项内部 A-B/OSI 比较不能单独证明独立 OSI 与诊断 OSI 的分叉发生在其中哪一个操作；需要在该段直接导出两种 OSI 状态才能继续定位。
 
 ## 已修正的历史差异与无效报警
 
@@ -34,7 +36,7 @@
 
 ## 尚未定位的边界
 
-当前可确认的是：修正后的单 rank 短窗口中，已导出的首次插值 ghost、碰撞后通信输入和通信输出没有出现可解释旧 `3.82e-5` 报差的 A-B/OSI 差异；修正锁步诊断后，step 32 的两个细步 valid 也通过阶段比较；首次平均出口的 level 0 uncovered/interface 一致或近一致。**锁步参考态的界面平均和后续重网格路径尚未全面对齐，独立双作业也尚未在每个时间步导出全部层级 valid 与 Stream 出口**，所以不能断言 OSI 从 step 32 到 step 250 的首次真实分叉发生在哪个函数。step 250 的 PlotFile 已全为 NaN，只给出了首次观察到非有限输出的上界。
+当前可确认的是：修正后的单 rank 短窗口中，已导出的首次插值 ghost、碰撞后通信输入和通信输出没有出现可解释旧 `3.82e-5` 报差的 A-B/OSI 差异；修正锁步诊断后，step 32 的两个细步 valid 也通过阶段比较；首次平均出口的 level 0 uncovered/interface 一致或近一致。**锁步参考态的后续重网格路径尚未全面对齐，而且诊断模式在 step 64 改变了 OSI 结果**，因此不能用该模式在 step 64 的 A-B/OSI 报警直接给生产 OSI 归因。step 250 的 PlotFile 已全为 NaN，只给出了首次观察到非有限输出的上界。
 
 ## 证据索引
 

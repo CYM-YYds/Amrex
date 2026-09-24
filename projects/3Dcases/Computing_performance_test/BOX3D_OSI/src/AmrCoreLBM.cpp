@@ -1753,6 +1753,10 @@ void AmrCoreLBM::AverageDownValid() {
     for (int lev = finest_level - 1; lev >= 0; --lev) {
         if (stream_mode == 1) {
             AverageDownOsiValidLevel(lev, true);
+            if (osi_ab_check) {
+                // 锁步参考态也要在重网格前完成全部有效单元的平均下传。
+                AverageDownValidLevel(lev, true);
+            }
         } else {
             AverageDownValidLevel(lev, true);
         }
@@ -1890,8 +1894,11 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
 
     if (stream_mode == 1) {
         AverageDownOsiLevel(lev, is_scale);
-        probe_average("after");
-        return;
+        if (!osi_ab_check) {
+            probe_average("after");
+            return;
+        }
+        // 锁步模式继续为 A-B 参考态执行相同的界面平均。
     }
 
     amrex::MultiFab& fine_mf = f_old[lev + 1];
@@ -3821,6 +3828,13 @@ void AmrCoreLBM::CompareOsiReferenceStage(
         }
         output << '\n';
     }
+    bool continue_on_mismatch = false;
+    ParmParse("verification").query(
+        "osi_ab_continue_on_mismatch", continue_on_mismatch);
+    if (comparison_failed && continue_on_mismatch) {
+        // 仅供独立 OSI 状态对照：保留失败记录，继续写出诊断态 checkpoint。
+        return;
+    }
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         !comparison_failed,
         "OSI differs from the A-B reference; see osi_ab_stage_failure above");
@@ -3835,9 +3849,15 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
         stream_mode == 1 && osi_ab_check,
         "AdvanceAndCheckOsiReference requires the OSI oracle");
     ComputeMacroLevel(lev);
+    bool continue_on_mismatch = false;
+    ParmParse("verification").query(
+        "osi_ab_continue_on_mismatch", continue_on_mismatch);
     amrex::Print() << "osi_ab: step=" << step
                    << " phase=" << osi_phase[lev]
-                   << " staged_check=passed\n";
+                   << " staged_check="
+                   << (continue_on_mismatch ? "completed_with_failures_allowed"
+                                            : "passed")
+                   << '\n';
 }
 
 void AmrCoreLBM::PrintDdfChecksums(int step) {
