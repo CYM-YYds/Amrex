@@ -3219,6 +3219,16 @@ void AmrCoreLBM::CheckOsiReferenceLevel0(int step, const char* stage) {
                    << " finest_level=" << finest_level
                    << " phase0=" << osi_phase.at(0) << '\n';
     CompareOsiReferenceStage(0, stage, f_old.at(0), 0);
+    for (int lev = 1; lev <= finest_level; ++lev) {
+        const MultiFab& reference = f_old.at(lev);
+        const bool nonfinite = reference.contains_nan(0, Q, 0) ||
+                               reference.contains_inf(0, Q, 0);
+        amrex::Print() << "osi_ab_fine_reference: step=" << step
+                       << " stage=" << stage << " lev=" << lev
+                       << " finite=" << (nonfinite ? 0 : 1) << '\n';
+        AMREX_ALWAYS_ASSERT(!nonfinite);
+        CompareOsiReferenceStage(lev, stage, reference, 0);
+    }
 
     // 独立从设备拷回两份状态，逐 cell、逐 q 核对 level 0 全部 valid。
     // 不使用 MultiFab 范数，以便检查已有 GPU 归约诊断的可信度。
@@ -4544,6 +4554,23 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
         state.setVal(std::numeric_limits<Real>::quiet_NaN());
 
         FillNewLevelFromCoarse(lev, time);
+        if (osi_ab_check) {
+            // 新层的 A-B 参考态独立从粗层 canonical 数据插值，供重网格后逐层核对。
+            MultiFab& reference = f_old.at(lev);
+            reference.define(ba, dm, Q, nghost);
+            f_new.at(lev).define(ba, dm, Q, nghost);
+            const MultiFab& coarse = f_old.at(lev - 1);
+            MultiFab batch(coarse.boxArray(), coarse.DistributionMap(),
+                           osi_sync_batch_components, nghost);
+            const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
+            for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+                const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+                MultiFab::Copy(batch, coarse, q0, 0, ncomp, 0);
+                ScaleCanonicalBatch(density.at(lev - 1), velocity.at(lev - 1),
+                                    batch, q0, ncomp, scale);
+                InterpolateNewFineBatch(lev, time, reference, batch, q0, ncomp);
+            }
+        }
     }
 
     force_lev.setVal(0.0, nghost);
