@@ -1698,6 +1698,7 @@ void AmrCoreLBM::AverageDownOsiValidLevel(int lev, bool is_scale) {
     const auto fine_phase = osi_phase.at(lev + 1);
     const auto coarse_phase = osi_phase.at(lev);
     const Real scale = Real(2.0) * tau.at(lev) / tau.at(lev + 1);
+    const BoxArray restricted_ba = amrex::coarsen(fine_state.boxArray(), ratio);
 
     // 这里使用函数局部 canonical 工作区，不再占用共享 osi_sync_buffer。
     // 该路径只服务于完整 valid restriction，避免污染后续通信阶段的状态。
@@ -1735,14 +1736,18 @@ void AmrCoreLBM::AverageDownOsiValidLevel(int lev, bool is_scale) {
             OSI::osi_phase_shift(coarse_phase, coarse_fab);
         const auto src = coarse_canonical.const_array(mfi);
         const auto dst = coarse_state.array(mfi);
-        amrex::ParallelFor(
-            bx, Q,
-            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                const auto raw = OSI::osi_address(
-                    {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                    coarse_fab, coarse_shift);
-                dst(raw.x, raw.y, raw.z, q) = src(i, j, k, q);
-            });
+        // 只把细层有效盒粗化后的交集写回，保留 uncovered 粗单元的原值。
+        for (const auto& intersection : restricted_ba.intersections(bx)) {
+            const Box write_box = intersection.second;
+            amrex::ParallelFor(
+                write_box, Q,
+                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
+                    const auto raw = OSI::osi_address(
+                        {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                        coarse_fab, coarse_shift);
+                    dst(raw.x, raw.y, raw.z, q) = src(i, j, k, q);
+                });
+        }
     }
     amrex::Gpu::streamSynchronize();
 }
