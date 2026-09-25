@@ -26,10 +26,10 @@
 ## 验证结果
 
 - 编译：`logs/compile/compile-20260925T211908-summary.log`，成功。
-- OSI 生产 64 步：`runs/20260925_205905_job603769/`，`run_mode=OSI-production`、
-  `full_ddf_arrays=1`，正常完成。
+- OSI 生产 64 步：`runs/20260925_205905_job603769/`，日志中的
+  `ab_check=0`、`full_ddf_arrays=1`，正常完成。
 - A-B 生产 64 步：`runs/20260925_205942_job603770/`，正常完成。
-- OSI 锁步 64 步：`runs/20260925_210020_job603771/`，`run_mode=OSI-lockstep`、
+- OSI 锁步 64 步：`runs/20260925_211454_job603772/`，`run_mode=OSI-lockstep`、
   `full_ddf_arrays=3`，`AfterAverageDownValid`、`AfterRepair` 和
   `AfterRefineMesh` 检测均正常输出，uncovered 差异保持为 `0`。
 
