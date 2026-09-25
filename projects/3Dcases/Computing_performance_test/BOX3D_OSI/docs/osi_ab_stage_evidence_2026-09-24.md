@@ -54,3 +54,12 @@
 | 独立 OSI job 603661 vs 锁步 OSI job 603663，step 32 | Header、level 0/1 DDF 和元数据逐字节一致 | [step32/64 对比记录](../runs/20260925_091602_job603663/step32_checkpoint_comparison.txt)。 |
 | 同上，step 64 | Header 一致；level 0/1 DDF 和元数据不同；level 2 逐字节一致 | 因此当前未加阶段同步的生产时序下，首次观察到的差异步是 **step 64**。锁步作业随后被停止，未使用后续发散日志。 |
 | step 64 详细阶段探针 | 35 个阶段记录全部一致 | [job 603658/603659 对照](../runs/20260925_084420_job603659/osi_stage_trace_comparison.txt)。该探针在每个阶段执行 GPU 同步和归约，会改变执行时序；所以它不能否定未同步 checkpoint 对比发现的 step64 差异，反而说明差异可能与异步执行/竞态有关。 |
+
+## OSI 自重复性复测
+
+| 配置 | 结果 | 证据与限制 |
+| --- | --- | --- |
+| 两份独立 OSI，通信回退参数显式设为 `osi_mpi_device_direct=0`、`osi_mpi_direct=0`、`osi_parallel_copy=0`、`pipeline_chunk_bytes=0` | step 32、64 的所有 checkpoint 文件逐字节一致 | job 603686、603687。 |
+| 保留当前生产路径的 `osi_parallel_copy=1`、`osi_mpi_direct=1`、`pipeline_chunk_bytes=1`，仅设 `osi_mpi_device_direct=0` | step 32、64 的所有 checkpoint 文件逐字节一致 | job 603690、603691。当前运行环境不支持 GPU-aware MPI；直接使用配置中的 `osi_mpi_device_direct=1` 会在启动时按设计断言退出（job 603688、603689）。 |
+
+这两组结果没有复现独立 OSI 自身的非重复性。此前独立 OSI 与锁步诊断 OSI 在 step 64 的差异，不能归因于 OSI 单独运行的随机性；应继续检查锁步模式额外 A-B 操作与 OSI GPU 工作之间的异步依赖。
