@@ -102,6 +102,12 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 显式指定阶段函数访问 canonical A-B 状态还是 twisted OSI 状态。
     // 诊断用 A-B oracle 在 stream_mode=1 时仍需选择 Canonical。
     enum class DdfLayout : std::uint8_t { Canonical, Osi };
+    // 参数读取后固定的运行模式，避免生产推进依赖多个检测布尔量的组合。
+    enum class RunMode : std::uint8_t {
+        CanonicalAB,
+        OsiProduction,
+        OsiLockstep
+    };
 
     //********************************************************************//
     //                           constructor                              //
@@ -145,11 +151,18 @@ class AmrCoreLBM : public amrex::AmrCore {
     int streamMode() const {
         return stream_mode;
     }
+    RunMode runMode() const noexcept {
+        return run_mode;
+    }
     int finestLevel() const {
         return finest_level;
     }
     bool osiReferenceEnabled() const {
-        return stream_mode == 1 && osi_ab_check;
+        return run_mode == RunMode::OsiLockstep;
+    }
+    bool canonicalStateEnabled() const noexcept {
+        return run_mode == RunMode::CanonicalAB ||
+               run_mode == RunMode::OsiLockstep;
     }
     //********************************************************************//
     //                           mesh function                            //
@@ -317,6 +330,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void CommunicateOsiLevel(int lev);
 
   private:
+    void AdvanceOneLayout(int lev, DdfLayout layout);
 
     std::string plot_file{"plt"};
 
@@ -329,6 +343,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 0：碰撞中逐次通用取模；1：每个 Fab 预计算 phase 位移并用单次环绕。
     // 0：现有 A-B；1：OSI 实验路径，当前允许单 level/全周期并支持多 Fab/MPI。
     int stream_mode = 0;
+    RunMode run_mode = RunMode::CanonicalAB;
     // 仅用于 OSI A/B 验证：以确定性非均匀 DDF 覆盖均匀初值，暴露错误 halo 来源。
     bool osi_verification_pattern = false;
     // 仅在显式启用时分配 A-B 两数组并逐步比较；生产 OSI 模式保持单一体积级 DDF。

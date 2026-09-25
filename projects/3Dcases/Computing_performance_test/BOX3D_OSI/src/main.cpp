@@ -9,12 +9,14 @@
 #include <AMReX_Utility.H>
 
 #include "AmrCoreLBM.H"
+#include "OsiAbVerification.H"
 
 using namespace amrex;
 
 void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 好像更适配cumulant_opt
 void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 更适配cumulant
-void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
+void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid,
+            OsiAbVerification& verification);
 void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 
@@ -125,17 +127,11 @@ int main(int argc, char* argv[]) {
         int perf_report_int = 1000;
         int chk_int = -1;
         int begin_step = 0;
-        int osi_step_entry_check_step = -1;
-        bool osi_check_after_average_valid = false;
         std::string ddf_reference_checkpoint;
         {
             amrex::ParmParse pp_verify("verification");
             pp_verify.query(
                 "ddf_reference_checkpoint", ddf_reference_checkpoint);
-            pp_verify.query(
-                "osi_step_entry_check_step", osi_step_entry_check_step);
-            pp_verify.query(
-                "osi_check_after_average_valid", osi_check_after_average_valid);
         }
 
         const int runtime_max_level = input.max_level;
@@ -175,6 +171,7 @@ int main(int argc, char* argv[]) {
                             blocking_factor, max_grid_size};
 
         AmrCoreLBM lid(geom, info, grid);
+        OsiAbVerification verification;
         begin_step = lid.params().begin_step;
         chk_int = lid.params().chk_int;
         regrid_int = lid.params().regrid_int;
@@ -204,6 +201,7 @@ int main(int argc, char* argv[]) {
         lid.ValidateConfiguration(); // 配置、层级、OSI 数组和模式是否允许计算
 
         lid.InitializeConvergence();
+        const bool verification_enabled = lid.osiReferenceEnabled();
 
         float compute_time = 0.0f;
         float regrid_time = 0.0f;
@@ -218,10 +216,9 @@ int main(int argc, char* argv[]) {
             auto start_time_regrid_time = std::chrono::high_resolution_clock::now();
             // regrid_time_outer(me, f_array, indices, story);
 
-            // 按指定步数在重网格、完整平均和边界修复前检查现有 uncovered 区域。
-            if (step == osi_step_entry_check_step &&
-                lid.osiReferenceEnabled()) {
-                lid.CheckOsiReferenceLevel0(step, "StepEntry");
+            // 检测器只在显式配置的目标步骤介入生产生命周期。
+            if (verification_enabled) {
+                verification.BeforeRegrid(lid, step);
             }
 
             if (step >= 0 && regrid_int > 0 && step % regrid_int == 0) {
@@ -229,28 +226,22 @@ int main(int argc, char* argv[]) {
                 // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
                 if (lid.finestLevel() > 0) {
                     lid.AverageDownValid();
-                    if (step == osi_step_entry_check_step &&
-                        osi_check_after_average_valid &&
-                        lid.osiReferenceEnabled()) {
-                        // 将完整平均下传与物理边界修复分开检查 uncovered 区域。
-                        lid.CheckOsiReferenceLevel0(
-                            step, "AfterAverageDownValid");
+                    if (verification_enabled) {
+                        verification.AfterAverageDown(lid, step);
                     }
                 }
                 // 完整平均下传后，重新施加当前态物理边界；covered 边界单元也要修复，
                 // 因为它们可能在本次 regrid 后重新暴露或参与新细层插值。
                 lid.RepairCurrentStatePhysicalBoundary();
-                if (step == osi_step_entry_check_step &&
-                    lid.osiReferenceEnabled()) {
-                    lid.CheckOsiReferenceLevel0(step, "AfterRepair");
+                if (verification_enabled) {
+                    verification.AfterRepair(lid, step);
                 }
                 if (lid.streamMode() == 0 && lid.params().write_particles) {
                     lid.FindCentre();
                 }
                 lid.RefineMesh(cur_time);
-                if (step == osi_step_entry_check_step &&
-                    lid.osiReferenceEnabled()) {
-                    lid.CheckOsiReferenceLevel0(step, "AfterRefineMesh");
+                if (verification_enabled) {
+                    verification.AfterRefineMesh(lid, step);
                 }
                 if (lid.params().write_particles) {
                     lid.RedistributeParticle();
@@ -266,9 +257,9 @@ int main(int argc, char* argv[]) {
             // RohdeCycle(0, cur_time, lid);
 
             auto start_time_JaberCycle = std::chrono::high_resolution_clock::now();
-            Cycle2(0, cur_time, lid);
-            if (lid.osiReferenceEnabled()) {
-                lid.AdvanceAndCheckOsiReference(0, step);
+            Cycle2(0, cur_time, lid, verification);
+            if (verification_enabled) {
+                verification.AfterAdvance(lid, 0, step);
             }
             lid.PrintParticleChecksums(step);
             auto end_time_JaberCycle = std::chrono::high_resolution_clock::now();
@@ -535,7 +526,8 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 }
 
-void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid,
+            OsiAbVerification& verification) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
 
     // if(lev == max_ref_level)
@@ -548,17 +540,8 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     //    fine substeps 共享这次时间插值，与既有两层 Jaber 调度一致。
     if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
-        static const bool check_first_fill = [] {
-            bool enabled = false;
-            ParmParse("verification").query("check_after_first_fill", enabled);
-            return enabled;
-        }();
-        static bool first_fill_checked = false;
-        if (lev == 0 && check_first_fill && !first_fill_checked &&
-            lid.osiReferenceEnabled()) {
-            // 首次粗到细插值返回后，立即核对所有现存层的 uncovered valid。
-            first_fill_checked = true;
-            lid.CheckOsiReferenceLevel0(-1, "AfterFirstFillGhost");
+        if (lid.osiReferenceEnabled()) {
+            verification.AfterFirstFillGhost(lid, lev);
         }
     }
 
@@ -567,8 +550,8 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     // 3. 下一层用一半时间步连续推进两次
     if (lev < lid.finestLevel()) {
-        Cycle2(lev + 1, cur_time, lid);
-        Cycle2(lev + 1, cur_time + dt / 2.0, lid);
+        Cycle2(lev + 1, cur_time, lid, verification);
+        Cycle2(lev + 1, cur_time + dt / 2.0, lid, verification);
 
         // 4. 两个细步完成后，只平均一次
         lid.AverageDownInterfaceLevel(lev, 1);

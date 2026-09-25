@@ -593,6 +593,11 @@ void AmrCoreLBM::ReadParameters() {
                            << "  regrid_int       = " << params_.regrid_int << "\n";
         }
     }
+
+    run_mode = stream_mode == 0
+                   ? RunMode::CanonicalAB
+                   : (osi_ab_check ? RunMode::OsiLockstep
+                                   : RunMode::OsiProduction);
 }
 
 void AmrCoreLBM::WriteVelocityFile(const int step, const amrex::Real time) {
@@ -1193,7 +1198,7 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
     RebuildCoarseFineCaches();
     bool regrid_valid_check = false;
     ParmParse("verification").query("regrid_valid_check", regrid_valid_check);
-    if (stream_mode == 1 && (osi_ab_check || regrid_valid_check)) {
+    if (stream_mode == 1 && (osiReferenceEnabled() || regrid_valid_check)) {
         for (int lev = 0; lev <= finest_level; ++lev) {
             const MultiFab& state = osi_state.at(lev);
             MultiFab canonical(state.boxArray(), state.DistributionMap(),
@@ -1758,7 +1763,7 @@ void AmrCoreLBM::AverageDownValid() {
     for (int lev = finest_level - 1; lev >= 0; --lev) {
         if (stream_mode == 1) {
             AverageDownOsiValidLevel(lev, true);
-            if (osi_ab_check) {
+            if (osiReferenceEnabled()) {
                 // 锁步参考态也要在重网格前完成全部有效单元的平均下传。
                 AverageDownValidLevel(lev, true);
             }
@@ -1779,7 +1784,7 @@ void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复
         amrex::MultiFab& state =
             layout == DdfLayout::Osi ? osi_state.at(lev) : f_old.at(lev);
         ApplyPhysicalBoundaryLevel(lev, state, layout, false);
-        if (osi_ab_check && layout == DdfLayout::Osi) {
+        if (osiReferenceEnabled() && layout == DdfLayout::Osi) {
             // oracle 必须经历与 OSI 当前态相同的初始化/平均后边界修复。
             ApplyPhysicalBoundaryLevel(
                 lev, f_old.at(lev), DdfLayout::Canonical, false);
@@ -1899,7 +1904,7 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
 
     if (stream_mode == 1) {
         AverageDownOsiLevel(lev, is_scale);
-        if (!osi_ab_check) {
+        if (!osiReferenceEnabled()) {
             probe_average("after");
             return;
         }
@@ -1996,7 +2001,7 @@ void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
     if (stream_mode == 1) {
         if (is_scale) {
             FillOsiGhostFromCoarse(lev, time);
-            if (osi_ab_check) {
+            if (osiReferenceEnabled()) {
                 // 锁步参考态必须与独立 A-B 一样填充粗到细 ghost。
                 FillDdfGhostFromCoarse(lev, time);
             }
@@ -2751,7 +2756,15 @@ void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
 }
 
 void AmrCoreLBM::ValidateConfiguration() const {
+    const char* run_mode_name =
+        run_mode == RunMode::CanonicalAB
+            ? "AB-production"
+            : (run_mode == RunMode::OsiProduction ? "OSI-production"
+                                                   : "OSI-lockstep");
     if (stream_mode != 1) {
+        amrex::Print() << "[LBM validation] run_mode=" << run_mode_name
+                       << " full_ddf_arrays="
+                       << (canonicalStateEnabled() ? 2 : 1) << '\n';
         return;
     }
 
@@ -2801,9 +2814,11 @@ void AmrCoreLBM::ValidateConfiguration() const {
     amrex::Print() << (all_periodic ? "[OSI periodic] ranks=" : "[OSI boundary] ranks=")
                    << amrex::ParallelDescriptor::NProcs()
                    << " active_levels=" << finest_level + 1
+                   << " run_mode=" << run_mode_name
                    << " seed_pattern=" << (osi_verification_pattern ? 1 : 0)
-                   << " ab_check=" << (osi_ab_check ? 1 : 0)
-                   << " full_ddf_arrays=" << (osi_ab_check ? 3 : 1)
+                   << " ab_check=" << (osiReferenceEnabled() ? 1 : 0)
+                   << " full_ddf_arrays="
+                   << (osiReferenceEnabled() ? 3 : 1)
                    << " sync_batch_components=" << osi_sync_batch_components
                    << " sync_batches="
                    << ((Q + osi_sync_batch_components - 1) /
@@ -3405,6 +3420,14 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
 #endif
 }
 
+void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
+    // 生产推进只执行一次布局；锁步检测由 AdvanceLevel 显式编排两次布局。
+    Collide(lev, nghost, layout);
+    CommunicateLevel(lev, layout);
+    Stream(lev, nghost, layout);
+    Boundary(lev, layout);
+}
+
 void AmrCoreLBM::AdvanceLevel(int lev) {
     static int coarse_advance_count = 0;
     if (lev == 0) {
@@ -3416,7 +3439,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         layout == DdfLayout::Canonical || osi_state.at(lev).isDefined(),
         "AdvanceLevel requires an initialized OSI state");
 
-    if (osi_ab_check) {
+    if (run_mode == RunMode::OsiLockstep) {
         // 诊断模式下两种布局锁步推进，阶段结束后立即定位第一处分歧。
         CompareOsiReferenceStage(lev, "Initial", f_old.at(lev), 0);
         Collide(lev, nghost, DdfLayout::Osi);
@@ -3443,12 +3466,8 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         return;
     }
 
-    // 两种存储模式共享完全相同的物理阶段顺序；各阶段只在真正访问
-    // DDF 或执行数据移动时选择 canonical/OSI 实现。
-    Collide(lev, nghost, layout);
-    CommunicateLevel(lev, layout);
-    Stream(lev, nghost, layout);
-    Boundary(lev, layout);
+    // 生产模式只经过一次布局推进；锁步分支已在上方显式执行两种布局。
+    AdvanceOneLayout(lev, layout);
     int boundary_probe_step = -1;
     ParmParse("verification").query("boundary_probe_step", boundary_probe_step);
     if (lev == 0 && coarse_advance_count == boundary_probe_step) {
@@ -3495,7 +3514,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
 }
 
 void AmrCoreLBM::CheckOsiReferenceLevel0(int step, const char* stage) {
-    if (!osi_ab_check || stream_mode != 1) {
+    if (!osiReferenceEnabled()) {
         return;
     }
     amrex::Print() << "osi_ab_pointwise_begin: step=" << step
@@ -3652,7 +3671,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         stream_mode == 1,
         "CompareOsiReferenceStage requires lbm.stream_mode=1");
-    if (!osi_ab_check) {
+    if (!osiReferenceEnabled()) {
         return;
     }
 
@@ -3851,7 +3870,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
 
 void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        stream_mode == 1 && osi_ab_check,
+        run_mode == RunMode::OsiLockstep,
         "AdvanceAndCheckOsiReference requires the OSI oracle");
     ComputeMacroLevel(lev);
     bool continue_on_mismatch = false;
@@ -4851,7 +4870,7 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
         state.setVal(std::numeric_limits<Real>::quiet_NaN());
 
         FillNewLevelFromCoarse(lev, time);
-        if (osi_ab_check) {
+        if (osiReferenceEnabled()) {
             // 新层的 A-B 参考态独立从粗层 canonical 数据插值，供重网格后逐层核对。
             MultiFab& reference = f_old.at(lev);
             reference.define(ba, dm, Q, nghost);
@@ -5248,7 +5267,7 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
     vort_lev.define(ba, dm, 2, nghost);
     force_lev.define(ba, dm, AMREX_SPACEDIM, nghost);
     shear_lev.define(ba, dm, 1, nghost);
-    const bool allocate_ab = stream_mode == 0 || osi_ab_check;
+    const bool allocate_ab = canonicalStateEnabled();
     if (allocate_ab) {
         amrex::MultiFab& f_new_lev = f_new.at(lev);
         amrex::MultiFab& f_old_lev = f_old.at(lev);
@@ -5308,7 +5327,7 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
                 });
         }
 
-        if (osi_ab_check) {
+        if (osiReferenceEnabled()) {
             // Oracle 与 OSI 从完全相同的 logical valid 初值出发；ghost 由首次通信填充。
             amrex::MultiFab::Copy(f_old.at(lev), state, 0, 0, Q, 0);
             amrex::MultiFab::Copy(f_new.at(lev), state, 0, 0, Q, 0);
@@ -6094,7 +6113,7 @@ void AmrCoreLBM::ReadCheckpoint() {
             MultiFab::Copy(osi_state[lev], canonical, 0, 0, Q, 0);
             osi_phase[lev] = 0;
 
-            if (osi_ab_check) {
+            if (osiReferenceEnabled()) {
                 f_old[lev].define(
                     boxArray(lev), DistributionMap(lev), Q, nghost);
                 f_new[lev].define(
