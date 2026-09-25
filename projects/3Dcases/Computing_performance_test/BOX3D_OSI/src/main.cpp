@@ -126,6 +126,7 @@ int main(int argc, char* argv[]) {
         int chk_int = -1;
         int begin_step = 0;
         int osi_step_entry_check_step = -1;
+        bool osi_check_after_average_valid = false;
         std::string ddf_reference_checkpoint;
         {
             amrex::ParmParse pp_verify("verification");
@@ -133,6 +134,8 @@ int main(int argc, char* argv[]) {
                 "ddf_reference_checkpoint", ddf_reference_checkpoint);
             pp_verify.query(
                 "osi_step_entry_check_step", osi_step_entry_check_step);
+            pp_verify.query(
+                "osi_check_after_average_valid", osi_check_after_average_valid);
         }
 
         const int runtime_max_level = input.max_level;
@@ -226,6 +229,13 @@ int main(int argc, char* argv[]) {
                 // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
                 if (lid.finestLevel() > 0) {
                     lid.AverageDownValid();
+                    if (step == osi_step_entry_check_step &&
+                        osi_check_after_average_valid &&
+                        lid.osiReferenceEnabled()) {
+                        // 将完整平均下传与物理边界修复分开检查 uncovered 区域。
+                        lid.CheckOsiReferenceLevel0(
+                            step, "AfterAverageDownValid");
+                    }
                 }
                 // 完整平均下传后，重新施加当前态物理边界；covered 边界单元也要修复，
                 // 因为它们可能在本次 regrid 后重新暴露或参与新细层插值。
