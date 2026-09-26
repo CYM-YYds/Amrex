@@ -2743,7 +2743,10 @@ void AmrCoreLBM::FillForceGhostLevel(int lev, amrex::Real time) {
 void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
     ScopedPerfTimer timer(perf_stats.comm);
     if (layout == DdfLayout::Osi) {
-        if (osi_local_direct) {
+        // local-direct 负责同一 rank 的 grown-Fab seam；跨 rank 的自定义
+        // pack/unpack 只有在 mpi-direct 打开时才允许进入。
+        if (osi_local_direct &&
+            (ParallelDescriptor::NProcs() == 1 || osi_mpi_direct)) {
             CommunicateOsiLevelLocalDirect(lev);
         } else {
             CommunicateOsiLevel(lev);
@@ -2954,9 +2957,57 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
 }
 
 void AmrCoreLBM::CommunicateOsiLevel(int lev) {
-    // 即使调用者未打开 local-direct，也统一走 OSI raw 通信实现；这样
-    // normal OSI 路径不再把整层数据解码到共享 canonical 缓冲。
-    CommunicateOsiLevelLocalDirect(lev);
+    MultiFab& state = osi_state.at(lev);
+    MultiFab& canonical = osi_sync_buffer.at(lev);
+    const std::uint64_t phase = osi_phase.at(lev);
+    const Periodicity& periodicity = geom[lev].periodicity();
+    const IntVect ng = state.nGrowVect();
+
+    // 回退路径先将 OSI raw valid 解码到 canonical staging，再由 AMReX
+    // FillBoundary 处理同 rank、跨 rank 和周期像，最后只编码回 ghost。
+    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+        const int batch_size = std::min(osi_sync_batch_components, Q - q0);
+
+        {
+            ScopedPerfTimer timer(perf_stats.osi_decode);
+            amrex::ParallelFor(
+                osi_decode_tags.at(lev), batch_size,
+                [=] AMREX_GPU_DEVICE(
+                    int i, int j, int k, int n,
+                    const OSI::CommunicationTag& tag) noexcept {
+                    const int q = q0 + n;
+                    const auto phase_shift =
+                        OSI::osi_phase_shift(phase, tag.fab);
+                    const auto raw = OSI::osi_address(
+                        {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                        phase_shift);
+                    tag.dst(i, j, k, n) = tag.src(raw.x, raw.y, raw.z, q);
+                });
+        }
+
+        {
+            ScopedPerfTimer timer(perf_stats.osi_fillboundary);
+            canonical.FillBoundary(0, batch_size, ng, periodicity);
+        }
+
+        {
+            ScopedPerfTimer timer(perf_stats.osi_encode);
+            amrex::ParallelFor(
+                osi_encode_tags.at(lev), batch_size,
+                [=] AMREX_GPU_DEVICE(
+                    int i, int j, int k, int n,
+                    const OSI::CommunicationTag& tag) noexcept {
+                    const int q = q0 + n;
+                    const auto phase_shift =
+                        OSI::osi_phase_shift(phase, tag.fab);
+                    const auto raw = OSI::osi_address(
+                        {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                        phase_shift);
+                    tag.dst(raw.x, raw.y, raw.z, q) =
+                        tag.src(i, j, k, n);
+                });
+        }
+    }
 }
 
 void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
@@ -3178,6 +3229,13 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
 }
 
 void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
+    // 该函数也可能被其他诊断入口直接调用；跨 rank 且未打开
+    // mpi-direct 时必须回到 canonical FillBoundary 路径，避免开关失效。
+    if (ParallelDescriptor::NProcs() > 1 && !osi_mpi_direct) {
+        CommunicateOsiLevel(lev);
+        return;
+    }
+
     ScopedPerfTimer timer(perf_stats.osi_fillboundary);
     MultiFab& state = osi_state.at(lev);
     const BoxArray& ba = state.boxArray();
@@ -3255,6 +3313,9 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
                         tag.src(raw.x, raw.y, raw.z, q);
                 });
         }
+        // D2H staging 在 stream 1 上提交；先明确等待 pack 所在的当前
+        // stream，避免 stream 1 在 pack 尚未完成时读取 send_device。
+        Gpu::streamSynchronize();
         if (!osi_mpi_device_direct && !pipeline_staging &&
             !send_device.empty()) {
             if (osi_mpi_async_staging) {

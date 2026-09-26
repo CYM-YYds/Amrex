@@ -74,19 +74,19 @@ lbm.err = 0.64   1.28  2.56  5.12
 lbm.osi_local_direct = 1
 
 # 粗到细插值在单 rank 时直接从 OSI raw state 写入 staging Fab；不支持的布局自动回退。
-lbm.osi_parallel_copy = 0
+lbm.osi_parallel_copy = 1
 
 # 跨 MPI rank 使用 OSI-aware pack/unpack；0 使用原有通信回退路径。
-lbm.osi_mpi_direct = 0
+lbm.osi_mpi_direct = 1
 
-# 使用 device buffer 直接进行 MPI 通信。必须同时满足：
-# osi_mpi_direct=1，且 MPI 实现支持 GPU-aware MPI。
+# 当前 HMPI/UCX 环境未确认支持 GPU-aware MPI，生产默认走 host staging。
+# 只有更换并验证 CUDA-aware MPI 后才设置为 1。
 lbm.osi_mpi_device_direct = 0
 
 # Host-staging 分块流水的每块字节数；0 表示整块同步路径。
 # 仅适用于 osi_mpi_direct=1、device_direct=0、async_staging=0；
-# 当前单 peer 性能测试的历史较优值为 2097152。
-lbm.osi_mpi_pipeline_chunk_bytes = 0
+# 当前单 peer 性能测试的历史较优值为 2097152 字节（2 MiB）。
+lbm.osi_mpi_pipeline_chunk_bytes = 2097152
 
 # canonical 通信缓冲每批处理的 DDF 分量数，允许范围 1..27。
 # 1 最省临时内存；3 或 9 可将每步 FillBoundary 次数降为 9 或 3。
