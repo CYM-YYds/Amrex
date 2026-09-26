@@ -217,7 +217,7 @@ python3 scripts/plot_run_performance.py logs/submit/571393-out.log \
   --output docs/571393_performance_overview.png
 ```
 
-已提交的输出文件是 [`571393_performance_overview.png`](571393_performance_overview.png)。第四个面板使用 `average_scale_cells` 作为重复 AMR 传输工作的代理量，而不是当前有效网格单元的瞬时数量。在 job 571393 中，它与 Stream 时间的 Pearson 相关系数为 0.9994；这说明两者都随 AMR 覆盖范围变化，而不是 restriction 直接导致 Stream 变慢。
+已提交的输出文件是 [`571393_performance_overview.png`](../data_post_processing/571393_performance_overview.png)。第四个面板使用 `average_scale_cells` 作为重复 AMR 传输工作的代理量，而不是当前有效网格单元的瞬时数量。在 job 571393 中，它与 Stream 时间的 Pearson 相关系数为 0.9994；这说明两者都随 AMR 覆盖范围变化，而不是 restriction 直接导致 Stream 变慢。
 
 ### Jaber A6 对比的适用范围
 
