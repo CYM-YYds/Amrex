@@ -1,20 +1,19 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-09-24
+更新时间：2026-09-26
 
 ## 现役配置
 
 权威参数在 `config/inputs`：`amr.max_level=2`、`amr.regrid_int=32`、
 `amr.max_grid_size=128`、`lbm.stream_mode=1`、`lbm.collide_mode=1`、
 `lbm.osi_local_direct=1`、`lbm.osi_parallel_copy=1`、`lbm.osi_mpi_direct=1`、
+`lbm.osi_mpi_device_direct=0`、`lbm.osi_mpi_pipeline_chunk_bytes=2097152`、
 `performance.report_int=1000`、`max_step=128000`。默认是 OSI 单数组路径；A-B 基准
-需显式覆盖 `lbm.stream_mode=0`。这些是当前工作树中的未提交输入改动，
-不是已验收的生产默认值。当前还设有 `lbm.osi_mpi_device_direct=1` 和
-`lbm.osi_mpi_pipeline_chunk_bytes=1`；HMPI/UCX 上 device-direct 能力门禁会拒绝
-不支持的 GPU-aware MPI 配置。已有 host-staging 对照须按对应运行快照读取覆盖参数，
-不能直接用此工作配置复现。历史单 peer 测得较优 chunk 为 2097152（2 MiB），
-并非当前工作配置。OSI 地址使用预计算 phase shift；Boundary
-保留坐标缓存，碰撞显式坐标缓存和 branchless 分支均未保留。
+需显式覆盖 `lbm.stream_mode=0`。这些通信配置已随提交 `1acbea7` 固化为当前
+host-staging 工作配置；2 MiB pipeline 只在已测单节点、单 peer 范围内完成验收，
+不能外推到多节点或多层动态 AMR。HMPI/UCX 的 device-direct 仍由能力门禁保护，
+当前配置不启用它。OSI 地址使用预计算 phase shift；Boundary 保留坐标缓存，碰撞
+显式坐标缓存和 branchless 分支均未保留。
 
 主提交入口 `scripts/submit.sh` 以 `config/inputs` 为唯一当前工作配置，并在启动前复制
 到 `runs/<timestamp>_job<job-id>/inputs`。程序从该独立目录运行，PlotFile 使用 `plt_`
@@ -23,8 +22,47 @@
 `checkpoint.chk_int=32000`。专项 `submit_*.sh` 仍采用各自的历史工作目录约定，不属于
 主入口的运行快照合同。
 
-## 最新诊断（2026-09-24）
+## 近期通信修复与验证（2026-09-26）
 
+- 提交 `1acbea7` 恢复了 `osi_local_direct`/`osi_mpi_direct` 的实际分支选择：
+  单 rank 或两个 direct 开关均打开时走 raw direct；多 rank 且
+  `osi_mpi_direct=0`，或 `osi_local_direct=0` 时走 canonical
+  Decode → `FillBoundary` → Encode 回退。direct pack kernel 完成后增加显式
+  当前 stream 同步，再提交 stream 1 的 host staging D2H。
+- 编译 `GEN_CCDB=0 ./scripts/compile.sh --no-submit` 成功，日志为
+  `logs/compile/compile-20260926T095731-summary.log`。
+- 作业 `603873` 在 2 ranks、单层固定网格下分别运行 A-B 与 OSI production 1000 步；
+  OSI 使用 host-staging、2 MiB pipeline，两个模式均正常结束且无 NaN/SIG。
+- 作业 `603875` 使用 direct host-staging lockstep 运行 64 步；Initial、Collision、
+  Communication、Stream、Boundary、Swap 全部 `linf=0`，最终 `staged_check=passed`。
+- 作业 `603876` 使用 `osi_local_direct=0`、`osi_mpi_direct=0` 验证 canonical
+  回退，同样 64 步全部阶段 `linf=0`，最终 `staged_check=passed`。
+- 异步 staging 复测尚未提交：当前交互环境的调度客户端无法解析 UID `2542422`，
+  没有生成作业日志；源码同步修复已完成，但该运行态结论仍为 pending。
+
+## 历史诊断（截至 2026-09-24）
+
+- 已定位并修正 step 32 新建 level 1 时的 A-B/OSI 初值路径差异：旧 A-B
+  `MakeNewLevelFromCoarse()` 调用 `FillCoarsePatch()`（固定
+  `cell_cons_interp`、无非平衡缩放），OSI 调用 `FillNewLevelFromCoarse()`
+  （使用 `lbm.interp_mode` 并缩放）。现让 A-B 复用后者。
+  修正前独立作业 `603468`/`603469` 在首次 `FillGhostLevel(1)` 入口
+  读取细层 valid 点 `(1,128,253),q=4`，分别为
+  `0.072906735842454579`/`0.076610337500803594`；各自插值出口
+  值未变，证明该差异来自新层初值。另有 `603461`/`603462` 的
+  通信前后逐值导出：同层 ghost 与各自 valid 源值均完全相等，源值
+  已有差异，故单 rank 通信写回没有制造这批差异。
+  修正后的 `603471`/`603472` 在插值出口所测 66,048 个同层
+  源/ghost 单元 × 27 分量最大差降至 `2.7755575615628914e-17`，
+  通信后最大差 `1.1102230246251565e-16`；135,200 个插值 ghost
+  单元 × 27 分量仍逐值相等。`603473`/`603474` 的首次平均出口
+  level 0 uncovered 逐值相等，interface 最大差
+  `2.220446049250313e-16`。撤回临时探针、仅保留初始化修正并
+  重新编译后，`603478`/`603479` 在 step 33 的已知 uncovered 点
+  `(1,111,111),q=18` 均得到 `0.018585093245395951`。
+  这些结果覆盖单 rank、当前部分细化的 33 步窗口；未证明多 rank、
+  更长时间或全部细层 valid 逐值等价。原始快照、输入与比较脚本保留
+  于对应 `runs/` 目录。
 - 独立配对作业 `603459`（A-B）/`603460`（OSI）在 step 32 的 level 1
   首个细步 `CommunicateLevel` 返回后、`Stream` 前导出物理域内全部 ghost
   的逻辑 DDF（每个 Fab 单独计数）。两个作业使用相同输入快照和同一临时
@@ -157,11 +195,11 @@
   z 分量有误，修正后才得到上述零差。旧批次范数诊断在相同测点报告的
   `0.07579002442` 也是假差异：逐 q 范数曾给出 `DBL_MAX`，而同分量的
   min/max 均为 0。其归约/比较路径仍待查；现已移除误导性的自动 A-B 范数输出。
-- 当前 `CommunicateOsiLevel()` 直接调用 `CommunicateOsiLevelLocalDirect()`；
-  `osi_local_direct=0` 不会切回旧的整层 canonical 通信。当前
+- 当前 `CommunicateLevel()` 根据 rank 数和两个通信开关选择 direct 或 canonical
+  回退；`CommunicateOsiLevel()` 实现分批 Decode → `FillBoundary` → Encode。
   `AverageDownOsiValidLevel()` 用函数局部 Q 分量 canonical `MultiFab` 完成
   restriction，已不使用共享 `osi_sync_buffer`；这也不等于整个 OSI 生命周期
-  完全不使用该缓冲。旧计划文档中的 fallback 叙述仅代表其编写时的实现。
+  完全不使用该缓冲。旧计划文档中的其他 fallback 叙述仅代表其编写时的实现。
 - job `603283` 的旧 level 0 全 valid 范数在修复前、修复后、重网格后均报
   `0.07579002442`，与可靠逐点结果冲突，不能作为数值差异证据。step 31
   `Swap` 与 step 32 入口的零差已由 `603306`/`603307` 的主机比较交叉核对。
@@ -174,13 +212,12 @@
   保持三层；用户在 ParaView 中观察到 NaN。其总耗时不得与旧版
   `596890`/`596891` 当作同版本性能对照，NaN 的首次发生步数仍待定位。
 
-下一次诊断应在独立 A-B/OSI 作业中比较首个细步的通信前 ghost、通信源
-valid 与通信后 ghost，以区分原有差异和通信写回差异；随后逐值比较
-`Stream` 出口的细层 uncovered，定位真实首差。锁步参考态须先完成与
-独立 A-B 一致的细层 ghost 插值，才能用其判断 `Stream` 首差。
-再在相同细层输入上核对缩放结果与粗层写回值，并补测多 rank 回退路径。
-旧 GPU 范数诊断的计算与归约实现也仍待核对。保留现有日志、PlotFile、
-checkpoint 和输入快照供复核。
+下一次诊断仍应在最终无临时探针版本上，逐值比较修正后整个细层 valid
+及 `Stream` 出口的 uncovered，再延长步数并补测多 rank 动态 AMR 回退路径。
+锁步参考态须先完成与独立 A-B 一致的细层 ghost 插值，才能用其判断
+`Stream` 首差。可在相同细层输入上进一步核对缩放结果与粗层写回值。
+旧 GPU 范数诊断的计算与归约实现也仍待核对；异步 staging 和 device-direct
+运行态验收仍 pending。保留现有日志、PlotFile、checkpoint 和输入快照供复核。
 
 ## 历史验证（按原作业版本）
 
@@ -203,8 +240,8 @@ checkpoint 和输入快照供复核。
   4.045--4.049 s；相比同作业 FillBoundary 的 4.616--4.622 s 快约
   12.3%--12.5%。
 - chunk 扫描 jobs `596147`/`596148`/`596149` 分别覆盖 1/4/8 MiB；当前
-  单 peer、每 rank 约 16 MB payload 下 2 MiB 是已测最佳值。这是显式性能选项，
-  未改为生产默认。
+  单 peer、每 rank 约 16 MB payload 下 2 MiB 是已测最佳值。当前配置已采用该值，
+  但多 peer、多节点和多层动态 AMR 仍需单独验收。
 
 - `tests/run_osi_index_test.sh` 已修正为当前 `OSI` 命名空间，并通过。
 - CUDA+MPI 当前源码构建通过；阶段 oracle 作业 `589641`（A-B/OSI、单层非周期、64

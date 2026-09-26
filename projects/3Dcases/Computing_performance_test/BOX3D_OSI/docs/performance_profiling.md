@@ -16,9 +16,10 @@
 约 7.6%--7.8%；相比同作业 FillBoundary 的 total 快约 12.3%--12.5%。
 jobs `596147`/`596148`/`596149` 的 1/4/8 MiB 扫描中，2 MiB 为已测最佳。
 周期 job `596145` 和六面非周期 job `596150` 均完成 384/384 次六阶段
-`linf=0`。该结论仅覆盖单节点、单 peer、单层同层通信；运行参数
-`lbm.osi_mpi_pipeline_chunk_bytes` 默认为 0，不将 2 MiB 结论自动外推到多节点或
-多层 AMR。
+`linf=0`。该结论仅覆盖单节点、单 peer、单层同层通信；这些历史作业的运行参数
+`lbm.osi_mpi_pipeline_chunk_bytes` 为 0。当前 `config/inputs` 已设为 2 MiB，
+但不能将该值自动外推到多节点或多层 AMR；当前配置的 2-rank 生产和 lockstep 复测见
+jobs `603873`、`603875`。
 
 ## 2026-09-14 CUDA-aware MPI 验收
 

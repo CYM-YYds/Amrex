@@ -6,7 +6,7 @@ one-step index（OSI）路径。
 
 ## 当前验证状态
 
-更新时间：2026-09-24。最新逐阶段/全 valid 矛盾与待测点见
+更新时间：2026-09-26。最新逐阶段/全 valid 矛盾与待测点见
 [当前交接状态](docs/current_status.md)。
 
 当前工作配置位于 `config/inputs`。每次提交时，脚本会把它冻结到独立运行目录，
@@ -20,8 +20,9 @@ one-step index（OSI）路径。
 - OSI 所有地址路径统一使用预计算 phase shift，不再提供 legacy 取模开关；
 - `performance.report_int=1000`，按窗口输出总阶段和逐 level 碰撞统计；
 - 当前 `config/inputs` 为 `max_step=128000`、`amr.plot_int=3200`、
-  `checkpoint.chk_int=32000`；OSI 通信/插值开关含未提交实验改动，运行时
-  应核对快照和覆盖参数；历史 96000 步结果仍按历史作业单独引用；
+  `checkpoint.chk_int=32000`；OSI 通信配置为 host-staging、
+  `osi_mpi_pipeline_chunk_bytes=2097152`，已随提交 `1acbea7` 固化。历史
+  96000 步结果仍按历史作业单独引用；
 - PlotFile 使用 `plt_` 前缀，checkpoint 使用 `chk` 前缀，均相对于本次运行目录。
 
 长程历史作业 `logs/submit/586660-out.log` 运行到 step 96000，正常完成，未观察到
@@ -112,8 +113,9 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
   canonical checkpoint 的历史测试，但不能外推为当前多层生产验收。
 - `lbm.osi_parallel_copy=1`：启用插值和平均阶段的 OSI direct 路径；多 rank
   平均通过 CPC tags 将 canonical restriction 结果打包后直接写入 coarse OSI raw。
-  当前工作配置设为 `1`。已验证的多 rank 传输是 host-staging；device-direct 代码已编译，
-  但本机 HMPI/UCX 运行在到达平均阶段前失败，不能视作通过验收。
+  当前配置设为 `1`。同层 MPI direct 和 canonical fallback 已分别在 jobs
+  `603875`/`603876` 的 2-rank、64-step lockstep 中通过阶段逐值检查；device-direct
+  仍未在当前 HMPI/UCX 环境运行验收。
 - 静态 `ParticleContainer` 的 checkpoint/restart 已有跨 MPI 分解测试；运动刚体的
   质心、平动/角速度、力和力矩未持久化，尚不支持完整 IBM restart 结论。
 - 历史性能 job 和图片只代表当时的源码、输入和硬件，不是当前性能基线。

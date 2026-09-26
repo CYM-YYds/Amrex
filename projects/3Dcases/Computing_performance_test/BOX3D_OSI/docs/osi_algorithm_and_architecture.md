@@ -237,19 +237,19 @@ $$
 
 不能把 twisted `MultiFab` 直接交给普通 `FillBoundary()` 并期待正确结果，因为
 `FillBoundary()` 按相同 `(i,j,k,q)` 复制，而不知道发送和接收 Fab 各自的 OSI 映射。
-历史 fallback 路径按 `lbm.osi_sync_batch_components` 将若干方向解码到 canonical
+canonical fallback 按 `lbm.osi_sync_batch_components` 将若干方向解码到 canonical
 `MultiFab`，调用普通 `FillBoundary()` 后，只把实际通信目标 ghost 编码回同一个 phase。
 Decode 只覆盖通信可能读取的 owner-valid 源区；valid 不会从 canonical 缓冲重复回写。
-该批大小配置为 3。现役 `CommunicateOsiLevel()` 直接调用 raw 通信实现；
-`osi_local_direct=0` 不会触发上述 fallback。跨 rank 启用 `osi_mpi_direct` 时，
-使用按 peer 聚合的 host-staging pack/unpack。通信计划、
+该批大小配置为 3。现役 `CommunicateLevel()` 在单 rank 或两个 direct 开关均打开时
+选择 raw direct；`osi_local_direct=0`，或多 rank 下 `osi_mpi_direct=0` 时选择上述
+fallback。跨 rank direct 使用按 peer 聚合的 host-staging pack/unpack。通信计划、
 偏移和缓冲随布局一次构建，pack/unpack 各由一个 `TagVector` kernel 完成。不能直接对
 twisted `osi_state` 调用 `FillBoundary()`。
 可选的 `osi_mpi_pipeline_chunk_bytes` 将每个 peer 的 host-staging payload 分块：
 发送侧在一块 D2H 完成后立即投递非阻塞 send，与下一块 D2H 重叠；
 接收侧先投递全部 receive，每块到达后在独立 GPU stream 上 H2D，主机继续
-等待后续块。当前单 peer 性能算例的已测最佳值是 2 MiB，但开关默认
-为 0，多 peer、多节点和多层 AMR 必须重新验收。
+等待后续块。当前 `config/inputs` 使用 2 MiB；0 表示整块同步路径。2 MiB
+只在单节点、单 peer 范围内完成验收，多 peer、多节点和多层 AMR 必须重新验收。
 
 实验开关 `osi_mpi_device_direct` 将 MPI 指针从 pinned host 缓冲切换为 device 缓冲，
 并要求 AMReX 已确认 GPU-aware MPI。远端请求投递后才启动本地 seam copy，使该 kernel

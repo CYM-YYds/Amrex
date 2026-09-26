@@ -2,6 +2,8 @@
 
 更新日期：2026-09-24。这里的“误差”指相同输入下 A-B 与 OSI 的**逻辑 DDF 或输出数值之差**；同一模式从碰撞前到碰撞后的正常数值变化不算误差。`一致`只表示表中写明的区域和时间步通过了对应检查，不代表整场、后续时间步或多 rank 已验证。`近一致`表示存在约 `1e-16` 的浮点差。`未判定`表示缺少可用于归因的独立双作业比较。
 
+表中作业均保留其 2026-09-24 的输入快照，不能用来推断当前配置。当前 host-staging、2 MiB pipeline 和通信回退分支的现役状态见 [当前交接状态](current_status.md) 及 [2026-09-26 通信修复记录](../../../../../docs/ai_changes/2026-09-26-box3d-osi-communication-fallback-and-staging.md)。
+
 ## 当前修正后的阶段检查
 
 | 时间与阶段 | 比较区域、方法 | 结果 | 证据与限制 |
@@ -60,6 +62,6 @@
 | 配置 | 结果 | 证据与限制 |
 | --- | --- | --- |
 | 两份独立 OSI，通信回退参数显式设为 `osi_mpi_device_direct=0`、`osi_mpi_direct=0`、`osi_parallel_copy=0`、`pipeline_chunk_bytes=0` | step 32、64 的所有 checkpoint 文件逐字节一致 | job 603686、603687。 |
-| 保留当前生产路径的 `osi_parallel_copy=1`、`osi_mpi_direct=1`、`pipeline_chunk_bytes=1`，仅设 `osi_mpi_device_direct=0` | step 32、64 的所有 checkpoint 文件逐字节一致 | job 603690、603691。当前运行环境不支持 GPU-aware MPI；直接使用配置中的 `osi_mpi_device_direct=1` 会在启动时按设计断言退出（job 603688、603689）。 |
+| 保留当时生产路径的 `osi_parallel_copy=1`、`osi_mpi_direct=1`、`pipeline_chunk_bytes=1`，仅设 `osi_mpi_device_direct=0` | step 32、64 的所有 checkpoint 文件逐字节一致 | job 603690、603691。当前运行环境不支持 GPU-aware MPI；直接使用当时配置中的 `osi_mpi_device_direct=1` 会在启动时按设计断言退出（job 603688、603689）。当前配置已改为 host-staging、2 MiB pipeline。 |
 
 这两组结果没有复现独立 OSI 自身的非重复性。此前独立 OSI 与锁步诊断 OSI 在 step 64 的差异，不能归因于 OSI 单独运行的随机性；应继续检查锁步模式额外 A-B 操作与 OSI GPU 工作之间的异步依赖。

@@ -1,10 +1,10 @@
 # OSI 跨 MPI 通信实施计划
 
-更新时间：2026-09-14
+更新时间：2026-09-26
 
-> 本文是通信改造的历史计划，下面的 canonical fallback 和默认开关叙述
-> 不代表当前源码。现役 `CommunicateOsiLevel()` 直接转发到
-> `CommunicateOsiLevelLocalDirect()`；工作配置及验证边界见
+> 本文是通信改造的历史计划，下面的阶段记录保留原始时间语境。现役
+> `CommunicateLevel()` 根据 `osi_local_direct`、`osi_mpi_direct` 和 rank 数选择
+> raw direct 或 canonical fallback；工作配置及验证边界见
 > [当前交接状态](current_status.md)。
 
 本文记录 `BOX3D_OSI` 的跨 MPI OSI-aware same-level 通信改造方案。
@@ -18,7 +18,7 @@
 
 ## 1. 当前状态与目标
 
-当前多 rank 路径为：
+2026-09-14 时的多 rank 基线路径为：
 
 ```text
 OSI raw state
