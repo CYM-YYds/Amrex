@@ -1,6 +1,29 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-09-26
+更新时间：2026-09-28
+
+## 最新 Stream 源区域筛查（2026-09-28）
+
+作业 `604902` 使用 64^3、`max_level=2`、64 步锁步诊断，已在 Stream 前对
+所有层级 uncovered 目标的实际 pull source 分类并逐值比较。第 64 步的两个首发
+差异均不是物理边界点，且 `BoundaryUncovered` 后差异保持不变：level 0
+`(61,14,47),q=6`，`physical_boundary=0`；level 1
+`(7,97,96),q=5`，`physical_boundary=0`。
+
+- level 0 首发 Stream 源统计：`mismatches=174416`，其中
+  `mismatch_valid=36100`、`mismatch_ghost=138316`、
+  `mismatch_interface=36100`，最大点的源为 `(61,14,48)`。
+- level 1 首发 Stream 源统计：`mismatches=219460`，其中
+  `mismatch_valid=0`、`mismatch_ghost=219460`、
+  `mismatch_physical_ghost=73536`、`mismatch_internal_ghost=145924`；
+  level 1 的首发点源为 `(7,97,95)`。
+- level 2 在首发时仍为零差；随后其物理边界 ghost 源出现差异。
+
+因此当前证据已排除首发点由物理 Boundary kernel 直接处理造成；Stream 的供源区域
+仍存在差异，level 0 同时包含 interface/covered 源差异，level 1 主要包含 ghost
+源差异。该 64^3 筛查尚不是 128^3 多 rank 动态 AMR 的最终验收。原始证据见
+`logs/submit/604902-osi-lockstep-alllevels-64.log`，专项脚本为
+`scripts/submit_osi_lockstep_alllevels_64.sh`。
 
 ## 现役配置
 
