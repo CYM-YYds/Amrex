@@ -3734,6 +3734,27 @@ void AmrCoreLBM::CheckOsiReferenceLevel0(int step, const char* stage) {
     output << '\n';
 }
 
+void AmrCoreLBM::CheckOsiReferenceUncovered(
+    int step, const char* stage) {
+    if (!osiReferenceEnabled()) {
+        return;
+    }
+    amrex::Print() << "osi_ab_uncovered_begin: step=" << step
+                   << " stage=" << stage
+                   << " finest_level=" << finest_level << '\n';
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        const MultiFab& reference = f_old.at(lev);
+        const bool nonfinite = reference.contains_nan(0, Q, 0) ||
+                               reference.contains_inf(0, Q, 0);
+        amrex::Print() << "osi_ab_uncovered_finite: step=" << step
+                       << " stage=" << stage << " lev=" << lev
+                       << " finite=" << (nonfinite ? 0 : 1) << '\n';
+        AMREX_ALWAYS_ASSERT(!nonfinite);
+        // 首个差异扫描只覆盖各层 uncovered valid，covered 数据留到重构/平均阶段。
+        CompareOsiReferenceStage(lev, stage, reference, 0, false, true);
+    }
+}
+
 void AmrCoreLBM::CheckOsiReferenceAllValid(
     int step, const char* stage) {
     if (!osiReferenceEnabled()) {

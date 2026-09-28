@@ -7,18 +7,22 @@
 OsiAbVerification::OsiAbVerification() {
     amrex::ParmParse pp("verification");
     pp.query("osi_step_entry_check_step", step_entry_check_step_);
+    pp.query("osi_step_entry_check_interval", step_entry_check_interval_);
     pp.query("osi_check_after_average_valid", check_after_average_valid_);
     pp.query("check_after_first_fill", check_after_first_fill_);
 }
 
 bool OsiAbVerification::IsTargetStep(int step) const noexcept {
+    if (step_entry_check_interval_ > 0) {
+        return step > 0 && step % step_entry_check_interval_ == 0;
+    }
     return step_entry_check_step_ >= 0 &&
            step == step_entry_check_step_;
 }
 
 void OsiAbVerification::BeforeRegrid(AmrCoreLBM& lid, int step) const {
     if (lid.osiReferenceEnabled() && IsTargetStep(step)) {
-        lid.CheckOsiReferenceLevel0(step, "StepEntry");
+        lid.CheckOsiReferenceUncovered(step, "StepEntryUncovered");
     }
 }
 

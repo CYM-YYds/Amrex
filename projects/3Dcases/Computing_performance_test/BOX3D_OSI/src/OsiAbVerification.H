@@ -19,6 +19,7 @@ class OsiAbVerification {
     bool IsTargetStep(int step) const noexcept;
 
     int step_entry_check_step_ = -1;
+    int step_entry_check_interval_ = -1;
     bool check_after_average_valid_ = false;
     bool check_after_first_fill_ = false;
     bool first_fill_checked_ = false;
