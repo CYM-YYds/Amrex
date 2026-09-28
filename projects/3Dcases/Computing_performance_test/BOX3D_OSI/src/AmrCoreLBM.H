@@ -249,6 +249,7 @@ class AmrCoreLBM : public amrex::AmrCore {
         int lev, const char* stage,
         const amrex::MultiFab& reference, int compare_ngrow,
         bool exclude_physical_boundary = false);
+    void CompareOsiStreamSources(int lev, const char* stage);
     void PrintParticleChecksums(int step) const;
     void CompareDdfCheckpoint(const std::string& checkpoint_path) const;
 

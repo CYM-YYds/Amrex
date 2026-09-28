@@ -3515,6 +3515,9 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
             lev, "Communication", f_old.at(lev), 0);
         CompareOsiReferenceStage(
             lev, "CommunicationGhost", f_old.at(lev), nghost, true);
+        // 直接比较所有 uncovered Stream 目标所读取的 source，覆盖 valid、
+        // interface 和 ghost；该检查对每个 AMR 层级分别执行。
+        CompareOsiStreamSources(lev, "AfterCommunication");
 
         Stream(lev, nghost, DdfLayout::Osi);
         Stream(lev, nghost, DdfLayout::Canonical);
@@ -3524,6 +3527,8 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         Boundary(lev, DdfLayout::Osi);
         Boundary(lev, DdfLayout::Canonical);
         CompareOsiReferenceStage(lev, "Boundary", f_new.at(lev), 0);
+        // 边界处理后再次确认该层所有 uncovered valid 单元。
+        CompareOsiReferenceStage(lev, "BoundaryUncovered", f_new.at(lev), 0);
 
         SwapLevel(lev, nghost, DdfLayout::Osi);
         SwapLevel(lev, nghost, DdfLayout::Canonical);
@@ -3914,6 +3919,21 @@ void AmrCoreLBM::CompareOsiReferenceStage(
                    << " velocity=(" << ex[local_max_q] << ','
                    << ey[local_max_q] << ',' << ez[local_max_q] << ')'
                    << " raw=" << local_max_raw
+                   << " source_logical="
+                   << (local_max_iv - IntVect(AMREX_D_DECL(
+                       ex[local_max_q], ey[local_max_q], ez[local_max_q])))
+                   << " physical_boundary="
+                   << ((!Geom(lev).isPeriodic(0) &&
+                        (local_max_iv[0] == Geom(lev).Domain().smallEnd(0) ||
+                         local_max_iv[0] == Geom(lev).Domain().bigEnd(0))) ||
+                       (!Geom(lev).isPeriodic(1) &&
+                        (local_max_iv[1] == Geom(lev).Domain().smallEnd(1) ||
+                         local_max_iv[1] == Geom(lev).Domain().bigEnd(1))) ||
+                       (!Geom(lev).isPeriodic(2) &&
+                        (local_max_iv[2] == Geom(lev).Domain().smallEnd(2) ||
+                         local_max_iv[2] == Geom(lev).Domain().bigEnd(2)))
+                           ? 1
+                           : 0)
                    << " ab=" << local_max_ab
                    << " osi=" << local_max_osi;
         }
@@ -3932,6 +3952,185 @@ void AmrCoreLBM::CompareOsiReferenceStage(
                    << " lev=" << lev
                    << " phase=" << osi_phase[lev]
                    << " linf=" << linf << '\n';
+}
+
+void AmrCoreLBM::CompareOsiStreamSources(int lev, const char* stage) {
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        stream_mode == 1,
+        "CompareOsiStreamSources requires lbm.stream_mode=1");
+    if (!osiReferenceEnabled()) {
+        return;
+    }
+
+    const MultiFab& reference = f_old.at(lev);
+    const MultiFab& state = osi_state.at(lev);
+    const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+    Long target_count = 0;
+    Long source_count = 0;
+    Long source_valid_count = 0;
+    Long source_ghost_count = 0;
+    Long source_physical_ghost_count = 0;
+    Long source_internal_ghost_count = 0;
+    Long source_interface_count = 0;
+    Long source_covered_count = 0;
+    Long mismatch_count = 0;
+    Long mismatch_valid = 0;
+    Long mismatch_ghost = 0;
+    Long mismatch_physical_ghost = 0;
+    Long mismatch_internal_ghost = 0;
+    Long mismatch_interface = 0;
+    Long mismatch_covered = 0;
+    Real max_error = 0.0;
+    IntVect max_target(0);
+    IntVect max_source(0);
+    int max_q = -1;
+    constexpr int ex[Q] = {
+        0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
+        1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
+    constexpr int ey[Q] = {
+        0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0,
+        0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
+    constexpr int ez[Q] = {
+        0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
+        1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+
+    for (MFIter mfi(reference, false); mfi.isValid(); ++mfi) {
+        const Box valid = mfi.validbox();
+        const Box ring = state[mfi].box();
+        FArrayBox host_reference(reference[mfi].box(), Q, The_Pinned_Arena());
+        FArrayBox host_state(state[mfi].box(), Q, The_Pinned_Arena());
+        Gpu::dtoh_memcpy(host_reference.dataPtr(), reference[mfi].dataPtr(),
+                         host_reference.nBytes());
+        Gpu::dtoh_memcpy(host_state.dataPtr(), state[mfi].dataPtr(),
+                         host_state.nBytes());
+        const auto ab = host_reference.const_array();
+        const auto osi = host_state.const_array();
+        const auto fab_lo = ring.smallEnd();
+        const OSI::FabGeometry fab{
+            {fab_lo[0], fab_lo[1], fab_lo[2]},
+            {ring.length(0), ring.length(1), ring.length(2)}};
+        const auto phase_shift =
+            OSI::osi_phase_shift(osi_phase.at(lev), fab);
+
+        std::unique_ptr<IArrayBox> host_covered;
+        std::unique_ptr<IArrayBox> host_interface;
+        if (has_fine) {
+            host_covered = std::make_unique<IArrayBox>(
+                covered_mask.at(lev)[mfi].box(), 1, The_Pinned_Arena());
+            host_interface = std::make_unique<IArrayBox>(
+                interface_mask.at(lev)[mfi].box(), 1, The_Pinned_Arena());
+            Gpu::dtoh_memcpy(host_covered->dataPtr(),
+                             covered_mask.at(lev)[mfi].dataPtr(),
+                             host_covered->nBytes());
+            Gpu::dtoh_memcpy(host_interface->dataPtr(),
+                             interface_mask.at(lev)[mfi].dataPtr(),
+                             host_interface->nBytes());
+        }
+
+        for (int k = valid.smallEnd(2); k <= valid.bigEnd(2); ++k) {
+            for (int j = valid.smallEnd(1); j <= valid.bigEnd(1); ++j) {
+                for (int i = valid.smallEnd(0); i <= valid.bigEnd(0); ++i) {
+                    if (has_fine &&
+                        host_covered->const_array()(i, j, k) != 0) {
+                        continue;
+                    }
+                    ++target_count;
+                    for (int q = 0; q < Q; ++q) {
+                        const IntVect target(AMREX_D_DECL(i, j, k));
+                        const IntVect source(AMREX_D_DECL(
+                            i - ex[q], j - ey[q], k - ez[q]));
+                        if (!ring.contains(source)) {
+                            continue;
+                        }
+                        ++source_count;
+                        const bool source_valid = valid.contains(source);
+                        const bool source_ghost = !source_valid;
+                        const bool source_physical_ghost =
+                            source_ghost && !Geom(lev).Domain().contains(source);
+                        const bool source_internal_ghost =
+                            source_ghost && !source_physical_ghost;
+                        const bool source_covered =
+                            has_fine &&
+                            host_covered->const_array()(source[0], source[1],
+                                                        source[2]) != 0;
+                        const bool source_interface =
+                            has_fine &&
+                            host_interface->const_array()(source[0], source[1],
+                                                          source[2]) != 0;
+                        source_valid_count += source_valid;
+                        source_ghost_count += source_ghost;
+                        source_physical_ghost_count += source_physical_ghost;
+                        source_internal_ghost_count += source_internal_ghost;
+                        source_covered_count += source_covered;
+                        source_interface_count += source_interface;
+                        const auto raw = OSI::osi_address(
+                            {source[0], source[1], source[2]},
+                            {ex[q], ey[q], ez[q]}, fab, phase_shift);
+                        const Real error =
+                            std::abs(ab(source[0], source[1], source[2], q) -
+                                     osi(raw.x, raw.y, raw.z, q));
+                        if (error > Real(1.e-12)) {
+                            ++mismatch_count;
+                            mismatch_valid += source_valid;
+                            mismatch_ghost += source_ghost;
+                            mismatch_physical_ghost += source_physical_ghost;
+                            mismatch_internal_ghost += source_internal_ghost;
+                            mismatch_covered += source_covered;
+                            mismatch_interface += source_interface;
+                            if (error > max_error) {
+                                max_error = error;
+                                max_target = target;
+                                max_source = source;
+                                max_q = q;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ParallelDescriptor::ReduceLongSum(target_count);
+    ParallelDescriptor::ReduceLongSum(source_count);
+    ParallelDescriptor::ReduceLongSum(source_valid_count);
+    ParallelDescriptor::ReduceLongSum(source_ghost_count);
+    ParallelDescriptor::ReduceLongSum(source_physical_ghost_count);
+    ParallelDescriptor::ReduceLongSum(source_internal_ghost_count);
+    ParallelDescriptor::ReduceLongSum(source_interface_count);
+    ParallelDescriptor::ReduceLongSum(source_covered_count);
+    ParallelDescriptor::ReduceLongSum(mismatch_count);
+    ParallelDescriptor::ReduceLongSum(mismatch_valid);
+    ParallelDescriptor::ReduceLongSum(mismatch_ghost);
+    ParallelDescriptor::ReduceLongSum(mismatch_physical_ghost);
+    ParallelDescriptor::ReduceLongSum(mismatch_internal_ghost);
+    ParallelDescriptor::ReduceLongSum(mismatch_interface);
+    ParallelDescriptor::ReduceLongSum(mismatch_covered);
+    ParallelDescriptor::ReduceRealMax(max_error);
+    amrex::Print() << "osi_ab_stream_sources: stage=" << stage
+                   << " lev=" << lev
+                   << " phase=" << osi_phase.at(lev)
+                   << " targets=" << target_count
+                   << " sources=" << source_count
+                   << " source_valid=" << source_valid_count
+                   << " source_ghost=" << source_ghost_count
+                   << " source_physical_ghost=" << source_physical_ghost_count
+                   << " source_internal_ghost=" << source_internal_ghost_count
+                   << " source_interface=" << source_interface_count
+                   << " source_covered=" << source_covered_count
+                   << " mismatches=" << mismatch_count
+                   << " mismatch_valid=" << mismatch_valid
+                   << " mismatch_ghost=" << mismatch_ghost
+                   << " mismatch_physical_ghost=" << mismatch_physical_ghost
+                   << " mismatch_internal_ghost=" << mismatch_internal_ghost
+                   << " mismatch_interface=" << mismatch_interface
+                   << " mismatch_covered=" << mismatch_covered
+                   << " linf=" << max_error;
+    if (max_q >= 0) {
+        amrex::Print() << " max_target=" << max_target
+                       << " max_source=" << max_source
+                       << " q=" << max_q;
+    }
+    amrex::Print() << '\n';
 }
 
 void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
