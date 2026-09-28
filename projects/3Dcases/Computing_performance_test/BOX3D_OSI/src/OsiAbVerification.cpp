@@ -39,7 +39,7 @@ void OsiAbVerification::AfterRepair(AmrCoreLBM& lid, int step) const {
 void OsiAbVerification::AfterRefineMesh(AmrCoreLBM& lid, int step) const {
     if (lid.osiReferenceEnabled() && IsTargetStep(step)) {
         lid.PrintRegridDiagnostics();
-        lid.CheckOsiReferenceLevel0(step, "AfterRefineMesh");
+        lid.CheckOsiReferenceAllValid(step, "AfterRefineMeshAllValid");
     }
 }
 
@@ -47,7 +47,7 @@ void OsiAbVerification::AfterFirstFillGhost(AmrCoreLBM& lid, int lev) {
     if (lev == 0 && check_after_first_fill_ && !first_fill_checked_ &&
         lid.osiReferenceEnabled()) {
         first_fill_checked_ = true;
-        lid.CheckOsiReferenceLevel0(-1, "AfterFirstFillGhost");
+        lid.CheckOsiReferenceAllValid(-1, "AfterFirstFillGhostAllValid");
     }
 }
 

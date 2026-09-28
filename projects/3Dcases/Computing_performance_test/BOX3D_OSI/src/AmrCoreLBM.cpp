@@ -3735,9 +3735,31 @@ void AmrCoreLBM::CheckOsiReferenceLevel0(int step, const char* stage) {
     output << '\n';
 }
 
+void AmrCoreLBM::CheckOsiReferenceAllValid(
+    int step, const char* stage) {
+    if (!osiReferenceEnabled()) {
+        return;
+    }
+    amrex::Print() << "osi_ab_all_valid_begin: step=" << step
+                   << " stage=" << stage
+                   << " finest_level=" << finest_level << '\n';
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        const MultiFab& reference = f_old.at(lev);
+        const bool nonfinite = reference.contains_nan(0, Q, 0) ||
+                               reference.contains_inf(0, Q, 0);
+        amrex::Print() << "osi_ab_all_valid_finite: step=" << step
+                       << " stage=" << stage << " lev=" << lev
+                       << " finite=" << (nonfinite ? 0 : 1) << '\n';
+        AMREX_ALWAYS_ASSERT(!nonfinite);
+        // 重构阶段必须包含 covered/interface valid cell，不能沿用 active-only 比较。
+        CompareOsiReferenceStage(
+            lev, stage, reference, 0, false, false);
+    }
+}
+
 void AmrCoreLBM::CompareOsiReferenceStage(
     int lev, const char* stage, const amrex::MultiFab& reference,
-    int compare_ngrow, bool exclude_physical_boundary) {
+    int compare_ngrow, bool exclude_physical_boundary, bool skip_covered) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         stream_mode == 1,
         "CompareOsiReferenceStage requires lbm.stream_mode=1");
@@ -3780,7 +3802,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
         amrex::ParallelFor(
             valid_box, Q,
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                if (has_fine && covered(i, j, k) != 0) {
+                if (has_fine && skip_covered && covered(i, j, k) != 0) {
                     return;
                 }
                 const auto raw = OSI::osi_address(
@@ -3856,7 +3878,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
                 for (int k = lo[2]; k <= hi[2]; ++k) {
                     for (int j = lo[1]; j <= hi[1]; ++j) {
                         for (int i = lo[0]; i <= hi[0]; ++i) {
-                            if (has_fine &&
+                            if (has_fine && skip_covered &&
                                 host_covered->const_array()(i, j, k) != 0) {
                                 continue;
                             }

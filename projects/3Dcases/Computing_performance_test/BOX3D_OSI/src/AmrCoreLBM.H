@@ -245,10 +245,12 @@ class AmrCoreLBM : public amrex::AmrCore {
     // verification.* 参数显式启用，它们不属于生产性能路径。
     void AdvanceAndCheckOsiReference(int lev, int step);
     void CheckOsiReferenceLevel0(int step, const char* stage);
+    void CheckOsiReferenceAllValid(int step, const char* stage);
     void CompareOsiReferenceStage(
         int lev, const char* stage,
         const amrex::MultiFab& reference, int compare_ngrow,
-        bool exclude_physical_boundary = false);
+        bool exclude_physical_boundary = false,
+        bool skip_covered = true);
     void CompareOsiStreamSources(int lev, const char* stage);
     void PrintParticleChecksums(int step) const;
     void CompareDdfCheckpoint(const std::string& checkpoint_path) const;
