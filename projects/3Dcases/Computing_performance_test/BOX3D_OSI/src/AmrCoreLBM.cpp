@@ -1713,10 +1713,9 @@ void AmrCoreLBM::AverageDownOsiValidLevel(int lev, bool is_scale) {
     MultiFab coarse_canonical(
         coarse_state.boxArray(), coarse_state.DistributionMap(), Q, 0);
 
-    for (int q = 0; q < Q; ++q) {
-        DecodeOsiValidBatch(fine_state, fine_phase, fine_canonical, q, 1);
-        DecodeOsiValidBatch(coarse_state, coarse_phase, coarse_canonical, q, 1);
-    }
+    // 完整工作区一次解码全部分量；分批接口会从目标分量 0 开始写入。
+    DecodeOsiValidBatch(fine_state, fine_phase, fine_canonical, 0, Q);
+    DecodeOsiValidBatch(coarse_state, coarse_phase, coarse_canonical, 0, Q);
 
     if (is_scale) {
         for (MFIter mfi(fine_canonical, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
