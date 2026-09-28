@@ -816,7 +816,8 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
         const Box target =
             amrex::grow(fine_ba[fine_index], fill_ng) & fine_domain;
-        const BoxList leftover = fine_ba_simplified.complementIn(target); // 计算 target 中没有被 fine_ba_simplified 覆盖的区域, 并以多个互不重叠的 Box 返回
+        const BoxList leftover =
+            fine_ba_simplified.complementIn(target, Geom(lev).periodicity()); // 计算 target 中没有被 fine_ba_simplified 覆盖的区域, 并以多个互不重叠的 Box 返回，考虑周期性情况。
         for (const Box& work_box : leftover) {
             const Box coarse_box = coarsener.doit(work_box);
             const int owner = fine_layout.DistributionMap()[fine_index];
@@ -856,7 +857,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
         const auto& source_state = osi_state.at(lev - 1);
         const auto& cpc = coarse_stage.getCPC(
             IntVect(0), source_state, IntVect(0),
-            Geom(lev - 1).periodicity());
+            Geom(lev - 1).periodicity()); // getCPC() 根据源、目标的 Box 布局和周期性，生成“目标区域该从哪个源区域取数据”的标签。
         AMREX_ALWAYS_ASSERT(cpc.m_LocTags);
         direct_tags.reserve(cpc.m_LocTags->size());
         for (const auto& tag : *cpc.m_LocTags) {
@@ -879,7 +880,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
         }
         osi_interp_local_copy_tags.at(lev).define(direct_tags);
     }
-    // ParallelCopy 只会从 coarse valid 读取与 coarse_stage 相交的区域。
+    // ParallelCopy 只从与 coarse_stage 在周期映射后对应相交的 coarse valid 区域读取数据。
     // 在这里一次性反查这些 source boxes，避免每个时间步解码整层 valid。
     if (stream_mode == 1) {
         const BoxArray& source_ba = osi_state.at(lev - 1).boxArray();
@@ -891,7 +892,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
             for (const IntVect& shift : shifts) {
                 const Box source_query = destination - shift;
                 for (const auto& [source_index, source_box] :
-                     source_ba.intersections(source_query)) {
+                     source_ba.intersections(source_query)) { // 求source_ba中的相交区域
                     decode_candidates[source_index].push_back(source_box);
                 }
             }
@@ -1823,9 +1824,7 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
             0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
             1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
         const MultiFab& state = stream_mode == 1 ? osi_state.at(0) : f_old.at(0);
-        const std::string stem = "average_probe_" + std::string(stage)
-            + "_mode" + std::to_string(stream_mode)
-            + "_rank" + std::to_string(ParallelDescriptor::MyProc());
+        const std::string stem = "average_probe_" + std::string(stage) + "_mode" + std::to_string(stream_mode) + "_rank" + std::to_string(ParallelDescriptor::MyProc());
         std::ofstream meta(stem + ".meta");
         std::ofstream binary(stem + ".bin", std::ios::binary);
         std::ofstream masks(stem + ".mask", std::ios::binary);
@@ -1865,8 +1864,8 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
             for (int k = valid.smallEnd(2); k <= valid.bigEnd(2); ++k) {
                 for (int j = valid.smallEnd(1); j <= valid.bigEnd(1); ++j) {
                     for (int i = valid.smallEnd(0); i <= valid.bigEnd(0); ++i) {
-                        flags.push_back(static_cast<unsigned char>(covered(i,j,k)));
-                        flags.push_back(static_cast<unsigned char>(interface(i,j,k)));
+                        flags.push_back(static_cast<unsigned char>(covered(i, j, k)));
+                        flags.push_back(static_cast<unsigned char>(interface(i, j, k)));
                     }
                 }
             }
@@ -1879,18 +1878,18 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
                 for (int k = valid.smallEnd(2); k <= valid.bigEnd(2); ++k) {
                     for (int j = valid.smallEnd(1); j <= valid.bigEnd(1); ++j) {
                         for (int i = valid.smallEnd(0); i <= valid.bigEnd(0); ++i) {
-                            IntVect address(AMREX_D_DECL(i,j,k));
+                            IntVect address(AMREX_D_DECL(i, j, k));
                             if (stream_mode == 1) {
                                 const auto raw = OSI::osi_address(
-                                    {i,j,k}, {ex[q],ey[q],ez[q]}, fab, shift);
-                                address = IntVect(AMREX_D_DECL(raw.x,raw.y,raw.z));
+                                    {i, j, k}, {ex[q], ey[q], ez[q]}, fab, shift);
+                                address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
                             }
-                            values.push_back(data(address[0],address[1],address[2],q));
+                            values.push_back(data(address[0], address[1], address[2], q));
                         }
                     }
                 }
                 binary.write(reinterpret_cast<const char*>(values.data()),
-                             static_cast<std::streamsize>(values.size()*sizeof(Real)));
+                             static_cast<std::streamsize>(values.size() * sizeof(Real)));
             }
         }
         AMREX_ALWAYS_ASSERT(meta.good() && binary.good() && masks.good());
@@ -2032,8 +2031,7 @@ void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
             0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
             1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
         const MultiFab& state = stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
-        const std::string stem = "ghost_probe_mode" + std::to_string(stream_mode)
-            + "_rank" + std::to_string(ParallelDescriptor::MyProc());
+        const std::string stem = "ghost_probe_mode" + std::to_string(stream_mode) + "_rank" + std::to_string(ParallelDescriptor::MyProc());
         std::ofstream meta(stem + ".meta");
         std::ofstream binary(stem + ".bin", std::ios::binary);
         AMREX_ALWAYS_ASSERT(meta && binary);
@@ -2763,7 +2761,7 @@ void AmrCoreLBM::ValidateConfiguration() const {
         run_mode == RunMode::CanonicalAB
             ? "AB-production"
             : (run_mode == RunMode::OsiProduction ? "OSI-production"
-                                                   : "OSI-lockstep");
+                                                  : "OSI-lockstep");
     if (stream_mode != 1) {
         amrex::Print() << "[LBM validation] run_mode=" << run_mode_name
                        << " full_ddf_arrays="
@@ -3503,6 +3501,10 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
     if (run_mode == RunMode::OsiLockstep) {
         // 诊断模式下两种布局锁步推进，阶段结束后立即定位第一处分歧。
         CompareOsiReferenceStage(lev, "Initial", f_old.at(lev), 0);
+        if (lev > 0) {
+            CompareOsiReferenceStage(
+                lev, "InterpolationGhost", f_old.at(lev), nghost, true);
+        }
         Collide(lev, nghost, DdfLayout::Osi);
         Collide(lev, nghost, DdfLayout::Canonical);
         CompareOsiReferenceStage(lev, "Collision", f_old.at(lev), 0);
@@ -3511,6 +3513,8 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         CommunicateLevel(lev, DdfLayout::Canonical);
         CompareOsiReferenceStage(
             lev, "Communication", f_old.at(lev), 0);
+        CompareOsiReferenceStage(
+            lev, "CommunicationGhost", f_old.at(lev), nghost, true);
 
         Stream(lev, nghost, DdfLayout::Osi);
         Stream(lev, nghost, DdfLayout::Canonical);
@@ -3536,7 +3540,8 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         const IntVect sample(AMREX_D_DECL(1, 111, 111));
         constexpr int sample_q = 18;
         const MultiFab& state = layout == DdfLayout::Osi
-                                    ? osi_state.at(0) : f_new.at(0);
+                                    ? osi_state.at(0)
+                                    : f_new.at(0);
         for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
             if (!mfi.validbox().contains(sample)) {
                 continue;
@@ -3567,8 +3572,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
                    << " mode=" << stream_mode << " lev=0 logical=" << sample
                    << " q=" << sample_q
                    << " covered=" << host_mask.const_array()(sample[0], sample[1], sample[2])
-                   << " value=" << host.const_array()(address[0], address[1],
-                                                        address[2], sample_q) << '\n';
+                   << " value=" << host.const_array()(address[0], address[1], address[2], sample_q) << '\n';
         }
     }
     SwapLevel(lev, nghost, layout);
@@ -3661,7 +3665,7 @@ void AmrCoreLBM::CheckOsiReferenceLevel0(int step, const char* stage) {
                         const Real a = ab(i, j, k, q);
                         const Real b = osi(raw.x, raw.y, raw.z, q);
                         const bool covered = has_fine &&
-                            host_covered->const_array()(i, j, k) != 0;
+                                             host_covered->const_array()(i, j, k) != 0;
                         ++local_values;
                         if (!covered) {
                             ++local_uncovered_values;
@@ -3753,7 +3757,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
 
     for (MFIter mfi(reference, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         // 非周期域外 ghost 不属于 Communication 的有效同步语义。
-        const Box valid_box = mfi.validbox() & comparison_domain;
+        const Box valid_box = amrex::grow(mfi.validbox(), compare_ngrow) & comparison_domain;
         const Box ring_box =
             amrex::grow(mfi.validbox(), state.nGrowVect());
         const auto fab_lo = ring_box.smallEnd();
@@ -3771,7 +3775,9 @@ void AmrCoreLBM::CompareOsiReferenceStage(
         amrex::ParallelFor(
             valid_box, Q,
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                if (has_fine && covered(i, j, k) != 0) { return; }
+                if (has_fine && covered(i, j, k) != 0) {
+                    return;
+                }
                 const auto raw = OSI::osi_address(
                     {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab,
                     phase_shift);
@@ -3914,8 +3920,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
         output << '\n';
     }
     bool continue_on_mismatch = false;
-    ParmParse("verification").query(
-        "osi_ab_continue_on_mismatch", continue_on_mismatch);
+    ParmParse("verification").query("osi_ab_continue_on_mismatch", continue_on_mismatch);
     if (comparison_failed && continue_on_mismatch) {
         // 仅供独立 OSI 状态对照：保留失败记录，继续写出诊断态 checkpoint。
         return;
@@ -3935,8 +3940,7 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
         "AdvanceAndCheckOsiReference requires the OSI oracle");
     ComputeMacroLevel(lev);
     bool continue_on_mismatch = false;
-    ParmParse("verification").query(
-        "osi_ab_continue_on_mismatch", continue_on_mismatch);
+    ParmParse("verification").query("osi_ab_continue_on_mismatch", continue_on_mismatch);
     amrex::Print() << "osi_ab: step=" << step
                    << " phase=" << osi_phase[lev]
                    << " staged_check="
@@ -4924,7 +4928,7 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
         f_new_lev.define(ba, dm, Q, nghost);
         f_old_lev.define(ba, dm, Q, nghost);
 
-        FillCoarsePatch(lev, time, f_old_lev);
+        FillNewLevelFromCoarse(lev, time);
     } else {
         InitializeOsiLevel(lev, ba, dm);
         amrex::MultiFab& state = osi_state.at(lev);

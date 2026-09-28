@@ -38,6 +38,7 @@ void OsiAbVerification::AfterRepair(AmrCoreLBM& lid, int step) const {
 
 void OsiAbVerification::AfterRefineMesh(AmrCoreLBM& lid, int step) const {
     if (lid.osiReferenceEnabled() && IsTargetStep(step)) {
+        lid.PrintRegridDiagnostics();
         lid.CheckOsiReferenceLevel0(step, "AfterRefineMesh");
     }
 }

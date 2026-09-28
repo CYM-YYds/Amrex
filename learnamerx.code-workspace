@@ -89,6 +89,7 @@
         "shfmt.executablePath": "/home/huazkjdxmrsgjzdsyshi/whcs-share18/mambaforge3/bin/shfmt",
         "shellcheck.executablePath": "/home/huazkjdxmrsgjzdsyshi/whcs-share18/mambaforge3/bin/shellcheck",
         "clangd.restartAfterCrash": true,
-        "clangd.useScriptAsExecutable": false
+        "clangd.useScriptAsExecutable": false,
+        "codexNotifier.monitorCodexLog": true
     }
 }

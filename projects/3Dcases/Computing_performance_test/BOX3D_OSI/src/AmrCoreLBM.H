@@ -101,7 +101,8 @@ class AmrCoreLBM : public amrex::AmrCore {
 
     // 显式指定阶段函数访问 canonical A-B 状态还是 twisted OSI 状态。
     // 诊断用 A-B oracle 在 stream_mode=1 时仍需选择 Canonical。
-    enum class DdfLayout : std::uint8_t { Canonical, Osi };
+    enum class DdfLayout : std::uint8_t { Canonical,
+                                          Osi };
     // 参数读取后固定的运行模式，避免生产推进依赖多个检测布尔量的组合。
     enum class RunMode : std::uint8_t {
         CanonicalAB,
@@ -144,7 +145,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     const RuntimeParams& params() const {
         return params_;
     }
-    const LbmGridParams& gridParams() const noexcept { return grid_; }
+    const LbmGridParams& gridParams() const noexcept {
+        return grid_;
+    }
     int ghostCells() const {
         return nghost;
     }
@@ -278,7 +281,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow) override;
 
   private:
-
     LbmGridParams grid_{};
     struct ConvergenceState {
         bool enabled = false;
@@ -340,8 +342,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     int cf_mask_mode = 1;
     // 0：原始通用 BGK；1：无外力/无 SGS 的 D3Q27 寄存器复用路径。
     int collide_mode = 0;
-    // 0：碰撞中逐次通用取模；1：每个 Fab 预计算 phase 位移并用单次环绕。
-    // 0：现有 A-B；1：OSI 实验路径，当前允许单 level/全周期并支持多 Fab/MPI。
+    // 0 = canonical A-B 数值基准模式
+    // 1 = grown-Fab OSI 模式；要求 collide_mode=1
     int stream_mode = 0;
     RunMode run_mode = RunMode::CanonicalAB;
     // 仅用于 OSI A/B 验证：以确定性非均匀 DDF 覆盖均匀初值，暴露错误 halo 来源。
