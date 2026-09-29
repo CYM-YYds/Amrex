@@ -1383,67 +1383,138 @@ void AmrCoreLBM::BuildAverageCache() {
     for (int lev = 0; lev < finest_level; ++lev) {
         const MultiFab& fine_layout =
             stream_mode == 1 ? osi_state.at(lev + 1) : f_old.at(lev + 1);
-        BoxArray coarse_from_fine =
+        const BoxArray coarse_from_fine =
             amrex::coarsen(fine_layout.boxArray(), refRatio(lev));
 
-        BoxList interface_boxes;
+        Vector<Box> interface_boxes;
         Vector<int> interface_owners;
         Vector<int> fine_box_indices;
-        const Box domain = Geom(lev).Domain();
-        const auto& periodicity = Geom(lev).periodicity();
         const auto& fine_dm = fine_layout.DistributionMap();
-
-        for (int ibox = 0; ibox < coarse_from_fine.size(); ++ibox) {
-            const Box& covered_box = coarse_from_fine[ibox];
-            const Box search_box = amrex::grow(covered_box, 1) & domain;
-            const BoxList uncovered =
-                coarse_from_fine.complementIn(search_box, periodicity);
-            BoxList candidates;
-            for (const Box& uncovered_box : uncovered) {
-                const Box interface_box =
-                    amrex::grow(uncovered_box, 1) & covered_box;
-                if (interface_box.ok()) {
-                    candidates.push_back(interface_box);
-                }
-            }
-
-            // 非周期物理边界外的邻格也使 covered 单元成为 interface。
-            // 平均缓存必须覆盖这些 valid 边界单元，与 interface_mask 一致。
-            for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-                if (Geom(lev).isPeriodic(dir)) {
-                    continue;
-                }
-                if (covered_box.smallEnd(dir) == domain.smallEnd(dir)) {
-                    Box face = covered_box;
-                    face.setBig(dir, face.smallEnd(dir));
-                    candidates.push_back(face);
-                }
-                if (covered_box.bigEnd(dir) == domain.bigEnd(dir)) {
-                    Box face = covered_box;
-                    face.setSmall(dir, face.bigEnd(dir));
-                    candidates.push_back(face);
-                }
-            }
-
-            const BoxList disjoint = amrex::removeOverlap(candidates);
-            for (const Box& interface_box : disjoint) {
-                interface_boxes.push_back(interface_box);
-                interface_owners.push_back(fine_dm[ibox]);
-                fine_box_indices.push_back(ibox);
-            }
-        }
-
         if (cf_mask_mode == 1) {
+            // 将粗层 mask 复制到按 fine Fab 归属的粗化布局；每个目标 Fab
+            // 因而只会读取自己的 fine 子单元。该步骤仅在重网格后执行。
+            iMultiFab fine_owned_mask(coarse_from_fine, fine_dm, 1, 0);
+            fine_owned_mask.ParallelCopy(interface_mask.at(lev), 0, 0, 1);
+            Vector<Box> local_boxes;
+            for (MFIter mfi(fine_owned_mask, false); mfi.isValid(); ++mfi) {
+                const Box valid = mfi.validbox();
+                const IArrayBox& device = fine_owned_mask[mfi];
+                IArrayBox host(valid, 1, The_Pinned_Arena());
+                Gpu::dtoh_memcpy(host.dataPtr(), device.dataPtr(), host.nBytes());
+                const auto mask = host.const_array();
+                const int nx = valid.length(0);
+                const int ny = valid.length(1);
+                const int nz = valid.length(2);
+                Vector<unsigned char> visited(
+                    static_cast<std::size_t>(valid.numPts()), 0);
+                const auto offset = [=](int i, int j, int k) {
+                    return static_cast<std::size_t>(
+                        ((k - valid.smallEnd(2)) * ny +
+                         (j - valid.smallEnd(1))) * nx +
+                        (i - valid.smallEnd(0)));
+                };
+                for (int k = valid.smallEnd(2); k <= valid.bigEnd(2); ++k) {
+                    for (int j = valid.smallEnd(1); j <= valid.bigEnd(1); ++j) {
+                        for (int i = valid.smallEnd(0); i <= valid.bigEnd(0); ++i) {
+                            if (mask(i, j, k) == 0 || visited[offset(i, j, k)]) {
+                                continue;
+                            }
+                            int hi_i = i;
+                            while (hi_i < valid.bigEnd(0) &&
+                                   mask(hi_i + 1, j, k) != 0 &&
+                                   !visited[offset(hi_i + 1, j, k)]) {
+                                ++hi_i;
+                            }
+                            int hi_j = j;
+                            for (; hi_j < valid.bigEnd(1); ++hi_j) {
+                                bool extend = true;
+                                for (int x = i; x <= hi_i; ++x) {
+                                    extend &= mask(x, hi_j + 1, k) != 0 &&
+                                              !visited[offset(x, hi_j + 1, k)];
+                                }
+                                if (!extend) { break; }
+                            }
+                            int hi_k = k;
+                            for (; hi_k < valid.bigEnd(2); ++hi_k) {
+                                bool extend = true;
+                                for (int y = j; y <= hi_j && extend; ++y) {
+                                    for (int x = i; x <= hi_i; ++x) {
+                                        extend &= mask(x, y, hi_k + 1) != 0 &&
+                                                  !visited[offset(x, y, hi_k + 1)];
+                                    }
+                                }
+                                if (!extend) { break; }
+                            }
+                            for (int z = k; z <= hi_k; ++z) {
+                                for (int y = j; y <= hi_j; ++y) {
+                                    for (int x = i; x <= hi_i; ++x) {
+                                        visited[offset(x, y, z)] = 1;
+                                    }
+                                }
+                            }
+                            local_boxes.emplace_back(
+                                IntVect(AMREX_D_DECL(i, j, k)),
+                                IntVect(AMREX_D_DECL(hi_i, hi_j, hi_k)));
+                        }
+                    }
+                }
+            }
+            amrex::AllGatherBoxes(local_boxes);
+            interface_boxes = std::move(local_boxes);
             Long cached_cells = 0;
             for (const Box& bx : interface_boxes) {
+                Vector<std::pair<int, Box>> intersections;
+                coarse_from_fine.intersections(bx, intersections);
+                AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                    intersections.size() == 1 && intersections[0].second == bx,
+                    "average interface box must belong to one fine Fab");
+                const int fine_index = intersections[0].first;
+                interface_owners.push_back(fine_dm[fine_index]);
+                fine_box_indices.push_back(fine_index);
                 cached_cells += bx.numPts();
             }
             AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
                 cached_cells == interface_cell_counts.at(lev),
                 "average interface boxes must cover every interface_mask valid cell");
+        } else {
+            // 无覆盖掩码的旧配置仍按几何邻域生成稀疏平均区域。
+            const Box domain = Geom(lev).Domain();
+            const auto& periodicity = Geom(lev).periodicity();
+            for (int ibox = 0; ibox < coarse_from_fine.size(); ++ibox) {
+                const Box& covered_box = coarse_from_fine[ibox];
+                const Box search_box = amrex::grow(covered_box, 1) & domain;
+                const BoxList uncovered =
+                    coarse_from_fine.complementIn(search_box, periodicity);
+                BoxList candidates;
+                for (const Box& uncovered_box : uncovered) {
+                    const Box bx = amrex::grow(uncovered_box, 1) & covered_box;
+                    if (bx.ok()) {
+                        candidates.push_back(bx);
+                    }
+                }
+                for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                    if (Geom(lev).isPeriodic(dir)) { continue; }
+                    if (covered_box.smallEnd(dir) == domain.smallEnd(dir)) {
+                        Box face = covered_box;
+                        face.setBig(dir, face.smallEnd(dir));
+                        candidates.push_back(face);
+                    }
+                    if (covered_box.bigEnd(dir) == domain.bigEnd(dir)) {
+                        Box face = covered_box;
+                        face.setSmall(dir, face.bigEnd(dir));
+                        candidates.push_back(face);
+                    }
+                }
+                for (const Box& bx : amrex::removeOverlap(candidates)) {
+                    interface_boxes.push_back(bx);
+                        interface_owners.push_back(fine_dm[ibox]);
+                        fine_box_indices.push_back(ibox);
+                }
+            }
         }
 
-        BoxArray interface_ba(interface_boxes);
+        BoxArray interface_ba(interface_boxes.data(),
+                              static_cast<int>(interface_boxes.size()));
         if (!interface_ba.empty()) {
             DistributionMapping interface_dm(interface_owners);
             average_interface_buffer[lev].define(interface_ba, interface_dm, Q, 0);
