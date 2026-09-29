@@ -6,6 +6,7 @@
 #include <AMReX_GpuQualifiers.H>
 #include <AMReX_GpuContainers.H>
 #include <AMReX_ParallelDescriptor.H>
+#include <AMReX_TagParallelFor.H>
 #include <AMReX_Vector.H>
 
 #include <cstddef>
@@ -167,6 +168,79 @@ void wait_messages(MessageVector& messages) {
     for (auto& message : messages) {
         message.wait();
     }
+}
+
+// 统一执行 OSI CPC 的 rank-local 部分。调用方只负责提供一个设备可调用的
+// value_copy，决定 logical cell 如何映射到源和目标 raw 地址。
+template <typename Tag, typename CopyValue>
+void parallel_copy_local(const amrex::TagVector<Tag>& tags, int ncomp,
+                         CopyValue copy_value) {
+    amrex::ParallelFor(
+        tags, ncomp,
+        [=] AMREX_GPU_DEVICE(int i, int j, int k, int n,
+                             const Tag& tag) noexcept {
+            copy_value(i, j, k, n, tag);
+        });
+}
+
+// 统一执行 OSI CPC 的 MPI 部分。pack_value/unpack_value 将 logical cell
+// 映射到各自的 raw 地址；这里集中处理聚合 buffer、host staging 和 MPI
+// 请求生命周期，避免各个 AMR 阶段重复实现相同的传输骨架。
+template <typename PackTag, typename UnpackTag, typename PackValue,
+          typename UnpackValue>
+void parallel_copy_mpi(const amrex::TagVector<PackTag>& pack_tags,
+                       const amrex::TagVector<UnpackTag>& unpack_tags,
+                       const MpiPlan& plan, bool device_direct, int ncomp,
+                       int nprocs, PackValue pack_value,
+                       UnpackValue unpack_value) {
+    MpiBuffers buffers;
+    buffers.resize(plan, device_direct);
+    auto& send_device = buffers.send_device;
+    auto& recv_device = buffers.recv_device;
+    auto& send_host = buffers.send_host;
+    auto& recv_host = buffers.recv_host;
+
+    amrex::Real* send_buffer = send_device.data();
+    amrex::ParallelFor(
+        pack_tags, ncomp,
+        [=] AMREX_GPU_DEVICE(int i, int j, int k, int n,
+                             const PackTag& tag) noexcept {
+            pack_value(i, j, k, n, tag, send_buffer);
+        });
+    amrex::Gpu::streamSynchronize();
+    if (!device_direct && plan.send_total != 0) {
+        amrex::Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
+                                plan.send_total * sizeof(amrex::Real));
+    }
+
+    const int mpi_tag = amrex::ParallelDescriptor::SeqNum();
+    amrex::Vector<amrex::ParallelDescriptor::Message> receives;
+    amrex::Vector<amrex::ParallelDescriptor::Message> sends;
+    amrex::Real* recv_buffer = device_direct
+                                   ? recv_device.data()
+                                   : recv_host.data();
+    post_receives(receives, plan.recv_counts, plan.recv_offsets, recv_buffer,
+                  nprocs, mpi_tag);
+    const amrex::Real* mpi_send_buffer = device_direct
+                                             ? send_device.data()
+                                             : send_host.data();
+    post_sends(sends, plan.send_counts, plan.send_offsets, mpi_send_buffer,
+               nprocs, mpi_tag);
+    wait_messages(receives);
+    wait_messages(sends);
+
+    if (!device_direct && plan.recv_total != 0) {
+        amrex::Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
+                                plan.recv_total * sizeof(amrex::Real));
+    }
+    const amrex::Real* receive_buffer = recv_device.data();
+    amrex::ParallelFor(
+        unpack_tags, ncomp,
+        [=] AMREX_GPU_DEVICE(int i, int j, int k, int n,
+                             const UnpackTag& tag) noexcept {
+            unpack_value(i, j, k, n, tag, receive_buffer);
+        });
+    amrex::Gpu::streamSynchronize();
 }
 
 template <typename SendTagMap, typename RecvTagMap>

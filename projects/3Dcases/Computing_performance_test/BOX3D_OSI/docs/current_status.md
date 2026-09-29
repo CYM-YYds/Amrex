@@ -2,11 +2,20 @@
 
 更新时间：2026-09-29
 
+## OSI 通信接口封装（待运行验证）
+
+同层通信由 `FillBoundaryOsi(lev)` 统一选择 raw direct 或 canonical 回退；
+重构时的旧/新 OSI 布局迁移由 `ParallelCopyOsi()` 处理。后者复用 AMReX CPC
+拓扑，按源和目标各自的 phase 映射数据，rank-local kernel 与 MPI 聚合交换的
+共同执行骨架位于 `src/OsiCommunication.H`。粗到细插值和界面平均仍使用各自的
+raw/canonical 混合数据路径，未改成 raw-to-raw `ParallelCopyOsi()`。
+本次仅调整通信封装；新的动态重构与多 rank 数值结果须按新可执行文件单独验收。
+
 ## 最新重构迁移实现与验证边界
 
 提交 `af3b5da` 后，OSI 的 `RemakeLevel()` 若发现该层 `BoxArray` 和
 `DistributionMapping` 均未变化，会保留原 `osi_state` 和 `osi_phase`。布局变化时，
-`RemapOsiLevelDirect()` 使用 AMReX CPC 的本地与 MPI 重叠区域标签，按旧 phase
+`ParallelCopyOsi()` 使用 AMReX CPC 的本地与 MPI 重叠区域标签，按旧 phase
 读取 raw 值并写入新布局的 phase 0；新增区域仍由粗层插值填充。
 `osi_sync_buffer` 仍供回退通信、插值和诊断等路径使用，因此不能称为全局移除。
 这版迁移已通过 CUDA + MPI 编译，尚未完成单/多 rank 动态重构逐值验证；

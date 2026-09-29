@@ -2707,19 +2707,23 @@ void AmrCoreLBM::FillForceGhostLevel(int lev, amrex::Real time) {
 void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
     ScopedPerfTimer timer(perf_stats.comm);
     if (layout == DdfLayout::Osi) {
-        // local-direct 负责同一 rank 的 grown-Fab seam；跨 rank 的自定义
-        // pack/unpack 只有在 mpi-direct 打开时才允许进入。
-        if (osi_local_direct &&
-            (ParallelDescriptor::NProcs() == 1 || osi_mpi_direct)) {
-            CommunicateOsiLevelLocalDirect(lev);
-        } else {
-            CommunicateOsiLevel(lev);
-        }
+        FillBoundaryOsi(lev);
         return;
     }
 
     amrex::MultiFab& f_old_lev = f_old[lev];
     f_old_lev.FillBoundary(geom[lev].periodicity());
+}
+
+void AmrCoreLBM::FillBoundaryOsi(int lev) {
+    // local-direct 负责同一 rank 的 grown-Fab seam；跨 rank 的自定义
+    // pack/unpack 只有在 mpi-direct 打开时才允许进入。
+    if (osi_local_direct &&
+        (ParallelDescriptor::NProcs() == 1 || osi_mpi_direct)) {
+        CommunicateOsiLevelLocalDirect(lev);
+    } else {
+        CommunicateOsiLevel(lev);
+    }
 }
 
 void AmrCoreLBM::ValidateConfiguration() const {
@@ -5215,7 +5219,7 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
 
         // 旧、新 fine 布局重叠区直接进行 phase-aware raw remap；新布局从
         // phase=0 开始，避免为重构路径分配 canonical sync buffer。
-        RemapOsiLevelDirect(lev, old_state, old_phase, new_osi_state);
+        ParallelCopyOsi(lev, old_state, old_phase, new_osi_state, 0);
 
         if (lev > 0) {
             const IntVect fill_ng(0);
@@ -5264,27 +5268,27 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
     vorticity[lev].setVal(0.0, nghost);
 }
 
-void AmrCoreLBM::RemapOsiLevelDirect(
-    int lev, const MultiFab& old_state, std::uint64_t old_phase,
-    MultiFab& new_state) {
-    const auto& cpc = new_state.getCPC(
-        IntVect(0), old_state, IntVect(0), Geom(lev).periodicity());
+void AmrCoreLBM::ParallelCopyOsi(
+    int lev, const MultiFab& source, std::uint64_t source_phase,
+    MultiFab& destination, std::uint64_t destination_phase) {
+    const auto& cpc = destination.getCPC(
+        IntVect(0), source, IntVect(0), Geom(lev).periodicity());
     AMREX_ALWAYS_ASSERT(cpc.m_LocTags && cpc.m_SndTags && cpc.m_RcvTags);
 
-    // 同一 rank 的重叠区域直接执行 old raw -> new raw，源和目标使用
-    // 各自 Fab 的几何；旧数据按 old_phase 读取，新数据按 phase=0 写入。
+    // 同一 rank 的重叠区域直接执行 source raw -> destination raw，源和目标
+    // 使用各自 Fab 的几何，并允许调用者显式指定两侧 phase。
     Vector<OSI::LocalCopyTag> local_tags;
     local_tags.reserve(cpc.m_LocTags->size());
     for (const auto& tag : *cpc.m_LocTags) {
         const Box source_ring = amrex::grow(
-            old_state.boxArray()[tag.srcIndex], old_state.nGrowVect());
+            source.boxArray()[tag.srcIndex], source.nGrowVect());
         const Box destination_ring = amrex::grow(
-            new_state.boxArray()[tag.dstIndex], new_state.nGrowVect());
+            destination.boxArray()[tag.dstIndex], destination.nGrowVect());
         const auto source_lo = source_ring.smallEnd();
         const auto destination_lo = destination_ring.smallEnd();
         local_tags.push_back({
-            old_state.const_array(tag.srcIndex),
-            new_state.array(tag.dstIndex),
+            source.const_array(tag.srcIndex),
+            destination.array(tag.dstIndex),
             tag.sbox, tag.dbox,
             {{source_lo[0], source_lo[1], source_lo[2]},
              {source_ring.length(0), source_ring.length(1),
@@ -5295,18 +5299,18 @@ void AmrCoreLBM::RemapOsiLevelDirect(
     }
 
     TagVector<OSI::LocalCopyTag> local_tv(local_tags);
-    amrex::ParallelFor(
+    OSI::parallel_copy_local(
         local_tv, Q,
         [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
                              const OSI::LocalCopyTag& tag) noexcept {
             const auto source = OSI::source_cell(tag, i, j, k);
             const auto source_shift =
-                OSI::osi_phase_shift(old_phase, tag.src_fab);
+                OSI::osi_phase_shift(source_phase, tag.src_fab);
             const auto source_raw = OSI::osi_address(
                 {source[0], source[1], source[2]},
                 {e[q][0], e[q][1], e[q][2]}, tag.src_fab, source_shift);
             const auto destination_shift =
-                OSI::osi_phase_shift(0, tag.dst_fab);
+                OSI::osi_phase_shift(destination_phase, tag.dst_fab);
             const auto destination_raw = OSI::osi_address(
                 {i, j, k}, {e[q][0], e[q][1], e[q][2]},
                 tag.dst_fab, destination_shift);
@@ -5331,10 +5335,10 @@ void AmrCoreLBM::RemapOsiLevelDirect(
     for (const auto& [peer, tags] : *cpc.m_SndTags) {
         for (const auto& tag : tags) {
             const Box source_ring = amrex::grow(
-                old_state.boxArray()[tag.srcIndex], old_state.nGrowVect());
+                source.boxArray()[tag.srcIndex], source.nGrowVect());
             const auto source_lo = source_ring.smallEnd();
             pack_tags.push_back({
-                old_state.const_array(tag.srcIndex), tag.sbox,
+                source.const_array(tag.srcIndex), tag.sbox,
                 {{source_lo[0], source_lo[1], source_lo[2]},
                  {source_ring.length(0), source_ring.length(1),
                   source_ring.length(2)}},
@@ -5347,10 +5351,10 @@ void AmrCoreLBM::RemapOsiLevelDirect(
     for (const auto& [peer, tags] : *cpc.m_RcvTags) {
         for (const auto& tag : tags) {
             const Box destination_ring = amrex::grow(
-                new_state.boxArray()[tag.dstIndex], new_state.nGrowVect());
+                destination.boxArray()[tag.dstIndex], destination.nGrowVect());
             const auto destination_lo = destination_ring.smallEnd();
             unpack_tags.push_back({
-                new_state.array(tag.dstIndex), tag.dbox,
+                destination.array(tag.dstIndex), tag.dbox,
                 {{destination_lo[0], destination_lo[1], destination_lo[2]},
                  {destination_ring.length(0), destination_ring.length(1),
                   destination_ring.length(2)}},
@@ -5362,72 +5366,37 @@ void AmrCoreLBM::RemapOsiLevelDirect(
 
     TagVector<OSI::RawPackTag> pack_tv(pack_tags);
     TagVector<OSI::MpiUnpackTag> unpack_tv(unpack_tags);
-    OSI::MpiBuffers buffers;
-    buffers.resize(plan, osi_mpi_device_direct);
-    auto& send_device = buffers.send_device;
-    auto& recv_device = buffers.recv_device;
-    auto& send_host = buffers.send_host;
-    auto& recv_host = buffers.recv_host;
-
-    Real* send_buffer = send_device.data();
-    amrex::ParallelFor(
-        pack_tv, Q,
+    OSI::parallel_copy_mpi(
+        pack_tv, unpack_tv, plan, osi_mpi_device_direct, Q, nprocs,
         [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                             const OSI::RawPackTag& tag) noexcept {
+                             const OSI::RawPackTag& tag,
+                             Real* send_buffer) noexcept {
             const auto lo = tag.region.smallEnd();
             const int nx = tag.region.length(0);
             const int ny = tag.region.length(1);
             const std::size_t cell = static_cast<std::size_t>(
                 ((k - lo[2]) * ny + (j - lo[1])) * nx + (i - lo[0]));
-            const auto shift = OSI::osi_phase_shift(old_phase, tag.fab);
+            const auto shift = OSI::osi_phase_shift(source_phase, tag.fab);
             const auto raw = OSI::osi_address(
                 {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab, shift);
             send_buffer[tag.offset + cell * Q + q] =
                 tag.src(raw.x, raw.y, raw.z, q);
-        });
-    Gpu::streamSynchronize();
-    if (!osi_mpi_device_direct && plan.send_total != 0) {
-        Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
-                         plan.send_total * sizeof(Real));
-    }
-
-    const int mpi_tag = ParallelDescriptor::SeqNum();
-    Vector<ParallelDescriptor::Message> receives;
-    Vector<ParallelDescriptor::Message> sends;
-    Real* recv_buffer = osi_mpi_device_direct
-                            ? recv_device.data()
-                            : recv_host.data();
-    OSI::post_receives(receives, plan.recv_counts, plan.recv_offsets,
-                       recv_buffer, nprocs, mpi_tag);
-    const Real* mpi_send_buffer = osi_mpi_device_direct
-                                      ? send_device.data()
-                                      : send_host.data();
-    OSI::post_sends(sends, plan.send_counts, plan.send_offsets,
-                    mpi_send_buffer, nprocs, mpi_tag);
-    OSI::wait_messages(receives);
-    OSI::wait_messages(sends);
-
-    if (!osi_mpi_device_direct && plan.recv_total != 0) {
-        Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
-                         plan.recv_total * sizeof(Real));
-    }
-    const Real* receive_buffer = recv_device.data();
-    amrex::ParallelFor(
-        unpack_tv, Q,
+        },
         [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                             const OSI::MpiUnpackTag& tag) noexcept {
+                             const OSI::MpiUnpackTag& tag,
+                             const Real* receive_buffer) noexcept {
             const auto lo = tag.region.smallEnd();
             const int nx = tag.region.length(0);
             const int ny = tag.region.length(1);
             const std::size_t cell = static_cast<std::size_t>(
                 ((k - lo[2]) * ny + (j - lo[1])) * nx + (i - lo[0]));
-            const auto shift = OSI::osi_phase_shift(0, tag.fab);
+            const auto shift =
+                OSI::osi_phase_shift(destination_phase, tag.fab);
             const auto raw = OSI::osi_address(
                 {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab, shift);
             tag.dst(raw.x, raw.y, raw.z, q) =
                 receive_buffer[tag.offset + cell * Q + q];
         });
-    Gpu::streamSynchronize();
 }
 
 void AmrCoreLBM::InitializeOsiLevel(

@@ -357,7 +357,7 @@ phase，并在重叠区按旧 phase 迁移逻辑值；不构造整层 canonical 
 regrid 前完整 AverageDownValid
         -> 按各层当前 phase 重建物理边界，包含 covered 边界单元
         -> Remake 布局不变: 保留旧 raw state 和 phase
-        -> Remake 布局变化: 旧 fine valid 经 CPC 本地/MPI 标签直接迁移到新布局 phase 0
+        -> Remake 布局变化: ParallelCopyOsi 经 CPC 本地/MPI 标签迁移旧 fine valid 到新布局 phase 0
         -> Remake 新增区: coarse OSI -> 稀疏 coarse/fine patch -> 新 fine phase 0
         -> MakeNew: 刷新已有 coarse density/velocity，按 q 批次解码并缩放非平衡 DDF
                     -> CellConservativeLinear -> 新 fine phase 0

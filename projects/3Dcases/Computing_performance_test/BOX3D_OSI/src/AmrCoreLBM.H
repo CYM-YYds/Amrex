@@ -206,6 +206,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void FillForceGhostLevel(int lev, amrex::Real time);
     void CommunicateLevel(int lev,
                           DdfLayout layout = DdfLayout::Canonical);
+    // OSI 版 FillBoundary：统一选择本地 raw copy、OSI-aware MPI 或 canonical 回退。
+    void FillBoundaryOsi(int lev);
     void CommunicateOsiLevelLocalDirect(int lev);
     void Boundary(int lev, DdfLayout layout = DdfLayout::Canonical);
     void Collide(int lev, int n,
@@ -319,9 +321,6 @@ class AmrCoreLBM : public amrex::AmrCore {
   public:
     // nvcc extended device lambdas require their enclosing member functions to
     // be publicly accessible. These are implementation helpers, not user APIs.
-    void RemapOsiLevelDirect(int lev, const amrex::MultiFab& old_state,
-                             std::uint64_t old_phase,
-                             amrex::MultiFab& new_state);
     void DecodeOsiValidBatch(const amrex::MultiFab& state,
                              std::uint64_t phase,
                              amrex::MultiFab& batch, int q0,
@@ -339,6 +338,11 @@ class AmrCoreLBM : public amrex::AmrCore {
     void FillOsiGhostFromCoarse(int lev, amrex::Real time);
     void AverageDownOsiLevel(int lev, bool is_scale);
     void CommunicateOsiLevel(int lev);
+    // OSI 版 ParallelCopy：按 CPC 逻辑交集把旧 raw 状态迁移到新 Fab 布局。
+    void ParallelCopyOsi(int lev, const amrex::MultiFab& source,
+                         std::uint64_t source_phase,
+                         amrex::MultiFab& destination,
+                         std::uint64_t destination_phase);
 
   private:
     void AdvanceOneLayout(int lev, DdfLayout layout);
