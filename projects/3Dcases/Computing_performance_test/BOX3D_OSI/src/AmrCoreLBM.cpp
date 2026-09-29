@@ -2605,14 +2605,11 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
             Vector<std::pair<int, Box>> intersections;
             coarse_state.boxArray().intersections(
                 interface_result.boxArray()[src_index], intersections,
-                false, coarse_state.nGrowVect());
+                false, IntVect::TheZeroVector()); // 只匹配 coarse valid Box
             const auto src = interface_result.const_array(src_mfi);
             for (const auto& is : intersections) {
                 const int dst_index = is.first;
                 const Box bx = is.second & coarse_state.boxArray()[dst_index];
-                if (!bx.ok()) {
-                    continue;
-                }
                 const Box ring = amrex::grow(
                     coarse_state.boxArray()[dst_index],
                     coarse_state.nGrowVect());
