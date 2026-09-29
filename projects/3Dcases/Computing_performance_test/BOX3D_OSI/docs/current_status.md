@@ -1,8 +1,25 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-09-28
+更新时间：2026-09-29
 
-## 最新 Stream 源区域筛查（2026-09-28）
+## 当前数值与长程运行结论（2026-09-29）
+
+- 提交 `3806c69` 修复 `AverageDownOsiValidLevel()` 的完整 Q 分量解码。此前逐个 q
+  解码反复写入 canonical 工作区分量 0，导致平均下传后 covered 粗层数据错误。
+- 修复后的锁步 job `604946` 使用 64^3、单 GPU、最高 level 2，在第 32、64、96、128
+  步对所有现有层级的 uncovered valid DDF 比较均为 `linf=0`；第 64、96、128 步的
+  `AfterRefineMeshAllValid` 在所有层级也均为 `linf=0`。这是该 128 步窗口的逐值证据，
+  不能推断 128000 步终态或多 rank 完全等价。
+- 更新版 A-B `604593` 和更新版 OSI `604961` 均完成 Re=1000、128000 步；终态
+  checkpoint Header 均记录最高 level 2。`604961` 调度状态为 `SUCCEEDED`，40 个性能
+  窗口完整，累计 `total=4017.93 s`，末窗口 `MLUPS_total=1230.97`。对应 A-B `604593`
+  累计 `total=5487.08 s`，末窗口 `MLUPS_total=900.04`。两次运行的输入快照相同，
+  但可执行文件 SHA256 不同，不能据此发布严格配对加速比；还没有 128000 步终态
+  DDF 逐点对照。性能细表和版本指纹见 `docs/MLUPS记录.md`。
+- 旧更新版 OSI `604594` 只保留 level 0 到终态，尽管作业正常结束，不能用它作
+  三层动态 AMR 性能或数值证据。
+
+## 修复前 Stream 源区域筛查（2026-09-28）
 
 作业 `604902` 使用 64^3、`max_level=2`、64 步锁步诊断，已在 Stream 前对
 所有层级 uncovered 目标的实际 pull source 分类并逐值比较。第 64 步的两个首发
@@ -19,9 +36,9 @@
   level 1 的首发点源为 `(7,97,95)`。
 - level 2 在首发时仍为零差；随后其物理边界 ghost 源出现差异。
 
-因此当前证据已排除首发点由物理 Boundary kernel 直接处理造成；Stream 的供源区域
-仍存在差异，level 0 同时包含 interface/covered 源差异，level 1 主要包含 ghost
-源差异。该 64^3 筛查尚不是 128^3 多 rank 动态 AMR 的最终验收。原始证据见
+该批次在平均下传解码修复之前，所见差异不能继续作为现役首差结论。修复后
+`604946` 的第 64、96、128 步逐层 uncovered 和重构后全 valid 均为零差。
+旧批次原始证据见
 `logs/submit/604902-osi-lockstep-alllevels-64.log`，专项脚本为
 `scripts/submit_osi_lockstep_alllevels_64.sh`。
 

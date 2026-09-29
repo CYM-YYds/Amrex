@@ -6,7 +6,7 @@ one-step index（OSI）路径。
 
 ## 当前验证状态
 
-更新时间：2026-09-28。最新逐阶段/全 valid 矛盾与待测点见
+更新时间：2026-09-29。最新逐阶段检查、长程运行结果与证据边界见
 [当前交接状态](docs/current_status.md)。
 
 当前工作配置位于 `config/inputs`。每次提交时，脚本会把它冻结到独立运行目录，
@@ -125,7 +125,6 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 - [当前交接状态](docs/current_status.md)：现役配置、最新运行结论和未决事项。
 - [OSI 算法与架构](docs/osi_algorithm_and_architecture.md)：地址映射、phase、通信、
   AMR 传输和 checkpoint 设计。
-- [OSI 实施与验证计划](docs/osi_implementation_plan.md)：历史阶段范围和验收记录。
 - [OSI 跨 MPI 通信计划](docs/osi_mpi_communication_plan.md)：OSI-aware pack/unpack
   的实现阶段、正确性矩阵和性能验收标准。
 - [DDF 粗细网格填充](docs/DDF粗细网格填充学习文档.md)：粗细层数据语义。

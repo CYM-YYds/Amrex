@@ -523,5 +523,4 @@ kernel 内自行修改。
   双 GPU、多 Fab、同层 MPI direct 六阶段 64 步 A-B 为 `linf=0`，但多层动态 regrid
   仍未通过同等强度验收。
 
-具体实施顺序和验收矩阵见
-[OSI 实施与验证计划](osi_implementation_plan.md)。
+当前实现、运行结果和待验收范围见[当前交接状态](current_status.md)。
