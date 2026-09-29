@@ -1763,6 +1763,93 @@ void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复
     }
 }
 
+void AmrCoreLBM::ProbeAverageInterfaceLevel(int lev, const char* stage) {
+    // 首次界面平均的入口和出口分别导出粗层 valid 及区域掩码。
+    constexpr int ex[Q] = {
+        0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
+        1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
+    constexpr int ey[Q] = {
+        0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0,
+        0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
+    constexpr int ez[Q] = {
+        0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
+        1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+    const MultiFab& state = stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
+    const std::string stem = "average_probe_" + std::string(stage) + "_mode" + std::to_string(stream_mode) + "_rank" + std::to_string(ParallelDescriptor::MyProc());
+    std::ofstream meta(stem + ".meta");
+    std::ofstream binary(stem + ".bin", std::ios::binary);
+    std::ofstream masks(stem + ".mask", std::ios::binary);
+    AMREX_ALWAYS_ASSERT(meta && binary && masks);
+    Gpu::synchronize();
+    Long local_cells = 0;
+    for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+        const Box valid = mfi.validbox();
+        const FArrayBox& device = state[mfi];
+        FArrayBox host(device.box(), Q, The_Pinned_Arena());
+        Gpu::dtoh_memcpy(host.dataPtr(), device.dataPtr(), host.nBytes());
+        const auto& device_covered = covered_mask.at(lev)[mfi];
+        const auto& device_interface = interface_mask.at(lev)[mfi];
+        IArrayBox host_covered(device_covered.box(), 1, The_Pinned_Arena());
+        IArrayBox host_interface(device_interface.box(), 1, The_Pinned_Arena());
+        Gpu::dtoh_memcpy(host_covered.dataPtr(), device_covered.dataPtr(),
+                         host_covered.nBytes());
+        Gpu::dtoh_memcpy(host_interface.dataPtr(), device_interface.dataPtr(),
+                         host_interface.nBytes());
+        const Box ring = device.box();
+        const auto lo = ring.smallEnd();
+        const OSI::FabGeometry fab{
+            {lo[0], lo[1], lo[2]},
+            {ring.length(0), ring.length(1), ring.length(2)}};
+        const auto shift = OSI::osi_phase_shift(osi_phase.at(lev), fab);
+        const auto data = host.const_array();
+        const auto covered = host_covered.const_array();
+        const auto interface = host_interface.const_array();
+        meta << mfi.index();
+        for (int d = 0; d < 3; ++d) {
+            meta << ' ' << valid.smallEnd(d) << ' ' << valid.bigEnd(d);
+        }
+        meta << '\n';
+        local_cells += valid.numPts();
+        std::vector<unsigned char> flags;
+        flags.reserve(static_cast<std::size_t>(valid.numPts()) * 2);
+        for (int k = valid.smallEnd(2); k <= valid.bigEnd(2); ++k) {
+            for (int j = valid.smallEnd(1); j <= valid.bigEnd(1); ++j) {
+                for (int i = valid.smallEnd(0); i <= valid.bigEnd(0); ++i) {
+                    flags.push_back(static_cast<unsigned char>(covered(i, j, k)));
+                    flags.push_back(static_cast<unsigned char>(interface(i, j, k)));
+                }
+            }
+        }
+        masks.write(reinterpret_cast<const char*>(flags.data()),
+                    static_cast<std::streamsize>(flags.size()));
+        std::vector<Real> values;
+        values.reserve(static_cast<std::size_t>(valid.numPts()));
+        for (int q = 0; q < Q; ++q) {
+            values.clear();
+            for (int k = valid.smallEnd(2); k <= valid.bigEnd(2); ++k) {
+                for (int j = valid.smallEnd(1); j <= valid.bigEnd(1); ++j) {
+                    for (int i = valid.smallEnd(0); i <= valid.bigEnd(0); ++i) {
+                        IntVect address(AMREX_D_DECL(i, j, k));
+                        if (stream_mode == 1) {
+                            const auto raw = OSI::osi_address(
+                                {i, j, k}, {ex[q], ey[q], ez[q]}, fab, shift);
+                            address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
+                        }
+                        values.push_back(data(address[0], address[1], address[2], q));
+                    }
+                }
+            }
+            binary.write(reinterpret_cast<const char*>(values.data()),
+                         static_cast<std::streamsize>(values.size() * sizeof(Real)));
+        }
+    }
+    AMREX_ALWAYS_ASSERT(meta.good() && binary.good() && masks.good());
+    amrex::AllPrint() << "average_probe: stage=" << stage
+                      << " mode=" << stream_mode
+                      << " lev=0 first_average=1 local_cells=" << local_cells
+                      << " stem=" << stem << '\n';
+}
+
 void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
     ScopedPerfTimer timer(perf_stats.average);
     ++perf_stats.avgdown_calls;
@@ -1779,102 +1866,17 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
     static int level0_average_count = 0;
     const bool probe_this_call = average_probe_enabled && lev == 0 && is_scale &&
                                  ++level0_average_count == 1;
-    const auto probe_average = [&](const char* stage) {
-        if (!probe_this_call) {
-            return;
-        }
-        // 首次界面平均的入口和出口分别导出粗层 valid 及区域掩码。
-        constexpr int ex[Q] = {
-            0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
-            1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
-        constexpr int ey[Q] = {
-            0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0,
-            0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
-        constexpr int ez[Q] = {
-            0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
-            1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
-        const MultiFab& state = stream_mode == 1 ? osi_state.at(0) : f_old.at(0);
-        const std::string stem = "average_probe_" + std::string(stage) + "_mode" + std::to_string(stream_mode) + "_rank" + std::to_string(ParallelDescriptor::MyProc());
-        std::ofstream meta(stem + ".meta");
-        std::ofstream binary(stem + ".bin", std::ios::binary);
-        std::ofstream masks(stem + ".mask", std::ios::binary);
-        AMREX_ALWAYS_ASSERT(meta && binary && masks);
-        Gpu::synchronize();
-        Long local_cells = 0;
-        for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
-            const Box valid = mfi.validbox();
-            const FArrayBox& device = state[mfi];
-            FArrayBox host(device.box(), Q, The_Pinned_Arena());
-            Gpu::dtoh_memcpy(host.dataPtr(), device.dataPtr(), host.nBytes());
-            const auto& device_covered = covered_mask.at(0)[mfi];
-            const auto& device_interface = interface_mask.at(0)[mfi];
-            IArrayBox host_covered(device_covered.box(), 1, The_Pinned_Arena());
-            IArrayBox host_interface(device_interface.box(), 1, The_Pinned_Arena());
-            Gpu::dtoh_memcpy(host_covered.dataPtr(), device_covered.dataPtr(),
-                             host_covered.nBytes());
-            Gpu::dtoh_memcpy(host_interface.dataPtr(), device_interface.dataPtr(),
-                             host_interface.nBytes());
-            const Box ring = device.box();
-            const auto lo = ring.smallEnd();
-            const OSI::FabGeometry fab{
-                {lo[0], lo[1], lo[2]},
-                {ring.length(0), ring.length(1), ring.length(2)}};
-            const auto shift = OSI::osi_phase_shift(osi_phase.at(0), fab);
-            const auto data = host.const_array();
-            const auto covered = host_covered.const_array();
-            const auto interface = host_interface.const_array();
-            meta << mfi.index();
-            for (int d = 0; d < 3; ++d) {
-                meta << ' ' << valid.smallEnd(d) << ' ' << valid.bigEnd(d);
-            }
-            meta << '\n';
-            local_cells += valid.numPts();
-            std::vector<unsigned char> flags;
-            flags.reserve(static_cast<std::size_t>(valid.numPts()) * 2);
-            for (int k = valid.smallEnd(2); k <= valid.bigEnd(2); ++k) {
-                for (int j = valid.smallEnd(1); j <= valid.bigEnd(1); ++j) {
-                    for (int i = valid.smallEnd(0); i <= valid.bigEnd(0); ++i) {
-                        flags.push_back(static_cast<unsigned char>(covered(i, j, k)));
-                        flags.push_back(static_cast<unsigned char>(interface(i, j, k)));
-                    }
-                }
-            }
-            masks.write(reinterpret_cast<const char*>(flags.data()),
-                        static_cast<std::streamsize>(flags.size()));
-            std::vector<Real> values;
-            values.reserve(static_cast<std::size_t>(valid.numPts()));
-            for (int q = 0; q < Q; ++q) {
-                values.clear();
-                for (int k = valid.smallEnd(2); k <= valid.bigEnd(2); ++k) {
-                    for (int j = valid.smallEnd(1); j <= valid.bigEnd(1); ++j) {
-                        for (int i = valid.smallEnd(0); i <= valid.bigEnd(0); ++i) {
-                            IntVect address(AMREX_D_DECL(i, j, k));
-                            if (stream_mode == 1) {
-                                const auto raw = OSI::osi_address(
-                                    {i, j, k}, {ex[q], ey[q], ez[q]}, fab, shift);
-                                address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
-                            }
-                            values.push_back(data(address[0], address[1], address[2], q));
-                        }
-                    }
-                }
-                binary.write(reinterpret_cast<const char*>(values.data()),
-                             static_cast<std::streamsize>(values.size() * sizeof(Real)));
-            }
-        }
-        AMREX_ALWAYS_ASSERT(meta.good() && binary.good() && masks.good());
-        amrex::AllPrint() << "average_probe: stage=" << stage
-                          << " mode=" << stream_mode
-                          << " lev=0 first_average=1 local_cells=" << local_cells
-                          << " stem=" << stem << '\n';
-    };
+    if (probe_this_call) {
+        ProbeAverageInterfaceLevel(lev, "before");
+    }
 
-    probe_average("before");
 
     if (stream_mode == 1) {
         AverageDownOsiLevel(lev, is_scale);
         if (!osiReferenceEnabled()) {
-            probe_average("after");
+            if (probe_this_call) {
+                ProbeAverageInterfaceLevel(lev, "after");
+            }
             return;
         }
         // 锁步模式继续为 A-B 参考态执行相同的界面平均。
@@ -1960,7 +1962,9 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
             crse_mf.ParallelCopy(interface_result, 0, 0, Q);
         }
     }
-    probe_average("after");
+    if (probe_this_call) {
+        ProbeAverageInterfaceLevel(lev, "after");
+    }
 }
 
 void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
