@@ -516,8 +516,8 @@ void AmrCoreLBM::ReadParameters() {
     {
         ParmParse pp("lbm");
         pp.query("cf_mask_mode", cf_mask_mode);
-        if (cf_mask_mode < 0 || cf_mask_mode > 1) {
-            amrex::Abort("lbm.cf_mask_mode must be 0 or 1");
+        if (cf_mask_mode != 1) {
+            amrex::Abort("lbm.cf_mask_mode must be 1; the unmasked mode is no longer supported");
         }
         pp.query("collide_mode", collide_mode);
         if (collide_mode < 0 || collide_mode > 1) {
@@ -1390,9 +1390,10 @@ void AmrCoreLBM::BuildAverageCache() {
         Vector<int> interface_owners;
         Vector<int> fine_box_indices;
         const auto& fine_dm = fine_layout.DistributionMap();
-        if (cf_mask_mode == 1) {
+        {
             // 将粗层 mask 复制到按 fine Fab 归属的粗化布局；每个目标 Fab
-            // 因而只会读取自己的 fine 子单元。该步骤仅在重网格后执行。
+            // 因而只会读取自己的 fine 子单元。cf_mask_mode 已在参数读取时
+            // 强制为 1，因此平均缓存始终由 interface_mask 定义。
             iMultiFab fine_owned_mask(coarse_from_fine, fine_dm, 1, 0);
             fine_owned_mask.ParallelCopy(interface_mask.at(lev), 0, 0, 1);
             Vector<Box> local_boxes;
@@ -1476,41 +1477,6 @@ void AmrCoreLBM::BuildAverageCache() {
             AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
                 cached_cells == interface_cell_counts.at(lev),
                 "average interface boxes must cover every interface_mask valid cell");
-        } else {
-            // 无覆盖掩码的旧配置仍按几何邻域生成稀疏平均区域。
-            const Box domain = Geom(lev).Domain();
-            const auto& periodicity = Geom(lev).periodicity();
-            for (int ibox = 0; ibox < coarse_from_fine.size(); ++ibox) {
-                const Box& covered_box = coarse_from_fine[ibox];
-                const Box search_box = amrex::grow(covered_box, 1) & domain;
-                const BoxList uncovered =
-                    coarse_from_fine.complementIn(search_box, periodicity);
-                BoxList candidates;
-                for (const Box& uncovered_box : uncovered) {
-                    const Box bx = amrex::grow(uncovered_box, 1) & covered_box;
-                    if (bx.ok()) {
-                        candidates.push_back(bx);
-                    }
-                }
-                for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-                    if (Geom(lev).isPeriodic(dir)) { continue; }
-                    if (covered_box.smallEnd(dir) == domain.smallEnd(dir)) {
-                        Box face = covered_box;
-                        face.setBig(dir, face.smallEnd(dir));
-                        candidates.push_back(face);
-                    }
-                    if (covered_box.bigEnd(dir) == domain.bigEnd(dir)) {
-                        Box face = covered_box;
-                        face.setSmall(dir, face.bigEnd(dir));
-                        candidates.push_back(face);
-                    }
-                }
-                for (const Box& bx : amrex::removeOverlap(candidates)) {
-                    interface_boxes.push_back(bx);
-                        interface_owners.push_back(fine_dm[ibox]);
-                        fine_box_indices.push_back(ibox);
-                }
-            }
         }
 
         BoxArray interface_ba(interface_boxes.data(),
