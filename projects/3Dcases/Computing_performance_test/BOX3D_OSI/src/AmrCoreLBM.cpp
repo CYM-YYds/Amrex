@@ -5178,14 +5178,33 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
         ++perf_stats.interp_regrid_fill_calls;
         ScopedPerfTimer timer(perf_stats.interp_regrid_fill);
 
+        const MultiFab& current_state = osi_state.at(lev);
+        const bool same_layout =
+            current_state.isDefined() &&
+            current_state.boxArray() == ba &&
+            current_state.DistributionMap() == dm;
+
+        if (same_layout) {
+            // regrid 没有改变该层的 Fab 布局时，保留现有 raw 数据和 phase；
+            // 直接清零 phase 会改变 raw 地址的物理含义。
+            force_new.setVal(0.0, nghost);
+            shear_new.setVal(0.0, nghost);
+            vort_new.setVal(0.0, nghost);
+
+            std::swap(u_new, velocity[lev]);
+            std::swap(rho_new, density[lev]);
+            std::swap(vort_new, vorticity[lev]);
+            std::swap(force_new, force[lev]);
+            std::swap(shear_new, shear[lev]);
+            return;
+        }
+
         osi_decode_tags.at(lev).undefine();
         osi_encode_tags.at(lev).undefine();
 
         MultiFab old_state;
-        MultiFab old_decode_batch;
 
         std::swap(old_state, osi_state.at(lev));
-        std::swap(old_decode_batch, osi_sync_buffer.at(lev));
 
         const auto old_phase = osi_phase.at(lev);
 
@@ -5194,17 +5213,9 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
         MultiFab& new_osi_state = osi_state.at(lev);
         new_osi_state.setVal(std::numeric_limits<Real>::quiet_NaN());
 
-        // 旧、新 fine 布局重叠区：按旧 phase 分批解码，再由 ParallelCopy
-        // 完成本地或跨 rank remap；新布局从 phase=0 开始。
-        for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
-            const int ncomp =
-                amrex::min(osi_sync_batch_components, Q - q0);
-            DecodeOsiValidBatch(
-                old_state, old_phase, old_decode_batch, q0, ncomp);
-            new_osi_state.ParallelCopy(
-                old_decode_batch, 0, q0, ncomp, IntVect(0), IntVect(0),
-                Geom(lev).periodicity());
-        }
+        // 旧、新 fine 布局重叠区直接进行 phase-aware raw remap；新布局从
+        // phase=0 开始，避免为重构路径分配 canonical sync buffer。
+        RemapOsiLevelDirect(lev, old_state, old_phase, new_osi_state);
 
         if (lev > 0) {
             const IntVect fill_ng(0);
@@ -5251,6 +5262,172 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
     force[lev].setVal(0.0, nghost);
     shear[lev].setVal(0.0, nghost);
     vorticity[lev].setVal(0.0, nghost);
+}
+
+void AmrCoreLBM::RemapOsiLevelDirect(
+    int lev, const MultiFab& old_state, std::uint64_t old_phase,
+    MultiFab& new_state) {
+    const auto& cpc = new_state.getCPC(
+        IntVect(0), old_state, IntVect(0), Geom(lev).periodicity());
+    AMREX_ALWAYS_ASSERT(cpc.m_LocTags && cpc.m_SndTags && cpc.m_RcvTags);
+
+    // 同一 rank 的重叠区域直接执行 old raw -> new raw，源和目标使用
+    // 各自 Fab 的几何；旧数据按 old_phase 读取，新数据按 phase=0 写入。
+    Vector<OSI::LocalCopyTag> local_tags;
+    local_tags.reserve(cpc.m_LocTags->size());
+    for (const auto& tag : *cpc.m_LocTags) {
+        const Box source_ring = amrex::grow(
+            old_state.boxArray()[tag.srcIndex], old_state.nGrowVect());
+        const Box destination_ring = amrex::grow(
+            new_state.boxArray()[tag.dstIndex], new_state.nGrowVect());
+        const auto source_lo = source_ring.smallEnd();
+        const auto destination_lo = destination_ring.smallEnd();
+        local_tags.push_back({
+            old_state.const_array(tag.srcIndex),
+            new_state.array(tag.dstIndex),
+            tag.sbox, tag.dbox,
+            {{source_lo[0], source_lo[1], source_lo[2]},
+             {source_ring.length(0), source_ring.length(1),
+              source_ring.length(2)}},
+            {{destination_lo[0], destination_lo[1], destination_lo[2]},
+             {destination_ring.length(0), destination_ring.length(1),
+              destination_ring.length(2)}}});
+    }
+
+    TagVector<OSI::LocalCopyTag> local_tv(local_tags);
+    amrex::ParallelFor(
+        local_tv, Q,
+        [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                             const OSI::LocalCopyTag& tag) noexcept {
+            const auto source = OSI::source_cell(tag, i, j, k);
+            const auto source_shift =
+                OSI::osi_phase_shift(old_phase, tag.src_fab);
+            const auto source_raw = OSI::osi_address(
+                {source[0], source[1], source[2]},
+                {e[q][0], e[q][1], e[q][2]}, tag.src_fab, source_shift);
+            const auto destination_shift =
+                OSI::osi_phase_shift(0, tag.dst_fab);
+            const auto destination_raw = OSI::osi_address(
+                {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                tag.dst_fab, destination_shift);
+            tag.dst(destination_raw.x, destination_raw.y,
+                    destination_raw.z, q) =
+                tag.src(source_raw.x, source_raw.y, source_raw.z, q);
+        });
+
+    if (ParallelDescriptor::NProcs() == 1) {
+        Gpu::streamSynchronize();
+        return;
+    }
+
+    const int nprocs = ParallelDescriptor::NProcs();
+    const auto plan = OSI::make_mpi_plan(
+        *cpc.m_SndTags, *cpc.m_RcvTags, nprocs, Q);
+    Vector<OSI::RawPackTag> pack_tags;
+    Vector<OSI::MpiUnpackTag> unpack_tags;
+    Vector<std::size_t> send_cursor = plan.send_offsets;
+    Vector<std::size_t> recv_cursor = plan.recv_offsets;
+
+    for (const auto& [peer, tags] : *cpc.m_SndTags) {
+        for (const auto& tag : tags) {
+            const Box source_ring = amrex::grow(
+                old_state.boxArray()[tag.srcIndex], old_state.nGrowVect());
+            const auto source_lo = source_ring.smallEnd();
+            pack_tags.push_back({
+                old_state.const_array(tag.srcIndex), tag.sbox,
+                {{source_lo[0], source_lo[1], source_lo[2]},
+                 {source_ring.length(0), source_ring.length(1),
+                  source_ring.length(2)}},
+                send_cursor[peer]});
+            send_cursor[peer] +=
+                static_cast<std::size_t>(tag.sbox.numPts()) * Q;
+        }
+    }
+
+    for (const auto& [peer, tags] : *cpc.m_RcvTags) {
+        for (const auto& tag : tags) {
+            const Box destination_ring = amrex::grow(
+                new_state.boxArray()[tag.dstIndex], new_state.nGrowVect());
+            const auto destination_lo = destination_ring.smallEnd();
+            unpack_tags.push_back({
+                new_state.array(tag.dstIndex), tag.dbox,
+                {{destination_lo[0], destination_lo[1], destination_lo[2]},
+                 {destination_ring.length(0), destination_ring.length(1),
+                  destination_ring.length(2)}},
+                recv_cursor[peer]});
+            recv_cursor[peer] +=
+                static_cast<std::size_t>(tag.dbox.numPts()) * Q;
+        }
+    }
+
+    TagVector<OSI::RawPackTag> pack_tv(pack_tags);
+    TagVector<OSI::MpiUnpackTag> unpack_tv(unpack_tags);
+    OSI::MpiBuffers buffers;
+    buffers.resize(plan, osi_mpi_device_direct);
+    auto& send_device = buffers.send_device;
+    auto& recv_device = buffers.recv_device;
+    auto& send_host = buffers.send_host;
+    auto& recv_host = buffers.recv_host;
+
+    Real* send_buffer = send_device.data();
+    amrex::ParallelFor(
+        pack_tv, Q,
+        [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                             const OSI::RawPackTag& tag) noexcept {
+            const auto lo = tag.region.smallEnd();
+            const int nx = tag.region.length(0);
+            const int ny = tag.region.length(1);
+            const std::size_t cell = static_cast<std::size_t>(
+                ((k - lo[2]) * ny + (j - lo[1])) * nx + (i - lo[0]));
+            const auto shift = OSI::osi_phase_shift(old_phase, tag.fab);
+            const auto raw = OSI::osi_address(
+                {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab, shift);
+            send_buffer[tag.offset + cell * Q + q] =
+                tag.src(raw.x, raw.y, raw.z, q);
+        });
+    Gpu::streamSynchronize();
+    if (!osi_mpi_device_direct && plan.send_total != 0) {
+        Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
+                         plan.send_total * sizeof(Real));
+    }
+
+    const int mpi_tag = ParallelDescriptor::SeqNum();
+    Vector<ParallelDescriptor::Message> receives;
+    Vector<ParallelDescriptor::Message> sends;
+    Real* recv_buffer = osi_mpi_device_direct
+                            ? recv_device.data()
+                            : recv_host.data();
+    OSI::post_receives(receives, plan.recv_counts, plan.recv_offsets,
+                       recv_buffer, nprocs, mpi_tag);
+    const Real* mpi_send_buffer = osi_mpi_device_direct
+                                      ? send_device.data()
+                                      : send_host.data();
+    OSI::post_sends(sends, plan.send_counts, plan.send_offsets,
+                    mpi_send_buffer, nprocs, mpi_tag);
+    OSI::wait_messages(receives);
+    OSI::wait_messages(sends);
+
+    if (!osi_mpi_device_direct && plan.recv_total != 0) {
+        Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
+                         plan.recv_total * sizeof(Real));
+    }
+    const Real* receive_buffer = recv_device.data();
+    amrex::ParallelFor(
+        unpack_tv, Q,
+        [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                             const OSI::MpiUnpackTag& tag) noexcept {
+            const auto lo = tag.region.smallEnd();
+            const int nx = tag.region.length(0);
+            const int ny = tag.region.length(1);
+            const std::size_t cell = static_cast<std::size_t>(
+                ((k - lo[2]) * ny + (j - lo[1])) * nx + (i - lo[0]));
+            const auto shift = OSI::osi_phase_shift(0, tag.fab);
+            const auto raw = OSI::osi_address(
+                {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab, shift);
+            tag.dst(raw.x, raw.y, raw.z, q) =
+                receive_buffer[tag.offset + cell * Q + q];
+        });
+    Gpu::streamSynchronize();
 }
 
 void AmrCoreLBM::InitializeOsiLevel(

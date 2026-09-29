@@ -319,6 +319,9 @@ class AmrCoreLBM : public amrex::AmrCore {
   public:
     // nvcc extended device lambdas require their enclosing member functions to
     // be publicly accessible. These are implementation helpers, not user APIs.
+    void RemapOsiLevelDirect(int lev, const amrex::MultiFab& old_state,
+                             std::uint64_t old_phase,
+                             amrex::MultiFab& new_state);
     void DecodeOsiValidBatch(const amrex::MultiFab& state,
                              std::uint64_t phase,
                              amrex::MultiFab& batch, int q0,
