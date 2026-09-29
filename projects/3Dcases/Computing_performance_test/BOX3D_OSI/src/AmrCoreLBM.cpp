@@ -2596,95 +2596,88 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         return;
     }
 
-    // 单 rank 时 interface_result 与 coarse_state 同属本 rank，直接从
-    // canonical restriction 结果写入 coarse OSI raw state，跳过 transfer_batch。
-    const bool direct_copy =
-        osi_parallel_copy && ParallelDescriptor::NProcs() == 1;
-    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
-        // direct 路径不受通信 staging 分批限制，只启动一次 Q 分量 kernel。
-        if (direct_copy && q0 != 0) {
-            break;
-        }
-        const int ncomp = direct_copy
-                              ? Q
-                              : amrex::min(osi_sync_batch_components, Q - q0);
-
-        if (direct_copy) {
-            ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy);
-            for (MFIter src_mfi(interface_result, false); src_mfi.isValid();
-                 ++src_mfi) {
-                const int src_index = src_mfi.index();
-                Vector<std::pair<int, Box>> intersections;
-                coarse_state.boxArray().intersections(
-                    interface_result.boxArray()[src_index], intersections,
-                    false, coarse_state.nGrowVect());
-                const auto src = interface_result.const_array(src_mfi);
-                for (const auto& is : intersections) {
-                    const int dst_index = is.first;
-                    const Box bx = is.second & coarse_state.boxArray()[dst_index];
-                    if (!bx.ok()) {
-                        continue;
-                    }
-                    const Box ring = amrex::grow(
-                        coarse_state.boxArray()[dst_index],
-                        coarse_state.nGrowVect());
-                    const auto lo = ring.smallEnd();
-                    const OSI::FabGeometry coarse_fab{
-                        {lo[0], lo[1], lo[2]},
-                        {ring.length(0), ring.length(1), ring.length(2)}};
-                    const auto coarse_shift =
-                        OSI::osi_phase_shift(coarse_phase, coarse_fab);
-                    const auto mask = interface_mask.at(lev).const_array(dst_index);
-                    const auto dst = coarse_state.array(dst_index);
-                    amrex::ParallelFor(
-                        bx, ncomp,
-                        [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
-                            if (mask(i, j, k) == 0) {
-                                return;
-                            }
-                            const int q = q0 + n;
-                            const auto raw = OSI::osi_address(
-                                {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                                coarse_fab, coarse_shift);
-                            dst(raw.x, raw.y, raw.z, q) = src(i, j, k, n);
-                        });
+    // 单 rank 直接将全部 Q 分量写回 coarse OSI raw state，无需分批暂存。
+    if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1) {
+        ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy);
+        for (MFIter src_mfi(interface_result, false); src_mfi.isValid();
+             ++src_mfi) {
+            const int src_index = src_mfi.index();
+            Vector<std::pair<int, Box>> intersections;
+            coarse_state.boxArray().intersections(
+                interface_result.boxArray()[src_index], intersections,
+                false, coarse_state.nGrowVect());
+            const auto src = interface_result.const_array(src_mfi);
+            for (const auto& is : intersections) {
+                const int dst_index = is.first;
+                const Box bx = is.second & coarse_state.boxArray()[dst_index];
+                if (!bx.ok()) {
+                    continue;
                 }
-            }
-        } else {
-            transfer_batch.ParallelCopy(
-                interface_result, q0, 0, ncomp, IntVect(0), IntVect(0));
-
-            for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
-                const Box ring =
-                    amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
+                const Box ring = amrex::grow(
+                    coarse_state.boxArray()[dst_index],
+                    coarse_state.nGrowVect());
                 const auto lo = ring.smallEnd();
                 const OSI::FabGeometry coarse_fab{
                     {lo[0], lo[1], lo[2]},
                     {ring.length(0), ring.length(1), ring.length(2)}};
                 const auto coarse_shift =
                     OSI::osi_phase_shift(coarse_phase, coarse_fab);
-                const auto mask = interface_mask.at(lev).const_array(mfi);
-                const auto src = transfer_batch.const_array(mfi);
-                const auto dst = coarse_state.array(mfi);
-                Vector<std::pair<int, Box>> intersections;
-                interface_result.boxArray().intersections(
-                    mfi.validbox(), intersections, false, IntVect(0));
-                // staging 只有稀疏结果覆盖处被填充，写回也必须限制到这些交集。
-                for (const auto& intersection : intersections) {
-                    const Box& bx = intersection.second;
-                    amrex::ParallelFor(
-                        bx, ncomp,
-                        [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
-                            if (mask(i, j, k) == 0) {
-                                return;
-                            }
-                            const int q = q0 + n;
-                            const auto raw = OSI::osi_address(
-                                {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                                coarse_fab, coarse_shift);
-                            dst(raw.x, raw.y, raw.z, q) = src(i, j, k, n);
-                        });
-                }
+                const auto mask = interface_mask.at(lev).const_array(dst_index);
+                const auto dst = coarse_state.array(dst_index);
+                amrex::ParallelFor(
+                    bx, Q,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
+                        if (mask(i, j, k) == 0) {
+                            return;
+                        }
+                        const int q = n;
+                        const auto raw = OSI::osi_address(
+                            {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                            coarse_fab, coarse_shift);
+                        dst(raw.x, raw.y, raw.z, q) = src(i, j, k, n);
+                    });
+            }
+        }
+        amrex::Gpu::streamSynchronize();
+        return;
+    }
+
+    // 回退路径使用较小的 canonical 暂存缓冲，按分量批次写回。
+    for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
+        const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
+        transfer_batch.ParallelCopy(
+            interface_result, q0, 0, ncomp, IntVect(0), IntVect(0));
+
+        for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
+            const Box ring =
+                amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
+            const auto lo = ring.smallEnd();
+            const OSI::FabGeometry coarse_fab{
+                {lo[0], lo[1], lo[2]},
+                {ring.length(0), ring.length(1), ring.length(2)}};
+            const auto coarse_shift =
+                OSI::osi_phase_shift(coarse_phase, coarse_fab);
+            const auto mask = interface_mask.at(lev).const_array(mfi);
+            const auto src = transfer_batch.const_array(mfi);
+            const auto dst = coarse_state.array(mfi);
+            Vector<std::pair<int, Box>> intersections;
+            interface_result.boxArray().intersections(
+                mfi.validbox(), intersections, false, IntVect(0));
+            // staging 只有稀疏结果覆盖处被填充，写回也必须限制到这些交集。
+            for (const auto& intersection : intersections) {
+                const Box& bx = intersection.second;
+                amrex::ParallelFor(
+                    bx, ncomp,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
+                        if (mask(i, j, k) == 0) {
+                            return;
+                        }
+                        const int q = q0 + n;
+                        const auto raw = OSI::osi_address(
+                            {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                            coarse_fab, coarse_shift);
+                        dst(raw.x, raw.y, raw.z, q) = src(i, j, k, n);
+                    });
             }
         }
         amrex::Gpu::streamSynchronize();
