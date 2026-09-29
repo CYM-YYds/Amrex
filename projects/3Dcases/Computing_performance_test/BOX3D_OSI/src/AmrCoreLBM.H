@@ -305,6 +305,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void BuildInterpolationCache();
     void BuildAverageCache();
     void ProbeAverageInterfaceLevel(int lev, const char* stage);
+    void ProbeFillGhostLevel(int lev);
     void BuildDirectInterpolationCache(int lev);
     amrex::Interpolater* DdfInterpolater() const;
     void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
