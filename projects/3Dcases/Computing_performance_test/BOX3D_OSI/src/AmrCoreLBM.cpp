@@ -1379,6 +1379,30 @@ void AmrCoreLBM::BuildInterpolationCache() {
     }
 }
 
+void AmrCoreLBM::ValidateAverageCacheCoverage(
+    int lev, const BoxArray& coarse_from_fine,
+    const Vector<Box>& interface_boxes,
+    const DistributionMapping& fine_dm,
+    Vector<int>& interface_owners,
+    Vector<int>& fine_box_indices) const {
+    // 平均缓存的计数和归属校验集中在此处；关闭诊断时可注释调用点。
+    Long cached_cells = 0;
+    for (const Box& bx : interface_boxes) {
+        Vector<std::pair<int, Box>> intersections;
+        coarse_from_fine.intersections(bx, intersections);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            intersections.size() == 1 && intersections[0].second == bx,
+            "average interface box must belong to one fine Fab");
+        const int fine_index = intersections[0].first;
+        interface_owners.push_back(fine_dm[fine_index]);
+        fine_box_indices.push_back(fine_index);
+        cached_cells += bx.numPts();
+    }
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        cached_cells == interface_cell_counts.at(lev),
+        "average interface boxes must cover every interface_mask valid cell");
+}
+
 void AmrCoreLBM::BuildAverageCache() {
     for (int lev = 0; lev < finest_level; ++lev) {
         const MultiFab& fine_layout =
@@ -1462,21 +1486,9 @@ void AmrCoreLBM::BuildAverageCache() {
             }
             amrex::AllGatherBoxes(local_boxes);
             interface_boxes = std::move(local_boxes);
-            Long cached_cells = 0;
-            for (const Box& bx : interface_boxes) {
-                Vector<std::pair<int, Box>> intersections;
-                coarse_from_fine.intersections(bx, intersections);
-                AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-                    intersections.size() == 1 && intersections[0].second == bx,
-                    "average interface box must belong to one fine Fab");
-                const int fine_index = intersections[0].first;
-                interface_owners.push_back(fine_dm[fine_index]);
-                fine_box_indices.push_back(fine_index);
-                cached_cells += bx.numPts();
-            }
-            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-                cached_cells == interface_cell_counts.at(lev),
-                "average interface boxes must cover every interface_mask valid cell");
+            ValidateAverageCacheCoverage(
+                lev, coarse_from_fine, interface_boxes, fine_dm,
+                interface_owners, fine_box_indices);
         }
 
         BoxArray interface_ba(interface_boxes.data(),

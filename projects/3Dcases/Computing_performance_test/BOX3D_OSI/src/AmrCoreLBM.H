@@ -304,6 +304,12 @@ class AmrCoreLBM : public amrex::AmrCore {
     void BuildOsiCommunicationRegionCache(int lev);
     void BuildInterpolationCache();
     void BuildAverageCache();
+    void ValidateAverageCacheCoverage(
+        int lev, const amrex::BoxArray& coarse_from_fine,
+        const amrex::Vector<amrex::Box>& interface_boxes,
+        const amrex::DistributionMapping& fine_dm,
+        amrex::Vector<int>& interface_owners,
+        amrex::Vector<int>& fine_box_indices) const;
     void BuildDirectInterpolationCache(int lev);
     amrex::Interpolater* DdfInterpolater() const;
     void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
