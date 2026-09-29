@@ -2158,12 +2158,6 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
 
         TagVector<OSI::RawPackTag> pack_tv(pack_tags);
         TagVector<OSI::CanonicalUnpackTag> unpack_tv(unpack_tags);
-        OSI::MpiBuffers buffers;
-        buffers.resize(plan, osi_mpi_device_direct);
-        auto& send_device = buffers.send_device;
-        auto& recv_device = buffers.recv_device;
-        auto& send_host = buffers.send_host;
-        auto& recv_host = buffers.recv_host;
 
         amrex::Print(amrex::Print::AllProcs)
             << "[OSI interpolation mpi] level=" << lev
@@ -2172,12 +2166,25 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
             << " send_bytes=" << send_total * sizeof(Real)
             << " recv_bytes=" << recv_total * sizeof(Real) << '\n';
 
-        {
-            Real* buffer = send_device.data();
-            amrex::ParallelFor(
-                pack_tv, Q,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                                     const OSI::RawPackTag& tag) noexcept {
+        OSI::parallel_copy_local(
+            local_tv, Q,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                                 const OSI::LocalCopyTag& tag) noexcept {
+                const auto source = OSI::source_cell(tag, i, j, k);
+                const auto phase_shift =
+                    OSI::osi_phase_shift(coarse_phase, tag.src_fab);
+                const auto raw = OSI::osi_address(
+                    {source[0], source[1], source[2]},
+                    {e[q][0], e[q][1], e[q][2]}, tag.src_fab,
+                    phase_shift);
+                tag.dst(i, j, k, q) = tag.src(raw.x, raw.y, raw.z, q);
+            });
+
+        OSI::parallel_copy_mpi(
+            pack_tv, unpack_tv, plan, osi_mpi_device_direct, Q, nprocs,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                                 const OSI::RawPackTag& tag,
+                                 Real* buffer) noexcept {
                     const auto lo = tag.region.smallEnd();
                     const int nx = tag.region.length(0);
                     const int ny = tag.region.length(1);
@@ -2191,52 +2198,10 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
                         phase_shift);
                     buffer[tag.offset + cell * Q + q] =
                         tag.src(raw.x, raw.y, raw.z, q);
-                });
-            Gpu::streamSynchronize();
-            if (!osi_mpi_device_direct && send_total != 0) {
-                Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
-                                 send_total * sizeof(Real));
-            }
-        }
-
-        const int mpi_tag = ParallelDescriptor::SeqNum();
-        Vector<ParallelDescriptor::Message> receives;
-        Vector<ParallelDescriptor::Message> sends;
-        Real* recv_buffer = osi_mpi_device_direct
-                                ? recv_device.data()
-                                : recv_host.data();
-        OSI::post_receives(receives, recv_counts, recv_offsets, recv_buffer,
-                           nprocs, mpi_tag);
-        amrex::ParallelFor(
-            local_tv, Q,
+            },
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                                 const OSI::LocalCopyTag& tag) noexcept {
-                const auto source = OSI::source_cell(tag, i, j, k);
-                const auto phase_shift =
-                    OSI::osi_phase_shift(coarse_phase, tag.src_fab);
-                const auto raw = OSI::osi_address(
-                    {source[0], source[1], source[2]},
-                    {e[q][0], e[q][1], e[q][2]}, tag.src_fab,
-                    phase_shift);
-                tag.dst(i, j, k, q) = tag.src(raw.x, raw.y, raw.z, q);
-            });
-        const Real* send_buffer = osi_mpi_device_direct
-                                      ? send_device.data()
-                                      : send_host.data();
-        OSI::post_sends(sends, send_counts, send_offsets, send_buffer, nprocs,
-                        mpi_tag);
-        OSI::wait_messages(receives);
-        OSI::wait_messages(sends);
-
-        if (!osi_mpi_device_direct && recv_total != 0) {
-            Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
-                             recv_total * sizeof(Real));
-        }
-        const Real* buffer = recv_device.data();
-        amrex::ParallelFor(
-            unpack_tv, Q,
-            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                                 const OSI::CanonicalUnpackTag& tag) noexcept {
+                                 const OSI::CanonicalUnpackTag& tag,
+                                 const Real* buffer) noexcept {
                 const auto lo = tag.region.smallEnd();
                 const int nx = tag.region.length(0);
                 const int ny = tag.region.length(1);
@@ -2245,13 +2210,12 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
                 tag.dst(i, j, k, q) =
                     buffer[tag.offset + cell * Q + q];
             });
-        Gpu::streamSynchronize();
     } else if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1 &&
                osi_interp_local_copy_tags.at(lev).ntags != 0) {
         ScopedPerfTimer timer(perf_stats.osi_parallel_copy);
         // direct 路径无需遵循通信缓冲的分批限制，一次处理全部 Q 分量，
         // 避免把本地 raw-to-canonical 复制拆成 9 次 kernel launch。
-        amrex::ParallelFor(
+        OSI::parallel_copy_local(
             osi_interp_local_copy_tags.at(lev), Q,
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int n,
                                  const OSI::LocalCopyTag& tag) noexcept {
@@ -2500,12 +2464,6 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         }
         TagVector<OSI::CanonicalPackTag> pack_tv(pack_tags);
         TagVector<OSI::CanonicalRawUnpackTag> unpack_tv(unpack_tags);
-        OSI::MpiBuffers buffers;
-        buffers.resize(plan, osi_mpi_device_direct);
-        auto& send_device = buffers.send_device;
-        auto& recv_device = buffers.recv_device;
-        auto& send_host = buffers.send_host;
-        auto& recv_host = buffers.recv_host;
 
         amrex::Print(amrex::Print::AllProcs)
             << "[OSI average mpi] level=" << lev
@@ -2514,85 +2472,44 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
             << " send_bytes=" << send_total * sizeof(Real)
             << " recv_bytes=" << recv_total * sizeof(Real) << '\n';
 
-        {
-            ScopedPerfTimer timer(perf_stats.osi_mpi_pack);
-            Real* buffer = send_device.data();
-            amrex::ParallelFor(
-                pack_tv, Q,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                                     const OSI::CanonicalPackTag& tag) noexcept {
-                    const auto lo = tag.region.smallEnd();
-                    const int nx = tag.region.length(0);
-                    const int ny = tag.region.length(1);
-                    const std::size_t cell = static_cast<std::size_t>(
-                        ((k - lo[2]) * ny + (j - lo[1])) * nx + (i - lo[0]));
-                    buffer[tag.offset + cell * Q + q] = tag.src(i, j, k, q);
-                });
-            Gpu::streamSynchronize();
-            if (!osi_mpi_device_direct && send_total != 0) {
-                Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
-                                 send_total * sizeof(Real));
-            }
-        }
+        OSI::parallel_copy_local(
+            local_tv, Q,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                                 const OSI::LocalCopyTag& tag) noexcept {
+                const auto source = OSI::source_cell(tag, i, j, k);
+                const auto shift =
+                    OSI::osi_phase_shift(coarse_phase, tag.dst_fab);
+                const auto raw = OSI::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                    tag.dst_fab, shift);
+                tag.dst(raw.x, raw.y, raw.z, q) =
+                    tag.src(source[0], source[1], source[2], q);
+            });
 
-        const int mpi_tag = ParallelDescriptor::SeqNum();
-        Vector<ParallelDescriptor::Message> receives;
-        Vector<ParallelDescriptor::Message> sends;
-        {
-            ScopedPerfTimer timer(perf_stats.osi_mpi_wait);
-            Real* recv_buffer = osi_mpi_device_direct
-                                    ? recv_device.data()
-                                    : recv_host.data();
-            OSI::post_receives(receives, recv_counts, recv_offsets,
-                               recv_buffer, nprocs, mpi_tag);
-            amrex::ParallelFor(
-                local_tv, Q,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                                     const OSI::LocalCopyTag& tag) noexcept {
-                    const auto source = OSI::source_cell(tag, i, j, k);
-                    const auto shift =
-                        OSI::osi_phase_shift(coarse_phase, tag.dst_fab);
-                    const auto raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                        tag.dst_fab, shift);
-                    tag.dst(raw.x, raw.y, raw.z, q) =
-                        tag.src(source[0], source[1], source[2], q);
-                });
-            const Real* send_buffer = osi_mpi_device_direct
-                                          ? send_device.data()
-                                          : send_host.data();
-            OSI::post_sends(sends, send_counts, send_offsets, send_buffer,
-                            nprocs, mpi_tag);
-            OSI::wait_messages(receives);
-            OSI::wait_messages(sends);
-        }
-        {
-            ScopedPerfTimer timer(perf_stats.osi_mpi_unpack);
-            if (!osi_mpi_device_direct && recv_total != 0) {
-                Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
-                                 recv_total * sizeof(Real));
-            }
-            const Real* buffer = recv_device.data();
-            amrex::ParallelFor(
-                unpack_tv, Q,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                                     const OSI::CanonicalRawUnpackTag& tag) noexcept {
-                    const auto lo = tag.region.smallEnd();
-                    const int nx = tag.region.length(0);
-                    const int ny = tag.region.length(1);
-                    const std::size_t cell = static_cast<std::size_t>(
-                        ((k - lo[2]) * ny + (j - lo[1]) * nx +
-                         (i - lo[0])));
-                    const auto shift =
-                        OSI::osi_phase_shift(coarse_phase, tag.fab);
-                    const auto raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                        tag.fab, shift);
-                    tag.dst(raw.x, raw.y, raw.z, q) =
-                        buffer[tag.offset + cell * Q + q];
-                });
-            Gpu::streamSynchronize();
-        }
+        OSI::parallel_copy_mpi(
+            pack_tv, unpack_tv, plan, osi_mpi_device_direct, Q, nprocs,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                                 const OSI::CanonicalPackTag& tag,
+                                 Real* buffer) noexcept {
+                const std::size_t cell =
+                    OSI::buffer_cell_index(tag.region, i, j, k);
+                buffer[tag.offset + cell * Q + q] = tag.src(i, j, k, q);
+            },
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                                 const OSI::CanonicalRawUnpackTag& tag,
+                                 const Real* buffer) noexcept {
+                const std::size_t cell =
+                    OSI::buffer_cell_index(tag.region, i, j, k);
+                const auto shift =
+                    OSI::osi_phase_shift(coarse_phase, tag.fab);
+                const auto raw = OSI::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                    tag.fab, shift);
+                tag.dst(raw.x, raw.y, raw.z, q) =
+                    buffer[tag.offset + cell * Q + q];
+            },
+            {&perf_stats.osi_mpi_pack, &perf_stats.osi_mpi_wait,
+             &perf_stats.osi_mpi_unpack});
         return;
     }
 

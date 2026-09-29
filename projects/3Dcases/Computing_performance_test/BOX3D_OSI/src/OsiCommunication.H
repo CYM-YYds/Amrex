@@ -134,6 +134,21 @@ struct MpiBuffers {
     }
 };
 
+struct CopyTiming {
+    double* pack = nullptr;
+    double* wait = nullptr;
+    double* unpack = nullptr;
+};
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+std::size_t buffer_cell_index(const amrex::Box& region,
+                              int i, int j, int k) noexcept {
+    const auto lo = region.smallEnd();
+    return static_cast<std::size_t>(
+        ((k - lo[2]) * region.length(1) + (j - lo[1])) *
+            region.length(0) + (i - lo[0]));
+}
+
 // 按 peer 提交非阻塞接收，保持与本地 GPU 操作的重叠。
 template <typename MessageVector, typename BufferPtr>
 void post_receives(MessageVector& receives,
@@ -192,7 +207,8 @@ void parallel_copy_mpi(const amrex::TagVector<PackTag>& pack_tags,
                        const amrex::TagVector<UnpackTag>& unpack_tags,
                        const MpiPlan& plan, bool device_direct, int ncomp,
                        int nprocs, PackValue pack_value,
-                       UnpackValue unpack_value) {
+                       UnpackValue unpack_value,
+                       CopyTiming timing = {}) {
     MpiBuffers buffers;
     buffers.resize(plan, device_direct);
     auto& send_device = buffers.send_device;
@@ -200,6 +216,7 @@ void parallel_copy_mpi(const amrex::TagVector<PackTag>& pack_tags,
     auto& send_host = buffers.send_host;
     auto& recv_host = buffers.recv_host;
 
+    const double pack_start = amrex::second();
     amrex::Real* send_buffer = send_device.data();
     amrex::ParallelFor(
         pack_tags, ncomp,
@@ -212,7 +229,11 @@ void parallel_copy_mpi(const amrex::TagVector<PackTag>& pack_tags,
         amrex::Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
                                 plan.send_total * sizeof(amrex::Real));
     }
+    if (timing.pack != nullptr) {
+        *timing.pack += amrex::second() - pack_start;
+    }
 
+    const double wait_start = amrex::second();
     const int mpi_tag = amrex::ParallelDescriptor::SeqNum();
     amrex::Vector<amrex::ParallelDescriptor::Message> receives;
     amrex::Vector<amrex::ParallelDescriptor::Message> sends;
@@ -228,7 +249,12 @@ void parallel_copy_mpi(const amrex::TagVector<PackTag>& pack_tags,
                nprocs, mpi_tag);
     wait_messages(receives);
     wait_messages(sends);
+    if (timing.wait != nullptr) {
+        amrex::Gpu::streamSynchronize();
+        *timing.wait += amrex::second() - wait_start;
+    }
 
+    const double unpack_start = amrex::second();
     if (!device_direct && plan.recv_total != 0) {
         amrex::Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
                                 plan.recv_total * sizeof(amrex::Real));
@@ -241,7 +267,11 @@ void parallel_copy_mpi(const amrex::TagVector<PackTag>& pack_tags,
             unpack_value(i, j, k, n, tag, receive_buffer);
         });
     amrex::Gpu::streamSynchronize();
+    if (timing.unpack != nullptr) {
+        *timing.unpack += amrex::second() - unpack_start;
+    }
 }
+
 
 template <typename SendTagMap, typename RecvTagMap>
 MpiPlan make_mpi_plan(const SendTagMap& send_tags,
