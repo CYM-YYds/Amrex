@@ -2,6 +2,16 @@
 
 更新时间：2026-09-29
 
+## 最新重构迁移实现与验证边界
+
+提交 `af3b5da` 后，OSI 的 `RemakeLevel()` 若发现该层 `BoxArray` 和
+`DistributionMapping` 均未变化，会保留原 `osi_state` 和 `osi_phase`。布局变化时，
+`RemapOsiLevelDirect()` 使用 AMReX CPC 的本地与 MPI 重叠区域标签，按旧 phase
+读取 raw 值并写入新布局的 phase 0；新增区域仍由粗层插值填充。
+`osi_sync_buffer` 仍供回退通信、插值和诊断等路径使用，因此不能称为全局移除。
+这版迁移已通过 CUDA + MPI 编译，尚未完成单/多 rank 动态重构逐值验证；
+下列历史作业结果对应各自旧版源码，不能用来验收 `af3b5da`。
+
 ## 当前数值与长程运行结论（2026-09-29）
 
 - 提交 `3806c69` 修复 `AverageDownOsiValidLevel()` 的完整 Q 分量解码。此前逐个 q

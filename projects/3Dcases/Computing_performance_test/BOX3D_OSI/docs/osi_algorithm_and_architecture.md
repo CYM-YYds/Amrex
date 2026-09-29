@@ -347,14 +347,17 @@ twisted(Addr(fab,q,target_phase,i,j,k),q) =
 
 适配器必须明确处理 valid-only、valid+ghost 两种区域；禁止依靠函数名猜测范围。
 
-## 10. 动态 regrid：canonicalize/rebuild/reset
+## 10. 动态 regrid：保留或重建 phase
 
-动态重构把发生布局变化的 level 视为 OSI phase 断点，但不再构造整层 canonical DDF：
+以下为提交 `af3b5da` 后的现行路径。`RemakeLevel()` 遇到相同 `BoxArray` 和
+`DistributionMapping` 时保留该层 raw state 与 phase。布局变化时重置新布局的
+phase，并在重叠区按旧 phase 迁移逻辑值；不构造整层 canonical DDF：
 
 ```text
 regrid 前完整 AverageDownValid
         -> 按各层当前 phase 重建物理边界，包含 covered 边界单元
-        -> Remake: 旧 fine valid 按 q 批次解码并 ParallelCopy 到新布局 phase 0
+        -> Remake 布局不变: 保留旧 raw state 和 phase
+        -> Remake 布局变化: 旧 fine valid 经 CPC 本地/MPI 标签直接迁移到新布局 phase 0
         -> Remake 新增区: coarse OSI -> 稀疏 coarse/fine patch -> 新 fine phase 0
         -> MakeNew: 刷新已有 coarse density/velocity，按 q 批次解码并缩放非平衡 DDF
                     -> CellConservativeLinear -> 新 fine phase 0
@@ -368,16 +371,18 @@ regrid 前完整 AverageDownValid
 ComputeMacroLevel()`，因此输出和收敛检查读取的是完整同步且重新满足物理边界条件的
 当前逻辑 DDF；这一步会修改当前 DDF 边界，不是纯只读诊断。
 
-重置 phase 不会改变物理解。若重构前有：
+仅在布局变化时重置 phase。迁移保持逻辑值的设计关系如下；
+`af3b5da` 的 CUDA + MPI 编译已通过，单/多 rank 动态重构逐值验收仍待完成。
+若重构前有：
 
 $$
 M_{old}[A_{old}(x,q,p)]=f_q(x),
 $$
 
-gather 后 `C(x,q)=f_q(x)`；新布局以 phase 0 写入时
-`A_new(x,q,0)=x`，所以新状态仍表示同一个 `f_q(x)`。
+迁移从旧地址读取 `f_q(x)`，并写入新布局 phase 0 的 `A_new(x,q,0)=x`；
+因此目标是让新状态表示同一个 `f_q(x)`。
 
-旧/新重叠区只复用每层的分量批次通信缓冲；新增区始终建立实际 interpolation patch
+旧/新重叠区直接使用 CPC 标签迁移；新增区始终建立实际 interpolation patch
 所需的稀疏 coarse/fine Q 分量 staging，但不会分配 `f_old/f_new` 或整层 canonical
 DDF。Remake/MakeNew/MakeNewFromScratch 均只保证 valid，避免在 AMR 回调中混入 ghost
 生命周期。碰撞是逐格点局部操作，因此 level 0 和同层重叠 ghost 不需要预填；fine
