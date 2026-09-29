@@ -1379,30 +1379,6 @@ void AmrCoreLBM::BuildInterpolationCache() {
     }
 }
 
-void AmrCoreLBM::ValidateAverageCacheCoverage(
-    int lev, const BoxArray& coarse_from_fine,
-    const Vector<Box>& interface_boxes,
-    const DistributionMapping& fine_dm,
-    Vector<int>& interface_owners,
-    Vector<int>& fine_box_indices) const {
-    // 平均缓存的计数和归属校验集中在此处；关闭诊断时可注释调用点。
-    Long cached_cells = 0;
-    for (const Box& bx : interface_boxes) {
-        Vector<std::pair<int, Box>> intersections;
-        coarse_from_fine.intersections(bx, intersections);
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-            intersections.size() == 1 && intersections[0].second == bx,
-            "average interface box must belong to one fine Fab");
-        const int fine_index = intersections[0].first;
-        interface_owners.push_back(fine_dm[fine_index]);
-        fine_box_indices.push_back(fine_index);
-        cached_cells += bx.numPts();
-    }
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        cached_cells == interface_cell_counts.at(lev),
-        "average interface boxes must cover every interface_mask valid cell");
-}
-
 void AmrCoreLBM::BuildAverageCache() {
     for (int lev = 0; lev < finest_level; ++lev) {
         const MultiFab& fine_layout =
@@ -1410,89 +1386,35 @@ void AmrCoreLBM::BuildAverageCache() {
         const BoxArray coarse_from_fine =
             amrex::coarsen(fine_layout.boxArray(), refRatio(lev));
 
-        Vector<Box> interface_boxes;
+        BoxList interface_boxes;
         Vector<int> interface_owners;
         Vector<int> fine_box_indices;
+        const auto& periodicity = Geom(lev).periodicity();
         const auto& fine_dm = fine_layout.DistributionMap();
-        {
-            // 将粗层 mask 复制到按 fine Fab 归属的粗化布局；每个目标 Fab
-            // 因而只会读取自己的 fine 子单元。cf_mask_mode 已在参数读取时
-            // 强制为 1，因此平均缓存始终由 interface_mask 定义。
-            iMultiFab fine_owned_mask(coarse_from_fine, fine_dm, 1, 0);
-            fine_owned_mask.ParallelCopy(interface_mask.at(lev), 0, 0, 1);
-            Vector<Box> local_boxes;
-            for (MFIter mfi(fine_owned_mask, false); mfi.isValid(); ++mfi) {
-                const Box valid = mfi.validbox();
-                const IArrayBox& device = fine_owned_mask[mfi];
-                IArrayBox host(valid, 1, The_Pinned_Arena());
-                Gpu::dtoh_memcpy(host.dataPtr(), device.dataPtr(), host.nBytes());
-                const auto mask = host.const_array();
-                const int nx = valid.length(0);
-                const int ny = valid.length(1);
-                const int nz = valid.length(2);
-                Vector<unsigned char> visited(
-                    static_cast<std::size_t>(valid.numPts()), 0);
-                const auto offset = [=](int i, int j, int k) {
-                    return static_cast<std::size_t>(
-                        ((k - valid.smallEnd(2)) * ny +
-                         (j - valid.smallEnd(1))) * nx +
-                        (i - valid.smallEnd(0)));
-                };
-                for (int k = valid.smallEnd(2); k <= valid.bigEnd(2); ++k) {
-                    for (int j = valid.smallEnd(1); j <= valid.bigEnd(1); ++j) {
-                        for (int i = valid.smallEnd(0); i <= valid.bigEnd(0); ++i) {
-                            if (mask(i, j, k) == 0 || visited[offset(i, j, k)]) {
-                                continue;
-                            }
-                            int hi_i = i;
-                            while (hi_i < valid.bigEnd(0) &&
-                                   mask(hi_i + 1, j, k) != 0 &&
-                                   !visited[offset(hi_i + 1, j, k)]) {
-                                ++hi_i;
-                            }
-                            int hi_j = j;
-                            for (; hi_j < valid.bigEnd(1); ++hi_j) {
-                                bool extend = true;
-                                for (int x = i; x <= hi_i; ++x) {
-                                    extend &= mask(x, hi_j + 1, k) != 0 &&
-                                              !visited[offset(x, hi_j + 1, k)];
-                                }
-                                if (!extend) { break; }
-                            }
-                            int hi_k = k;
-                            for (; hi_k < valid.bigEnd(2); ++hi_k) {
-                                bool extend = true;
-                                for (int y = j; y <= hi_j && extend; ++y) {
-                                    for (int x = i; x <= hi_i; ++x) {
-                                        extend &= mask(x, y, hi_k + 1) != 0 &&
-                                                  !visited[offset(x, y, hi_k + 1)];
-                                    }
-                                }
-                                if (!extend) { break; }
-                            }
-                            for (int z = k; z <= hi_k; ++z) {
-                                for (int y = j; y <= hi_j; ++y) {
-                                    for (int x = i; x <= hi_i; ++x) {
-                                        visited[offset(x, y, z)] = 1;
-                                    }
-                                }
-                            }
-                            local_boxes.emplace_back(
-                                IntVect(AMREX_D_DECL(i, j, k)),
-                                IntVect(AMREX_D_DECL(hi_i, hi_j, hi_k)));
-                        }
-                    }
+        for (int ibox = 0; ibox < coarse_from_fine.size(); ++ibox) {
+            const Box& covered_box = coarse_from_fine[ibox];
+            // 保留非周期物理域外的一圈未覆盖单元，与 interface_mask 的判定一致。
+            const Box search_box = amrex::grow(covered_box, 1);
+            const BoxList uncovered =
+                coarse_from_fine.complementIn(search_box, periodicity);
+            BoxList candidates;
+            for (const Box& uncovered_box : uncovered) {
+                const Box interface_box =
+                    amrex::grow(uncovered_box, 1) & covered_box;
+                if (interface_box.ok()) {
+                    candidates.push_back(interface_box);
                 }
             }
-            amrex::AllGatherBoxes(local_boxes);
-            interface_boxes = std::move(local_boxes);
-            ValidateAverageCacheCoverage(
-                lev, coarse_from_fine, interface_boxes, fine_dm,
-                interface_owners, fine_box_indices);
+
+            const BoxList disjoint = amrex::removeOverlap(candidates);
+            for (const Box& interface_box : disjoint) {
+                interface_boxes.push_back(interface_box);
+                interface_owners.push_back(fine_dm[ibox]);
+                fine_box_indices.push_back(ibox);
+            }
         }
 
-        BoxArray interface_ba(interface_boxes.data(),
-                              static_cast<int>(interface_boxes.size()));
+        BoxArray interface_ba(interface_boxes);
         if (!interface_ba.empty()) {
             DistributionMapping interface_dm(interface_owners);
             average_interface_buffer[lev].define(interface_ba, interface_dm, Q, 0);
@@ -4012,17 +3934,17 @@ void AmrCoreLBM::CompareOsiReferenceStage(
                    << " raw=" << local_max_raw
                    << " source_logical="
                    << (local_max_iv - IntVect(AMREX_D_DECL(
-                       ex[local_max_q], ey[local_max_q], ez[local_max_q])))
+                                          ex[local_max_q], ey[local_max_q], ez[local_max_q])))
                    << " physical_boundary="
                    << ((!Geom(lev).isPeriodic(0) &&
                         (local_max_iv[0] == Geom(lev).Domain().smallEnd(0) ||
                          local_max_iv[0] == Geom(lev).Domain().bigEnd(0))) ||
-                       (!Geom(lev).isPeriodic(1) &&
-                        (local_max_iv[1] == Geom(lev).Domain().smallEnd(1) ||
-                         local_max_iv[1] == Geom(lev).Domain().bigEnd(1))) ||
-                       (!Geom(lev).isPeriodic(2) &&
-                        (local_max_iv[2] == Geom(lev).Domain().smallEnd(2) ||
-                         local_max_iv[2] == Geom(lev).Domain().bigEnd(2)))
+                               (!Geom(lev).isPeriodic(1) &&
+                                (local_max_iv[1] == Geom(lev).Domain().smallEnd(1) ||
+                                 local_max_iv[1] == Geom(lev).Domain().bigEnd(1))) ||
+                               (!Geom(lev).isPeriodic(2) &&
+                                (local_max_iv[2] == Geom(lev).Domain().smallEnd(2) ||
+                                 local_max_iv[2] == Geom(lev).Domain().bigEnd(2)))
                            ? 1
                            : 0)
                    << " ab=" << local_max_ab
