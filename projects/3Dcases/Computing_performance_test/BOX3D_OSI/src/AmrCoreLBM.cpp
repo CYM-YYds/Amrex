@@ -5327,15 +5327,32 @@ void AmrCoreLBM::InitializeNewLevelFromCoarse(int lev, Real time) {
         use_osi ? osi_state.at(lev) : f_old.at(lev);
     const MultiFab& coarse_state =
         use_osi ? osi_state.at(lev - 1) : f_old.at(lev - 1);
-    MultiFab local_batch(coarse_state.boxArray(),
-                         coarse_state.DistributionMap(),
-                         osi_sync_batch_components, nghost);
-    MultiFab* coarse_batch = &local_batch;
 
     ComputeMacroLevel(lev - 1);
     const MultiFab& coarse_density = density.at(lev - 1);
     const MultiFab& coarse_velocity = velocity.at(lev - 1);
     const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
+
+    // OSI direct 路径已经能够按 phase-aware raw 地址完成整层 Q 分量复制；
+    // 这里不再把同一份 coarse 状态拆成多个 batch。Copy 只负责数据搬运，
+    // 缩放和粗到细插值仍由后续两个阶段完成。
+    if (use_osi && osi_parallel_copy) {
+        MultiFab coarse_canonical(
+            coarse_state.boxArray(), coarse_state.DistributionMap(), Q,
+            nghost);
+        ParallelCopyOsi(lev - 1, coarse_state, osi_phase.at(lev - 1),
+                        coarse_canonical, 0);
+        ScaleCanonicalBatch(coarse_density, coarse_velocity,
+                            coarse_canonical, 0, Q, scale);
+        InterpolateCoarseBatchToFine(
+            lev, time, fine_state, coarse_canonical, 0, Q);
+        return;
+    }
+
+    MultiFab local_batch(coarse_state.boxArray(),
+                         coarse_state.DistributionMap(),
+                         osi_sync_batch_components, nghost);
+    MultiFab* coarse_batch = &local_batch;
 
     // 两种存储模式共享宏观量刷新、非平衡缩放和空间插值；区别只在于
     // A-B 直接复制 coarse batch，而 OSI 先按当前 phase 解码 batch。
