@@ -2793,7 +2793,7 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
             if (stream_mode == 1) {
                 DecodeOsiValidBatch(state, osi_phase.at(lev), decoded,
                                     q0, ncomp);
-                canonical = decoded;
+                canonical = &decoded;
             }
             for (int n = 0; n < ncomp; ++n) {
                 const int comp = stream_mode == 1 ? n : q0 + n;
