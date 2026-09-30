@@ -177,8 +177,11 @@ class AmrCoreLBM : public amrex::AmrCore {
     void RefineMesh(amrex::Real time);
     // CUDA 扩展版设备 Lambda 要求包裹它的成员函数必须是 public 公有访问权限
     void RebuildCoarseFineCaches();
-    void FillDdfGhostFromCoarse(int lev, amrex::Real time);
-    void FillCoarseInterpolationStagePhysicalBoundary(int lev);
+    // lev 表示当前粗层；函数填充 lev + 1 细层的 DDF ghost。
+    void FillDdfGhostFromCoarse(int lev, amrex::Real time,
+                                bool apply_scale);
+    // lev 表示当前粗层；函数处理 lev + 1 的粗网格插值暂存区。
+    void ApplyPhysicalBoundaryToInterpolationStage(int lev);
     void RemakeDdfState(int lev, amrex::Real time,
                         amrex::MultiFab& new_old_state);
     void RebuildCoarseFineMasks();
@@ -200,7 +203,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     // CUDA 扩展设备 Lambda 要求该实现辅助函数保持 public。
     void ApplyPhysicalBoundaryLevel(int lev, amrex::MultiFab& state,
                                     DdfLayout layout, bool skip_covered);
-    void AverageDownInterfaceLevel(int lev, bool is_scale);
+    // fine_lev 表示当前细层；将 fine_lev 平均下传到 fine_lev - 1 粗层。
+    void AverageDownInterfaceLevel(int fine_lev, bool is_scale);
+    // lev 始终表示当前粗层并填充 lev + 1；is_scale 只控制非平衡 DDF 放缩。
     void FillGhostLevel(int lev, amrex::Real time, bool is_scale);
     void FillMacroGhostLevel(int lev, amrex::Real time);
     void FillForceGhostLevel(int lev, amrex::Real time);
@@ -312,8 +317,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Interpolater* DdfInterpolater() const;
     void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
                             const amrex::DistributionMapping& dm);
-    void FillNewLevelFromCoarse(int lev, amrex::Real time);
-    void InterpolateNewFineBatch(int lev, amrex::Real time,
+    void InitializeNewLevelFromCoarse(int lev, amrex::Real time);
+    void InterpolateCoarseBatchToFine(int lev, amrex::Real time,
                                  amrex::MultiFab& fine,
                                  amrex::MultiFab& coarse_batch,
                                  int q0, int ncomp);
@@ -329,14 +334,17 @@ class AmrCoreLBM : public amrex::AmrCore {
                              const amrex::MultiFab& velocity,
                              amrex::MultiFab& batch, int q0,
                              int ncomp, amrex::Real scale) const;
-    void FillOsiFinePatchFromCoarse(
+    void InterpolateOsiFinePatchFromCoarse(
         int lev, amrex::Real time,
         const amrex::BoxArray& fine_patch_ba,
         const amrex::DistributionMapping& patch_dm,
         amrex::MultiFab& destination);
     void AverageDownOsiValidLevel(int lev, bool is_scale);
-    void FillOsiGhostFromCoarse(int lev, amrex::Real time);
-    void AverageDownOsiLevel(int lev, bool is_scale);
+    // lev 表示当前粗层；函数填充 lev + 1 细层的 OSI ghost。
+    void FillOsiGhostFromCoarse(int lev, amrex::Real time,
+                                bool apply_scale);
+    // fine_lev 表示当前细层；将 fine_lev 平均下传到 fine_lev - 1 粗层。
+    void AverageDownOsiLevel(int fine_lev, bool is_scale);
     void CommunicateOsiLevel(int lev);
     // OSI 版 ParallelCopy：按 CPC 逻辑交集把旧 raw 状态迁移到新 Fab 布局。
     void ParallelCopyOsi(int lev, const amrex::MultiFab& source,
@@ -389,16 +397,12 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<std::uint64_t> osi_phase;
     // 按 osi_sync_batch_components 分批复用的 canonical 缓冲：仅通信源 valid 从
     // twisted state 解码，FillBoundary 同步 ghost，再把通信目标编码回当前 phase。
-    amrex::Vector<amrex::MultiFab> osi_sync_buffer;
     // 独立于 AMReX 内部 CopyComTags 的通信区域缓存。第一组是 FillBoundary
     // 实际可能读取的 owner-valid 源区，第二组是实际写入的 grown-ghost 目标区；
-    // 两者均按 [level][global Fab index][disjoint Box] 索引。
+    // 两者均按 [level][global Fab index][disjoint Box] 索引。canonical 数据
+    // 在回退通信调用内临时创建，不再作为成员长期占用显存。
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> osi_decode_boxes;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> osi_encode_boxes;
-    // 将一个 rank 上的全部稀疏 Box 融合为每批各一个 GPU launch，避免区域裁剪
-    // 因大量小 kernel 启动而得不偿失。tag 中的 Array4 指针随 level 布局重建。
-    amrex::Vector<amrex::TagVector<OSI::CommunicationTag>> osi_decode_tags;
-    amrex::Vector<amrex::TagVector<OSI::CommunicationTag>> osi_encode_tags;
     amrex::Vector<amrex::TagVector<OSI::LocalCopyTag>> osi_local_copy_tags;
     amrex::Vector<amrex::Vector<OSI::RemoteCopyTag>> osi_remote_copy_tags;
     // MPI 计划、偏移和 staging 缓冲随网格缓存重建，时间步内只复用。

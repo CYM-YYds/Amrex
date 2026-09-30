@@ -80,11 +80,8 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     f_old.resize(nlevs_max);
     osi_state.resize(nlevs_max);
     osi_phase.resize(nlevs_max, 0);
-    osi_sync_buffer.resize(nlevs_max);
     osi_decode_boxes.resize(nlevs_max);
     osi_encode_boxes.resize(nlevs_max);
-    osi_decode_tags.resize(nlevs_max);
-    osi_encode_tags.resize(nlevs_max);
     osi_local_copy_tags.resize(nlevs_max);
     osi_interp_local_copy_tags.resize(nlevs_max);
     osi_remote_copy_tags.resize(nlevs_max);
@@ -915,18 +912,20 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     perf_stats.interp_cache_build += amrex::second() - start;
 }
 
-void AmrCoreLBM::FillCoarseInterpolationStagePhysicalBoundary(int lev) {
-    auto& coarse_stage = interp_direct_coarse_stage.at(lev);
-    const Box coarse_domain = Geom(lev - 1).Domain();
+void AmrCoreLBM::ApplyPhysicalBoundaryToInterpolationStage(int lev) {
+    const int fine_lev = lev + 1;
+    AMREX_ALWAYS_ASSERT(lev >= 0 && fine_lev <= finest_level);
+    auto& coarse_stage = interp_direct_coarse_stage.at(fine_lev);
+    const Box coarse_domain = Geom(lev).Domain();
     const auto coarse_lo = amrex::lbound(coarse_domain);
     const auto coarse_hi = amrex::ubound(coarse_domain);
-    const auto coarse_periodic = Geom(lev - 1).isPeriodicArray();
+    const auto coarse_periodic = Geom(lev).isPeriodicArray();
 
     // coarse_stage 的域外 stencil 沿最近的非周期域内单元延拓；周期方向
     // 已由调用者的 ParallelCopy(periodicity) 完成映射。
     for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
         const int stage_index = mfi.index();
-        if (!interp_direct_needs_physical_fill.at(lev).at(stage_index)) {
+        if (!interp_direct_needs_physical_fill.at(fine_lev).at(stage_index)) {
             continue;
         }
         const Box stage_box = mfi.validbox();
@@ -953,17 +952,19 @@ void AmrCoreLBM::FillCoarseInterpolationStagePhysicalBoundary(int lev) {
     }
 }
 
-void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
+void AmrCoreLBM::FillDdfGhostFromCoarse(
+    int lev, amrex::Real time, bool apply_scale) {
     (void)time;
-    AMREX_ALWAYS_ASSERT(lev > 0 && lev <= finest_level);
-    AMREX_ALWAYS_ASSERT(refRatio(lev - 1) == IntVect(2));
+    const int fine_lev = lev + 1;
+    AMREX_ALWAYS_ASSERT(lev >= 0 && fine_lev <= finest_level);
+    AMREX_ALWAYS_ASSERT(refRatio(lev) == IntVect(2));
 
-    auto& fine_state = f_old.at(lev);
-    const auto& coarse_state = f_old.at(lev - 1);
-    auto& coarse_stage = interp_direct_coarse_stage.at(lev);
-    const auto& fine_work_boxes = interp_direct_fine_boxes.at(lev);
-    const auto& fine_indices = interp_direct_fine_index.at(lev);
-    const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
+    auto& fine_state = f_old.at(fine_lev);
+    const auto& coarse_state = f_old.at(lev);
+    auto& coarse_stage = interp_direct_coarse_stage.at(fine_lev);
+    const auto& fine_work_boxes = interp_direct_fine_boxes.at(fine_lev);
+    const auto& fine_indices = interp_direct_fine_index.at(fine_lev);
+    const Real scale = tau.at(fine_lev) / tau.at(lev) / Real(2.0);
 
     if (fine_indices.empty()) {
         return;
@@ -975,19 +976,21 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time) {
     // 阶段 1：把 canonical coarse valid/周期像装入稀疏 stencil。
     coarse_stage.ParallelCopy(
         coarse_state, 0, 0, Q, IntVect(0), IntVect(0),
-        Geom(lev - 1).periodicity());
+        Geom(lev).periodicity());
     // 阶段 2：两条插值路径共享相同的物理边界规则。
-    FillCoarseInterpolationStagePhysicalBoundary(lev);
+    ApplyPhysicalBoundaryToInterpolationStage(lev);
 
     // 阶段 3/4：缩放当前 stencil，随后写入 canonical fine 布局。
     for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
         const int stage_index = mfi.index();
         const Box stage_box = mfi.validbox();
         const auto coarse = coarse_stage.array(mfi);
-        amrex::ParallelFor(
-            stage_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                average_scale(i, j, k, coarse, scale);
-            });
+        if (apply_scale) {
+            amrex::ParallelFor(
+                stage_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    average_scale(i, j, k, coarse, scale);
+                });
+        }
 
         const int fine_index = fine_indices.at(stage_index);
         const Box fine_box = fine_work_boxes.at(stage_index);
@@ -1677,7 +1680,7 @@ void AmrCoreLBM::AverageDownOsiValidLevel(int lev, bool is_scale) {
     const Real scale = Real(2.0) * tau.at(lev) / tau.at(lev + 1);
     const BoxArray restricted_ba = amrex::coarsen(fine_state.boxArray(), ratio);
 
-    // 这里使用函数局部 canonical 工作区，不再占用共享 osi_sync_buffer。
+    // 这里使用函数局部 canonical 工作区，不保留跨调用同步缓冲。
     // 该路径只服务于完整 valid restriction，避免污染后续通信阶段的状态。
     MultiFab fine_canonical(
         fine_state.boxArray(), fine_state.DistributionMap(), Q, 0);
@@ -1850,13 +1853,11 @@ void AmrCoreLBM::ProbeAverageInterfaceLevel(int lev, const char* stage) {
                       << " stem=" << stem << '\n';
 }
 
-void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
+void AmrCoreLBM::AverageDownInterfaceLevel(int fine_lev, bool is_scale) {
+    const int coarse_lev = fine_lev - 1;
+    AMREX_ALWAYS_ASSERT(fine_lev > 0 && fine_lev <= finest_level);
     ScopedPerfTimer timer(perf_stats.average);
     ++perf_stats.avgdown_calls;
-
-    if (lev >= finest_level) {
-        return;
-    }
 
     static const bool average_probe_enabled = [] {
         bool value = false;
@@ -1864,36 +1865,36 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
         return value;
     }();
     static int level0_average_count = 0;
-    const bool probe_this_call = average_probe_enabled && lev == 0 && is_scale &&
+    const bool probe_this_call = average_probe_enabled && coarse_lev == 0 && is_scale &&
                                  ++level0_average_count == 1;
     if (probe_this_call) {
-        ProbeAverageInterfaceLevel(lev, "before"); // 导出一次界面平均前或后的状态快照，供离线逐单元比较
+        ProbeAverageInterfaceLevel(coarse_lev, "before"); // 导出一次界面平均前或后的状态快照，供离线逐单元比较
     }
 
     if (stream_mode == 1) {
-        AverageDownOsiLevel(lev, is_scale);
+        AverageDownOsiLevel(fine_lev, is_scale);
         if (!osiReferenceEnabled()) {
             if (probe_this_call) {
-                ProbeAverageInterfaceLevel(lev, "after");
+                ProbeAverageInterfaceLevel(coarse_lev, "after");
             }
             return;
         }
         // 锁步模式继续为 A-B 参考态执行相同的界面平均。
     }
 
-    amrex::MultiFab& fine_mf = f_old[lev + 1];
-    amrex::MultiFab& crse_mf = f_old[lev];
+    amrex::MultiFab& fine_mf = f_old[fine_lev];
+    amrex::MultiFab& crse_mf = f_old[coarse_lev];
 
-    const IntVect ratio = refRatio(lev);
+    const IntVect ratio = refRatio(coarse_lev);
     // 平均前先将细层非平衡分布函数转换到粗层松弛时间对应的尺度。
-    const Real scale = 2.0 * tau[lev] / tau[lev + 1];
+    const Real scale = 2.0 * tau[coarse_lev] / tau[fine_lev];
     ScopedPerfTimer avgdown_timer(perf_stats.average_down);
 
     {
         const Long children_per_parent = ratio[0] * ratio[1] * ratio[2];
         // 交界区域融合路径只处理缓存的 coarse-interface 父单元。
-        MultiFab& interface_result = average_interface_buffer[lev];
-        const Vector<int>& fine_box_indices = average_interface_fine_box[lev];
+        MultiFab& interface_result = average_interface_buffer[coarse_lev];
+        const Vector<int>& fine_box_indices = average_interface_fine_box[coarse_lev];
         if (fine_box_indices.empty()) {
             return;
         }
@@ -1962,38 +1963,36 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int lev, bool is_scale) {
         }
     }
     if (probe_this_call) {
-        ProbeAverageInterfaceLevel(lev, "after");
+        ProbeAverageInterfaceLevel(coarse_lev, "after");
     }
 }
 
-void AmrCoreLBM::FillGhostLevel(int lev, amrex::Real time, bool is_scale) {
+void AmrCoreLBM::FillGhostLevel(int coarse_lev, amrex::Real time, bool is_scale) {
     ScopedPerfTimer timer(perf_stats.interp);
     ++perf_stats.fillghost_calls;
+    const int fine_lev = coarse_lev + 1;
+    AMREX_ALWAYS_ASSERT(coarse_lev >= 0 && fine_lev <= finest_level);
 
     if (stream_mode == 1) {
-        if (is_scale) {
-            FillOsiGhostFromCoarse(lev, time);
-            if (osiReferenceEnabled()) {
-                // 锁步参考态必须与独立 A-B 一样填充粗到细 ghost。
-                FillDdfGhostFromCoarse(lev, time);
-            }
+        FillOsiGhostFromCoarse(coarse_lev, time, is_scale);
+        if (osiReferenceEnabled()) {
+            // 锁步参考态必须与独立 A-B 一样填充粗到细 ghost。
+            FillDdfGhostFromCoarse(coarse_lev, time, is_scale);
         }
-    } else if (is_scale) {
-        FillDdfGhostFromCoarse(lev, time);
     } else {
-        FillPatch(lev, time, f_old.at(lev));
+        FillDdfGhostFromCoarse(coarse_lev, time, is_scale);
     }
     static const bool probe_first_fill = [] {
         bool enabled = false;
         ParmParse("verification").query("ghost_probe_first_fill", enabled);
         return enabled;
     }();
-    if (!probe_first_fill || lev != 1 || !is_scale) {
+    if (!probe_first_fill || fine_lev != 1) {
         return;
     }
     static int level1_fill_count = 0;
     if (++level1_fill_count == 1) {
-        ProbeFillGhostLevel(lev);
+        ProbeFillGhostLevel(fine_lev);
     }
 }
 
@@ -2071,20 +2070,22 @@ void AmrCoreLBM::ProbeFillGhostLevel(int lev) {
                       << " stem=" << stem << '\n';
 }
 
-void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
+void AmrCoreLBM::FillOsiGhostFromCoarse(
+    int lev, amrex::Real time, bool apply_scale) {
     (void)time;
-    AMREX_ALWAYS_ASSERT(lev > 0 && lev <= finest_level);
-    AMREX_ALWAYS_ASSERT(refRatio(lev - 1) == IntVect(2));
-    AMREX_ALWAYS_ASSERT(interp_direct_cache_ready.at(lev));
+    const int fine_lev = lev + 1;
+    AMREX_ALWAYS_ASSERT(lev >= 0 && fine_lev <= finest_level);
+    AMREX_ALWAYS_ASSERT(refRatio(lev) == IntVect(2));
+    AMREX_ALWAYS_ASSERT(interp_direct_cache_ready.at(fine_lev));
 
-    auto& coarse_state = osi_state.at(lev - 1);
-    auto& fine_state = osi_state.at(lev);
-    auto& coarse_stage = interp_direct_coarse_stage.at(lev);
-    const auto& fine_work_boxes = interp_direct_fine_boxes.at(lev);
-    const auto& fine_indices = interp_direct_fine_index.at(lev);
-    const auto coarse_phase = osi_phase.at(lev - 1);
-    const auto fine_phase = osi_phase.at(lev);
-    const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
+    auto& coarse_state = osi_state.at(lev);
+    auto& fine_state = osi_state.at(fine_lev);
+    auto& coarse_stage = interp_direct_coarse_stage.at(fine_lev);
+    const auto& fine_work_boxes = interp_direct_fine_boxes.at(fine_lev);
+    const auto& fine_indices = interp_direct_fine_index.at(fine_lev);
+    const auto coarse_phase = osi_phase.at(lev);
+    const auto fine_phase = osi_phase.at(fine_lev);
+    const Real scale = tau.at(fine_lev) / tau.at(lev) / Real(2.0);
 
     if (fine_indices.empty()) {
         return;
@@ -2096,7 +2097,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
         // 复用 CPC 的空间/归属配对，不让 AMReX 直接解释 OSI raw 分量。
         const auto& cpc = coarse_stage.getCPC(
             IntVect(0), coarse_state, IntVect(0),
-            Geom(lev - 1).periodicity());
+            Geom(lev).periodicity()); // 以 coarse_stage 为目标、coarse_state 为源，结合两侧的 ghost 偏移和 当前粗层周期性，生成本 rank 直接复制以及跨 rank 收发所需的 CPC 标签。
         AMREX_ALWAYS_ASSERT(cpc.m_LocTags && cpc.m_SndTags && cpc.m_RcvTags);
 
         Vector<OSI::LocalCopyTag> local_tags;
@@ -2160,7 +2161,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
         TagVector<OSI::CanonicalUnpackTag> unpack_tv(unpack_tags);
 
         amrex::Print(amrex::Print::AllProcs)
-            << "[OSI interpolation mpi] level=" << lev
+            << "[OSI interpolation mpi] fine_level=" << fine_lev
             << " transport="
             << (osi_mpi_device_direct ? "device-direct" : "host-staging")
             << " send_bytes=" << send_total * sizeof(Real)
@@ -2185,19 +2186,19 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
                                  const OSI::RawPackTag& tag,
                                  Real* buffer) noexcept {
-                    const auto lo = tag.region.smallEnd();
-                    const int nx = tag.region.length(0);
-                    const int ny = tag.region.length(1);
-                    const std::size_t cell = static_cast<std::size_t>(
-                        ((k - lo[2]) * ny + (j - lo[1])) * nx +
-                        (i - lo[0]));
-                    const auto phase_shift =
-                        OSI::osi_phase_shift(coarse_phase, tag.fab);
-                    const auto raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
-                        phase_shift);
-                    buffer[tag.offset + cell * Q + q] =
-                        tag.src(raw.x, raw.y, raw.z, q);
+                const auto lo = tag.region.smallEnd();
+                const int nx = tag.region.length(0);
+                const int ny = tag.region.length(1);
+                const std::size_t cell = static_cast<std::size_t>(
+                    ((k - lo[2]) * ny + (j - lo[1])) * nx +
+                    (i - lo[0]));
+                const auto phase_shift =
+                    OSI::osi_phase_shift(coarse_phase, tag.fab);
+                const auto raw = OSI::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                    phase_shift);
+                buffer[tag.offset + cell * Q + q] =
+                    tag.src(raw.x, raw.y, raw.z, q);
             },
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
                                  const OSI::CanonicalUnpackTag& tag,
@@ -2211,12 +2212,12 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
                     buffer[tag.offset + cell * Q + q];
             });
     } else if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1 &&
-               osi_interp_local_copy_tags.at(lev).ntags != 0) {
+               osi_interp_local_copy_tags.at(fine_lev).ntags != 0) {
         ScopedPerfTimer timer(perf_stats.osi_parallel_copy);
         // direct 路径无需遵循通信缓冲的分批限制，一次处理全部 Q 分量，
         // 避免把本地 raw-to-canonical 复制拆成 9 次 kernel launch。
         OSI::parallel_copy_local(
-            osi_interp_local_copy_tags.at(lev), Q,
+            osi_interp_local_copy_tags.at(fine_lev), Q,
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int n,
                                  const OSI::LocalCopyTag& tag) noexcept {
                 const auto source = OSI::source_cell(tag, i, j, k);
@@ -2230,7 +2231,9 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
                 tag.dst(i, j, k, n) = tag.src(raw.x, raw.y, raw.z, q);
             });
     } else {
-        auto& decode_batch = osi_sync_buffer.at(lev - 1);
+        MultiFab decode_batch(
+            coarse_state.boxArray(), coarse_state.DistributionMap(),
+            osi_sync_batch_components, coarse_state.nGrowVect());
         // direct 关闭时保留原有分批解码和 ParallelCopy 回退路径。
         for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
             const int ncomp =
@@ -2251,7 +2254,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
                     OSI::osi_phase_shift(coarse_phase, fab);
 
                 for (const Box& bx :
-                     osi_interp_decode_boxes.at(lev).at(mfi.index())) {
+                     osi_interp_decode_boxes.at(fine_lev).at(mfi.index())) {
                     amrex::ParallelFor(
                         bx, ncomp,
                         [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
@@ -2267,20 +2270,22 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
             }
             coarse_stage.ParallelCopy(
                 decode_batch, 0, q0, ncomp, IntVect(0), IntVect(0),
-                Geom(lev - 1).periodicity());
+                Geom(lev).periodicity());
         }
     }
 
-    FillCoarseInterpolationStagePhysicalBoundary(lev);
+    ApplyPhysicalBoundaryToInterpolationStage(lev);
 
     for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
         const int stage_index = mfi.index();
         const Box stage_box = mfi.validbox();
         const auto coarse = coarse_stage.array(mfi);
-        amrex::ParallelFor(
-            stage_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                average_scale(i, j, k, coarse, scale);
-            });
+        if (apply_scale) {
+            amrex::ParallelFor(
+                stage_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    average_scale(i, j, k, coarse, scale);
+                });
+        }
 
         const int fine_index = fine_indices.at(stage_index);
         const Box fine_ring = amrex::grow(
@@ -2324,20 +2329,24 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(int lev, amrex::Real time) {
     }
 }
 
-void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
-    auto& coarse_state = osi_state.at(lev);
-    const auto& fine_state = osi_state.at(lev + 1);
-    auto& interface_result = average_interface_buffer.at(lev);
-    auto& transfer_batch = osi_sync_buffer.at(lev);
-    const auto& fine_indices = average_interface_fine_box.at(lev);
-    const auto ratio = refRatio(lev);
-    const auto coarse_phase = osi_phase.at(lev);
-    const auto fine_phase = osi_phase.at(lev + 1);
-    const Real scale = Real(2.0) * tau.at(lev) / tau.at(lev + 1);
+void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
+    const int coarse_lev = fine_lev - 1;
+    AMREX_ALWAYS_ASSERT(fine_lev > 0 && fine_lev <= finest_level);
+    auto& coarse_state = osi_state.at(coarse_lev);
+    const auto& fine_state = osi_state.at(fine_lev);
+    auto& interface_result = average_interface_buffer.at(coarse_lev);
+    const auto& fine_indices = average_interface_fine_box.at(coarse_lev);
+    const auto ratio = refRatio(coarse_lev);
+    const auto coarse_phase = osi_phase.at(coarse_lev);
+    const auto fine_phase = osi_phase.at(fine_lev);
+    const Real scale = Real(2.0) * tau.at(coarse_lev) / tau.at(fine_lev);
 
     if (fine_indices.empty()) {
         return;
     }
+    MultiFab transfer_batch(
+        interface_result.boxArray(), interface_result.DistributionMap(),
+        osi_sync_batch_components, IntVect(0));
     AMREX_ALWAYS_ASSERT(interface_result.size() == fine_indices.size());
 
     // 每个稀疏 coarse interface Box 都映射到唯一的 fine Fab；直接按细层
@@ -2406,7 +2415,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         ScopedPerfTimer direct_timer(perf_stats.osi_parallel_copy);
         const auto& cpc = coarse_state.getCPC(
             IntVect(0), interface_result, IntVect(0),
-            Geom(lev).periodicity());
+            Geom(coarse_lev).periodicity());
         AMREX_ALWAYS_ASSERT(cpc.m_LocTags && cpc.m_SndTags && cpc.m_RcvTags);
 
         Vector<OSI::LocalCopyTag> local_tags;
@@ -2466,7 +2475,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
         TagVector<OSI::CanonicalRawUnpackTag> unpack_tv(unpack_tags);
 
         amrex::Print(amrex::Print::AllProcs)
-            << "[OSI average mpi] level=" << lev
+            << "[OSI average mpi] fine_level=" << fine_lev
             << " transport="
             << (osi_mpi_device_direct ? "device-direct" : "host-staging")
             << " send_bytes=" << send_total * sizeof(Real)
@@ -2567,7 +2576,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
                 {ring.length(0), ring.length(1), ring.length(2)}};
             const auto coarse_shift =
                 OSI::osi_phase_shift(coarse_phase, coarse_fab);
-            const auto mask = interface_mask.at(lev).const_array(mfi);
+            const auto mask = interface_mask.at(coarse_lev).const_array(mfi);
             const auto src = transfer_batch.const_array(mfi);
             const auto dst = coarse_state.array(mfi);
             Vector<std::pair<int, Box>> intersections;
@@ -2685,9 +2694,8 @@ void AmrCoreLBM::ValidateConfiguration() const {
     }
     for (int lev = 0; lev <= finest_level; ++lev) {
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-            osi_state.at(lev).isDefined() &&
-                osi_sync_buffer.at(lev).isDefined(),
-            "OSI state or synchronization buffer was not initialized for an active AMR level");
+            osi_state.at(lev).isDefined(),
+            "OSI state was not initialized for an active AMR level");
     }
 
     bool all_periodic = true;
@@ -2722,17 +2730,10 @@ void AmrCoreLBM::ValidateConfiguration() const {
             state_values +=
                 amrex::grow(state_ba[ibox], state_ng).numPts() * Q;
         }
-        amrex::Long sync_values = 0;
-        const BoxArray& sync_ba = osi_sync_buffer[lev].boxArray();
-        const IntVect sync_ng = osi_sync_buffer[lev].nGrowVect();
-        for (int ibox = 0; ibox < sync_ba.size(); ++ibox) {
-            sync_values += amrex::grow(sync_ba[ibox], sync_ng).numPts() *
-                           osi_sync_buffer[lev].nComp();
-        }
         amrex::Print() << "[OSI level] level=" << lev
                        << " boxes=" << state_ba.size()
                        << " state_values=" << state_values
-                       << " sync_values=" << sync_values
+                       << " sync_values=0 (按调用临时分配)"
                        << " ring_ngrow=" << state_ng[0]
                        << " phase=" << osi_phase[lev] << '\n';
     }
@@ -2742,8 +2743,11 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
     for (int lev = 0; lev <= finest_level; ++lev) {
         const MultiFab& state =
             stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
-        MultiFab* decoded =
-            stream_mode == 1 ? &osi_sync_buffer.at(lev) : nullptr;
+        MultiFab decoded;
+        if (stream_mode == 1) {
+            decoded.define(state.boxArray(), state.DistributionMap(),
+                           osi_sync_batch_components, state.nGrowVect());
+        }
         const bool has_fine = lev < finest_level && cf_mask_mode == 1;
         MultiFab active_scalar(
             state.boxArray(), state.DistributionMap(), 1, 0);
@@ -2787,7 +2791,7 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
                 amrex::min(osi_sync_batch_components, Q - q0);
             const MultiFab* canonical = &state;
             if (stream_mode == 1) {
-                DecodeOsiValidBatch(state, osi_phase.at(lev), *decoded,
+                DecodeOsiValidBatch(state, osi_phase.at(lev), decoded,
                                     q0, ncomp);
                 canonical = decoded;
             }
@@ -2839,10 +2843,38 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
 
 void AmrCoreLBM::CommunicateOsiLevel(int lev) {
     MultiFab& state = osi_state.at(lev);
-    MultiFab& canonical = osi_sync_buffer.at(lev);
+    MultiFab canonical(state.boxArray(), state.DistributionMap(),
+                       osi_sync_batch_components, state.nGrowVect());
     const std::uint64_t phase = osi_phase.at(lev);
     const Periodicity& periodicity = geom[lev].periodicity();
     const IntVect ng = state.nGrowVect();
+
+    // 回退路径的 tag 只能指向本次调用的临时 canonical，不能缓存其地址。
+    Vector<OSI::CommunicationTag> decode_tags;
+    Vector<OSI::CommunicationTag> encode_tags;
+    const BoxArray& ba = state.boxArray();
+    for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+        const int ibox = mfi.index();
+        const Box ring_box = amrex::grow(ba[ibox], ng);
+        const auto fab_lo = ring_box.smallEnd();
+        const OSI::FabGeometry fab{
+            {fab_lo[0], fab_lo[1], fab_lo[2]},
+            {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
+        const auto state_src = state.const_array(ibox);
+        const auto state_dst = state.array(ibox);
+        const auto canonical_src = canonical.const_array(ibox);
+        const auto canonical_dst = canonical.array(ibox);
+        for (const Box& bx : osi_decode_boxes.at(lev).at(ibox)) {
+            decode_tags.push_back({state_src, canonical_dst, bx, fab});
+        }
+        for (const Box& bx : osi_encode_boxes.at(lev).at(ibox)) {
+            encode_tags.push_back({canonical_src, state_dst, bx, fab});
+        }
+    }
+    TagVector<OSI::CommunicationTag> decode_tv;
+    TagVector<OSI::CommunicationTag> encode_tv;
+    decode_tv.define(decode_tags);
+    encode_tv.define(encode_tags);
 
     // 回退路径先将 OSI raw valid 解码到 canonical staging，再由 AMReX
     // FillBoundary 处理同 rank、跨 rank 和周期像，最后只编码回 ghost。
@@ -2852,7 +2884,7 @@ void AmrCoreLBM::CommunicateOsiLevel(int lev) {
         {
             ScopedPerfTimer timer(perf_stats.osi_decode);
             amrex::ParallelFor(
-                osi_decode_tags.at(lev), batch_size,
+                decode_tv, batch_size,
                 [=] AMREX_GPU_DEVICE(
                     int i, int j, int k, int n,
                     const OSI::CommunicationTag& tag) noexcept {
@@ -2874,7 +2906,7 @@ void AmrCoreLBM::CommunicateOsiLevel(int lev) {
         {
             ScopedPerfTimer timer(perf_stats.osi_encode);
             amrex::ParallelFor(
-                osi_encode_tags.at(lev), batch_size,
+                encode_tv, batch_size,
                 [=] AMREX_GPU_DEVICE(
                     int i, int j, int k, int n,
                     const OSI::CommunicationTag& tag) noexcept {
@@ -2961,32 +2993,8 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
         }
     }
 
-    Vector<OSI::CommunicationTag> decode_tags;
-    Vector<OSI::CommunicationTag> encode_tags;
-    decode_tags.reserve(static_cast<std::size_t>(decode_box_count)); // 预留空间
-    encode_tags.reserve(static_cast<std::size_t>(encode_box_count));
-    // 为每个Box创建一个CommunicationTag，用于后续的通信操作
-    MultiFab& canonical = osi_sync_buffer.at(lev);
-    for (MFIter mfi(canonical, false); mfi.isValid(); ++mfi) {
-        const int ibox = mfi.index();
-        const Box ring_box = amrex::grow(ba[ibox], ng);
-        const auto fab_lo = ring_box.smallEnd();
-        const OSI::FabGeometry fab{
-            {fab_lo[0], fab_lo[1], fab_lo[2]},
-            {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
-        const Array4<const Real> state_src = state.const_array(ibox);
-        const Array4<Real> state_dst = state.array(ibox);
-        const Array4<const Real> canonical_src = canonical.const_array(mfi);
-        const Array4<Real> canonical_dst = canonical.array(mfi);
-        for (const Box& bx : decode[ibox]) {
-            decode_tags.push_back({state_src, canonical_dst, bx, fab});
-        }
-        for (const Box& bx : encode[ibox]) {
-            encode_tags.push_back({canonical_src, state_dst, bx, fab});
-        }
-    }
-    osi_decode_tags.at(lev).define(decode_tags);
-    osi_encode_tags.at(lev).define(encode_tags);
+    // 回退通信所需的 canonical tag 在 CommunicateOsiLevel 中随临时
+    // MultiFab 一起构造，避免缓存已经失效的 Array4 地址。
 
     // 直接复用 AMReX FillBoundary 已缓存的通信计划；OSI 只负责 raw 地址投影。
     Vector<OSI::LocalCopyTag> local_tags;
@@ -4083,7 +4091,8 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
 
         if (stream_mode == 1) {
             const MultiFab& state = osi_state.at(lev);
-            MultiFab& batch = osi_sync_buffer.at(lev);
+            MultiFab batch(state.boxArray(), state.DistributionMap(),
+                           osi_sync_batch_components, state.nGrowVect());
             const auto phase = osi_phase.at(lev);
 
             // 诊断只复用现有分批同步缓冲，不再把整层 OSI 状态解码到 f_old/f_new。
@@ -4192,9 +4201,10 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new)
     Real valid_sum = 0.0;
     Real active_sum = 0.0;
 
-    if (stream_mode == 1) {
-        const MultiFab& state = osi_state.at(lev);
-        MultiFab& batch = osi_sync_buffer.at(lev);
+        if (stream_mode == 1) {
+            const MultiFab& state = osi_state.at(lev);
+            MultiFab batch(state.boxArray(), state.DistributionMap(),
+                           osi_sync_batch_components, state.nGrowVect());
         const auto phase = osi_phase.at(lev);
         for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
             const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
@@ -5053,13 +5063,13 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
         f_new_lev.define(ba, dm, Q, nghost);
         f_old_lev.define(ba, dm, Q, nghost);
 
-        FillNewLevelFromCoarse(lev, time);
+        InitializeNewLevelFromCoarse(lev, time);
     } else {
         InitializeOsiLevel(lev, ba, dm);
         amrex::MultiFab& state = osi_state.at(lev);
         state.setVal(std::numeric_limits<Real>::quiet_NaN());
 
-        FillNewLevelFromCoarse(lev, time);
+        InitializeNewLevelFromCoarse(lev, time);
         if (osiReferenceEnabled()) {
             // 新层的 A-B 参考态独立从粗层 canonical 数据插值，供重网格后逐层核对。
             MultiFab& reference = f_old.at(lev);
@@ -5074,7 +5084,7 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
                 MultiFab::Copy(batch, coarse, q0, 0, ncomp, 0);
                 ScaleCanonicalBatch(density.at(lev - 1), velocity.at(lev - 1),
                                     batch, q0, ncomp, scale);
-                InterpolateNewFineBatch(lev, time, reference, batch, q0, ncomp);
+                InterpolateCoarseBatchToFine(lev, time, reference, batch, q0, ncomp);
             }
         }
     }
@@ -5116,9 +5126,6 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
             return;
         }
 
-        osi_decode_tags.at(lev).undefine();
-        osi_encode_tags.at(lev).undefine();
-
         MultiFab old_state;
 
         std::swap(old_state, osi_state.at(lev));
@@ -5141,7 +5148,7 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
             const auto& fpc = FabArrayBase::TheFPinfo(
                 old_state, new_osi_state, fill_ng, coarsener,
                 Geom(lev), Geom(lev - 1), nullptr); // 得到新 fine 中不被旧 fine 覆盖的区域以及为了插值这些 fine 区域需要读取的粗层 stencil
-            FillOsiFinePatchFromCoarse(
+            InterpolateOsiFinePatchFromCoarse(
                 lev, time, fpc.ba_fine_patch, fpc.dm_patch,
                 new_osi_state);
         }
@@ -5199,16 +5206,16 @@ void AmrCoreLBM::ParallelCopyOsi(
             destination.boxArray()[tag.dstIndex], destination.nGrowVect());
         const auto source_lo = source_ring.smallEnd();
         const auto destination_lo = destination_ring.smallEnd();
-        local_tags.push_back({
-            source.const_array(tag.srcIndex),
-            destination.array(tag.dstIndex),
-            tag.sbox, tag.dbox,
-            {{source_lo[0], source_lo[1], source_lo[2]},
-             {source_ring.length(0), source_ring.length(1),
-              source_ring.length(2)}},
-            {{destination_lo[0], destination_lo[1], destination_lo[2]},
-             {destination_ring.length(0), destination_ring.length(1),
-              destination_ring.length(2)}}});
+        local_tags.push_back({source.const_array(tag.srcIndex),
+                              destination.array(tag.dstIndex),
+                              tag.sbox,
+                              tag.dbox,
+                              {{source_lo[0], source_lo[1], source_lo[2]},
+                               {source_ring.length(0), source_ring.length(1),
+                                source_ring.length(2)}},
+                              {{destination_lo[0], destination_lo[1], destination_lo[2]},
+                               {destination_ring.length(0), destination_ring.length(1),
+                                destination_ring.length(2)}}});
     }
 
     TagVector<OSI::LocalCopyTag> local_tv(local_tags);
@@ -5250,12 +5257,7 @@ void AmrCoreLBM::ParallelCopyOsi(
             const Box source_ring = amrex::grow(
                 source.boxArray()[tag.srcIndex], source.nGrowVect());
             const auto source_lo = source_ring.smallEnd();
-            pack_tags.push_back({
-                source.const_array(tag.srcIndex), tag.sbox,
-                {{source_lo[0], source_lo[1], source_lo[2]},
-                 {source_ring.length(0), source_ring.length(1),
-                  source_ring.length(2)}},
-                send_cursor[peer]});
+            pack_tags.push_back({source.const_array(tag.srcIndex), tag.sbox, {{source_lo[0], source_lo[1], source_lo[2]}, {source_ring.length(0), source_ring.length(1), source_ring.length(2)}}, send_cursor[peer]});
             send_cursor[peer] +=
                 static_cast<std::size_t>(tag.sbox.numPts()) * Q;
         }
@@ -5266,12 +5268,7 @@ void AmrCoreLBM::ParallelCopyOsi(
             const Box destination_ring = amrex::grow(
                 destination.boxArray()[tag.dstIndex], destination.nGrowVect());
             const auto destination_lo = destination_ring.smallEnd();
-            unpack_tags.push_back({
-                destination.array(tag.dstIndex), tag.dbox,
-                {{destination_lo[0], destination_lo[1], destination_lo[2]},
-                 {destination_ring.length(0), destination_ring.length(1),
-                  destination_ring.length(2)}},
-                recv_cursor[peer]});
+            unpack_tags.push_back({destination.array(tag.dstIndex), tag.dbox, {{destination_lo[0], destination_lo[1], destination_lo[2]}, {destination_ring.length(0), destination_ring.length(1), destination_ring.length(2)}}, recv_cursor[peer]});
             recv_cursor[peer] +=
                 static_cast<std::size_t>(tag.dbox.numPts()) * Q;
         }
@@ -5315,12 +5312,11 @@ void AmrCoreLBM::ParallelCopyOsi(
 void AmrCoreLBM::InitializeOsiLevel(
     int lev, const BoxArray& ba, const DistributionMapping& dm) {
     osi_state.at(lev).define(ba, dm, Q, nghost);
-    osi_sync_buffer.at(lev).define(ba, dm, osi_sync_batch_components, nghost);
     osi_phase.at(lev) = 0;
     BuildOsiCommunicationRegionCache(lev);
 }
 
-void AmrCoreLBM::FillNewLevelFromCoarse(int lev, Real time) {
+void AmrCoreLBM::InitializeNewLevelFromCoarse(int lev, Real time) {
     AMREX_ALWAYS_ASSERT(lev > 0);
     const bool use_osi = stream_mode == 1;
     if (use_osi) {
@@ -5331,16 +5327,10 @@ void AmrCoreLBM::FillNewLevelFromCoarse(int lev, Real time) {
         use_osi ? osi_state.at(lev) : f_old.at(lev);
     const MultiFab& coarse_state =
         use_osi ? osi_state.at(lev - 1) : f_old.at(lev - 1);
-    MultiFab local_batch;
-    MultiFab* coarse_batch = nullptr;
-    if (use_osi) {
-        coarse_batch = &osi_sync_buffer.at(lev - 1);
-    } else {
-        local_batch.define(coarse_state.boxArray(),
-                           coarse_state.DistributionMap(),
-                           osi_sync_batch_components, nghost);
-        coarse_batch = &local_batch;
-    }
+    MultiFab local_batch(coarse_state.boxArray(),
+                         coarse_state.DistributionMap(),
+                         osi_sync_batch_components, nghost);
+    MultiFab* coarse_batch = &local_batch;
 
     ComputeMacroLevel(lev - 1);
     const MultiFab& coarse_density = density.at(lev - 1);
@@ -5360,12 +5350,12 @@ void AmrCoreLBM::FillNewLevelFromCoarse(int lev, Real time) {
         }
         ScaleCanonicalBatch(coarse_density, coarse_velocity,
                             *coarse_batch, q0, ncomp, scale);
-        InterpolateNewFineBatch(
+        InterpolateCoarseBatchToFine(
             lev, time, fine_state, *coarse_batch, q0, ncomp);
     }
 }
 
-void AmrCoreLBM::InterpolateNewFineBatch(
+void AmrCoreLBM::InterpolateCoarseBatchToFine(
     int lev, Real time, MultiFab& fine, MultiFab& coarse_batch,
     int q0, int ncomp) {
     if (Gpu::inLaunchRegion()) {
@@ -5451,7 +5441,7 @@ void AmrCoreLBM::DecodeOsiValidBatch(
     }
 }
 
-void AmrCoreLBM::FillOsiFinePatchFromCoarse(
+void AmrCoreLBM::InterpolateOsiFinePatchFromCoarse(
     int lev, Real time, const BoxArray& fine_patch_ba,
     const DistributionMapping& patch_dm, MultiFab& destination) {
     if (fine_patch_ba.empty()) {
@@ -5474,7 +5464,9 @@ void AmrCoreLBM::FillOsiFinePatchFromCoarse(
         std::numeric_limits<Real>::quiet_NaN(), Geom(lev - 1));
 
     const MultiFab& coarse_state = osi_state.at(lev - 1);
-    MultiFab& decode_batch = osi_sync_buffer.at(lev - 1);
+    MultiFab decode_batch(coarse_state.boxArray(),
+                          coarse_state.DistributionMap(),
+                          osi_sync_batch_components, coarse_state.nGrowVect());
     const auto coarse_phase = osi_phase.at(lev - 1);
     for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
         const int ncomp =
@@ -5546,8 +5538,6 @@ void AmrCoreLBM::FillOsiFinePatchFromCoarse(
         Geom(lev).periodicity());
 }
 void AmrCoreLBM::ClearLevel(int lev) {
-    osi_decode_tags[lev].undefine();
-    osi_encode_tags[lev].undefine();
     osi_local_copy_tags[lev].undefine();
     osi_remote_copy_tags[lev].clear();
     osi_mpi_pack_tags[lev].undefine();
@@ -5563,7 +5553,6 @@ void AmrCoreLBM::ClearLevel(int lev) {
     f_old[lev].clear();
     f_new[lev].clear();
     osi_state[lev].clear();
-    osi_sync_buffer[lev].clear();
     osi_decode_boxes[lev].clear();
     osi_encode_boxes[lev].clear();
     osi_phase[lev] = 0;
