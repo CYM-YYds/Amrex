@@ -2536,14 +2536,10 @@ void AmrCoreLBM::AverageDownOsiLevel(int lev, bool is_scale) {
                     {ring.length(0), ring.length(1), ring.length(2)}};
                 const auto coarse_shift =
                     OSI::osi_phase_shift(coarse_phase, coarse_fab);
-                const auto mask = interface_mask.at(lev).const_array(dst_index);
                 const auto dst = coarse_state.array(dst_index);
                 amrex::ParallelFor(
                     bx, Q,
                     [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
-                        if (mask(i, j, k) == 0) {
-                            return;
-                        }
                         const int q = n;
                         const auto raw = OSI::osi_address(
                             {i, j, k}, {e[q][0], e[q][1], e[q][2]},
