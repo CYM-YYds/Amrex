@@ -318,22 +318,19 @@ class AmrCoreLBM : public amrex::AmrCore {
     void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
                             const amrex::DistributionMapping& dm);
     void InitializeNewLevelFromCoarse(int lev, amrex::Real time);
-    void InterpolateCoarseBatchToFine(int lev, amrex::Real time,
-                                 amrex::MultiFab& fine,
-                                 amrex::MultiFab& coarse_batch,
-                                 int q0, int ncomp);
+    void InterpolateCanonicalToFine(int lev, amrex::Real time,
+                                    amrex::MultiFab& fine,
+                                    amrex::MultiFab& coarse_canonical);
 
   public:
     // nvcc extended device lambdas require their enclosing member functions to
     // be publicly accessible. These are implementation helpers, not user APIs.
-    void DecodeOsiValidBatch(const amrex::MultiFab& state,
-                             std::uint64_t phase,
-                             amrex::MultiFab& batch, int q0,
-                             int ncomp) const;
-    void ScaleCanonicalBatch(const amrex::MultiFab& density,
-                             const amrex::MultiFab& velocity,
-                             amrex::MultiFab& batch, int q0,
-                             int ncomp, amrex::Real scale) const;
+    void DecodeOsiValid(const amrex::MultiFab& state,
+                        std::uint64_t phase,
+                        amrex::MultiFab& canonical) const;
+    void ScaleCanonical(const amrex::MultiFab& density,
+                        const amrex::MultiFab& velocity,
+                        amrex::MultiFab& canonical, amrex::Real scale) const;
     void InterpolateOsiFinePatchFromCoarse(
         int lev, amrex::Real time,
         const amrex::BoxArray& fine_patch_ba,
@@ -373,9 +370,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool osi_ab_check = false;
     // 验证粒子 checkpoint/restart 时输出全局粒子数、坐标与 SoA 属性和。
     bool particle_checksum = false;
-    // canonical 通信缓冲一次处理的 DDF 分量数；增大它可减少 FillBoundary 调用次数，
-    // 代价是按比例增加临时缓冲内存。
-    int osi_sync_batch_components = 3;
     // 0：全区域分步基准；1：交界区域融合。
     // 粗到细 DDF 插值：0 = ratio-2 三线性；1 = GPU 守恒线性；
     // 2 = GPU 单元二次插值。
@@ -395,12 +389,10 @@ class AmrCoreLBM : public amrex::AmrCore {
     // osi_ab_check 显式启用。环形区间是每个 Fab 的完整 grown box。
     amrex::Vector<amrex::MultiFab> osi_state;
     amrex::Vector<std::uint64_t> osi_phase;
-    // 按 osi_sync_batch_components 分批复用的 canonical 缓冲：仅通信源 valid 从
-    // twisted state 解码，FillBoundary 同步 ghost，再把通信目标编码回当前 phase。
-    // 独立于 AMReX 内部 CopyComTags 的通信区域缓存。第一组是 FillBoundary
-    // 实际可能读取的 owner-valid 源区，第二组是实际写入的 grown-ghost 目标区；
-    // 两者均按 [level][global Fab index][disjoint Box] 索引。canonical 数据
-    // 在回退通信调用内临时创建，不再作为成员长期占用显存。
+    // canonical 通信区域缓存。第一组是 FillBoundary 实际可能读取的
+    // owner-valid 源区，第二组是实际写入的 grown-ghost 目标区；两者均按
+    // [level][global Fab index][disjoint Box] 索引。canonical 数据在回退通信
+    // 调用内按完整 Q 分量临时创建，不作为成员长期占用显存。
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> osi_decode_boxes;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> osi_encode_boxes;
     amrex::Vector<amrex::TagVector<OSI::LocalCopyTag>> osi_local_copy_tags;

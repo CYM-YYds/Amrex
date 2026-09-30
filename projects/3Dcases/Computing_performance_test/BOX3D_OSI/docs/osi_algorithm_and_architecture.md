@@ -237,10 +237,10 @@ $$
 
 不能把 twisted `MultiFab` 直接交给普通 `FillBoundary()` 并期待正确结果，因为
 `FillBoundary()` 按相同 `(i,j,k,q)` 复制，而不知道发送和接收 Fab 各自的 OSI 映射。
-canonical fallback 按 `lbm.osi_sync_batch_components` 将若干方向解码到 canonical
-`MultiFab`，调用普通 `FillBoundary()` 后，只把实际通信目标 ghost 编码回同一个 phase。
+canonical fallback 一次将完整 Q 分量解码到临时 canonical `MultiFab`，调用一次普通
+`FillBoundary()` 后，只把实际通信目标 ghost 编码回同一个 phase。
 Decode 只覆盖通信可能读取的 owner-valid 源区；valid 不会从 canonical 缓冲重复回写。
-该批大小配置为 3。现役 `CommunicateLevel()` 在单 rank 或两个 direct 开关均打开时
+`lbm.osi_sync_batch_components` 已移除。现役 `CommunicateLevel()` 在单 rank 或两个 direct 开关均打开时
 选择 raw direct；`osi_local_direct=0`，或多 rank 下 `osi_mpi_direct=0` 时选择上述
 fallback。跨 rank direct 使用按 peer 聚合的 host-staging pack/unpack。通信计划、
 偏移和缓冲随布局一次构建，pack/unpack 各由一个 `TagVector` kernel 完成。不能直接对

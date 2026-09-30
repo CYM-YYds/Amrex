@@ -88,10 +88,6 @@ lbm.osi_mpi_device_direct = 0
 # 当前单 peer 性能测试的历史较优值为 2097152 字节（2 MiB）。
 lbm.osi_mpi_pipeline_chunk_bytes = 2097152
 
-# canonical 通信缓冲每批处理的 DDF 分量数，允许范围 1..27。
-# 1 最省临时内存；3 或 9 可将每步 FillBoundary 次数降为 9 或 3。
-lbm.osi_sync_batch_components = 3
-
 # =============================================================================
 # 6. 性能统计
 # 每 report_int 个绝对 step 输出本统计窗口的耗时、计数和 MLUPS，随后清零。
