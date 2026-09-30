@@ -2344,9 +2344,6 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
     if (fine_indices.empty()) {
         return;
     }
-    MultiFab transfer_batch(
-        interface_result.boxArray(), interface_result.DistributionMap(),
-        osi_sync_batch_components, IntVect(0));
     AMREX_ALWAYS_ASSERT(interface_result.size() == fine_indices.size());
 
     // 每个稀疏 coarse interface Box 都映射到唯一的 fine Fab；直接按细层
@@ -2562,6 +2559,9 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
     }
 
     // 回退路径使用较小的 canonical 暂存缓冲，按分量批次写回。
+    MultiFab transfer_batch(
+        interface_result.boxArray(), interface_result.DistributionMap(),
+        osi_sync_batch_components, IntVect(0));
     for (int q0 = 0; q0 < Q; q0 += osi_sync_batch_components) {
         const int ncomp = amrex::min(osi_sync_batch_components, Q - q0);
         transfer_batch.ParallelCopy(
