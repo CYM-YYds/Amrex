@@ -144,7 +144,7 @@ $$
     在整个 grown Fab 上按 A_q(x,p) 同址读取、碰撞、写回 post-collision DDF
 
 2. Same-level MPI/ghost synchronization：
-    从 owner logical valid 的 A_q(x,p) 分批解码 post-collision DDF
+    从 owner logical valid 的 A_q(x,p) 一次解码完整 Q=27 的 post-collision DDF
     按同一逻辑坐标同步接收 Fab 的 ghost 副本，并编码到 A_q(x_ghost,p)
 
 3. phase commit：
@@ -414,8 +414,7 @@ fine twisted valid -> fine canonical staging
 -> scatter 到 coarse logical valid 的当前 phase
 ```
 
-该 staging 只覆盖实际插值或限制需要的区域，并按分量分批复用；它仍会增加内存和搬运，
-不代表最终性能方案。它的用途是隔离两个问题：
+该 staging 只覆盖实际插值或限制需要的区域；现役实现按完整 Q=27 一次处理，仍会增加临时内存和搬运，不代表最终性能方案。它的用途是隔离两个问题：
 
 1. OSI 单层推进是否数值正确；
 2. AMR coarse/fine 数值转换是否在 twisted/canonical 边界上正确。

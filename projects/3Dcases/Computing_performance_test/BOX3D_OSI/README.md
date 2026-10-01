@@ -10,7 +10,7 @@ one-step index（OSI）路径。
 [当前交接状态](docs/current_status.md)。
 
 最新重构迁移在布局不变时保留 OSI phase，布局变化时按旧 phase 直接迁移重叠区；
-该实现目前只有编译证据，动态重构的逐值验证仍待完成。
+作业 `606200` 已在 2 ranks/2 GPUs、step 64、level 2 窗口完成 direct/fallback 有效区域逐点验收，长程、多节点和 device-direct 仍待完成。
 
 当前工作配置位于 `config/inputs`。每次提交时，脚本会把它冻结到独立运行目录，
 因此后续修改当前配置不会改变任何历史运行记录。

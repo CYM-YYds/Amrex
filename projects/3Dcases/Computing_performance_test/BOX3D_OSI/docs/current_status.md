@@ -2,6 +2,14 @@
 
 更新时间：2026-09-29
 
+## 2026-10-01 完整 Q 路径与双 GPU 验收
+
+提交 `c5601f1` 已移除 `osi_sync_batch_components` 及现役源码中的 q 分批循环；插值、平均下传、回退通信和诊断临时场均按完整 Q=27 处理。持久 `osi_sync_buffer` 已不再出现在源码路径中，但完整 Q 临时 `MultiFab` 仍按调用范围短时占用显存，不能把“移除持久缓冲”表述为“所有临时显存为零”。
+
+作业 `606200` 使用提交脚本 `scripts/submit_osi_full_q_matrix.sh` 申请 2 个 MPI rank 和 2 张 GPU，运行 A-B、OSI direct、OSI canonical fallback 与全周期非均匀初值四组；四组均正常结束。direct/fallback 动态 AMR 运行到 step 64 并生成 level 2，A-B/OSI 有效区域逐点检查均为 `unequal=0`、`linf=0`，周期组 source diagnostics 全为 0。非周期组仍报告 physical-ghost source 诊断差异，但 `mismatch_valid=0`；这证明当前测试窗口的有效区域一致性，不等于所有 ghost 来源或多节点 device-direct 已完成验收。
+
+本次验证运行的是带有工作树中 `src/main.cpp` 修改的构建；提交脚本保存了输入、源码差异和可执行文件 SHA256。尚未覆盖单 GPU、device-direct MPI、多节点、多层周期动态 AMR、长程严格逐点对照。
+
 ## OSI 通信接口封装（待运行验证）
 
 同层通信由 `FillBoundaryOsi(lev)` 统一选择 raw direct 或 canonical 回退；
@@ -103,7 +111,7 @@ host-staging 工作配置；2 MiB pipeline 只在已测单节点、单 peer 范�
 
 - 已定位并修正 step 32 新建 level 1 时的 A-B/OSI 初值路径差异：旧 A-B
   `MakeNewLevelFromCoarse()` 调用 `FillCoarsePatch()`（固定
-  `cell_cons_interp`、无非平衡缩放），OSI 调用 `FillNewLevelFromCoarse()`
+  `cell_cons_interp`、无非平衡缩放），OSI 调用 `InitializeNewLevelFromCoarse()`
   （使用 `lbm.interp_mode` 并缩放）。现让 A-B 复用后者。
   修正前独立作业 `603468`/`603469` 在首次 `FillGhostLevel(1)` 入口
   读取细层 valid 点 `(1,128,253),q=4`，分别为
