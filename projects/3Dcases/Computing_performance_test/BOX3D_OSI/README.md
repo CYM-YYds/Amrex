@@ -6,7 +6,7 @@ one-step index（OSI）路径。
 
 ## 当前验证状态
 
-更新时间：2026-09-29。最新逐阶段检查、长程运行结果与证据边界见
+更新时间：2026-10-01。最新逐阶段检查、长程运行结果与证据边界见
 [当前交接状态](docs/current_status.md)。
 
 最新重构迁移在布局不变时保留 OSI phase，布局变化时按旧 phase 直接迁移重叠区；
@@ -56,7 +56,7 @@ FillBoundary 的 4.616--4.622 s 快约 12.3%--12.5%。六面非周期 job `59615
 而 host-overlap 为约 4.13 s；约 44.85 s 消耗在 MPI wait，因此当前 CUDA-aware
 transport 只通过正确性验收，不适合作为性能路径。
 该结论只覆盖同层通信，不能外推到多层动态 AMR。完整统计和适用边界见
-[性能分析](docs/performance_profiling.md)。
+[性能分析](docs/osi_performance_profiling.md)。
 
 当前源码会在完整 `AverageDownValid()` 后对当前 DDF 重新施加非平衡外推边界：A-B
 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`，并包含 covered 物理边界单元。该操作
@@ -131,5 +131,5 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 - [OSI 跨 MPI 通信计划](docs/osi_mpi_communication_plan.md)：OSI-aware pack/unpack
   的实现阶段、正确性矩阵和性能验收标准。
 - [DDF 粗细网格填充](docs/DDF粗细网格填充学习文档.md)：粗细层数据语义。
-- [性能分析](docs/performance_profiling.md) 与 [MLUPS 记录](docs/MLUPS记录.md)：
+- [性能分析](docs/osi_performance_profiling.md) 与 [MLUPS 记录](docs/MLUPS记录.md)：
   历史性能证据及其适用边界。

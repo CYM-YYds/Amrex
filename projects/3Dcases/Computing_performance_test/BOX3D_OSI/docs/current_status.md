@@ -1,6 +1,6 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-09-29
+更新时间：2026-10-01
 
 ## 2026-10-01 完整 Q 路径与双 GPU 验收
 
@@ -19,17 +19,18 @@
 raw/canonical 混合数据路径，未改成 raw-to-raw `ParallelCopyOsi()`。
 本次仅调整通信封装；新的动态重构与多 rank 数值结果须按新可执行文件单独验收。
 
-## 最新重构迁移实现与验证边界
+## 历史重构迁移记录（截至 2026-09-29）
 
 提交 `af3b5da` 后，OSI 的 `RemakeLevel()` 若发现该层 `BoxArray` 和
 `DistributionMapping` 均未变化，会保留原 `osi_state` 和 `osi_phase`。布局变化时，
 `ParallelCopyOsi()` 使用 AMReX CPC 的本地与 MPI 重叠区域标签，按旧 phase
 读取 raw 值并写入新布局的 phase 0；新增区域仍由粗层插值填充。
-`osi_sync_buffer` 仍供回退通信、插值和诊断等路径使用，因此不能称为全局移除。
+该段描述对应当时版本；后续版本已移除现役源码中的持久 `osi_sync_buffer`，当前状态
+以本页顶部的完整 Q 路径记录为准。
 这版迁移已通过 CUDA + MPI 编译，尚未完成单/多 rank 动态重构逐值验证；
 下列历史作业结果对应各自旧版源码，不能用来验收 `af3b5da`。
 
-## 当前数值与长程运行结论（2026-09-29）
+## 当前数值与长程运行结论（历史结果截至 2026-09-29）
 
 - 提交 `3806c69` 修复 `AverageDownOsiValidLevel()` 的完整 Q 分量解码。此前逐个 q
   解码反复写入 canonical 工作区分量 0，导致平均下传后 covered 粗层数据错误。
