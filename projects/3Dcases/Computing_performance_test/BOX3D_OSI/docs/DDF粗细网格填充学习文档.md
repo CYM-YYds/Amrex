@@ -39,7 +39,7 @@ fine coarse-fine ghost
         | FillBoundary：同层 fine valid 数据覆盖
         | PhysBCFunct：处理细层物理边界
         v
-f_old[lev] 的 ghost 可供后续计算使用
+f_old[lev + 1] 的 ghost 可供后续计算使用
 ```
 
 `FillDdfGhostFromCoarse()` **不负责**碰撞、迁移和 fine-to-coarse 平均下传。普通推进的
@@ -51,11 +51,12 @@ f_old[lev] 的 ghost 可供后续计算使用
 ```text
 main()
   -> Cycle2(0, cur_time, lid)
-      -> FillGhostLevel(lev + 1, cur_time, true)
-          -> FillDdfGhostFromCoarse(lev + 1, cur_time)
+      -> FillGhostLevel(lev, cur_time, true)
+          -> FillDdfGhostFromCoarse(lev, cur_time)
 ```
 
-`Cycle2()` 对每个非最细层先填充下一层 ghost，再推进当前层。下一层以一半时间步
+这里的 `lev` 始终表示当前粗层；两个函数内部使用 `lev + 1` 作为目标细层。`Cycle2()`
+对每个非最细层先填充下一层 ghost，再推进当前层。下一层以一半时间步
 连续推进两次，最后才平均回粗层。三层以上时，中间层在接受子层的完整回填后，还会
 恢复一次自身 coarse-fine ghost，避免下一次中间层子步读取被回填过程扰动的 ghost。
 
@@ -97,14 +98,15 @@ Cycle2
 ### 3.1 两个函数的职责
 
 ```cpp
-void AmrCoreLBM::FillDdfGhostFromCoarse(int lev, amrex::Real time);
+void AmrCoreLBM::FillDdfGhostFromCoarse(
+    int lev, amrex::Real time, bool apply_scale);
 void AmrCoreLBM::RemakeDdfState(
     int lev, amrex::Real time, amrex::MultiFab& new_old_state);
 ```
 
 | 函数                       | 目标                | 主要写入区域                              |
 | -------------------------- | ------------------- | ----------------------------------------- |
-| `FillDdfGhostFromCoarse` | `f_old[lev]`      | coarse-fine ghost、同层/物理边界 ghost    |
+| `FillDdfGhostFromCoarse` | `f_old[lev + 1]`  | coarse-fine ghost、同层/物理边界 ghost    |
 | `RemakeDdfState`         | 新布局`old_state` | 迁移旧 valid，并以 coarse 初始化新增 valid |
 
 `RemakeDdfState()` 不接触 direct cache，因此不会把旧布局的 `fine_index` 或 staging Box
@@ -249,8 +251,8 @@ coarse_stage MultiFab
 
 ### 5.1 direct cache 已在时间推进前建立
 
-`FillDdfGhostFromCoarse()` 没有目标 `MultiFab` 参数，写入目标固定为当前 `f_old[lev]`。
-它只消费 `RebuildCoarseFineCaches()` 建立的 direct cache。布局迁移是
+`FillDdfGhostFromCoarse()` 没有目标 `MultiFab` 参数，`lev` 表示当前粗层，写入目标固定为
+`f_old[lev + 1]`。它只消费 `RebuildCoarseFineCaches()` 建立的 direct cache。布局迁移是
 `RemakeDdfState()` 的职责，不会在该函数内按布局选择另一条路径。
 
 ### 5.2 把 coarse DDF 搬到 staging 布局
@@ -372,7 +374,7 @@ $$
 
 ## 7. normal ghost 填充与重构迁移两条调用路径
 
-`FillDdfGhostFromCoarse()` 固定写当前 `f_old[lev]` 的 ghost：它使用缓存的 staging Box，
+`FillDdfGhostFromCoarse()` 固定写当前粗层对应的 `f_old[lev + 1]` ghost：它使用缓存的 staging Box，
 不迁移 valid 数据。`RemakeLevel()` 单独调用 `RemakeDdfState()`：后者先用 `FPinfo` 临时
 patch 的 coarse 插值初始化新增 valid 区域和所需 ghost，再以旧 `f_old[lev]` 覆盖可迁移的
 fine valid 数据，最后处理物理边界。
