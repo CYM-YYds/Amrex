@@ -79,7 +79,7 @@ valid 数据并初始化新增 valid 区域。两条路径采用相同的 coarse
 | ----------------------------------- | ------------------------------------------------------------- |
 | [`main.cpp`](../src/main.cpp)             | `Cycle2()` 何时请求 ghost 填充                              |
 | [`AmrCoreLBM.H`](../src/AmrCoreLBM.H)     | DDF`MultiFab`、运行模式和 direct cache 的所有权             |
-| [`AmrCoreLBM.cpp`](../src/AmrCoreLBM.cpp) | `BuildDirectInterpolationCache()`、ghost 填充和重构迁移逻辑 |
+| [`AmrCoreLBM_amr.cpp`](../src/AmrCoreLBM_amr.cpp) | `BuildDirectInterpolationCache()`、ghost 填充和重构迁移逻辑 |
 | [`Kernels.H`](../src/Kernels.H)           | `average_scale()` 和 `interp_bilinear_d3q()` 的数值公式   |
 
 推荐在编辑器中按以下顺序跳转：
@@ -92,6 +92,10 @@ Cycle2
   -> average_scale
   -> interp_bilinear_d3q
 ```
+
+拆分后的 `FillGhostLevel()`、`FillDdfGhostFromCoarse()` 和 `BuildDirectInterpolationCache()`
+位于 `AmrCoreLBM_amr.cpp`；推进调用和 boundary 调度位于
+`AmrCoreLBM_advance.cpp`，A-B/OSI 对照诊断位于 `AmrCoreLBM_diagnostics.cpp`。
 
 ## 3. 参数、容器和所有权
 

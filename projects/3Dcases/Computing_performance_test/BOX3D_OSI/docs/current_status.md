@@ -4,32 +4,43 @@
 
 ## 2026-10-01 `AmrCoreLBM` 编译单元拆分验收
 
-提交前工作树将原 `src/AmrCoreLBM.cpp` 按基础生命周期、AMR、OSI、推进和诊断拆为五个
+提交 `23b92b7` 将原 `src/AmrCoreLBM.cpp` 按基础生命周期、AMR、OSI、推进和诊断拆为五个
 实现文件，并保留同一个 `AmrCoreLBM` 接口和成员状态。CUDA + MPI 编译在
 `main3d.gnu.TPROF.MPI.CUDA.ex` 生成成功；`tests/run_osi_index_test.sh` 通过。
 
-作业 `606276` 使用新可执行文件运行 A-B、OSI direct、OSI fallback 和全周期四组，均到达
-step 64 并正常结束。direct/fallback 的 staged check 和有效区域逐值比较均为
-`linf=0`、`unequal=0`；全周期 source diagnostics 为零。非周期 direct/fallback 仍记录
-physical-ghost source mismatch，但 `mismatch_valid=0`，本次只证明有效区域和现有短程矩阵
-保持一致，不扩展为所有 ghost 来源等价或长程数值证明。
+作业 `606276` 使用该提交构建的可执行文件运行 A-B、OSI direct、OSI fallback 和全周期四组，
+均到达 step 64 并正常结束。direct/fallback 的阶段内 staged check 为 `linf=0`、
+`unequal=0`，周期组 source diagnostics 为零。非周期组仍记录 physical-ghost source
+mismatch，但 `mismatch_valid=0`。独立 A-B checkpoint 对比中，level 0/1 的全 valid
+ 范围分别有 `4.259596758e-3` 和 `4.439611252e-3` 的 covered-cell 差异；active
+范围最大差为 `1.165734176e-15`，level 2 为 `1.054711873e-15`。这里的 staged
+ oracle、active-cell 对比和 covered-cell 对比是三种不同证据，不能合并成“所有 valid
+ 单元均为零差”。
 
 ## 2026-10-01 完整 Q 路径与双 GPU 验收
 
 提交 `c5601f1` 已移除 `osi_sync_batch_components` 及现役源码中的 q 分批循环；插值、平均下传、回退通信和诊断临时场均按完整 Q=27 处理。持久 `osi_sync_buffer` 已不再出现在源码路径中，但完整 Q 临时 `MultiFab` 仍按调用范围短时占用显存，不能把“移除持久缓冲”表述为“所有临时显存为零”。
 
-作业 `606200` 使用提交脚本 `scripts/submit_osi_full_q_matrix.sh` 申请 2 个 MPI rank 和 2 张 GPU，运行 A-B、OSI direct、OSI canonical fallback 与全周期非均匀初值四组；四组均正常结束。direct/fallback 动态 AMR 运行到 step 64 并生成 level 2，A-B/OSI 有效区域逐点检查均为 `unequal=0`、`linf=0`，周期组 source diagnostics 全为 0。非周期组仍报告 physical-ghost source 诊断差异，但 `mismatch_valid=0`；这证明当前测试窗口的有效区域一致性，不等于所有 ghost 来源或多节点 device-direct 已完成验收。
+作业 `606276` 使用提交脚本 `scripts/submit_osi_full_q_matrix.sh` 申请 2 个 MPI rank 和 2 张 GPU，运行 A-B、OSI direct、OSI canonical fallback 与全周期非均匀初值四组；四组均正常结束。direct/fallback 动态 AMR 运行到 step 64 并生成 level 2。其 staged check 均为 `unequal=0`、`linf=0`，但独立 checkpoint 的 covered valid 范围仍有有限差异，见上节；这证明当前测试窗口的阶段内一致性和 active-cell 近机器精度一致，不等于所有 valid/ghost 来源或多节点 device-direct 已完成验收。
 
 本次验证运行的是带有工作树中 `src/main.cpp` 修改的构建；提交脚本保存了输入、源码差异和可执行文件 SHA256。尚未覆盖单 GPU、device-direct MPI、多节点、多层周期动态 AMR、长程严格逐点对照。
 
-## OSI 通信接口封装（待运行验证）
+## OSI 通信接口封装（当前实现与验证边界）
 
 同层通信由 `FillBoundaryOsi(lev)` 统一选择 raw direct 或 canonical 回退；
 重构时的旧/新 OSI 布局迁移由 `ParallelCopyOsi()` 处理。后者复用 AMReX CPC
 拓扑，按源和目标各自的 phase 映射数据，rank-local kernel 与 MPI 聚合交换的
 共同执行骨架位于 `src/OsiCommunication.H`。粗到细插值和界面平均仍使用各自的
 raw/canonical 混合数据路径，未改成 raw-to-raw `ParallelCopyOsi()`。
-本次仅调整通信封装；新的动态重构与多 rank 数值结果须按新可执行文件单独验收。
+`CommunicateOsiLevel()` 的 canonical fallback tag 随本次调用的临时 `MultiFab` 构造，
+不缓存失效的 `Array4` 地址；缓存只保存可复用的 Box 区域和 direct-copy tag。606276
+已覆盖 2-rank/2-GPU、64 步 direct/fallback 动态 AMR，但单 GPU、重启、多节点、device-direct
+和更长时间窗口仍为 pending。
+
+`submit_osi_stage2_smoke.sh`、`submit_osi_stage3_single.sh`、
+`submit_osi_stage3_single_array.sh` 和 `submit_osi_stage7_restart.sh` 仍引用不存在的
+`config/inputs_osi`，当前不能作为可直接执行的验收入口；需要先补齐输入快照或改用
+`config/inputs` 后再运行，不能把这些脚本的存在写成已完成的单 GPU/重启验证。
 
 ## 历史重构迁移记录（截至 2026-09-29）
 

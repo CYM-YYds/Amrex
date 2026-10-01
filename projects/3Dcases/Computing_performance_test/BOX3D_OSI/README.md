@@ -10,7 +10,7 @@ one-step index（OSI）路径。
 [当前交接状态](docs/current_status.md)。
 
 最新重构迁移在布局不变时保留 OSI phase，布局变化时按旧 phase 直接迁移重叠区；
-作业 `606200` 已在 2 ranks/2 GPUs、step 64、level 2 窗口完成 direct/fallback 有效区域逐点验收，长程、多节点和 device-direct 仍待完成。
+作业 `606276` 已在 2 ranks/2 GPUs、step 64、level 2 窗口完成 direct/fallback 的阶段内逐值检查；周期组 source diagnostics 为零。独立 checkpoint 对比中，level 0/1 的 covered valid 单元仍有约 `4.26e-3`/`4.44e-3` 差异，而 active 单元最大差约 `1.17e-15`；因此该作业不能表述为所有 valid 单元均为零差。长程、重启、多节点和 device-direct 仍待完成。
 
 当前工作配置位于 `config/inputs`。每次提交时，脚本会把它冻结到独立运行目录，
 因此后续修改当前配置不会改变任何历史运行记录。
@@ -135,6 +135,11 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 
 这些文件共享同一个 `AmrCoreLBM` 对象；本次拆分只改变编译单元归属，不改变推进顺序、
 运行参数或 DDF 存储语义。
+
+本次矩阵的运行目录保留输入、可执行文件 SHA256、日志和 checkpoint；脚本当前只把
+`src/main.cpp`、旧的 `src/AmrCoreLBM.cpp` 与头文件写入 `source.diff`，新增的五个
+实现文件和 `AmrCoreLBM_detail.H` 由提交 `23b92b7` 提供。因此要复现这次拆分，必须同时
+保留运行目录与该提交，不能只依赖 `source.diff`。
 
 ## 文档导航
 

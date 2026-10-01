@@ -455,20 +455,17 @@ enum class StreamMode : int {
 amrex::Vector<amrex::MultiFab> osi_state;
 amrex::Vector<std::uint64_t> osi_phase;
 
-// 按可配置分量批大小复用的 canonical grown 同步缓冲。
-amrex::Vector<amrex::MultiFab> osi_sync_buffer;
-
 struct OsiFabLayout {
     amrex::Dim3 lo;
     amrex::Dim3 len;
 };
 ```
 
-同层通信还维护两类布局相关缓存：`[level][global Fab][Box]` 形式的 Decode/Encode
-逻辑区域，以及只覆盖本 rank Fab 的持久 `TagVector<CommunicationTag>`。前者不含 raw
-OSI 地址；后者绑定 `osi_state` 的 `Array4`，用于把多个稀疏 Box
-融合成每批一次 Decode/Encode GPU launch。因此发生 define、重新分块或销毁布局时，
-必须先清除 tags，再释放或重建其引用的 `MultiFab`。
+同层通信缓存 `[level][global Fab][Box]` 形式的 Decode/Encode 逻辑区域和 direct-copy
+tag；逻辑区域不含 raw OSI 地址。canonical fallback 的 `CommunicationTag` 在
+`CommunicateOsiLevel()` 内随临时 canonical `MultiFab` 构造和销毁，不能跨布局或调用
+缓存其 `Array4` 地址。发生 define、重新分块或销毁布局时，只需重建区域缓存和持久
+direct tag。
 
 职责划分建议：
 
