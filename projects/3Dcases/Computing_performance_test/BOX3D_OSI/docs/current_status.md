@@ -2,6 +2,18 @@
 
 更新时间：2026-10-01
 
+## 2026-10-01 `AmrCoreLBM` 编译单元拆分验收
+
+提交前工作树将原 `src/AmrCoreLBM.cpp` 按基础生命周期、AMR、OSI、推进和诊断拆为五个
+实现文件，并保留同一个 `AmrCoreLBM` 接口和成员状态。CUDA + MPI 编译在
+`main3d.gnu.TPROF.MPI.CUDA.ex` 生成成功；`tests/run_osi_index_test.sh` 通过。
+
+作业 `606276` 使用新可执行文件运行 A-B、OSI direct、OSI fallback 和全周期四组，均到达
+step 64 并正常结束。direct/fallback 的 staged check 和有效区域逐值比较均为
+`linf=0`、`unequal=0`；全周期 source diagnostics 为零。非周期 direct/fallback 仍记录
+physical-ghost source mismatch，但 `mismatch_valid=0`，本次只证明有效区域和现有短程矩阵
+保持一致，不扩展为所有 ghost 来源等价或长程数值证明。
+
 ## 2026-10-01 完整 Q 路径与双 GPU 验收
 
 提交 `c5601f1` 已移除 `osi_sync_batch_components` 及现役源码中的 q 分批循环；插值、平均下传、回退通信和诊断临时场均按完整 Q=27 处理。持久 `osi_sync_buffer` 已不再出现在源码路径中，但完整 Q 临时 `MultiFab` 仍按调用范围短时占用显存，不能把“移除持久缓冲”表述为“所有临时显存为零”。

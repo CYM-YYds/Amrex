@@ -466,7 +466,7 @@ struct OsiFabLayout {
 
 同层通信还维护两类布局相关缓存：`[level][global Fab][Box]` 形式的 Decode/Encode
 逻辑区域，以及只覆盖本 rank Fab 的持久 `TagVector<CommunicationTag>`。前者不含 raw
-OSI 地址；后者绑定 `osi_state`、`osi_sync_buffer` 的 `Array4`，用于把多个稀疏 Box
+OSI 地址；后者绑定 `osi_state` 的 `Array4`，用于把多个稀疏 Box
 融合成每批一次 Decode/Encode GPU launch。因此发生 define、重新分块或销毁布局时，
 必须先清除 tags，再释放或重建其引用的 `MultiFab`。
 
@@ -474,10 +474,14 @@ OSI 地址；后者绑定 `osi_state`、`osi_sync_buffer` 的 `Array4`，用于�
 
 | 位置 | 职责 |
 | --- | --- |
-| `AmrCoreLBM.H` | stream mode、每层 phase、grown OSI state、同步缓冲和通信缓存声明 |
+| `AmrCoreLBM.H` | `AmrCoreLBM` 统一接口、stream mode、每层 phase、grown OSI state 和通信缓存声明 |
 | `OsiIndex.H` | 非负取模和无状态 Fab-local host/device 地址映射 |
 | `Kernels.H` | fused OSI collision kernel 和 boundary accessor |
-| `AmrCoreLBM.cpp` | grown-Fab launch、通信区域/tag 生命周期、phase-aware ghost 同步、regrid/checkpoint 生命周期 |
+| `AmrCoreLBM.cpp` | 构造、参数、输出、checkpoint 和粒子耦合 |
+| `AmrCoreLBM_amr.cpp` | 网格生命周期、粗细层缓存、插值和 AMReX 回调 |
+| `AmrCoreLBM_osi.cpp` | raw/phase 转换、OSI 通信、OSI 插值和平均下传 |
+| `AmrCoreLBM_advance.cpp` | 宏观量、平均、通信分派、碰撞、Stream、边界和推进 |
+| `AmrCoreLBM_diagnostics.cpp` | A-B/OSI 对照、source diagnostics、checksum 和收敛监测 |
 | `main.cpp` | 根据 stream mode 选择 A-B 或 OSI 推进；保持 AMR 调度一致 |
 | `config/inputs` | `lbm.stream_mode`；当前默认 1，A-B 测试必须显式覆盖为 0 |
 

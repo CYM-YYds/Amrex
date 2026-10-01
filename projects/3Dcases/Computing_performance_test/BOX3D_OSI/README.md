@@ -123,6 +123,19 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
   质心、平动/角速度、力和力矩未持久化，尚不支持完整 IBM restart 结论。
 - 历史性能 job 和图片只代表当时的源码、输入和硬件，不是当前性能基线。
 
+## 源码职责
+
+`src/AmrCoreLBM.H` 保持统一的 `AmrCoreLBM` 接口和状态声明；实现按职责分为：
+
+- `AmrCoreLBM.cpp`：构造、参数、输出、checkpoint 和粒子耦合；
+- `AmrCoreLBM_amr.cpp`：网格生命周期、重网格、粗细层缓存和 AMReX 回调；
+- `AmrCoreLBM_osi.cpp`：OSI phase/raw 地址、通信、插值和平均下传；
+- `AmrCoreLBM_advance.cpp`：宏观量、碰撞、通信分派、Stream、边界和时间推进；
+- `AmrCoreLBM_diagnostics.cpp`：A-B/OSI 逐值检查、source diagnostics、checksum 和收敛监测。
+
+这些文件共享同一个 `AmrCoreLBM` 对象；本次拆分只改变编译单元归属，不改变推进顺序、
+运行参数或 DDF 存储语义。
+
 ## 文档导航
 
 - [当前交接状态](docs/current_status.md)：现役配置、最新运行结论和未决事项。
