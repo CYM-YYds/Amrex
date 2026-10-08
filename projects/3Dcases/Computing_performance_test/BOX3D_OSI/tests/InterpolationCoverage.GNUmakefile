@@ -14,8 +14,7 @@ include $(AMREX_HOME)/Tools/GNUMake/Make.defs
 include $(AMREX_HOME)/Src/Base/Make.package
 
 CEXE_sources += interpolation_coverage_test.cpp
-CEXE_headers += InterpolationCoverage.H
-INCLUDE_LOCATIONS += $(TEST_DIR)/../src
-VPATH_LOCATIONS += $(TEST_DIR) $(TEST_DIR)/../src
+CEXE_headers += interpolation_coverage_impl.inc
+VPATH_LOCATIONS += $(TEST_DIR)
 
 include $(AMREX_HOME)/Tools/GNUMake/Make.rules

@@ -7,6 +7,16 @@ TEST_BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/box3d-interpolation-coverage.XXXXXX
 trap 'rm -rf "${TEST_BUILD_DIR}"' EXIT
 
 cd "${TEST_BUILD_DIR}"
+# 提取同一份生产函数到临时目录，测试结束后随独立构建目录清理。
+awk '
+    /^amrex::BoxList MissingInterpolationSources\(/ { copying = 1 }
+    /^template <class T>/ && copying { exit }
+    copying { print }
+' "${TEST_DIR}/../src/AmrCoreLBM_amr.cpp" > interpolation_coverage_impl.inc
+if ! grep -Fq 'void RequireInterpolationCoverage(' interpolation_coverage_impl.inc; then
+    echo 'ERROR: could not extract production coverage functions' >&2
+    exit 1
+fi
 make -f "${TEST_DIR}/InterpolationCoverage.GNUmakefile" \
     TEST_DIR="${TEST_DIR}" AMREX_HOME="${REPO_DIR}/amrex-26.06" \
     -j "${MAKE_J:-8}" > build.log 2>&1 || { cat build.log; exit 1; }

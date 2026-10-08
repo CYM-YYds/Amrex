@@ -1,15 +1,20 @@
-#include "InterpolationCoverage.H"
-
 #include <AMReX.H>
+#include <AMReX_BoxArray.H>
+#include <AMReX_BoxList.H>
+#include <AMReX_Geometry.H>
 #include <AMReX_Print.H>
 
+#include <algorithm>
 #include <array>
+#include <sstream>
 #include <string>
 
 using namespace amrex;
-using namespace Box3dDetail;
 
 namespace {
+// 测试构建时从生产实现提取函数，避免维护另一份覆盖检查逻辑。
+#include "interpolation_coverage_impl.inc"
+
 Box cube(int lo, int hi) {
     return Box(IntVect(lo), IntVect(hi));
 }
