@@ -187,13 +187,13 @@ void wait_messages(MessageVector& messages) {
 
 // 统一执行 OSI CPC 的 rank-local 部分。调用方只负责提供一个设备可调用的
 // value_copy，决定 logical cell 如何映射到源和目标 raw 地址。
-template <typename Tag, typename CopyValue>
-void parallel_copy_local(const amrex::TagVector<Tag>& tags, int ncomp,
+template <typename CopyValue>
+void parallel_copy_local(const amrex::TagVector<LocalCopyTag>& tags, int ncomp,
                          CopyValue copy_value) {
     amrex::ParallelFor(
         tags, ncomp,
         [=] AMREX_GPU_DEVICE(int i, int j, int k, int n,
-                             const Tag& tag) noexcept {
+                             const LocalCopyTag& tag) noexcept {
             copy_value(i, j, k, n, tag);
         });
 }
