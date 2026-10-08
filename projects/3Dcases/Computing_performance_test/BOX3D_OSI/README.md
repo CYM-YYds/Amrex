@@ -143,6 +143,7 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 
 ## 文档导航
 
+- [三层接口重合修复方案](docs/coincident_level_interface_plan.md)：待确认的设计草案，包含模板来源、ghost 有效宽度、改动位置和验收条件；尚未实现。
 - [当前交接状态](docs/current_status.md)：现役配置、最新运行结论和未决事项。
 - [OSI 算法与架构](docs/osi_algorithm_and_architecture.md)：地址映射、phase、通信、
   AMR 传输和 checkpoint 设计。
