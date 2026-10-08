@@ -6,6 +6,8 @@
 >
 > 当前实现固定使用稀疏 coarse staging 和非平衡缩放；`lbm.interp_mode` 在三线性、
 > GPU 守恒线性和 GPU 单元二次插值之间切换。三种模式都要求 ratio=2。
+> 本文的几何构造已对齐 2026-10-08 的 BOX3D_OSI：包含周期覆盖和完整模板覆盖门禁；
+> 数据容器示例仍以 A-B 路径说明，OSI 使用相同几何缓存和 phase-aware 取数。
 >
 > 本文的“插值”是 **AMR 粗层到细层的 DDF ghost 填充**，不是 IBM 粒子与流场之间的 `InterpForce()`。
 
@@ -176,7 +178,7 @@ const Box target =
 
 ```cpp
 const BoxList leftover =
-    fine_ba_simplified.complementIn(target);
+    fine_ba_simplified.complementIn(target, Geom(lev).periodicity());
 ```
 
 核心等式是：
@@ -184,7 +186,7 @@ const BoxList leftover =
 ```text
 leftover
 = 当前 fine Fab 的 valid + ghost 目标区
-- 所有同层 fine valid 覆盖区
+- 所有同层 fine valid 及其周期像覆盖区
 ```
 
 例如，当前 patch 右侧有相邻 fine patch 时，右侧 ghost 将由同层 fine valid 数据提供，不应使用较低分辨率的 coarse 插值。如果上侧没有 fine patch，上侧 ghost 条带则进入 `leftover`。
@@ -205,6 +207,28 @@ for (const Box& work_box : leftover) {
 `coarsener.doit(work_box)` 不等于简单的 `coarsen(work_box, ratio)`。插值还要读取相邻
 coarse cell，所以当前 mapper 的 `BoxCoarsener` 会按其 stencil 扩大读取范围。
 cache 构建和 `RemakeDdfState()` 必须使用与 GPU kernel 相同的模式，否则会缺少邻居数据。
+
+### 4.5.1 完整模板覆盖门禁
+
+`BuildDirectInterpolationCache()` 得到每个 `coarse_box` 后、分配 staging 和建立
+copy tags 前，调用 `RequireInterpolationCoverage()`。它与
+`MissingInterpolationSources()` 都是 `AmrCoreLBM_amr.cpp` 匿名命名空间内的辅助函数。
+检查对象是父层 valid Box 的并集及其周期像，父层 ghost 不计入可用来源。
+非周期方向的模板坐标按现有物理边界延拓规则钳制到 domain，再检查这些域内来源。
+因此细层可以到达物理墙面、棱边和角点；模板伸出物理域本身不导致报错。
+
+若相邻两层在域内的粗细界面重合，模板可能伸到父层 valid 并集之外，此时会
+`amrex::Abort`，输出层号、fine Fab、work box、coarse stencil、缺失 boxes、
+插值模式、ghost 宽度及 `amr.n_proper`。AMReX 已在常规建网中执行 proper nesting，
+本门禁进一步检查本算例实际使用的插值模板是否满足来源要求。报错后可考虑增大
+`amr.n_proper`，结合 blocking factor、refinement ratio 和模板宽度重新建网；
+或另行接入 `amrex::FillPatchNLevels` 多层递归补缺并适配 DDF 缩放、OSI 布局。
+当前代码没有自动补缺，也没有扩大 coarse ghost 读取范围。
+
+检查在初始建网、regrid、restart 后重建普通 ghost 缓存时执行，A-B 与 OSI 共用。
+它不独立检查新建层或重构临时 interpolation patch，也不证明源 DDF 的时间状态、
+平均后的同层 ghost 是否刷新或数值正确性。几何测试与生产编译的证据见
+[变更记录](ai_changes/2026-10-08-interpolation-stencil-coverage.md)。
 
 ### 4.6 为什么按 fine owner 分配 `coarse_stage`
 

@@ -395,6 +395,11 @@ Remake、Clear 和 MakeNew；18 条 active D3Q27 checksum 逐项一致。job `58
 
 ## 11. 静态 coarse-fine 传输
 
+普通 ghost 插值缓存现要求父层 valid 并集与周期像提供完整模板，物理域外来源按
+边界延拓映射后检查；域内缺口在缓存建立时终止。该约束由
+`AmrCoreLBM_amr.cpp` 内部辅助函数执行，A-B 与 OSI 共用。详细规则、报错处理及
+检查范围见 [DDF 填充文档](DDF粗细网格填充学习文档.md#451-完整模板覆盖门禁)。
+
 即使 BoxArray 不变，细层 ghost 填充和 fine-to-coarse restriction 也跨越两个具有不同
 phase 的 level。当前实现使用稀疏 canonical staging 隔离跨层数据布局：
 

@@ -1,6 +1,21 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-10-01
+更新时间：2026-10-08
+
+## 2026-10-08 插值模板覆盖门禁
+
+提交 `19c2650` 增加普通粗到细 ghost 插值的覆盖检查，`cdffef1` 将辅助函数归入
+`src/AmrCoreLBM_amr.cpp` 匿名命名空间；不再使用独立的 `InterpolationCoverage.H`。
+`BuildDirectInterpolationCache()` 在分配 staging 和建立 copy tags 前检查实际模板来源，
+覆盖 A-B、OSI direct 和 canonical fallback 共享的缓存。规则与报错后的处理见
+[DDF 填充文档](DDF粗细网格填充学习文档.md#451-完整模板覆盖门禁)，验证记录见
+[本次变更记录](ai_changes/2026-10-08-interpolation-stencil-coverage.md)。
+
+当前可执行文件在 2026-10-08 19:28:30 完成 CUDA+MPI 构建，对应
+`logs/compile/compile-20261008T192703.log`。编译节点 GCC 11.3 下运行
+`bash tests/run_interpolation_coverage_test.sh`，13 项几何/返回路径检查和缺口报错负例通过。
+这是几何门禁的运行证据；新增门禁后的 DDF 逐值推进、动态 AMR 与长程数值回归仍为
+pending。以下作业记录保留各自版本和时间窗口，不能作为新增门禁后的运行验收。
 
 ## 2026-10-01 `AmrCoreLBM` 编译单元拆分验收
 

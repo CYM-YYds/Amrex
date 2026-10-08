@@ -6,10 +6,13 @@ one-step index（OSI）路径。
 
 ## 当前验证状态
 
-更新时间：2026-10-01。最新逐阶段检查、长程运行结果与证据边界见
+更新时间：2026-10-08。最新逐阶段检查、长程运行结果与证据边界见
 [当前交接状态](docs/current_status.md)。
 
-最新重构迁移在布局不变时保留 OSI phase，布局变化时按旧 phase 直接迁移重叠区；
+现役粗到细 ghost 插值已增加模板覆盖门禁；缺口布局会在缓存建立时终止。
+该门禁通过 CUDA+MPI 编译及几何正负例测试，尚未做新增门禁后的 DDF 推进回归。
+
+2026-10-01 的重构迁移验证：布局不变时保留 OSI phase，布局变化时按旧 phase 直接迁移重叠区；
 作业 `606276` 已在 2 ranks/2 GPUs、step 64、level 2 窗口完成 direct/fallback 的阶段内逐值检查；周期组 source diagnostics 为零。独立 checkpoint 对比中，level 0/1 的 covered valid 单元仍有约 `4.26e-3`/`4.44e-3` 差异，而 active 单元最大差约 `1.17e-15`；因此该作业不能表述为所有 valid 单元均为零差。长程、重启、多节点和 device-direct 仍待完成。
 
 当前工作配置位于 `config/inputs`。每次提交时，脚本会把它冻结到独立运行目录，
@@ -114,6 +117,7 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 - 普通粗到细 ghost 插值在缓存建立时检查父层 valid 的完整模板覆盖，考虑周期像
   和非周期物理边界延拓。域内缺口会立即报错，并提示调整 `amr.n_proper`
   等嵌套参数或接入 `FillPatchNLevels` 多层递归补缺；当前没有自动补缺。
+  检查范围和来源规则见 [DDF 填充文档](docs/DDF粗细网格填充学习文档.md#451-完整模板覆盖门禁)。
 - `stream_mode=0`：双数组数值基准路径，供正确性和性能 A-B 使用。
 - `stream_mode=1`：grown-Fab OSI 单数组路径；已有单层、两层、静态/动态 AMR 和
   canonical checkpoint 的历史测试，但不能外推为当前多层生产验收。
