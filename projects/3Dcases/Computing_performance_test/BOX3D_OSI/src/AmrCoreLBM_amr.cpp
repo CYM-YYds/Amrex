@@ -695,6 +695,8 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
         interface_mask[lev].define(
             state[lev].boxArray(), state[lev].DistributionMap(), 1, nghost);
         interface_mask[lev].setVal(0);
+        // 只允许域内或周期映射的邻居参与界面判定，排除非周期域外邻居。
+        const Box neighbor_domain = Geom(lev).growPeriodicDomain(1);
 
         for (MFIter mfi(interface_mask[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
             // interface 的物理分类只在 valid 单元构造；其 ghost 随后由
@@ -714,8 +716,9 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
                             const int ni = i + di;
                             const int nj = j + dj;
                             const int nk = k + dk;
-                            // 非周期物理域外 ghost 的 covered 值为 0，故被
-                            // fine 覆盖且贴近物理边界的 coarse 单元也属 interface。
+                            if (!neighbor_domain.contains(IntVect(AMREX_D_DECL(ni, nj, nk)))) {
+                                continue;
+                            }
                             if (covered(ni, nj, nk) == 0) {
                                 interface(i, j, k) = 1;
                                 return;
@@ -795,8 +798,9 @@ void AmrCoreLBM::BuildAverageCache() {
         const auto& fine_dm = fine_layout.DistributionMap();
         for (int ibox = 0; ibox < coarse_from_fine.size(); ++ibox) {
             const Box& covered_box = coarse_from_fine[ibox];
-            // 保留非周期物理域外的一圈未覆盖单元，与 interface_mask 的判定一致。
-            const Box search_box = amrex::grow(covered_box, 1);
+            // 排除非周期域外邻居，保留周期方向的覆盖查询，与掩码判定一致。
+            const Box search_box = amrex::grow(covered_box, 1) &
+                                   Geom(lev).growPeriodicDomain(1);
             const BoxList uncovered =
                 coarse_from_fine.complementIn(search_box, periodicity);
             BoxList candidates;
