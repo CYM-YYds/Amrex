@@ -111,6 +111,9 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 
 ## 模式和验证边界
 
+- 普通粗到细 ghost 插值在缓存建立时检查父层 valid 的完整模板覆盖，考虑周期像
+  和非周期物理边界延拓。域内缺口会立即报错，并提示调整 `amr.n_proper`
+  等嵌套参数或接入 `FillPatchNLevels` 多层递归补缺；当前没有自动补缺。
 - `stream_mode=0`：双数组数值基准路径，供正确性和性能 A-B 使用。
 - `stream_mode=1`：grown-Fab OSI 单数组路径；已有单层、两层、静态/动态 AMR 和
   canonical checkpoint 的历史测试，但不能外推为当前多层生产验收。
@@ -143,7 +146,7 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 
 ## 文档导航
 
-- [三层接口重合修复方案](docs/coincident_level_interface_plan.md)：待确认的设计草案，包含模板来源、ghost 有效宽度、改动位置和验收条件；尚未实现。
+- [插值模板覆盖检查](docs/ai_changes/2026-10-08-interpolation-stencil-coverage.md)：现役缓存检查、报错建议及验证范围。
 - [当前交接状态](docs/current_status.md)：现役配置、最新运行结论和未决事项。
 - [OSI 算法与架构](docs/osi_algorithm_and_architecture.md)：地址映射、phase、通信、
   AMR 传输和 checkpoint 设计。

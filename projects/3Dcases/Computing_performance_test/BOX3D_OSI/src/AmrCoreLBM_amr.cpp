@@ -1,5 +1,6 @@
 #include "AmrCoreLBM.H"
 #include "AmrCoreLBM_detail.H"
+#include "InterpolationCoverage.H"
 
 #include <AMReX_BoxList.H>
 #include <AMReX_MultiFabUtil.H>
@@ -130,6 +131,9 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
         interp_mapper->BoxCoarsener(refRatio(lev - 1));
     const BoxArray& fine_ba = fine_layout.boxArray();
     const BoxArray fine_ba_simplified = fine_ba.simplified();
+    const MultiFab& coarse_layout =
+        stream_mode == 1 ? osi_state.at(lev - 1) : f_old.at(lev - 1);
+    const BoxArray coarse_valid = coarse_layout.boxArray().simplified();
     Box fine_domain = Geom(lev).Domain();
     for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
         if (Geom(lev).isPeriodic(dir)) {
@@ -158,6 +162,10 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
             fine_ba_simplified.complementIn(target, Geom(lev).periodicity()); // 计算 target 中没有被 fine_ba_simplified 覆盖的区域, 并以多个互不重叠的 Box 返回，考虑周期性情况。
         for (const Box& work_box : leftover) {
             const Box coarse_box = coarsener.doit(work_box);
+            // 缓存建立时检查完整模板来源，避免后续复制留下域内 staging 缺口。
+            RequireInterpolationCoverage(
+                coarse_box, coarse_valid, Geom(lev - 1), lev, fine_index,
+                work_box, interp_mode, fill_ng, nProper());
             const int owner = fine_layout.DistributionMap()[fine_index];
             bool needs_fill = false;
             for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) { // 检查任意方向的 coarse box 是否出现越界行为

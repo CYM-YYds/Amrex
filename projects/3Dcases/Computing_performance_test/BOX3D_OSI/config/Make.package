@@ -1,5 +1,6 @@
 CEXE_headers += AmrCoreLBM.H
 CEXE_headers += AmrCoreLBM_detail.H
+CEXE_headers += InterpolationCoverage.H
 CEXE_headers += OsiCommunication.H
 CEXE_headers += D3Q19.H
 CEXE_headers += LagrangeParticleContainer.H
