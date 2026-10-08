@@ -33,6 +33,17 @@ Completion:
 
 ---
 If:
+  PathMatch: .*Kernels\.H
+
+CompileFlags:
+  # 普通 C++ 索引模式没有 CUDA warp 内建函数；仅保留参数类型供编辑器解析。
+  # 这些占位宏不模拟线程通信，也不进入 nvcc 的实际编译命令。
+  Add:
+    - "-D__shfl_down_sync(mask,value,...)=value"
+    - "-D__shfl_sync(mask,value,...)=value"
+
+---
+If:
   PathMatch: .*D3Q19\.H
 
 CompileFlags:
