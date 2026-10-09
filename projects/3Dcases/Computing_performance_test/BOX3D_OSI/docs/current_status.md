@@ -2,6 +2,30 @@
 
 更新时间：2026-10-09
 
+## 2026-10-09 索引上下文与头文件整理
+
+现役文件职责与推进调用关系统一见 [README](../README.md#源码职责与数据所有权)。
+`31d2967` 提取 OSI Fab 上下文，`7e9bb7c` 将几何构造进一步合入
+`OsiIndex.H` 的 `OSI::MakeOsiFabContext(ring, phase)`；当前没有单独的几何工厂。
+`8c74b9f` 将共享计时器与 checkpoint 常量原样移入 `AmrCoreLBM.H` 的
+`Box3dDetail`，移除 `AmrCoreLBM_detail.H` 及构建登记。
+
+作业 `610666` 的四组日志均记录正常完成 64 步，调度汇总有完整 completed 标记；
+输入、app、SHA256、命令与源码差异见 [运行目录](../runs/osi_context_matrix_610666)。
+该冻结 app 的 SHA256 为
+`2db5e0f089cc2823f10418291cd7c730f3d74e4b59a5055e78a446330ebcea3e`。
+direct/fallback 各 1250 条阶段检查、单层周期组 576 条均为 `linf=0`；
+direct/fallback 独立 A-B checkpoint 全局差为 `1.165734176e-15`。
+非周期 source 诊断仍有 physical-ghost mismatch，valid/internal-ghost mismatch 为零；
+周期 source mismatch 为零。不能外推为所有 ghost 来源等价。
+
+头文件合并后 CUDA+MPI 编译链接通过，日志为
+[compile-20261009T160419.log](../logs/compile/compile-20261009T160419.log)。
+本次文档核对时算例 app 的 SHA256 为
+`7516066d02b60d10252ddaab1079751f160bff85b0a136bd9fe9334aa8db1f8e`，
+与 `610666` 冻结 app 不同；因此该运行证据属于冻结版本，后续上下文合并与头文件
+合并没有新的完整矩阵运行证据。头文件迁移已核对定义原样保留。
+
 ## 2026-10-09 固定覆盖掩码与平均后边界修复
 
 提交 `d84eaca` 移除 `lbm.cf_mask_mode` 配置和无掩码分支，覆盖掩码固定启用。
@@ -9,9 +33,9 @@
 [架构文档](osi_algorithm_and_architecture.md#101-完整平均后的边界修复)。
 此前 `40b6c05` 的粗化求交实现已被掩码筛选取代；早期“单层也修复”说法不再适用。
 
-当前可执行文件由 `logs/compile/compile-20261009T145941.log` 对应的 CUDA+MPI 构建生成，
+该轮可执行文件由 `logs/compile/compile-20261009T145941.log` 对应的 CUDA+MPI 构建生成，
 SHA256 为 `def82cc37115d4f41b69a44d49a43808473a330a3197091698f38cfab5f8744c`，
-与作业 `610641` 冻结的 `app.ex` 相同。作业状态已核实为 `SUCCEEDED`。
+当时与作业 `610641` 冻结的 `app.ex` 相同；该轮记录的作业状态为 `SUCCEEDED`。
 
 - 单 rank、双 rank 各 12 组非均匀 DDF 检查覆盖两种布局、非零 phase、单/多层、
   单/多 Fab、贴壁/域内加密和全周期；目标外 valid/ghost 改变量均为零。

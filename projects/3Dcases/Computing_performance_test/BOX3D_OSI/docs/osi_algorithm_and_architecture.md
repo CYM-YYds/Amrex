@@ -471,7 +471,7 @@ AMReX `ParticleContainer::Checkpoint/Restart` 持久化 AoS/SoA 数据。该接�
 拉格朗日点验证了 1-rank 写出、2-rank 重启：粒子数、坐标和 10 个
 SoA 属性校验和在并行归约容差内一致，两层 D3Q27 全局 `Linf=0`。
 
-## 13. 建议的数据结构边界
+## 13. 当前数据结构边界
 
 以下数据边界已经在阶段 2--3 建立；后续阶段仍会扩展其生命周期：
 
@@ -484,10 +484,8 @@ enum class StreamMode : int {
 amrex::Vector<amrex::MultiFab> osi_state;
 amrex::Vector<std::uint64_t> osi_phase;
 
-struct OsiFabLayout {
-    amrex::Dim3 lo;
-    amrex::Dim3 len;
-};
+// Fab 上下文由 OsiIndex.H 准备，不拥有 level 状态。
+const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
 ```
 
 同层通信缓存 `[level][global Fab][Box]` 形式的 Decode/Encode 逻辑区域和 direct-copy
@@ -496,20 +494,10 @@ tag；逻辑区域不含 raw OSI 地址。canonical fallback 的 `CommunicationT
 缓存其 `Array4` 地址。发生 define、重新分块或销毁布局时，只需重建区域缓存和持久
 direct tag。
 
-职责划分建议：
-
-| 位置 | 职责 |
-| --- | --- |
-| `AmrCoreLBM.H` | `AmrCoreLBM` 统一接口、stream mode、每层 phase、grown OSI state 和通信缓存声明 |
-| `OsiIndex.H` | 非负取模和无状态 Fab-local host/device 地址映射 |
-| `Kernels.H` | fused OSI collision kernel 和 boundary accessor |
-| `AmrCoreLBM.cpp` | 构造、参数、输出、checkpoint 和粒子耦合 |
-| `AmrCoreLBM_amr.cpp` | 网格生命周期、粗细层缓存、插值和 AMReX 回调 |
-| `AmrCoreLBM_osi.cpp` | raw/phase 转换、OSI 通信、OSI 插值和平均下传 |
-| `AmrCoreLBM_advance.cpp` | 宏观量、平均、通信分派、碰撞、Stream、边界和推进 |
-| `AmrCoreLBM_diagnostics.cpp` | A-B/OSI 对照、source diagnostics、checksum 和收敛监测 |
-| `main.cpp` | 根据 stream mode 选择 A-B 或 OSI 推进；保持 AMR 调度一致 |
-| `config/inputs` | `lbm.stream_mode`；当前默认 1，A-B 测试必须显式覆盖为 0 |
+文件职责和实际推进链统一见 [README](../README.md#源码职责与数据所有权)。
+`OsiIndex.H` 负责几何、相位偏移和无状态地址计算；`OsiCommunication.H` 负责通信
+执行骨架；布局选择、区域缓存与具体传递在驱动类实现中组织。
+共享计时器和 checkpoint 常量位于 `AmrCoreLBM.H`，没有独立 detail 头文件。
 
 地址函数必须是无状态 device helper；phase 的所有权属于 level driver，不能在 device
 kernel 内自行修改。
