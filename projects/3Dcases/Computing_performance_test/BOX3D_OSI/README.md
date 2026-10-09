@@ -6,11 +6,12 @@ one-step index（OSI）路径。
 
 ## 当前验证状态
 
-更新时间：2026-10-08。最新逐阶段检查、长程运行结果与证据边界见
+更新时间：2026-10-09。最新逐阶段检查、长程运行结果与证据边界见
 [当前交接状态](docs/current_status.md)。
 
 现役粗到细 ghost 插值已增加模板覆盖门禁；缺口布局会在缓存建立时终止。
-该门禁通过 CUDA+MPI 编译及几何正负例测试，尚未做新增门禁后的 DDF 推进回归。
+该门禁通过几何正负例测试；2026-10-09 的作业 `610641` 已完成新增门禁后的双 rank、
+64 步 direct/fallback 动态 AMR 逐值回归。长程、重启和多节点仍待验收。
 
 2026-10-01 的重构迁移验证：布局不变时保留 OSI phase，布局变化时按旧 phase 直接迁移重叠区；
 作业 `606276` 已在 2 ranks/2 GPUs、step 64、level 2 窗口完成 direct/fallback 的阶段内逐值检查；周期组 source diagnostics 为零。独立 checkpoint 对比中，level 0/1 的 covered valid 单元仍有约 `4.26e-3`/`4.44e-3` 差异，而 active 单元最大差约 `1.17e-15`；因此该作业不能表述为所有 valid 单元均为零差。长程、重启、多节点和 device-direct 仍待完成。
@@ -61,12 +62,11 @@ transport 只通过正确性验收，不适合作为性能路径。
 该结论只覆盖同层通信，不能外推到多层动态 AMR。完整统计和适用边界见
 [性能分析](docs/osi_performance_profiling.md)。
 
-当前源码会在完整 `AverageDownValid()` 后对当前 DDF 重新施加非平衡外推边界：A-B
-修复 `f_old`，OSI 修复当前 phase 的 `osi_state`，并包含 covered 物理边界单元。该操作
-用于避免这些单元在重网格后重新暴露或参与插值时仍保留被平均后的边界值。step 32
-逐点检查确认 step 32 入口、调用它之后、重网格之后的 level 0 全 valid
-DDF 都与 A-B 完全一致。此前 `0.07579002442` 来自不可靠的旧范数诊断；
-详见交接状态。
+粗细覆盖掩码固定启用，`lbm.cf_mask_mode` 已移除。正常推进跳过 covered 边界；
+完整平均后只修复 covered 粗层 valid 物理边界，排除 uncovered、最细层和 ghost。
+调用链及范围定义见 [平均后的边界修复](docs/osi_algorithm_and_architecture.md#101-完整平均后的边界修复)。
+作业 `610641` 的 direct/fallback 与修改前基线在 level 0/1/2 的全部 valid DDF
+逐值比较均为零；这是本次改动的等价性证据，不是独立物理解正确性或精度阶数证明。
 
 完整状态和证据边界见 [当前交接状态](docs/current_status.md)。
 
@@ -143,7 +143,7 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 这些文件共享同一个 `AmrCoreLBM` 对象；本次拆分只改变编译单元归属，不改变推进顺序、
 运行参数或 DDF 存储语义。
 
-本次矩阵的运行目录保留输入、可执行文件 SHA256、日志和 checkpoint；脚本当前只把
+2026-10-01 拆分矩阵的运行目录保留输入、可执行文件 SHA256、日志和 checkpoint；该历史脚本只把
 `src/main.cpp`、旧的 `src/AmrCoreLBM.cpp` 与头文件写入 `source.diff`，新增的五个
 实现文件和 `AmrCoreLBM_detail.H` 由提交 `23b92b7` 提供。因此要复现这次拆分，必须同时
 保留运行目录与该提交，不能只依赖 `source.diff`。

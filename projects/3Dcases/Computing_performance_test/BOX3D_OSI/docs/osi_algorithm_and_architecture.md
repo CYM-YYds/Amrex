@@ -131,17 +131,18 @@ $$
 对固定 `q,p`，`x -> A_q(x,p)` 必须是一一映射。只有满足这一条件，GPU 线程对同一
 方向的原位写回才不会产生数据竞争。
 
-## 4. 推荐的 phase 状态机
+## 4. phase 状态机
 
-必须明确 phase 表示哪个时间状态。第一版采用以下约定：
+现役 OSI 推进由 `AdvanceLevel()` 编排，phase 表示以下时间状态：
 
 ```text
-进入 AdvanceOsiLevelImpl(lev)：
+进入 AdvanceLevel(lev)，OSI 布局：
     osi_phase[lev] = p
     storage 表示 t 时刻迁移后的 incoming DDF
 
 1. Collision：
-    在整个 grown Fab 上按 A_q(x,p) 同址读取、碰撞、写回 post-collision DDF
+    在 grown Fab 的有效推进范围（排除深层 covered、保留 interface）
+    按 A_q(x,p) 同址读取、碰撞、写回 post-collision DDF
 
 2. Same-level MPI/ghost synchronization：
     从 owner logical valid 的 A_q(x,p) 一次解码完整 Q=27 的 post-collision DDF
@@ -153,11 +154,11 @@ $$
 
 4. Physical boundary reconstruction：
     从新 phase 的内部逻辑地址 A_q(x_i,p+1) 读取迁移后参考值
-    按标准非平衡外推重建完整边界 DDF
+    按标准非平衡外推重建本层 uncovered 物理边界的完整 Q 分量
     直接写入 A_q(x_b,p+1)
 
-离开 AdvanceOsiLevelImpl(lev)：
-    storage 再次表示迁移和物理边界处理后的 incoming DDF
+离开 AdvanceLevel(lev)，OSI 布局：
+    storage 的活跃区域再次表示迁移和物理边界处理后的 incoming DDF
 ```
 
 当前每步在碰撞后同步 owner 的 post-collision 值；接收值仍写当前 phase `p`，再由 phase
@@ -304,7 +305,7 @@ z-low、z-high 的固定顺序选择最终面规则，使边和角的覆盖语�
 amrex::Vector<std::uint64_t> osi_phase;
 ```
 
-每次 `AdvanceOsiLevelImpl(lev)` 成功完成后只增加 `osi_phase[lev]`。在一个粗步内可能出现：
+每次 `AdvanceLevel(lev)，OSI 布局` 成功完成后只增加 `osi_phase[lev]`。在一个粗步内可能出现：
 
 ```text
 level 0 phase += 1
@@ -355,24 +356,25 @@ phase，并在重叠区按旧 phase 迁移逻辑值；不构造整层 canonical 
 
 ```text
 regrid 前完整 AverageDownValid
-        -> 按各层当前 phase 重建物理边界，包含 covered 边界单元
+        -> 按各粗层当前 phase 只修复 covered valid 物理边界
         -> Remake 布局不变: 保留旧 raw state 和 phase
         -> Remake 布局变化: ParallelCopyOsi 经 CPC 本地/MPI 标签迁移旧 fine valid 到新布局 phase 0
         -> Remake 新增区: coarse OSI -> 稀疏 coarse/fine patch -> 新 fine phase 0
-        -> MakeNew: 刷新已有 coarse density/velocity，按 q 批次解码并缩放非平衡 DDF
-                    -> CellConservativeLinear -> 新 fine phase 0
-        -> Clear: 释放该层 OSI state、同步缓冲和地址 tags
+        -> MakeNew: 刷新已有 coarse density/velocity，完整 Q 解码并缩放非平衡 DDF
+                    -> DdfInterpolater() 所选插值 -> 新 fine phase 0
+        -> Clear: 释放该层 OSI state、通信缓冲和地址 tags
         -> 重建通信、插值、restriction 和 coarse-fine mask 缓存
         -> Cycle2 FillGhostLevel(fine): 只建立两步细层子循环需要的 coarse-fine ghost
-        -> AdvanceOsiLevelImpl: 每层碰撞后、phase 提交前同步同层/周期 ghost
+        -> AdvanceLevel: OSI 每层碰撞后、phase 提交前同步同层/周期 ghost
 ```
 
 宏观量路径也采用 `AverageDownValid() -> ComputeMacroLevel()`，
 其中 `AverageDownValid()` 内部完成当前态物理边界修复，因此输出和收敛检查读取的是
-完整同步且重新满足物理边界条件的当前逻辑 DDF；这一步会修改当前 DDF 边界，不是纯只读诊断。
+完整同步并修复平均改写边界的当前逻辑 DDF；这一步会修改当前 DDF 边界，不是纯只读诊断。
 
 仅在布局变化时重置 phase。迁移保持逻辑值的设计关系如下；
-`af3b5da` 的 CUDA + MPI 编译已通过，单/多 rank 动态重构逐值验收仍待完成。
+`af3b5da` 当时仅完成编译；当前有限窗口动态重构验证见
+[当前交接状态](current_status.md)。
 若重构前有：
 
 $$
@@ -392,6 +394,28 @@ jobs `584483`
 （OSI）和 `584484`（A-B）在 2 ranks、10 coarse steps、每 2 步 regrid 下覆盖
 Remake、Clear 和 MakeNew；18 条 active D3Q27 checksum 逐项一致。job `584617` 对上述
 最终生命周期执行 54 项逐单元 active D3Q27 检查，最大 `Linf=1.054711873e-15`。
+
+## 10.1 完整平均后的边界修复
+
+粗细覆盖掩码固定构建，不再读取 `lbm.cf_mask_mode`。该参数只用于解释历史配置，不再影响当前计算。
+`AverageDownValid()` 从最细层向下完整平均所有 covered 父单元，完成可选的修复前
+检查回调，再调用 `RepairCurrentStatePhysicalBoundary()`；宏观量计算和 regrid 前
+使用相同入口。平均混合细层边界与内部子单元，因此结果一般不再满足粗层壁面公式。
+
+| 调用 | `repair_after_average` | 边界筛选与实际写入范围 |
+|---|---|---|
+| 正常推进 `Boundary()` | `false` | 有细层时跳过 `covered != 0`；保留原边界工作盒及其中域内 ghost 副本 |
+| 平均后修复 | `true` | 仅遍历 `lev < finest_level`，工作盒裁剪到当前 Fab valid；跳过 `covered == 0` |
+
+`ApplyPhysicalBoundaryLevel()` 复用同一非平衡外推核。工作盒还包含近壁内部格点，
+最终由 `fill_boundary_impl()` 判断非周期方向的 `0/hi` 壁面坐标；因此修复实际只写
+**covered 粗层 valid 与非周期物理边界的交集**。无需细层 BoxArray 粗化或临时求交列表。
+单层没有平均目标，修复不写状态；最细层、uncovered、内部格点和 ghost 均不被该修复改写。
+A-B 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`；锁步参考态采用同一范围。
+
+这不是新建层/重构插值的通用边界重建接口，也不刷新平均后的同层 ghost。
+当前验证确认范围与现有公式一致，并与修改前基线逐值等价；边界离散精度阶数未验证。
+运行证据统一见 [当前交接状态](current_status.md#2026-10-09-固定覆盖掩码与平均后边界修复)。
 
 ## 11. 静态 coarse-fine 传输
 

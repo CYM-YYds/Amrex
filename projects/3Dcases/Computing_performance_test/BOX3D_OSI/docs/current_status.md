@@ -1,6 +1,32 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-10-08
+更新时间：2026-10-09
+
+## 2026-10-09 固定覆盖掩码与平均后边界修复
+
+提交 `d84eaca` 移除 `lbm.cf_mask_mode` 配置和无掩码分支，覆盖掩码固定启用。
+现役边界修复的调用链、covered/uncovered 筛选和 valid/ghost 范围统一见
+[架构文档](osi_algorithm_and_architecture.md#101-完整平均后的边界修复)。
+此前 `40b6c05` 的粗化求交实现已被掩码筛选取代；早期“单层也修复”说法不再适用。
+
+当前可执行文件由 `logs/compile/compile-20261009T145941.log` 对应的 CUDA+MPI 构建生成，
+SHA256 为 `def82cc37115d4f41b69a44d49a43808473a330a3197091698f38cfab5f8744c`，
+与作业 `610641` 冻结的 `app.ex` 相同。作业状态已核实为 `SUCCEEDED`。
+
+- 单 rank、双 rank 各 12 组非均匀 DDF 检查覆盖两种布局、非零 phase、单/多层、
+  单/多 Fab、贴壁/域内加密和全周期；目标外 valid/ghost 改变量均为零。
+- 修改前基线和新版本 direct/fallback 均在 2 ranks/2 GPUs 上运行 64 步，
+  step 32/64 动态重网格建立到 level 2；每组 1250 条 staged check 均为 `linf=0`。
+- 新版本与修改前 OSI 基线 checkpoint 的三层全部 valid、每层 27 分量逐值比较
+  均为零，包含 covered。不能将它外推为独立 A-B 基准、所有 ghost 来源或长程正确性。
+- 这也是 2026-10-08 插值门禁加入后的有限窗口推进回归；模板缺口布局的自动补缺、
+  长程、多节点、重启、device-direct，以及边界离散精度阶数仍为 pending。
+
+输入、命令、源码差异、可执行文件、checkpoint 和日志在
+[runs/fixed_covered_mask_20261009/job610641](../runs/fixed_covered_mask_20261009/job610641)；
+[验证汇总](../runs/fixed_covered_mask_20261009/job610641/validation_summary.json)和
+[变更记录](ai_changes/2026-10-09-fixed-covered-mask.md)提供具体检查范围。
+以下历史作业均按原版本解释，不能用新结果覆盖旧结果。
 
 ## 2026-10-08 插值模板覆盖门禁
 
@@ -11,11 +37,11 @@
 [DDF 填充文档](DDF粗细网格填充学习文档.md#451-完整模板覆盖门禁)，验证记录见
 [本次变更记录](ai_changes/2026-10-08-interpolation-stencil-coverage.md)。
 
-当前可执行文件在 2026-10-08 19:28:30 完成 CUDA+MPI 构建，对应
+当日可执行文件在 2026-10-08 19:28:30 完成 CUDA+MPI 构建，对应
 `logs/compile/compile-20261008T192703.log`。编译节点 GCC 11.3 下运行
 `bash tests/run_interpolation_coverage_test.sh`，13 项几何/返回路径检查和缺口报错负例通过。
-这是几何门禁的运行证据；新增门禁后的 DDF 逐值推进、动态 AMR 与长程数值回归仍为
-pending。以下作业记录保留各自版本和时间窗口，不能作为新增门禁后的运行验收。
+这是当时的几何门禁证据。门禁后的 64 步 DDF 动态 AMR 回归已由上节作业 `610641`
+补充，长程仍为 pending；更早的作业记录不能作为新增门禁后的运行验收。
 
 ## 2026-10-01 `AmrCoreLBM` 编译单元拆分验收
 

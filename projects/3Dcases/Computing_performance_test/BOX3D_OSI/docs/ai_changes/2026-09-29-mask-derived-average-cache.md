@@ -1,5 +1,7 @@
 # 2026-09-29 使用 interface_mask 构造平均缓存
 
+> 历史实现记录；覆盖掩码参数和平均后修复范围已由 [2026-10-09 固定掩码变更](2026-10-09-fixed-covered-mask.md) 更新。
+
 ## 目的
 
 消除 `BuildAverageCache()` 中由 coarse/fine 几何关系重复推导 interface 范围的逻辑，改用已构造的 `interface_mask` 作为平均范围真相，同时保留每个 coarse Box 对应的 fine Fab 索引。

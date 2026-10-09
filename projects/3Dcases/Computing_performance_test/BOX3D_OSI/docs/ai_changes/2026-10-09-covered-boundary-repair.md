@@ -1,5 +1,7 @@
 # 完整平均后的物理边界修复范围
 
+> 历史实现记录；覆盖掩码参数和平均后修复范围已由 [2026-10-09 固定掩码变更](2026-10-09-fixed-covered-mask.md) 更新。
+
 - 目的：避免 `AverageDownValid()` 后重复改写未被平均覆盖的边界、最细层和同层 ghost 副本。
 - 范围：仅 BOX3D_OSI 的 `AmrCoreLBM.H`、`AmrCoreLBM_advance.cpp`；保留现有非平衡外推公式和正常推进边界处理。
 - 改动：`RepairCurrentStatePhysicalBoundary()` 只遍历 `lev < finest_level`，使用细层 valid BoxArray 粗化后的区域限定修复。`ApplyPhysicalBoundaryLevel()` 增加可选区域参数，将修复工作盒裁剪到粗层 valid 与该区域的交集；边界核仍只写非周期物理边界格点。OSI 锁步参考态使用同一修复区域；单层时不写状态。
