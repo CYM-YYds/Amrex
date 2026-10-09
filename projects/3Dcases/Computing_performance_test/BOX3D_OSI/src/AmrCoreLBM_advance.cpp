@@ -10,55 +10,6 @@ using namespace Box3dDetail;
 
 // 生产推进阶段与数据路径分派。
 
-void AmrCoreLBM::ComputeMacroLevel(int lev) {
-    if (stream_mode == 1) {
-        const amrex::MultiFab& state = osi_state[lev];
-        amrex::MultiFab& rho_lev = density[lev];
-        amrex::MultiFab& u_lev = velocity[lev];
-        const std::uint64_t phase = osi_phase[lev];
-
-        for (MFIter mfi(state, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            const Box& bx = mfi.tilebox();
-            const Box ring_box = amrex::grow(mfi.validbox(), state.nGrowVect());
-            const auto fab_lo = ring_box.smallEnd();
-            const OSI::FabGeometry fab{
-                {fab_lo[0], fab_lo[1], fab_lo[2]},
-                {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
-            const auto phase_shift = OSI::osi_phase_shift(phase, fab);
-            const Array4<const Real>& ddf = state.const_array(mfi);
-            const Array4<Real>& rho = rho_lev.array(mfi);
-            const Array4<Real>& u = u_lev.array(mfi);
-
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                compute_macro_osi(i, j, k, ddf, rho, u, fab, phase_shift);
-            });
-        }
-        return;
-    }
-
-    amrex::MultiFab& ddf = f_old[lev];
-    amrex::MultiFab& rho_lev = density[lev];
-    amrex::MultiFab& u_lev = velocity[lev];
-
-    for (MFIter mfi(ddf, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const Box& bx = mfi.growntilebox(nghost);
-        const Array4<Real>& fold = ddf.array(mfi);
-        const Array4<Real>& rho = rho_lev.array(mfi);
-        const Array4<Real>& u = u_lev.array(mfi);
-
-        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            compute_macro(i, j, k, fold, rho, u);
-        });
-    }
-}
-
-void AmrCoreLBM::ComputeMacro() {
-    AverageDownValid();
-    for (int lev = 0; lev <= finest_level; lev++) {
-        ComputeMacroLevel(lev);
-    }
-}
-
 void AmrCoreLBM::ComputeVorticityLevel(int lev) {
 
     const amrex::MultiFab& level_layout =

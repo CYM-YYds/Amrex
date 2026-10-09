@@ -134,10 +134,10 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 
 `src/AmrCoreLBM.H` 保持统一的 `AmrCoreLBM` 接口和状态声明；实现按职责分为：
 
-- `AmrCoreLBM.cpp`：构造、参数、输出、checkpoint 和粒子耦合；
+- `AmrCoreLBM.cpp`：构造、参数、密度与速度重建、输出、checkpoint 和粒子耦合；
 - `AmrCoreLBM_amr.cpp`：网格生命周期、重网格、粗细层缓存和 AMReX 回调；
 - `AmrCoreLBM_osi.cpp`：OSI phase/raw 地址、通信、插值和平均下传；
-- `AmrCoreLBM_advance.cpp`：宏观量、碰撞、通信分派、Stream、边界和时间推进；
+- `AmrCoreLBM_advance.cpp`：涡量与剪切计算、碰撞、通信分派、Stream、边界和时间推进；
 - `AmrCoreLBM_diagnostics.cpp`：A-B/OSI 逐值检查、source diagnostics、checksum 和收敛监测。
 
 这些文件共享同一个 `AmrCoreLBM` 对象；本次拆分只改变编译单元归属，不改变推进顺序、
