@@ -106,7 +106,8 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
             const Box source_ring = amrex::grow(
                 coarse_state.boxArray()[tag.srcIndex],
                 coarse_state.nGrowVect());
-            const auto source_fab = OSI::MakeOsiFabGeometry(source_ring);
+            const auto source_fab =
+                OSI::MakeOsiFabContext(source_ring, coarse_phase).fab;
             local_tags.push_back({coarse_state.const_array(tag.srcIndex),
                                   coarse_stage.array(tag.dstIndex), tag.sbox,
                                   tag.dbox, source_fab, OSI::FabGeometry{}});
@@ -132,7 +133,8 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
                 const Box source_ring = amrex::grow(
                     coarse_state.boxArray()[tag.srcIndex],
                     coarse_state.nGrowVect());
-                const auto source_fab = OSI::MakeOsiFabGeometry(source_ring);
+                const auto source_fab =
+                    OSI::MakeOsiFabContext(source_ring, coarse_phase).fab;
                 pack_tags.push_back({coarse_state.const_array(tag.srcIndex),
                                      tag.sbox, source_fab,
                                      send_cursor[peer]});
@@ -370,7 +372,8 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
             const Box ring = amrex::grow(
                 coarse_state.boxArray()[tag.dstIndex],
                 coarse_state.nGrowVect());
-            const auto dst_fab = OSI::MakeOsiFabGeometry(ring);
+            const auto dst_fab =
+                OSI::MakeOsiFabContext(ring, coarse_phase).fab;
             local_tags.push_back({interface_result.const_array(tag.srcIndex),
                                   coarse_state.array(tag.dstIndex), tag.sbox, tag.dbox,
                                   OSI::FabGeometry{}, dst_fab});
@@ -404,7 +407,8 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
                 const Box ring = amrex::grow(
                     coarse_state.boxArray()[tag.dstIndex],
                     coarse_state.nGrowVect());
-                const auto dst_fab = OSI::MakeOsiFabGeometry(ring);
+                const auto dst_fab =
+                    OSI::MakeOsiFabContext(ring, coarse_phase).fab;
                 unpack_tags.push_back({coarse_state.array(tag.dstIndex), tag.dbox, dst_fab,
                                        recv_cursor[peer]});
                 recv_cursor[peer] +=
@@ -547,7 +551,7 @@ void AmrCoreLBM::CommunicateOsiLevel(int lev) {
     for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
         const int ibox = mfi.index();
         const Box ring_box = amrex::grow(ba[ibox], ng);
-        const auto fab = OSI::MakeOsiFabGeometry(ring_box);
+        const auto fab = OSI::MakeOsiFabContext(ring_box, phase).fab;
         const auto state_src = state.const_array(ibox);
         const auto state_dst = state.array(ibox);
         const auto canonical_src = canonical.const_array(ibox);
@@ -607,6 +611,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     amrex::MultiFab& state = osi_state.at(lev);
     const BoxArray& ba = osi_state.at(lev).boxArray();
     const IntVect ng = osi_state.at(lev).nGrowVect();
+    const std::uint64_t phase = osi_phase.at(lev);
     const auto shifts = Geom(lev).periodicity().shiftIntVect(ng);
 
     Vector<BoxList> decode_candidates(ba.size());
@@ -681,7 +686,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     Vector<OSI::RemoteCopyTag> remote_tags;
     const auto fab_geometry = [&](int index) {
         const Box ring = amrex::grow(ba[index], ng);
-        return OSI::MakeOsiFabGeometry(ring);
+        return OSI::MakeOsiFabContext(ring, phase).fab;
     };
     const auto& fb = state.getFB(ng, Geom(lev).periodicity());
     AMREX_ALWAYS_ASSERT(fb.m_LocTags && fb.m_SndTags && fb.m_RcvTags);
