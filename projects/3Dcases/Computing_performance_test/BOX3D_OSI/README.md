@@ -132,7 +132,8 @@ TinyProfiler。集群覆盖参数应通过 `AMREX_RUN_ARGS` 传给提交脚本�
 
 ## 源码职责
 
-`src/AmrCoreLBM.H` 保持统一的 `AmrCoreLBM` 接口和状态声明；实现按职责分为：
+`src/AmrCoreLBM.H` 包含统一的 `AmrCoreLBM` 接口、状态声明，以及 `Box3dDetail`
+命名空间中的共享计时器与 checkpoint 格式常量；实现按职责分为：
 
 - `AmrCoreLBM.cpp`：构造、参数、密度与速度重建、输出、checkpoint 和粒子耦合；
 - `AmrCoreLBM_amr.cpp`：网格生命周期、重网格、粗细层缓存和 AMReX 回调；

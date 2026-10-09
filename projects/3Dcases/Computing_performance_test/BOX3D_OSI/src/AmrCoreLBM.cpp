@@ -1,5 +1,4 @@
 #include "AmrCoreLBM.H"
-#include "AmrCoreLBM_detail.H"
 
 #include <AMReX_ParIter.H>
 #include <AMReX_PlotFileUtil.H>

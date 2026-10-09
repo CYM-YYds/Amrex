@@ -1,5 +1,4 @@
 #include "AmrCoreLBM.H"
-#include "AmrCoreLBM_detail.H"
 
 #include <AMReX_BoxList.H>
 #include <AMReX_MultiFabUtil.H>
