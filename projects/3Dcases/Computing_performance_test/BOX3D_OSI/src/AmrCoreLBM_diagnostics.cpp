@@ -376,7 +376,7 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
     for (int lev = 0; lev <= finest_level; ++lev) {
         const MultiFab& state =
             stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
-        const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+        const bool has_fine = lev < finest_level;
         MultiFab decoded;
         if (stream_mode == 1) {
             decoded.define(state.boxArray(), state.DistributionMap(),
@@ -524,7 +524,7 @@ void AmrCoreLBM::CheckOsiReferenceLevel0(int step, const char* stage) {
                          host_reference.nBytes());
         Gpu::dtoh_memcpy(host_state.dataPtr(), state[mfi].dataPtr(),
                          host_state.nBytes());
-        const bool has_fine = finest_level > 0 && cf_mask_mode == 1;
+        const bool has_fine = finest_level > 0;
         std::unique_ptr<IArrayBox> host_covered;
         if (has_fine) {
             const auto& device_covered = covered_mask.at(0)[mfi];
@@ -698,7 +698,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
         const Array4<const Real>& ab = reference.const_array(mfi);
         const Array4<const Real>& osi = state.const_array(mfi);
         const Array4<Real>& diff = difference.array(mfi);
-        const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+        const bool has_fine = lev < finest_level;
         const auto covered = has_fine ? covered_mask.at(lev).const_array(mfi)
                                       : Array4<const int>{};
 
@@ -759,7 +759,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
 
             const auto ab = host_reference.const_array();
             const auto osi = host_state.const_array();
-            const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+            const bool has_fine = lev < finest_level;
             std::unique_ptr<IArrayBox> host_covered;
             if (has_fine) {
                 host_covered = std::make_unique<IArrayBox>(
@@ -889,7 +889,7 @@ void AmrCoreLBM::CompareOsiStreamSources(int lev, const char* stage) {
 
     const MultiFab& reference = f_old.at(lev);
     const MultiFab& state = osi_state.at(lev);
-    const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+    const bool has_fine = lev < finest_level;
     Long target_count = 0;
     Long source_count = 0;
     Long source_valid_count = 0;
@@ -1075,7 +1075,7 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
 
 void AmrCoreLBM::PrintDdfChecksums(int step) {
     for (int lev = 0; lev <= finest_level; ++lev) {
-        const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+        const bool has_fine = lev < finest_level;
         Real valid_checksum = 0.0;
         Real active_checksum = 0.0;
         GpuArray<Real, Q> active_q{};
@@ -1174,7 +1174,7 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new)
             component_sum[q] = state.sum(q, 0);
             valid_sum += component_sum[q];
 
-            if (lev < finest_level && cf_mask_mode == 1) {
+            if (lev < finest_level) {
                 MultiFab active(state.boxArray(), state.DistributionMap(), 1, 0,
                                 MFInfo().SetArena(The_Arena()));
                 for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
@@ -1280,11 +1280,6 @@ void AmrCoreLBM::PrintRegridDiagnostics() const {
     }
 
     for (int lev = 0; lev < finest_level; ++lev) {
-        if (cf_mask_mode == 0) {
-            amrex::Print() << "CF_MASK_DIAG lev=" << lev << " disabled\n";
-            continue;
-        }
-
         long fine_cells_per_coarse = 1;
         const auto ratio = refRatio(lev);
         for (int dim = 0; dim < AMREX_SPACEDIM; ++dim) {
@@ -1362,7 +1357,7 @@ void AmrCoreLBM::DiagnoseBoundaryResult(int lev) {
     Gpu::streamSynchronize();
     const Box domain = Geom(lev).Domain();
     const auto is_periodic = Geom(lev).isPeriodicArray();
-    const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+    const bool has_fine = lev < finest_level;
     const MultiFab& f_new_lev = f_new.at(lev);
     GpuArray<Long, Q> bad{};
     GpuArray<Long, Q> bad_covered{};
@@ -1554,7 +1549,7 @@ void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
         FArrayBox host_old(source_box, Q, The_Pinned_Arena());
         Gpu::dtoh_memcpy(host_old.dataPtr(), f_old_lev[mfi].dataPtr(),
                          host_old.nBytes());
-        const bool has_masks = has_fine_level && cf_mask_mode == 1;
+        const bool has_masks = has_fine_level;
         IArrayBox host_covered(
             has_masks ? covered_mask[lev][mfi].box() : bx, 1,
             The_Pinned_Arena());
@@ -1593,9 +1588,9 @@ void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
                         if (std::isfinite(values(i, j, k, q)))
                             continue;
                         ++bad[q];
-                        const bool cov = has_fine_level && cf_mask_mode == 1 &&
+                        const bool cov = has_fine_level &&
                                          covered(i, j, k) != 0;
-                        const bool intf = has_fine_level && cf_mask_mode == 1 &&
+                        const bool intf = has_fine_level &&
                                           interface(i, j, k) != 0;
                         bad_covered[q] += cov;
                         bad_interface[q] += intf;
@@ -1636,7 +1631,7 @@ void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
         }
     }
     if (ParallelDescriptor::IOProcessor()) {
-        Long covered_cells = (has_fine_level && cf_mask_mode == 1) ? covered_mask[lev].sum(0, 0) : 0;
+        Long covered_cells = (has_fine_level) ? covered_mask[lev].sum(0, 0) : 0;
         amrex::Print() << "STREAM_RANGE lev=" << lev << " n=" << n << " fabs=" << f_old_lev.boxArray().size()
                        << " launch_cells=" << launch_cells << " covered_cells=" << covered_cells
                        << " stream_cells=" << (launch_cells - covered_cells) << '\n';
@@ -1712,7 +1707,7 @@ void AmrCoreLBM::CompareDdfCheckpoint(
             MultiFab difference(
                 state.boxArray(), state.DistributionMap(), Q, 0);
             const bool has_fine =
-                lev < finest_level && cf_mask_mode == 1;
+                lev < finest_level;
             const Long valid_cells = state.boxArray().numPts();
             const Long active_cells =
                 has_fine ? valid_cells - covered_cell_counts.at(lev)
@@ -2030,7 +2025,7 @@ void AmrCoreLBM::CompareDdfCheckpoint(
             Real max_diff = 0.0;
             IntVect max_iv(0);
             const Box domain = Geom(lev).Domain();
-            const bool has_fine = lev < finest_level && cf_mask_mode == 1;
+            const bool has_fine = lev < finest_level;
             for (MFIter mfi(difference, false); mfi.isValid(); ++mfi) {
                 const Box bx = mfi.validbox();
                 FArrayBox host_diff(mfi.validbox(), difference.nComp(), The_Pinned_Arena());

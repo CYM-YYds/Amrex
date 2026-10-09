@@ -677,10 +677,6 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
 
 void AmrCoreLBM::RebuildCoarseFineMasksForState(
     const Vector<MultiFab>& state) {
-    if (cf_mask_mode == 0) {
-        return;
-    }
-
     for (int lev = 0; lev < finest_level; ++lev) {
         AMREX_ALWAYS_ASSERT(state.at(lev).isDefined());
         AMREX_ALWAYS_ASSERT(state.at(lev + 1).isDefined());

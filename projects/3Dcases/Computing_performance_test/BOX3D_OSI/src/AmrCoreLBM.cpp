@@ -298,7 +298,6 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  p0     =" << std::setw(10) << std::right << p0 << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  Ma     =" << std::setw(10) << std::right << Ma << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  U0     =" << std::setw(10) << std::right << U0 << std::endl;
-    amrex::Print() << std::setw(15) << std::left << "  cf_mask=" << std::setw(10) << std::right << cf_mask_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  col_mode=" << std::setw(10) << std::right << collide_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  str_mode=" << std::setw(10) << std::right << stream_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  int_mode=" << std::setw(10) << std::right << interp_mode << std::endl;
@@ -510,10 +509,6 @@ void AmrCoreLBM::ReadParameters() {
 
     {
         ParmParse pp("lbm");
-        pp.query("cf_mask_mode", cf_mask_mode);
-        if (cf_mask_mode != 1) {
-            amrex::Abort("lbm.cf_mask_mode must be 1; the unmasked mode is no longer supported");
-        }
         pp.query("collide_mode", collide_mode);
         if (collide_mode < 0 || collide_mode > 1) {
             amrex::Abort("lbm.collide_mode must be 0 or 1");

@@ -114,20 +114,15 @@ void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复
     const DdfLayout layout =
         stream_mode == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
 
-    // 只修复完整平均实际改写的粗层物理边界。直接使用细层 valid 的粗化
-    // 区域，使该范围不依赖 cf_mask_mode，也不改写 uncovered 或最细层状态。
+    // 平均后只修复 covered 粗层物理边界，不改写 uncovered 或最细层状态。
     for (int lev = 0; lev < finest_level; ++lev) {
         amrex::MultiFab& state =
             layout == DdfLayout::Osi ? osi_state.at(lev) : f_old.at(lev);
-        const amrex::MultiFab& fine_state =
-            layout == DdfLayout::Osi ? osi_state.at(lev + 1) : f_old.at(lev + 1);
-        const BoxArray averaged_region =
-            amrex::coarsen(fine_state.boxArray(), refRatio(lev));
-        ApplyPhysicalBoundaryLevel(lev, state, layout, false, &averaged_region);
+        ApplyPhysicalBoundaryLevel(lev, state, layout, true);
         if (osiReferenceEnabled() && layout == DdfLayout::Osi) {
-            // oracle 必须经历与 OSI 当前态相同的初始化/平均后边界修复。
+            // 锁步参考态使用与 OSI 当前态相同的 covered 修复范围。
             ApplyPhysicalBoundaryLevel(
-                lev, f_old.at(lev), DdfLayout::Canonical, false, &averaged_region);
+                lev, f_old.at(lev), DdfLayout::Canonical, true);
         }
     }
 }
@@ -426,15 +421,17 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
 
 void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
     int lev, amrex::MultiFab& state_lev, DdfLayout layout,
-    bool skip_covered, const amrex::BoxArray* repair_region) {
+    bool repair_after_average) {
+    if (repair_after_average && lev >= finest_level) {
+        return;
+    }
     const bool use_osi = layout == DdfLayout::Osi;
     const Box domain = Geom(lev).Domain();
     const amrex::IntVect hi{domain.length(0) - 1,
                             domain.length(1) - 1,
                             domain.length(2) - 1};
     const auto is_periodic = Geom(lev).isPeriodicArray();
-    const bool has_fine_level =
-        skip_covered && lev < finest_level && cf_mask_mode == 1;
+    const bool has_fine_level = lev < finest_level;
     const std::uint64_t phase = use_osi ? osi_phase.at(lev) : 0;
 
     for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
@@ -452,27 +449,20 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
         perf_stats.boundary_full_cells += mfi.tilebox().numPts();
 
         const auto& boundary_boxes = boundary_work_boxes[lev][mfi.index()];
-        Vector<Box> repair_boxes;
-        if (repair_region != nullptr) {
-            // 平均后的修复只取物理边界与实际平均写入区域的交集；正常推进
-            // 仍直接遍历原有边界工作盒，并按覆盖掩码跳过 covered 单元。
-            for (const Box& boundary_box : boundary_boxes) {
-                const Box valid_boundary = boundary_box & mfi.validbox();
-                if (!valid_boundary.ok()) {
-                    continue;
-                }
-                for (const auto& intersection : repair_region->intersections(valid_boundary)) {
-                    repair_boxes.push_back(intersection.second);
-                }
+        for (const Box& boundary_box : boundary_boxes) {
+            // 完整平均只改写 valid；修复时排除 ghost，正常推进保留原工作范围。
+            const Box bx = repair_after_average
+                ? boundary_box & mfi.validbox() : boundary_box;
+            if (!bx.ok()) {
+                continue;
             }
-        }
-        const auto& work_boxes = repair_region != nullptr ? repair_boxes : boundary_boxes;
-        for (const Box& bx : work_boxes) {
             perf_stats.boundary_launch_cells += bx.numPts();
             if (use_osi) {
                 amrex::ParallelFor(
                     bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        if (has_fine_level && covered(i, j, k) != 0) {
+                        if (has_fine_level &&
+                            (repair_after_average ? covered(i, j, k) == 0
+                                                  : covered(i, j, k) != 0)) {
                             return;
                         }
                         fill_boundary_osi_state(
@@ -482,7 +472,9 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
             } else {
                 amrex::ParallelFor(
                     bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        if (has_fine_level && covered(i, j, k) != 0) {
+                        if (has_fine_level &&
+                            (repair_after_average ? covered(i, j, k) == 0
+                                                  : covered(i, j, k) != 0)) {
                             return;
                         }
                         fill_boundary(i, j, k, state, hi, is_periodic);
@@ -496,7 +488,7 @@ void AmrCoreLBM::Boundary(int lev, DdfLayout layout) {
     ScopedPerfTimer timer(perf_stats.boundary);
     amrex::MultiFab& state =
         layout == DdfLayout::Osi ? osi_state.at(lev) : f_new.at(lev);
-    ApplyPhysicalBoundaryLevel(lev, state, layout, true);
+    ApplyPhysicalBoundaryLevel(lev, state, layout, false);
 }
 
 void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
@@ -515,7 +507,7 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
     amrex::Real tau_lev = tau[lev];
     const amrex::Real omega_lev = 1.0 / tau_lev;
     const Box collision_domain = Geom(lev).growPeriodicDomain(n);
-    const bool has_fine_level = lev < finest_level && cf_mask_mode == 1;
+    const bool has_fine_level = lev < finest_level;
     const std::uint64_t phase = use_osi ? osi_phase.at(lev) : 0;
     long long level_launch_cells = 0;
 
@@ -614,7 +606,7 @@ void AmrCoreLBM::Stream(int lev, int n, DdfLayout layout) {
         const Array4<Real>& fold = f_old_lev.array(mfi);
         const Array4<Real>& fnew = f_new_lev.array(mfi);
 
-        if (has_fine_level && cf_mask_mode == 1) {
+        if (has_fine_level) {
             const Array4<const int>& covered = covered_mask[lev].const_array(mfi);
 
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {

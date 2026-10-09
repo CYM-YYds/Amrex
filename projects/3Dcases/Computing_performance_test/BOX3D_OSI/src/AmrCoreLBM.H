@@ -201,13 +201,12 @@ class AmrCoreLBM : public amrex::AmrCore {
     void AverageDownValidLevel(int lev, bool is_scale);
     // 完整平均下传并仅修复被改写的粗层物理边界；可选检查点位于修复前。
     void AverageDownValid(const std::function<void()>& before_repair = {});
-    // 只修复细层 valid 粗化区域内的物理边界，单层时不做处理。
+    // 只修复 covered 粗层 valid 物理边界，单层时不做处理。
     void RepairCurrentStatePhysicalBoundary();
-    // repair_region 非空时只处理其与物理边界的交集。
+    // repair_after_average=true 时跳过 uncovered，否则跳过 covered。
     // CUDA 扩展设备 Lambda 要求该实现辅助函数保持 public。
     void ApplyPhysicalBoundaryLevel(int lev, amrex::MultiFab& state,
-                                    DdfLayout layout, bool skip_covered,
-                                    const amrex::BoxArray* repair_region = nullptr);
+                                    DdfLayout layout, bool repair_after_average);
     // fine_lev 表示当前细层；将 fine_lev 平均下传到 fine_lev - 1 粗层。
     void AverageDownInterfaceLevel(int fine_lev, bool is_scale);
     // lev 始终表示当前粗层并填充 lev + 1；is_scale 只控制非平衡 DDF 放缩。
@@ -362,7 +361,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     int nghost = 2;
     int particle_num = 1;
     // 0：禁用粗细网格 mask；1：逐单元 mask。
-    int cf_mask_mode = 1;
     // 0：原始通用 BGK；1：无外力/无 SGS 的 D3Q27 寄存器复用路径。
     int collide_mode = 0;
     // 0 = canonical A-B 数值基准模式
