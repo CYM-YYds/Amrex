@@ -29,11 +29,7 @@ void AmrCoreLBM::ComputeMacroLevel(int lev) {
         for (MFIter mfi(state, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
             const Box& bx = mfi.tilebox();
             const Box ring_box = amrex::grow(mfi.validbox(), state.nGrowVect());
-            const auto fab_lo = ring_box.smallEnd();
-            const OSI::FabGeometry fab{
-                {fab_lo[0], fab_lo[1], fab_lo[2]},
-                {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
-            const auto phase_shift = OSI::osi_phase_shift(phase, fab);
+            const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring_box, phase);
             const Array4<const Real>& ddf = state.const_array(mfi);
             const Array4<Real>& rho = rho_lev.array(mfi);
             const Array4<Real>& u = u_lev.array(mfi);
@@ -868,11 +864,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
         for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
             const Box bx = mfi.validbox();
             const Box ring = amrex::grow(bx, state.nGrowVect());
-            const auto lo = ring.smallEnd();
-            const OSI::FabGeometry fab{
-                {lo[0], lo[1], lo[2]},
-                {ring.length(0), ring.length(1), ring.length(2)}};
-            const auto phase_shift = OSI::osi_phase_shift(phase, fab);
+            const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
             const auto src = state.const_array(mfi);
             const auto dst = canonical.array(mfi);
             amrex::ParallelFor(

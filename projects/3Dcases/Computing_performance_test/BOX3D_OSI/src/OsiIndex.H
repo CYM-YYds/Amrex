@@ -61,6 +61,28 @@ constexpr PhaseShift3 osi_phase_shift(std::uint64_t phase,
         static_cast<int>(phase % static_cast<std::uint64_t>(fab.length.z))};
 }
 
+// ring 必须是完整的 grown-Fab 环，不能使用 tilebox 或裁剪后的工作区域。
+// 使用 Box 接口模板，保持地址头文件可脱离 AMReX 运行时进行独立测试。
+template <typename Box>
+inline FabGeometry MakeOsiFabGeometry(const Box& ring) noexcept {
+    const auto lo = ring.smallEnd();
+    return {{lo[0], lo[1], lo[2]},
+            {ring.length(0), ring.length(1), ring.length(2)}};
+}
+
+struct OsiFabContext {
+    FabGeometry fab;
+    PhaseShift3 phase_shift;
+};
+
+// 在 host 启动 kernel 前统一准备几何与当前相位，供所有格点复用。
+template <typename Box>
+inline OsiFabContext MakeOsiFabContext(const Box& ring,
+                                      std::uint64_t phase) noexcept {
+    const auto fab = MakeOsiFabGeometry(ring);
+    return {fab, osi_phase_shift(phase, fab)};
+}
+
 OSI_GPU_HOST_DEVICE
 constexpr int osi_coord_precomputed(int logical, int velocity, int lo,
                                     int length, int phase_shift) noexcept {

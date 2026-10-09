@@ -156,11 +156,7 @@ void AmrCoreLBM::ProbeAverageInterfaceLevel(int lev, const char* stage) {
         Gpu::dtoh_memcpy(host_interface.dataPtr(), device_interface.dataPtr(),
                          host_interface.nBytes());
         const Box ring = device.box();
-        const auto lo = ring.smallEnd();
-        const OSI::FabGeometry fab{
-            {lo[0], lo[1], lo[2]},
-            {ring.length(0), ring.length(1), ring.length(2)}};
-        const auto shift = OSI::osi_phase_shift(osi_phase.at(lev), fab);
+        const auto [fab, shift] = OSI::MakeOsiFabContext(ring, osi_phase.at(lev));
         const auto data = host.const_array();
         const auto covered = host_covered.const_array();
         const auto interface = host_interface.const_array();
@@ -241,11 +237,7 @@ void AmrCoreLBM::ProbeFillGhostLevel(int lev) {
         FArrayBox host(device.box(), Q, The_Pinned_Arena());
         Gpu::dtoh_memcpy(host.dataPtr(), device.dataPtr(), host.nBytes());
         const Box ring = device.box();
-        const auto lo = ring.smallEnd();
-        const OSI::FabGeometry fab{
-            {lo[0], lo[1], lo[2]},
-            {ring.length(0), ring.length(1), ring.length(2)}};
-        const auto shift = OSI::osi_phase_shift(osi_phase.at(lev), fab);
+        const auto [fab, shift] = OSI::MakeOsiFabContext(ring, osi_phase.at(lev));
         const auto data = host.const_array();
         meta << fine_index;
         for (int d = 0; d < 3; ++d) {
@@ -538,11 +530,7 @@ void AmrCoreLBM::CheckOsiReferenceLevel0(int step, const char* stage) {
         const auto osi = host_state.const_array();
         const Box bx = mfi.validbox();
         const Box ring = state[mfi].box();
-        const auto lo = ring.smallEnd();
-        const OSI::FabGeometry fab{
-            {lo[0], lo[1], lo[2]},
-            {ring.length(0), ring.length(1), ring.length(2)}};
-        const auto shift = OSI::osi_phase_shift(phase, fab);
+        const auto [fab, shift] = OSI::MakeOsiFabContext(ring, phase);
         for (int q = 0; q < Q; ++q) {
             for (int k = bx.smallEnd(2); k <= bx.bigEnd(2); ++k) {
                 for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j) {
@@ -690,11 +678,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
         const Box valid_box = amrex::grow(mfi.validbox(), compare_ngrow) & comparison_domain;
         const Box ring_box =
             amrex::grow(mfi.validbox(), state.nGrowVect());
-        const auto fab_lo = ring_box.smallEnd();
-        const OSI::FabGeometry fab{
-            {fab_lo[0], fab_lo[1], fab_lo[2]},
-            {ring_box.length(0), ring_box.length(1), ring_box.length(2)}};
-        const auto phase_shift = OSI::osi_phase_shift(phase, fab);
+        const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring_box, phase);
         const Array4<const Real>& ab = reference.const_array(mfi);
         const Array4<const Real>& osi = state.const_array(mfi);
         const Array4<Real>& diff = difference.array(mfi);
@@ -768,12 +752,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
                                  covered_mask.at(lev)[mfi].dataPtr(),
                                  host_covered->nBytes());
             }
-            const auto fab_lo = ring_box.smallEnd();
-            const OSI::FabGeometry fab{
-                {fab_lo[0], fab_lo[1], fab_lo[2]},
-                {ring_box.length(0), ring_box.length(1),
-                 ring_box.length(2)}};
-            const auto phase_shift = OSI::osi_phase_shift(phase, fab);
+            const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring_box, phase);
             const IntVect lo = valid_box.smallEnd();
             const IntVect hi = valid_box.bigEnd();
 
@@ -930,12 +909,7 @@ void AmrCoreLBM::CompareOsiStreamSources(int lev, const char* stage) {
                          host_state.nBytes());
         const auto ab = host_reference.const_array();
         const auto osi = host_state.const_array();
-        const auto fab_lo = ring.smallEnd();
-        const OSI::FabGeometry fab{
-            {fab_lo[0], fab_lo[1], fab_lo[2]},
-            {ring.length(0), ring.length(1), ring.length(2)}};
-        const auto phase_shift =
-            OSI::osi_phase_shift(osi_phase.at(lev), fab);
+        const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, osi_phase.at(lev));
 
         std::unique_ptr<IArrayBox> host_covered;
         std::unique_ptr<IArrayBox> host_interface;

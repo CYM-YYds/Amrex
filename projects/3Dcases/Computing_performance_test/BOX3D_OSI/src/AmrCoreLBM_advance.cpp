@@ -393,11 +393,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
             IntVect address = sample;
             if (layout == DdfLayout::Osi) {
                 const Box ring = device.box();
-                const auto lo = ring.smallEnd();
-                const OSI::FabGeometry fab{
-                    {lo[0], lo[1], lo[2]},
-                    {ring.length(0), ring.length(1), ring.length(2)}};
-                const auto shift = OSI::osi_phase_shift(osi_phase.at(0), fab);
+                const auto [fab, shift] = OSI::MakeOsiFabContext(ring, osi_phase.at(0));
                 const auto raw = OSI::osi_address(
                     {sample[0], sample[1], sample[2]}, {1, 0, -1}, fab, shift);
                 address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
@@ -436,12 +432,7 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
 
     for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
         const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
-        const auto lo = ring.smallEnd();
-        const OSI::FabGeometry fab{
-            {lo[0], lo[1], lo[2]},
-            {ring.length(0), ring.length(1), ring.length(2)}};
-        const auto phase_shift =
-            OSI::osi_phase_shift(phase, fab);
+        const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
         const Array4<Real> state = state_lev.array(mfi);
         const Array4<const int> covered =
             has_fine_level ? covered_mask[lev].const_array(mfi)
@@ -525,10 +516,6 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
         // 周期域外 ghost 可参与碰撞；非周期 ghost 由物理边界条件处理。
         const Box bx = amrex::grow(mfi.validbox(), n) & collision_domain;
         level_launch_cells += bx.numPts();
-        const auto lo = ring.smallEnd();
-        const OSI::FabGeometry fab{
-            {lo[0], lo[1], lo[2]},
-            {ring.length(0), ring.length(1), ring.length(2)}};
         const Array4<Real> state = state_lev.array(mfi);
         Array4<Real> s;
         Array4<Real> Ft;
@@ -547,7 +534,7 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
         // 模式判断停留在 host 启动层，避免把运行时分支和另一种存储路径的
         // 寄存器需求带入同一个 GPU kernel。
         if (use_osi) {
-            const auto phase_shift = OSI::osi_phase_shift(phase, fab);
+            const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
             amrex::ParallelFor(
                 bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                     if (has_fine_level && covered(i, j, k) != 0 &&
