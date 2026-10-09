@@ -224,15 +224,13 @@ int main(int argc, char* argv[]) {
             if (step >= 0 && regrid_int > 0 && step % regrid_int == 0) {
                 // mode 1 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
                 // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
-                if (lid.finestLevel() > 0) {
-                    lid.AverageDownValid();
-                    if (verification_enabled) {
+                if (verification_enabled) {
+                    lid.AverageDownValid([&] {
                         verification.AfterAverageDown(lid, step);
-                    }
+                    });
+                } else {
+                    lid.AverageDownValid();
                 }
-                // 完整平均下传后，重新施加当前态物理边界；covered 边界单元也要修复，
-                // 因为它们可能在本次 regrid 后重新暴露或参与新细层插值。
-                lid.RepairCurrentStatePhysicalBoundary();
                 if (verification_enabled) {
                     verification.AfterRepair(lid, step);
                 }

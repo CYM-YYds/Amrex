@@ -14,6 +14,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -198,7 +199,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ComputeShearLevel(int lev);
     void ComputeShear();
     void AverageDownValidLevel(int lev, bool is_scale);
-    void AverageDownValid();
+    // 完整平均下传并修复当前态物理边界；可选检查点位于修复前。
+    void AverageDownValid(const std::function<void()>& before_repair = {});
     void RepairCurrentStatePhysicalBoundary();
     // CUDA 扩展设备 Lambda 要求该实现辅助函数保持 public。
     void ApplyPhysicalBoundaryLevel(int lev, amrex::MultiFab& state,

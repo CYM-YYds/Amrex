@@ -54,7 +54,6 @@ void AmrCoreLBM::ComputeMacroLevel(int lev) {
 
 void AmrCoreLBM::ComputeMacro() {
     AverageDownValid();
-    RepairCurrentStatePhysicalBoundary();
     for (int lev = 0; lev <= finest_level; lev++) {
         ComputeMacroLevel(lev);
     }
@@ -138,7 +137,7 @@ void AmrCoreLBM::AverageDownValidLevel(int lev, bool is_scale) {
     amrex::average_down(fine_boundary_data, crse_mf, 0, Q, refRatio(lev));
 }
 
-void AmrCoreLBM::AverageDownValid() {
+void AmrCoreLBM::AverageDownValid(const std::function<void()>& before_repair) {
     // interface-only 时间推进不会更新深层 covered 粗单元；regrid 可能重新暴露这些单元，
     // 因此重网格前必须先将全部细层 valid 数据完整同步到粗层父单元。
     for (int lev = finest_level - 1; lev >= 0; --lev) {
@@ -152,6 +151,11 @@ void AmrCoreLBM::AverageDownValid() {
             AverageDownValidLevel(lev, true);
         }
     }
+    // 保留平均后、边界修复前的诊断阶段；单层网格也执行边界修复。
+    if (finest_level > 0 && before_repair) {
+        before_repair();
+    }
+    RepairCurrentStatePhysicalBoundary();
 }
 
 void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复当前状态的物理边界条件。

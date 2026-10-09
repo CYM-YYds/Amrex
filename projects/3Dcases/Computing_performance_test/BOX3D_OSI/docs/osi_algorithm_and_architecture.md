@@ -367,9 +367,9 @@ regrid 前完整 AverageDownValid
         -> AdvanceOsiLevelImpl: 每层碰撞后、phase 提交前同步同层/周期 ghost
 ```
 
-宏观量路径也采用 `AverageDownValid() -> RepairCurrentStatePhysicalBoundary() ->
-ComputeMacroLevel()`，因此输出和收敛检查读取的是完整同步且重新满足物理边界条件的
-当前逻辑 DDF；这一步会修改当前 DDF 边界，不是纯只读诊断。
+宏观量路径也采用 `AverageDownValid() -> ComputeMacroLevel()`，
+其中 `AverageDownValid()` 内部完成当前态物理边界修复，因此输出和收敛检查读取的是
+完整同步且重新满足物理边界条件的当前逻辑 DDF；这一步会修改当前 DDF 边界，不是纯只读诊断。
 
 仅在布局变化时重置 phase。迁移保持逻辑值的设计关系如下；
 `af3b5da` 的 CUDA + MPI 编译已通过，单/多 rank 动态重构逐值验收仍待完成。
