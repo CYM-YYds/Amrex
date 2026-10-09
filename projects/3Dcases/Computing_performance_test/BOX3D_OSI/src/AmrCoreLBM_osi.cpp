@@ -458,8 +458,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
     // 单 rank 直接将全部 Q 分量写回 coarse OSI raw state，无需分批暂存。
     if (ParallelDescriptor::NProcs() == 1) {
         ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy);
-        for (MFIter src_mfi(interface_result, false); src_mfi.isValid();
-             ++src_mfi) {
+        for (MFIter src_mfi(interface_result, false); src_mfi.isValid(); ++src_mfi) {
             const int src_index = src_mfi.index();
             Vector<std::pair<int, Box>> intersections;
             coarse_state.boxArray().intersections(
