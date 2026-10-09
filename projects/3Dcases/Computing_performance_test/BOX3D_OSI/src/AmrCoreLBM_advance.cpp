@@ -102,7 +102,7 @@ void AmrCoreLBM::AverageDownValid(const std::function<void()>& before_repair) {
             AverageDownValidLevel(lev, true);
         }
     }
-    // 保留平均后、边界修复前的诊断阶段；单层网格也执行边界修复。
+    // 保留平均后、边界修复前的诊断阶段；单层网格没有平均写入区域。
     if (finest_level > 0 && before_repair) {
         before_repair();
     }
@@ -114,16 +114,20 @@ void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复
     const DdfLayout layout =
         stream_mode == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
 
-    // 完整平均下传或重网格插值可能覆盖物理边界 valid 单元；此处必须包含
-    // covered 单元，以便这些数据在后续重新暴露或作为插值源时仍满足边界条件。
-    for (int lev = 0; lev <= finest_level; ++lev) {
+    // 只修复完整平均实际改写的粗层物理边界。直接使用细层 valid 的粗化
+    // 区域，使该范围不依赖 cf_mask_mode，也不改写 uncovered 或最细层状态。
+    for (int lev = 0; lev < finest_level; ++lev) {
         amrex::MultiFab& state =
             layout == DdfLayout::Osi ? osi_state.at(lev) : f_old.at(lev);
-        ApplyPhysicalBoundaryLevel(lev, state, layout, false);
+        const amrex::MultiFab& fine_state =
+            layout == DdfLayout::Osi ? osi_state.at(lev + 1) : f_old.at(lev + 1);
+        const BoxArray averaged_region =
+            amrex::coarsen(fine_state.boxArray(), refRatio(lev));
+        ApplyPhysicalBoundaryLevel(lev, state, layout, false, &averaged_region);
         if (osiReferenceEnabled() && layout == DdfLayout::Osi) {
             // oracle 必须经历与 OSI 当前态相同的初始化/平均后边界修复。
             ApplyPhysicalBoundaryLevel(
-                lev, f_old.at(lev), DdfLayout::Canonical, false);
+                lev, f_old.at(lev), DdfLayout::Canonical, false, &averaged_region);
         }
     }
 }
@@ -422,7 +426,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
 
 void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
     int lev, amrex::MultiFab& state_lev, DdfLayout layout,
-    bool skip_covered) {
+    bool skip_covered, const amrex::BoxArray* repair_region) {
     const bool use_osi = layout == DdfLayout::Osi;
     const Box domain = Geom(lev).Domain();
     const amrex::IntVect hi{domain.length(0) - 1,
@@ -447,7 +451,23 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
                            : Array4<const int>{};
         perf_stats.boundary_full_cells += mfi.tilebox().numPts();
 
-        for (const Box& bx : boundary_work_boxes[lev][mfi.index()]) { // 用 mfi.index() 得到该 Box 的全局编号
+        const auto& boundary_boxes = boundary_work_boxes[lev][mfi.index()];
+        Vector<Box> repair_boxes;
+        if (repair_region != nullptr) {
+            // 平均后的修复只取物理边界与实际平均写入区域的交集；正常推进
+            // 仍直接遍历原有边界工作盒，并按覆盖掩码跳过 covered 单元。
+            for (const Box& boundary_box : boundary_boxes) {
+                const Box valid_boundary = boundary_box & mfi.validbox();
+                if (!valid_boundary.ok()) {
+                    continue;
+                }
+                for (const auto& intersection : repair_region->intersections(valid_boundary)) {
+                    repair_boxes.push_back(intersection.second);
+                }
+            }
+        }
+        const auto& work_boxes = repair_region != nullptr ? repair_boxes : boundary_boxes;
+        for (const Box& bx : work_boxes) {
             perf_stats.boundary_launch_cells += bx.numPts();
             if (use_osi) {
                 amrex::ParallelFor(

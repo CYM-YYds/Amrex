@@ -199,12 +199,15 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ComputeShearLevel(int lev);
     void ComputeShear();
     void AverageDownValidLevel(int lev, bool is_scale);
-    // 完整平均下传并修复当前态物理边界；可选检查点位于修复前。
+    // 完整平均下传并仅修复被改写的粗层物理边界；可选检查点位于修复前。
     void AverageDownValid(const std::function<void()>& before_repair = {});
+    // 只修复细层 valid 粗化区域内的物理边界，单层时不做处理。
     void RepairCurrentStatePhysicalBoundary();
+    // repair_region 非空时只处理其与物理边界的交集。
     // CUDA 扩展设备 Lambda 要求该实现辅助函数保持 public。
     void ApplyPhysicalBoundaryLevel(int lev, amrex::MultiFab& state,
-                                    DdfLayout layout, bool skip_covered);
+                                    DdfLayout layout, bool skip_covered,
+                                    const amrex::BoxArray* repair_region = nullptr);
     // fine_lev 表示当前细层；将 fine_lev 平均下传到 fine_lev - 1 粗层。
     void AverageDownInterfaceLevel(int fine_lev, bool is_scale);
     // lev 始终表示当前粗层并填充 lev + 1；is_scale 只控制非平衡 DDF 放缩。
