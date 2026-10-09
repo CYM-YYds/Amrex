@@ -27,7 +27,7 @@ cp "${CASE_DIR}/main3d.gnu.TPROF.MPI.CUDA.ex" "${RUN_DIR}/app.ex"
 cp "${CASE_DIR}/config/inputs" "${RUN_DIR}/inputs"
 chmod a-w "${RUN_DIR}/inputs" "${RUN_DIR}/app.ex"
 git -C "${CASE_DIR}" rev-parse HEAD > "${RUN_DIR}/git_head.txt"
-git -C "${CASE_DIR}" diff -- src/main.cpp src/AmrCoreLBM.cpp src/AmrCoreLBM.H > "${RUN_DIR}/source.diff"
+git -C "${CASE_DIR}" diff -- src config scripts README.md > "${RUN_DIR}/source.diff"
 sha256sum "${RUN_DIR}/app.ex" > "${RUN_DIR}/executable.sha256"
 if [[ -z "${CCS_ALLOC_FILE:-}" || ! -r "${CCS_ALLOC_FILE}" ]]; then
     echo "ERROR: CCS_ALLOC_FILE unavailable" >&2
@@ -39,12 +39,14 @@ awk '{ if (length($1) > 0 && length($2) > 0) print $1 " slots=" $2 }' "${CCS_ALL
 run_group() {
     local group="$1"
     shift
+    local ranks=2
+    if [[ "${group}" == single ]]; then ranks=1; fi
     mkdir "${RUN_DIR}/${group}"
     cd "${RUN_DIR}/${group}"
     printf '%q ' "${RUN_DIR}/app.ex" "${RUN_DIR}/inputs" "$@" > command.txt
     printf '\n' >> command.txt
-    echo "full_q_matrix_begin: group=${group} ranks=2 gpus=2"
-    mpirun -hostfile "${HOSTFILE}" -n 2 -npernode 2 \
+    echo "full_q_matrix_begin: group=${group} ranks=${ranks} gpus=${ranks}"
+    mpirun -hostfile "${HOSTFILE}" -n "${ranks}" -npernode "${ranks}" \
         -x PATH -x LD_LIBRARY_PATH \
         --mca plm_rsh_agent /opt/batch/agent/tools/dstart \
         bash -lc 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-${MPI_LOCALRANKID:-0}}; exec "$@"' bash \
@@ -69,10 +71,8 @@ run_group direct lbm.stream_mode=1 verification.osi_ab_check=true \
     lbm.osi_local_direct=1 lbm.osi_parallel_copy=1 lbm.osi_mpi_direct=1 \
     lbm.osi_mpi_pipeline_chunk_bytes=2097152 \
     verification.ddf_reference_checkpoint="${RUN_DIR}/ab/chk00000064"
-run_group fallback lbm.stream_mode=1 verification.osi_ab_check=true \
-    lbm.osi_local_direct=0 lbm.osi_parallel_copy=0 lbm.osi_mpi_direct=0 \
-    lbm.osi_mpi_pipeline_chunk_bytes=0 \
-    verification.ddf_reference_checkpoint="${RUN_DIR}/ab/chk00000064"
+run_group single lbm.stream_mode=1 verification.osi_ab_check=true \
+    lbm.osi_mpi_pipeline_chunk_bytes=0
 run_group periodic lbm.stream_mode=1 verification.osi_ab_check=true \
     amr.max_level=0 amr.regrid_int=-1 amr.max_grid_size=32 \
     geometry.is_periodic=1 1 1 verification.osi_seed_pattern=true \

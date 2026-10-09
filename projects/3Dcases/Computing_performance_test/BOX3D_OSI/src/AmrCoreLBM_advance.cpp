@@ -304,14 +304,8 @@ void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
 }
 
 void AmrCoreLBM::FillBoundaryOsi(int lev) {
-    // local-direct 负责同一 rank 的 grown-Fab seam；跨 rank 的自定义
-    // pack/unpack 只有在 mpi-direct 打开时才允许进入。
-    if (osi_local_direct &&
-        (ParallelDescriptor::NProcs() == 1 || osi_mpi_direct)) {
-        CommunicateOsiLevelLocalDirect(lev);
-    } else {
-        CommunicateOsiLevel(lev);
-    }
+    // 同层通信统一按当前 phase 直接读写 OSI raw 地址。
+    CommunicateOsiLevelLocalDirect(lev);
 }
 
 void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {

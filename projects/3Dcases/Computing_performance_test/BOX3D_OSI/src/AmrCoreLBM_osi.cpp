@@ -90,7 +90,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
         return;
     }
 
-    if (osi_parallel_copy && ParallelDescriptor::NProcs() > 1) {
+    if (ParallelDescriptor::NProcs() > 1) {
         ScopedPerfTimer timer(perf_stats.osi_parallel_copy);
         // CPC 的目标是 sparse coarse_stage，源是 coarse OSI raw；本路径只
         // 复用 CPC 的空间/归属配对，不让 AMReX 直接解释 OSI raw 分量。
@@ -204,8 +204,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
                 tag.dst(i, j, k, q) =
                     buffer[tag.offset + cell * Q + q];
             });
-    } else if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1 &&
-               osi_interp_local_copy_tags.at(fine_lev).ntags != 0) {
+    } else {
         ScopedPerfTimer timer(perf_stats.osi_parallel_copy);
         // direct 路径无需遵循通信缓冲的分批限制，一次处理全部 Q 分量，
         // 避免把本地 raw-to-canonical 复制拆成 9 次 kernel launch。
@@ -223,15 +222,6 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
                     phase_shift);
                 tag.dst(i, j, k, n) = tag.src(raw.x, raw.y, raw.z, q);
             });
-    } else {
-        MultiFab decode_canonical(
-            coarse_state.boxArray(), coarse_state.DistributionMap(),
-            Q, coarse_state.nGrowVect());
-        // direct 关闭时仍使用 canonical 回退，但一次处理完整 Q 分量。
-        DecodeOsiValid(coarse_state, coarse_phase, decode_canonical);
-        coarse_stage.ParallelCopy(
-            decode_canonical, 0, 0, Q, IntVect(0), IntVect(0),
-            Geom(lev).periodicity());
     }
 
     ApplyPhysicalBoundaryToInterpolationStage(lev);
@@ -358,7 +348,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
 
     // 多 rank direct 路径使用平均专用 CPC：canonical restriction 结果在源
     // rank 打包，目标 rank 直接按 coarse phase 解包到 OSI raw。
-    if (osi_parallel_copy && ParallelDescriptor::NProcs() > 1) {
+    if (ParallelDescriptor::NProcs() > 1) {
         ScopedPerfTimer direct_timer(perf_stats.osi_parallel_copy);
         const auto& cpc = coarse_state.getCPC(
             IntVect(0), interface_result, IntVect(0),
@@ -466,7 +456,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
     }
 
     // 单 rank 直接将全部 Q 分量写回 coarse OSI raw state，无需分批暂存。
-    if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1) {
+    if (ParallelDescriptor::NProcs() == 1) {
         ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy);
         for (MFIter src_mfi(interface_result, false); src_mfi.isValid();
              ++src_mfi) {
@@ -499,111 +489,6 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
         return;
     }
 
-    // 回退路径使用完整 Q 分量的 canonical 暂存，一次写回所有方向。
-    MultiFab transfer_canonical(
-        coarse_state.boxArray(), coarse_state.DistributionMap(),
-        Q, IntVect(0));
-    transfer_canonical.ParallelCopy(
-        interface_result, 0, 0, Q, IntVect(0), IntVect(0));
-
-    for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
-        const Box ring =
-            amrex::grow(mfi.validbox(), coarse_state.nGrowVect());
-        const auto [coarse_fab, coarse_shift] = OSI::MakeOsiFabContext(ring, coarse_phase);
-        const auto mask = interface_mask.at(coarse_lev).const_array(mfi);
-        const auto src = transfer_canonical.const_array(mfi);
-        const auto dst = coarse_state.array(mfi);
-        Vector<std::pair<int, Box>> intersections;
-        interface_result.boxArray().intersections(
-            mfi.validbox(), intersections, false, IntVect(0));
-        // staging 只有稀疏结果覆盖处被填充，写回也必须限制到这些交集。
-        for (const auto& intersection : intersections) {
-            const Box& bx = intersection.second;
-            amrex::ParallelFor(
-                bx, Q,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                    if (mask(i, j, k) == 0) {
-                        return;
-                    }
-                    const auto raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                        coarse_fab, coarse_shift);
-                    dst(raw.x, raw.y, raw.z, q) = src(i, j, k, q);
-                });
-        }
-    }
-    amrex::Gpu::streamSynchronize();
-}
-
-void AmrCoreLBM::CommunicateOsiLevel(int lev) {
-    MultiFab& state = osi_state.at(lev);
-    MultiFab canonical(state.boxArray(), state.DistributionMap(),
-                       Q, state.nGrowVect());
-    const std::uint64_t phase = osi_phase.at(lev);
-    const Periodicity& periodicity = geom[lev].periodicity();
-    const IntVect ng = state.nGrowVect();
-
-    // 回退路径的 tag 只能指向本次调用的临时 canonical，不能缓存其地址。
-    Vector<OSI::CommunicationTag> decode_tags;
-    Vector<OSI::CommunicationTag> encode_tags;
-    const BoxArray& ba = state.boxArray();
-    for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
-        const int ibox = mfi.index();
-        const Box ring_box = amrex::grow(ba[ibox], ng);
-        const auto fab = OSI::MakeOsiFabContext(ring_box, phase).fab;
-        const auto state_src = state.const_array(ibox);
-        const auto state_dst = state.array(ibox);
-        const auto canonical_src = canonical.const_array(ibox);
-        const auto canonical_dst = canonical.array(ibox);
-        for (const Box& bx : osi_decode_boxes.at(lev).at(ibox)) {
-            decode_tags.push_back({state_src, canonical_dst, bx, fab});
-        }
-        for (const Box& bx : osi_encode_boxes.at(lev).at(ibox)) {
-            encode_tags.push_back({canonical_src, state_dst, bx, fab});
-        }
-    }
-    TagVector<OSI::CommunicationTag> decode_tv;
-    TagVector<OSI::CommunicationTag> encode_tv;
-    decode_tv.define(decode_tags);
-    encode_tv.define(encode_tags);
-
-    // 回退路径先将 OSI raw valid 解码到完整 canonical staging，再由 AMReX
-    // FillBoundary 处理同 rank、跨 rank 和周期像，最后只编码回 ghost。
-    {
-        ScopedPerfTimer timer(perf_stats.osi_decode);
-        amrex::ParallelFor(
-            decode_tv, Q,
-            [=] AMREX_GPU_DEVICE(
-                int i, int j, int k, int q,
-                const OSI::CommunicationTag& tag) noexcept {
-                const auto phase_shift = OSI::osi_phase_shift(phase, tag.fab);
-                const auto raw = OSI::osi_address(
-                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
-                    phase_shift);
-                tag.dst(i, j, k, q) = tag.src(raw.x, raw.y, raw.z, q);
-            });
-    }
-
-    {
-        ScopedPerfTimer timer(perf_stats.osi_fillboundary);
-        canonical.FillBoundary(0, Q, ng, periodicity);
-    }
-
-    {
-        ScopedPerfTimer timer(perf_stats.osi_encode);
-        amrex::ParallelFor(
-            encode_tv, Q,
-            [=] AMREX_GPU_DEVICE(
-                int i, int j, int k, int q,
-                const OSI::CommunicationTag& tag) noexcept {
-                const auto phase_shift = OSI::osi_phase_shift(phase, tag.fab);
-                const auto raw = OSI::osi_address(
-                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
-                    phase_shift);
-                tag.dst(raw.x, raw.y, raw.z, q) =
-                    tag.src(i, j, k, q);
-            });
-    }
 }
 
 void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
@@ -611,75 +496,6 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     const BoxArray& ba = osi_state.at(lev).boxArray();
     const IntVect ng = osi_state.at(lev).nGrowVect();
     const std::uint64_t phase = osi_phase.at(lev);
-    const auto shifts = Geom(lev).periodicity().shiftIntVect(ng);
-
-    Vector<BoxList> decode_candidates(ba.size());
-    Vector<BoxList> encode_candidates(ba.size());
-
-    // 在目标坐标空间枚举 grown ghost，再将周期平移反向施加到查询 Box，
-    // 从原始 BoxArray 中找到 FillBoundary 的 valid source。
-    for (int dst = 0; dst < ba.size(); ++dst) {
-        const Box& dst_valid = ba[dst];
-        const BoxList ghost_pieces =
-            amrex::boxDiff(amrex::grow(dst_valid, ng), dst_valid);
-
-        // 并分别记录 Decode 应读取的源区域、Encode 应回写的目标 ghost 区域。
-        for (const Box& dst_ghost : ghost_pieces) {
-            for (const IntVect& shift : shifts) { // 采用这样的循环偏向通用性和实现可靠性。性能上它通常不是问题，因为这是一次性缓存构建，而且最多只检查少量周期像, 同时代码简洁.
-                const Box source_query = dst_ghost - shift;
-                for (const auto& [src, exact_source] :
-                     ba.intersections(source_query)) {
-                    const Box destination_box = exact_source + shift; // 一块dst_ghost可能对应多个source_box，而每个source_box对应的destination_box可能不同，所以需要用这种方式来得到destination_box
-
-                    AMREX_ALWAYS_ASSERT(ba[src].contains(exact_source));
-                    AMREX_ALWAYS_ASSERT(dst_ghost.contains(destination_box));
-                    AMREX_ALWAYS_ASSERT(!(destination_box & dst_valid).ok());
-
-                    decode_candidates[src].push_back(exact_source);
-                    encode_candidates[dst].push_back(destination_box);
-                }
-            }
-        }
-    }
-
-    auto& decode = osi_decode_boxes.at(lev);
-    auto& encode = osi_encode_boxes.at(lev);
-    decode.assign(ba.size(), {});
-    encode.assign(ba.size(), {});
-
-    Long decode_cells = 0;
-    Long encode_cells = 0;
-    Long decode_box_count = 0;
-    Long encode_box_count = 0;
-    Long full_decode_cells = ba.numPts(); // 获取总cell数
-    Long full_encode_cells = 0;
-
-    for (int ibox = 0; ibox < ba.size(); ++ibox) {
-        BoxList disjoint_decode = amrex::removeOverlap(decode_candidates[ibox]);
-        BoxList disjoint_encode = amrex::removeOverlap(encode_candidates[ibox]);
-        disjoint_decode.simplify(true); // 尽力合并相邻且可以合并的 Box，减少小区域数量和后续 GPU 工作项数
-        disjoint_encode.simplify(true);
-        AMREX_ALWAYS_ASSERT(disjoint_decode.isDisjoint()); // 验证最终列表中的Box两两不重叠
-        AMREX_ALWAYS_ASSERT(disjoint_encode.isDisjoint());
-
-        decode[ibox].assign(disjoint_decode.begin(), disjoint_decode.end());
-        encode[ibox].assign(disjoint_encode.begin(), disjoint_encode.end());
-
-        // 主要是做了一些统计工作
-        decode_box_count += static_cast<Long>(decode[ibox].size());
-        encode_box_count += static_cast<Long>(encode[ibox].size());
-        full_encode_cells += amrex::grow(ba[ibox], ng).numPts();
-        for (const Box& bx : decode[ibox]) {
-            decode_cells += bx.numPts();
-        }
-        for (const Box& bx : encode[ibox]) {
-            encode_cells += bx.numPts();
-        }
-    }
-
-    // 回退通信所需的 canonical tag 在 CommunicateOsiLevel 中随临时
-    // MultiFab 一起构造，避免缓存已经失效的 Array4 地址。
-
     // 直接复用 AMReX FillBoundary 已缓存的通信计划；OSI 只负责 raw 地址投影。
     Vector<OSI::LocalCopyTag> local_tags;
     Vector<OSI::RemoteCopyTag> remote_tags;
@@ -788,24 +604,12 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
         << " recv_bytes=" << recv_total * sizeof(Real) << '\n';
 
     amrex::Print() << "[OSI comm cache] level=" << lev
-                   << " decode_boxes=" << decode_box_count
-                   << " decode_cells=" << decode_cells
-                   << " full_decode_cells=" << full_decode_cells
-                   << " encode_boxes=" << encode_box_count
-                   << " encode_cells=" << encode_cells
                    << " amrex_plan=1"
                    << " remote_records=" << osi_remote_copy_tags.at(lev).size()
-                   << " full_encode_cells=" << full_encode_cells << '\n';
+                   << '\n';
 }
 
 void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
-    // 该函数也可能被其他诊断入口直接调用；跨 rank 且未打开
-    // mpi-direct 时必须回到 canonical FillBoundary 路径，避免开关失效。
-    if (ParallelDescriptor::NProcs() > 1 && !osi_mpi_direct) {
-        CommunicateOsiLevel(lev);
-        return;
-    }
-
     ScopedPerfTimer timer(perf_stats.osi_fillboundary);
     MultiFab& state = osi_state.at(lev);
     const BoxArray& ba = state.boxArray();
@@ -1047,7 +851,7 @@ void AmrCoreLBM::CommunicateOsiLevelLocalDirect(int lev) {
         }
     }
 #else
-    amrex::Abort("lbm.osi_mpi_direct requires an MPI build");
+    amrex::Abort("OSI remote communication requires an MPI build");
 #endif
 }
 

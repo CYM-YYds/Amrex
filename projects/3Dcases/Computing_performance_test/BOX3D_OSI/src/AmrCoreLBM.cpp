@@ -74,8 +74,6 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     f_old.resize(nlevs_max);
     osi_state.resize(nlevs_max);
     osi_phase.resize(nlevs_max, 0);
-    osi_decode_boxes.resize(nlevs_max);
-    osi_encode_boxes.resize(nlevs_max);
     osi_local_copy_tags.resize(nlevs_max);
     osi_interp_local_copy_tags.resize(nlevs_max);
     osi_remote_copy_tags.resize(nlevs_max);
@@ -512,9 +510,14 @@ void AmrCoreLBM::ReadParameters() {
         if (stream_mode < 0 || stream_mode > 1) {
             amrex::Abort("lbm.stream_mode must be 0 (A-B) or 1 (stage-2 OSI)");
         }
-        pp.query("osi_local_direct", osi_local_direct);
-        pp.query("osi_parallel_copy", osi_parallel_copy);
-        pp.query("osi_mpi_direct", osi_mpi_direct);
+        // 旧开关不再控制路径；拒绝关闭请求，防止旧实验被误认为仍在跑回退。
+        for (const char* key : {"osi_local_direct", "osi_parallel_copy", "osi_mpi_direct"}) {
+            bool enabled = true;
+            if (pp.query(key, enabled) && !enabled) {
+                amrex::Abort(std::string("lbm.") + key +
+                             "=0 is no longer supported; OSI always uses direct transfers");
+            }
+        }
         pp.query("osi_mpi_device_direct", osi_mpi_device_direct);
         pp.query("osi_mpi_async_staging", osi_mpi_async_staging);
         pp.query("osi_mpi_pipeline_chunk_bytes", osi_mpi_pipeline_chunk_bytes);

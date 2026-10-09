@@ -29,20 +29,6 @@
 #include "OsiIndex.H"
 #include "OsiCommunication.H"
 
-namespace OSI {
-struct CommunicationTag {
-    amrex::Array4<const amrex::Real> src;
-    amrex::Array4<amrex::Real> dst;
-    amrex::Box region;
-    FabGeometry fab;
-
-    [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
-        return region;
-    }
-};
-
-} // namespace OSI
-
 // 多个实现文件共用的计时器与检查点格式常量；此处不保存运行状态。
 namespace Box3dDetail {
 inline constexpr char checkpoint_label_v1[] = "LBMCheckpoint";
@@ -239,7 +225,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void FillForceGhostLevel(int lev, amrex::Real time);
     void CommunicateLevel(int lev,
                           DdfLayout layout = DdfLayout::Canonical);
-    // OSI 版 FillBoundary：统一选择本地 raw copy、OSI-aware MPI 或 canonical 回退。
+    // OSI 版 FillBoundary：统一使用本地 raw copy 与 OSI-aware MPI。
     void FillBoundaryOsi(int lev);
     void CommunicateOsiLevelLocalDirect(int lev);
     void Boundary(int lev, DdfLayout layout = DdfLayout::Canonical);
@@ -370,7 +356,6 @@ class AmrCoreLBM : public amrex::AmrCore {
                                 bool apply_scale);
     // fine_lev 表示当前细层；将 fine_lev 平均下传到 fine_lev - 1 粗层。
     void AverageDownOsiLevel(int fine_lev, bool is_scale);
-    void CommunicateOsiLevel(int lev);
     // OSI 版 ParallelCopy：按 CPC 逻辑交集把旧 raw 状态迁移到新 Fab 布局。
     void ParallelCopyOsi(int lev, const amrex::MultiFab& source,
                          std::uint64_t source_phase,
@@ -416,12 +401,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     // osi_ab_check 显式启用。环形区间是每个 Fab 的完整 grown box。
     amrex::Vector<amrex::MultiFab> osi_state;
     amrex::Vector<std::uint64_t> osi_phase;
-    // canonical 通信区域缓存。第一组是 FillBoundary 实际可能读取的
-    // owner-valid 源区，第二组是实际写入的 grown-ghost 目标区；两者均按
-    // [level][global Fab index][disjoint Box] 索引。canonical 数据在回退通信
-    // 调用内按完整 Q 分量临时创建，不作为成员长期占用显存。
-    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> osi_decode_boxes;
-    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> osi_encode_boxes;
     amrex::Vector<amrex::TagVector<OSI::LocalCopyTag>> osi_local_copy_tags;
     amrex::Vector<amrex::Vector<OSI::RemoteCopyTag>> osi_remote_copy_tags;
     // MPI 计划、偏移和 staging 缓冲随网格缓存重建，时间步内只复用。
@@ -435,10 +414,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Gpu::DeviceVector<amrex::Real>> osi_mpi_recv_device;
     amrex::Vector<amrex::Gpu::PinnedVector<amrex::Real>> osi_mpi_send_host;
     amrex::Vector<amrex::Gpu::PinnedVector<amrex::Real>> osi_mpi_recv_host;
-    bool osi_local_direct = false;
-    // 粗到细插值阶段使用 OSI raw-to-canonical 的直接复制；不支持时回退旧路径。
-    bool osi_parallel_copy = false;
-    bool osi_mpi_direct = false;
     // 仅在 AMReX 已确认 GPU-aware MPI 时，直接用 device staging buffer 通信。
     bool osi_mpi_device_direct = false;
     // host staging 实验路径：用独立 GPU stream 将批量 D2H/H2D 与本地

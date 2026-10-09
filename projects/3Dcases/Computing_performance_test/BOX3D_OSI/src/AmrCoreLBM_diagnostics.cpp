@@ -295,24 +295,21 @@ void AmrCoreLBM::ValidateConfiguration() const {
         collide_mode == 1,
         "OSI currently supports only lbm.collide_mode=1");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        !osi_mpi_device_direct || osi_mpi_direct,
-        "lbm.osi_mpi_device_direct requires lbm.osi_mpi_direct=1");
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         !osi_mpi_device_direct || ParallelDescriptor::UseGpuAwareMpi(),
         "lbm.osi_mpi_device_direct requires AMReX GPU-aware MPI support; "
         "set amrex.use_gpu_aware_mpi=1 only when the MPI implementation supports device pointers");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         !osi_mpi_async_staging ||
-            (osi_mpi_direct && !osi_mpi_device_direct &&
+            (!osi_mpi_device_direct &&
              Gpu::Device::numGpuStreams() > 1),
-        "lbm.osi_mpi_async_staging requires host-staged lbm.osi_mpi_direct=1 "
+        "lbm.osi_mpi_async_staging requires host-staged OSI MPI "
         "and at least two AMReX GPU streams");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         osi_mpi_pipeline_chunk_bytes == 0 ||
-            (osi_mpi_direct && !osi_mpi_device_direct &&
+            (!osi_mpi_device_direct &&
              !osi_mpi_async_staging && Gpu::Device::numGpuStreams() > 1),
         "lbm.osi_mpi_pipeline_chunk_bytes requires host-staged "
-        "lbm.osi_mpi_direct=1, async_staging=0, and at least two GPU streams");
+        "OSI MPI, async_staging=0, and at least two GPU streams");
     if (max_level > 1) {
         amrex::Print()
             << "[OSI validation warning] More than two AMR levels are enabled. "

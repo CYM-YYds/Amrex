@@ -249,7 +249,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
         DistributionMapping coarse_stage_dm(std::move(coarse_owners));
         coarse_stage.define(coarse_stage_ba, coarse_stage_dm, Q, 0);
     }
-    if (osi_parallel_copy && ParallelDescriptor::NProcs() == 1 &&
+    if (ParallelDescriptor::NProcs() == 1 &&
         !coarse_boxes.empty()) {
         // 复用 AMReX ParallelCopy 的 CPC 本地 tag，只替换数据地址为 OSI raw 映射。
         Vector<OSI::LocalCopyTag> direct_tags;
@@ -1007,7 +1007,7 @@ void AmrCoreLBM::InitializeNewLevelFromCoarse(int lev, Real time) {
     // OSI direct 路径已经能够按 phase-aware raw 地址完成整层 Q 分量复制；
     // 这里不再把同一份 coarse 状态拆成多个 batch。Copy 只负责数据搬运，
     // 缩放和粗到细插值仍由后续两个阶段完成。
-    if (use_osi && osi_parallel_copy) {
+    if (use_osi) {
         MultiFab coarse_canonical(
             coarse_state.boxArray(), coarse_state.DistributionMap(), Q,
             nghost);
@@ -1022,12 +1022,7 @@ void AmrCoreLBM::InitializeNewLevelFromCoarse(int lev, Real time) {
 
     MultiFab coarse_canonical(coarse_state.boxArray(),
                               coarse_state.DistributionMap(), Q, nghost);
-    if (use_osi) {
-        DecodeOsiValid(coarse_state, osi_phase.at(lev - 1),
-                            coarse_canonical);
-    } else {
-        MultiFab::Copy(coarse_canonical, coarse_state, 0, 0, Q, 0);
-    }
+    MultiFab::Copy(coarse_canonical, coarse_state, 0, 0, Q, 0);
     ScaleCanonical(coarse_density, coarse_velocity,
                         coarse_canonical, scale);
     InterpolateCanonicalToFine(
@@ -1075,8 +1070,6 @@ void AmrCoreLBM::ClearLevel(int lev) {
     f_old[lev].clear();
     f_new[lev].clear();
     osi_state[lev].clear();
-    osi_decode_boxes[lev].clear();
-    osi_encode_boxes[lev].clear();
     osi_phase[lev] = 0;
     velocity[lev].clear();
     vorticity[lev].clear();

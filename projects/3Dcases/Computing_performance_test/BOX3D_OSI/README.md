@@ -103,7 +103,7 @@ A-B 的 Stream 写入 `f_new`，随后 Swap；OSI 的 Stream 提交 phase，Swap
 | 新建/重建 level、嵌套与粗细模板来源 | `AmrCoreLBM_amr.cpp` |
 | 碰撞、边界或单层阶段顺序 | `AmrCoreLBM_advance.cpp` → `Kernels.H` |
 | OSI 地址、phase 映射 | `OsiIndex.H`；phase 的提交点在 `_advance.cpp` |
-| OSI MPI、回退、粗细 raw/canonical 传递 | `AmrCoreLBM_osi.cpp` → `OsiCommunication.H` |
+| OSI MPI、粗细 raw/canonical 传递 | `AmrCoreLBM_osi.cpp` → `OsiCommunication.H` |
 | 增加逐值检查及检查时机 | `_diagnostics.cpp` 与 `OsiAbVerification.H/.cpp` |
 | 参数、checkpoint 格式或密度/速度输出 | `AmrCoreLBM.cpp` |
 
@@ -145,8 +145,8 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 ## 当前配置与验证边界
 
 当前 `config/inputs`：Re=1000，基础网格 `128³`，最高 level=2，regrid 间隔 32；
-`stream_mode=1`、`collide_mode=1`、`interp_mode=0`；OSI local/parallel-copy/MPI direct
-开启，device-direct 关闭，host-staging 分块为 2 MiB；最多 128000 步，PlotFile 间隔
+`stream_mode=1`、`collide_mode=1`、`interp_mode=0`；OSI 同层通信、插值搬运及接口平均统一使用 direct 路径；
+device-direct 关闭，host-staging 分块为 2 MiB；最多 128000 步，PlotFile 间隔
 3200、checkpoint 间隔 32000，收敛容差为 `1e-4`。这些是配置值，不表示长程已经完成。
 
 网格尺寸、物理域和周期性由 inputs 设置；程序校验各向同性 spacing，并通过
@@ -173,3 +173,12 @@ fallback 和周期域四组 64 步检查；direct/fallback 动态 regrid 到 lev
 - [MPI 通信计划](docs/osi_mpi_communication_plan.md)与 [ParallelCopy 计划](docs/osi_parallelcopy_optimization_plan.md)：机制、实验阶段和未决事项。
 - [性能分析](docs/osi_performance_profiling.md)与 [MLUPS 记录](docs/MLUPS记录.md)：历史性能及适用范围。
 - [变更记录](docs/ai_changes/)：按提交保留的修改目的与验证摘要。
+
+OSI 已移除 canonical 通信、插值搬运与接口平均写回回退。旧的
+`osi_local_direct`、`osi_parallel_copy`、`osi_mpi_direct` 参数可暂时接受值 1，
+值 0 会明确报错；新输入无需设置。插值工作区、完整 valid restriction、
+A-B 参考态和 checkpoint/诊断需要的 canonical 数据仍保留。
+
+本次删除通过作业 `610808` 的单/双 rank 动态 AMR 与周期域 64 步检查，
+阶段比较均为 `linf=0`；验证细节及边界见
+[变更记录](docs/ai_changes/2026-10-09-remove-canonical-fallbacks.md)。
