@@ -299,10 +299,15 @@ class AmrCoreLBM : public amrex::AmrCore {
     //********************************************************************//
     //                     Pure virtual function                          //
     //********************************************************************//
+    // 重网格新增细层时，按 ba/dm 分配该层数据，并从相邻粗层插值初始化 DDF。
     void MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::BoxArray& ba, const amrex::DistributionMapping& dm) override;
+    // 重网格更新已有层时，按新的 ba/dm 重建数据，保留旧层重叠区域的 DDF，并从粗层补齐新增区域。
     void RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba, const amrex::DistributionMapping& dm) override;
+    // 移除网格层时，释放该层流场数据、OSI 通信任务和收发缓冲，并重置 OSI 相位。
     void ClearLevel(int lev) override;
+    // 从头初始化网格时，按 ba/dm 分配该层数据，并根据初始物理条件设置流场。
     void MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex::BoxArray& ba, const amrex::DistributionMapping& dm) override;
+    // 根据当前流场及加密判据设置 tags，供 AMReX 生成或更新更细层网格。
     void ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow) override;
 
   private:
