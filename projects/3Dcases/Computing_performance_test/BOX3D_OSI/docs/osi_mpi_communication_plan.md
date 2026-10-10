@@ -2,15 +2,32 @@
 
 更新时间：2026-09-26
 
-> 本文是通信改造的历史计划，下面的阶段记录保留原始时间语境。现役
-> `CommunicateLevel()` 根据 `osi_local_direct`、`osi_mpi_direct` 和 rank 数选择
-> raw direct 或 canonical fallback；工作配置及验证边界见
+> 本文是通信改造的历史计划，阶段记录保留原始时间语境。现役
+> `CommunicateLevel()` 按 DDF 布局分派；OSI 同层通信统一使用 raw 地址直传，
+> 旧的 direct/fallback 选择开关已移除。工作配置及验证边界见
 > [当前交接状态](current_status.md)。
+
+## 2026-10-10：插值与界面平均的通信缓存
+
+`BuildDirectInterpolationCache()` 和 `BuildAverageCache()` 分别建立
+`OSI::CpcCache<true>`（raw 到 canonical）和 `OSI::CpcCache<false>`
+（canonical 到 raw）。两者都一次性从 AMReX CPC 获取本地、发送及接收记录，
+转换为 GPU tag，计算 peer counts/offsets，并分配 device/pinned 收发缓冲。
+单 rank 平均写回也复用 CPC 本地任务，不再逐步查询 Box 交集。
+
+推进阶段只读取当前 phase 并更新缓冲中的 DDF，不重建任务或重新分配收发缓冲。
+缓存包含源、目标 `Array4`；`RefineMesh()`、`ClearLevel()` 及缓存重建会先使其失效，
+再释放或替换相关存储。布局重建后重新获取地址；phase 改变不需要重建几何任务。
+重网格中的临时 `ParallelCopyOsi()` 仍可使用调用内通信缓冲。
+
+此次复用减少重复准备，代价是跨层通信缓冲持续占用内存；没有据此宣称实测加速。
+验证记录见 [变更记录](ai_changes/2026-10-10-cpc-transfer-cache.md)。
+
 
 本文记录 `BOX3D_OSI` 的跨 MPI OSI-aware same-level 通信改造方案。
 下面“当前状态与目标”一节是 2026-09-14 的起点，不代表现役调用链。
 
-运行时开关为：
+2026-09-14 历史计划中的运行时开关为：
 
 - `lbm.osi_local_direct=1`：启用同 rank raw-to-raw copy；
 - `lbm.osi_mpi_direct=1`：在多 rank 下进一步启用 OSI-aware pack/unpack；

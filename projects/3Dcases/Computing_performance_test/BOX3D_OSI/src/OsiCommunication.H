@@ -6,11 +6,13 @@
 #include <AMReX_GpuQualifiers.H>
 #include <AMReX_GpuContainers.H>
 #include <AMReX_ParallelDescriptor.H>
+#include <AMReX_MultiFab.H>
 #include <AMReX_TagParallelFor.H>
 #include <AMReX_Vector.H>
 
 #include <cstddef>
 #include <utility>
+#include <type_traits>
 
 #include "OsiIndex.H"
 
@@ -208,9 +210,13 @@ void parallel_copy_mpi(const amrex::TagVector<PackTag>& pack_tags,
                        const MpiPlan& plan, bool device_direct, int ncomp,
                        int nprocs, PackValue pack_value,
                        UnpackValue unpack_value,
-                       CopyTiming timing = {}) {
-    MpiBuffers buffers;
-    buffers.resize(plan, device_direct);
+                       CopyTiming timing = {}, MpiBuffers* cached_buffers = nullptr) {
+    MpiBuffers temporary_buffers;
+    if (cached_buffers == nullptr) {
+        temporary_buffers.resize(plan, device_direct);
+    }
+    // 推进缓存复用既有缓冲；重网格中的临时复制仍可使用调用内缓冲。
+    MpiBuffers& buffers = cached_buffers ? *cached_buffers : temporary_buffers;
     auto& send_device = buffers.send_device;
     auto& recv_device = buffers.recv_device;
     auto& send_host = buffers.send_host;
@@ -303,6 +309,96 @@ MpiPlan make_mpi_plan(const SendTagMap& send_tags,
     }
     return plan;
 }
+
+// 插值与平均共用的持久 CPC 派生任务。SourceRaw=true 表示 raw 到 canonical，
+// false 表示 canonical 到 raw；只缓存几何和数据地址，phase 在执行时传入。
+template <bool SourceRaw>
+struct CpcCache {
+    using PackTag = std::conditional_t<SourceRaw, RawPackTag, CanonicalPackTag>;
+    using UnpackTag = std::conditional_t<SourceRaw, CanonicalUnpackTag,
+                                         CanonicalRawUnpackTag>;
+    amrex::TagVector<LocalCopyTag> local_tags;
+    amrex::TagVector<PackTag> pack_tags;
+    amrex::TagVector<UnpackTag> unpack_tags;
+    MpiPlan plan;
+    MpiBuffers buffers;
+    bool ready = false;
+
+    // 必须先使含 Array4 的任务失效，再释放或替换源、目标 MultiFab。
+    void clear() {
+        local_tags.undefine();
+        pack_tags.undefine();
+        unpack_tags.undefine();
+        plan = MpiPlan{};
+        buffers = MpiBuffers{};
+        ready = false;
+    }
+
+    void define(const amrex::MultiFab& source, amrex::MultiFab& destination,
+                const amrex::Periodicity& periodicity, int ncomp,
+                bool device_direct) {
+        clear();
+        const auto& cpc = destination.getCPC(
+            amrex::IntVect(0), source, amrex::IntVect(0), periodicity);
+        AMREX_ALWAYS_ASSERT(cpc.m_LocTags && cpc.m_SndTags && cpc.m_RcvTags);
+        const auto geometry = [](const amrex::MultiFab& state, int index) {
+            return MakeOsiFabContext(
+                amrex::grow(state.boxArray()[index], state.nGrowVect()), 0).fab;
+        };
+        amrex::Vector<LocalCopyTag> local;
+        local.reserve(cpc.m_LocTags->size());
+        for (const auto& tag : *cpc.m_LocTags) {
+            local.push_back({source.const_array(tag.srcIndex),
+                             destination.array(tag.dstIndex), tag.sbox, tag.dbox,
+                             geometry(source, tag.srcIndex),
+                             geometry(destination, tag.dstIndex)});
+        }
+        local_tags.define(local);
+        plan = make_mpi_plan(*cpc.m_SndTags, *cpc.m_RcvTags,
+                             amrex::ParallelDescriptor::NProcs(), ncomp);
+        auto send_cursor = plan.send_offsets;
+        auto recv_cursor = plan.recv_offsets;
+        amrex::Vector<PackTag> pack;
+        amrex::Vector<UnpackTag> unpack;
+        for (const auto& [peer, tags] : *cpc.m_SndTags) {
+            for (const auto& tag : tags) {
+                if constexpr (SourceRaw) {
+                    pack.push_back({source.const_array(tag.srcIndex), tag.sbox,
+                                    geometry(source, tag.srcIndex), send_cursor[peer]});
+                } else {
+                    pack.push_back({source.const_array(tag.srcIndex), tag.sbox,
+                                    send_cursor[peer]});
+                }
+                send_cursor[peer] +=
+                    static_cast<std::size_t>(tag.sbox.numPts()) * ncomp;
+            }
+        }
+        for (const auto& [peer, tags] : *cpc.m_RcvTags) {
+            for (const auto& tag : tags) {
+                if constexpr (SourceRaw) {
+                    unpack.push_back({destination.array(tag.dstIndex), tag.dbox,
+                                      recv_cursor[peer]});
+                } else {
+                    unpack.push_back({destination.array(tag.dstIndex), tag.dbox,
+                                      geometry(destination, tag.dstIndex), recv_cursor[peer]});
+                }
+                recv_cursor[peer] +=
+                    static_cast<std::size_t>(tag.dbox.numPts()) * ncomp;
+            }
+        }
+        AMREX_ALWAYS_ASSERT(send_cursor.size() == plan.send_counts.size());
+        for (int peer = 0; peer < amrex::ParallelDescriptor::NProcs(); ++peer) {
+            AMREX_ALWAYS_ASSERT(send_cursor[peer] ==
+                                plan.send_offsets[peer] + plan.send_counts[peer]);
+            AMREX_ALWAYS_ASSERT(recv_cursor[peer] ==
+                                plan.recv_offsets[peer] + plan.recv_counts[peer]);
+        }
+        pack_tags.define(pack);
+        unpack_tags.define(unpack);
+        buffers.resize(plan, device_direct);
+        ready = true;
+    }
+};
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
     amrex::IntVect

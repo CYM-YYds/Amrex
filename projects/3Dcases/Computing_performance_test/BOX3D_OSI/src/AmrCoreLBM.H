@@ -333,6 +333,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ProbeAverageInterfaceLevel(int lev, const char* stage);
     void ProbeFillGhostLevel(int lev);
     void BuildDirectInterpolationCache(int lev);
+    void ClearOsiTransferCaches();
     amrex::Interpolater* DdfInterpolater() const;
     void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
                             const amrex::DistributionMapping& dm);
@@ -449,9 +450,10 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>>
         osi_interp_decode_boxes;
     amrex::Vector<unsigned char> interp_direct_cache_ready;
-    // 单 rank 插值目标与 OSI 粗层 raw source 的直接复制计划。
-    amrex::Vector<amrex::TagVector<OSI::LocalCopyTag>>
-        osi_interp_local_copy_tags;
+    // 按细层编号保存插值搬运缓存，按粗层编号保存平均写回缓存。
+    // 几何、Array4 和收发缓冲只在布局重建时更新；当前 phase 在执行时传入。
+    amrex::Vector<OSI::CpcCache<true>> osi_interp_copy_cache;
+    amrex::Vector<OSI::CpcCache<false>> osi_average_copy_cache;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; // boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box
 
     amrex::Vector<amrex::Real> tau;

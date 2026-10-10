@@ -201,12 +201,12 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     auto& fine_indices = interp_direct_fine_index[lev];
     auto& needs_physical_fill = interp_direct_needs_physical_fill[lev];
     auto& osi_decode_regions = osi_interp_decode_boxes[lev];
+    osi_interp_copy_cache.at(lev).clear();
     coarse_stage.clear();
     fine_work_boxes.clear();
     fine_indices.clear();
     needs_physical_fill.clear();
     osi_decode_regions.clear();
-    osi_interp_local_copy_tags.at(lev).undefine();
 
     for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
         const Box target =
@@ -249,35 +249,10 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
         DistributionMapping coarse_stage_dm(std::move(coarse_owners));
         coarse_stage.define(coarse_stage_ba, coarse_stage_dm, Q, 0);
     }
-    if (ParallelDescriptor::NProcs() == 1 &&
-        !coarse_boxes.empty()) {
-        // 复用 AMReX ParallelCopy 的 CPC 本地 tag，只替换数据地址为 OSI raw 映射。
-        Vector<OSI::LocalCopyTag> direct_tags;
-        const auto& source_state = osi_state.at(lev - 1);
-        const auto& cpc = coarse_stage.getCPC(
-            IntVect(0), source_state, IntVect(0),
-            Geom(lev - 1).periodicity()); // getCPC() 根据源、目标的 Box 布局和周期性，生成“目标区域该从哪个源区域取数据”的标签。
-        AMREX_ALWAYS_ASSERT(cpc.m_LocTags);
-        direct_tags.reserve(cpc.m_LocTags->size());
-        for (const auto& tag : *cpc.m_LocTags) {
-            const Box source_ring = amrex::grow(
-                source_state.boxArray()[tag.srcIndex],
-                source_state.nGrowVect());
-            const Box destination_box = coarse_stage.boxArray()[tag.dstIndex];
-            const auto source_lo = source_ring.smallEnd();
-            const auto destination_lo = destination_box.smallEnd();
-            direct_tags.push_back({source_state.const_array(tag.srcIndex),
-                                   coarse_stage.array(tag.dstIndex),
-                                   tag.sbox,
-                                   tag.dbox,
-                                   {{source_lo[0], source_lo[1], source_lo[2]},
-                                    {source_ring.length(0), source_ring.length(1),
-                                     source_ring.length(2)}},
-                                   {{destination_lo[0], destination_lo[1], destination_lo[2]},
-                                    {destination_box.length(0), destination_box.length(1),
-                                     destination_box.length(2)}}});
-        }
-        osi_interp_local_copy_tags.at(lev).define(direct_tags);
+    if (stream_mode == 1 && !coarse_boxes.empty()) {
+        osi_interp_copy_cache.at(lev).define(
+            osi_state.at(lev - 1), coarse_stage,
+            Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct);
     }
     // ParallelCopy 只从与 coarse_stage 在周期映射后对应相交的 coarse valid 区域读取数据。
     // 在这里一次性反查这些 source boxes，避免每个时间步解码整层 valid。
@@ -578,6 +553,7 @@ void AmrCoreLBM::FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf) 
 }
 
 void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新生成 AMR 网格,并把所有依赖旧网格拓扑的缓存同步重建。
+    ClearOsiTransferCaches();
     regrid_tag_counts.assign(max_level + 1, -1);
     for (auto& buffer : average_interface_buffer) {
         buffer.clear();
@@ -622,7 +598,18 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
     }
 }
 
+void AmrCoreLBM::ClearOsiTransferCaches() {
+    // 这些任务持有父层和子层的 Array4，任何一侧存储改变前都要失效。
+    for (auto& cache : osi_interp_copy_cache) {
+        cache.clear();
+    }
+    for (auto& cache : osi_average_copy_cache) {
+        cache.clear();
+    }
+}
+
 void AmrCoreLBM::RebuildCoarseFineCaches() {
+    ClearOsiTransferCaches();
     // 网格初始化或 regrid 完成后，各层的 BoxArray 和 DistributionMapping
     // 可能已经改变。所有依赖旧网格拓扑、Box 编号或数据归属的缓存都必须
     // 在再次执行 FillGhost、Boundary 和 AverageDown 前统一重建。
@@ -781,6 +768,7 @@ void AmrCoreLBM::BuildInterpolationCache() {
 
 void AmrCoreLBM::BuildAverageCache() {
     for (int lev = 0; lev < finest_level; ++lev) {
+        osi_average_copy_cache.at(lev).clear();
         const MultiFab& fine_layout =
             stream_mode == 1 ? osi_state.at(lev + 1) : f_old.at(lev + 1);
         const BoxArray coarse_from_fine =
@@ -820,6 +808,11 @@ void AmrCoreLBM::BuildAverageCache() {
             DistributionMapping interface_dm(interface_owners);
             average_interface_buffer[lev].define(interface_ba, interface_dm, Q, 0);
             average_interface_fine_box[lev] = std::move(fine_box_indices); // “把 fine_box_indices 这份索引列表转交给 average_interface_fine_box[lev]，避免复制，直接拿走内部数据。”
+            if (stream_mode == 1) {
+                osi_average_copy_cache.at(lev).define(
+                    average_interface_buffer.at(lev), osi_state.at(lev),
+                    periodicity, Q, osi_mpi_device_direct);
+            }
         }
     }
 }
@@ -1055,6 +1048,7 @@ void AmrCoreLBM::InterpolateCanonicalToFine(
 }
 
 void AmrCoreLBM::ClearLevel(int lev) {
+    ClearOsiTransferCaches();
     osi_local_copy_tags[lev].undefine();
     osi_remote_copy_tags[lev].clear();
     osi_mpi_pack_tags[lev].undefine();
