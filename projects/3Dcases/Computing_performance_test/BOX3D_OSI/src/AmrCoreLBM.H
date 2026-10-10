@@ -163,7 +163,7 @@ class AmrCoreLBM : public amrex::AmrCore {
         return nghost;
     }
     int streamMode() const {
-        return stream_mode;
+        return run_mode == RunMode::CanonicalAB ? 0 : 1;
     }
     RunMode runMode() const noexcept {
         return run_mode;
@@ -182,8 +182,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     //                           mesh function                            //
     //********************************************************************//
     void InitMesh(amrex::Real cur_time);
-    void FillCoarsePatch(int lev, amrex::Real time, amrex::MultiFab& mf);
-    void FillPatch(int lev, amrex::Real time, amrex::MultiFab& mf);
     void FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf);
     void RefineMesh(amrex::Real time);
     // CUDA 扩展版设备 Lambda 要求包裹它的成员函数必须是 public 公有访问权限
@@ -277,8 +275,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     void PrintParticleChecksums(int step) const;
     void CompareDdfCheckpoint(const std::string& checkpoint_path) const;
 
-    void InterpScale(int lev, int n);
-    void AverageScale(int lev, int n);
     //********************************************************************//
     //                           ibm  function                            //
     //********************************************************************//
@@ -378,14 +374,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 0：禁用粗细网格 mask；1：逐单元 mask。
     // 0：原始通用 BGK；1：无外力/无 SGS 的 D3Q27 寄存器复用路径。
     int collide_mode = 0;
-    // 0 = canonical A-B 数值基准模式
-    // 1 = grown-Fab OSI 模式；要求 collide_mode=1
-    int stream_mode = 0;
     RunMode run_mode = RunMode::CanonicalAB;
     // 仅用于 OSI A/B 验证：以确定性非均匀 DDF 覆盖均匀初值，暴露错误 halo 来源。
     bool osi_verification_pattern = false;
-    // 仅在显式启用时分配 A-B 两数组并逐步比较；生产 OSI 模式保持单一体积级 DDF。
-    bool osi_ab_check = false;
     // 验证粒子 checkpoint/restart 时输出全局粒子数、坐标与 SoA 属性和。
     bool particle_checksum = false;
     // 0：全区域分步基准；1：交界区域融合。
@@ -445,10 +436,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Vector<amrex::Box>> interp_direct_fine_boxes;
     amrex::Vector<amrex::Vector<int>> interp_direct_fine_index;
     amrex::Vector<amrex::Vector<unsigned char>> interp_direct_needs_physical_fill;
-    // OSI 粗到细插值中，coarse_stage::ParallelCopy 实际读取的粗层
-    // canonical source 区域，按 [fine level][coarse Fab index][Box] 缓存。
-    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>>
-        osi_interp_decode_boxes;
     amrex::Vector<unsigned char> interp_direct_cache_ready;
     // 按细层编号保存插值搬运缓存，按粗层编号保存平均写回缓存。
     // 几何、Array4 和收发缓冲只在布局重建时更新；当前 phase 在执行时传入。

@@ -91,77 +91,6 @@ void AmrCoreLBM::InitMesh(amrex::Real cur_time) {
     RebuildCoarseFineCaches();
 }
 
-void AmrCoreLBM::FillCoarsePatch(int lev, amrex::Real time, amrex::MultiFab& mf) // 根本没有用到
-{
-
-    Interpolater* mapper = &cell_cons_interp;
-
-    if (Gpu::inLaunchRegion()) {
-        GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(geom[lev - 1], bcs, gpu_bndry_func);
-        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(geom[lev], bcs, gpu_bndry_func);
-
-        amrex::InterpFromCoarseLevel(mf, time, f_old[lev - 1], 0, 0, Q, geom[lev - 1], geom[lev],
-                                     cphysbc, 0, fphysbc, 0, refRatio(lev - 1),
-                                     mapper, bcs, 0);
-    } else {
-        CpuBndryFuncFab bndry_func(nullptr); // Without EXT_DIR, we can pass a nullptr.
-        PhysBCFunct<CpuBndryFuncFab> cphysbc(geom[lev - 1], bcs, bndry_func);
-        PhysBCFunct<CpuBndryFuncFab> fphysbc(geom[lev], bcs, bndry_func);
-
-        amrex::InterpFromCoarseLevel(mf, time, f_old[lev - 1], 0, 0, Q, geom[lev - 1], geom[lev],
-                                     cphysbc, 0, fphysbc, 0, refRatio(lev - 1),
-                                     mapper, bcs, 0);
-    }
-}
-
-void AmrCoreLBM::FillPatch(int lev, amrex::Real time, amrex::MultiFab& mf) {
-
-    Interpolater* mapper = &cell_cons_interp;
-
-    if (lev == 0) {
-        amrex::MultiFab& f_old_lev = f_old[lev];
-        amrex::Vector<amrex::MultiFab*> cmf{&f_old_lev};
-        amrex::Vector<Real> ctime{time};
-
-        if (Gpu::inLaunchRegion()) {
-            GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> physbc(geom[lev], bcs, gpu_bndry_func);
-            FillPatchSingleLevel(mf, time, cmf, ctime, 0, 0, Q, geom[lev], physbc, 0);
-        } else {
-            CpuBndryFuncFab bndry_func(nullptr);
-            PhysBCFunct<CpuBndryFuncFab> physbc(geom[lev], bcs, bndry_func);
-            FillPatchSingleLevel(mf, time, cmf, ctime, 0, 0, Q, geom[lev], physbc, 0);
-        }
-    } else {
-        amrex::MultiFab& f_old_lev_c = f_old[lev - 1];
-        amrex::MultiFab& f_old_lev_f = f_old[lev];
-
-        amrex::Vector<amrex::MultiFab*> cmf{&f_old_lev_c};
-        amrex::Vector<amrex::MultiFab*> fmf{&f_old_lev_f};
-
-        amrex::Vector<Real> ctime{time};
-        amrex::Vector<Real> ftime{time};
-
-        if (Gpu::inLaunchRegion()) {
-            GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(geom[lev - 1], bcs, gpu_bndry_func);
-            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(geom[lev], bcs, gpu_bndry_func);
-            amrex::FillPatchTwoLevels(mf, time, cmf, ctime, fmf, ftime, 0, 0, Q,
-                                      geom[lev - 1], geom[lev], cphysbc, 0, fphysbc, 0,
-                                      refRatio(lev - 1), mapper, bcs, 0);
-        } else {
-            CpuBndryFuncFab bndry_func(nullptr);
-            PhysBCFunct<CpuBndryFuncFab> cphysbc(geom[lev - 1], bcs, bndry_func);
-            PhysBCFunct<CpuBndryFuncFab> fphysbc(geom[lev], bcs, bndry_func);
-
-            amrex::FillPatchTwoLevels(mf, time, cmf, ctime, fmf, ftime, 0, 0, Q,
-                                      geom[lev - 1], geom[lev], cphysbc, 0, fphysbc, 0,
-                                      refRatio(lev - 1), mapper, bcs, 0);
-        }
-    }
-}
-
 amrex::Interpolater* AmrCoreLBM::DdfInterpolater() const {
     if (interp_mode == 1) {
         return &cell_cons_interp;
@@ -177,7 +106,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
     const MultiFab& fine_layout =
-        stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
+        streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
     const auto fill_ng = fine_layout.nGrowVect();
     Interpolater* interp_mapper = DdfInterpolater();
     const auto coarsener =
@@ -185,7 +114,7 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     const BoxArray& fine_ba = fine_layout.boxArray();
     const BoxArray fine_ba_simplified = fine_ba.simplified();
     const MultiFab& coarse_layout =
-        stream_mode == 1 ? osi_state.at(lev - 1) : f_old.at(lev - 1);
+        streamMode() == 1 ? osi_state.at(lev - 1) : f_old.at(lev - 1);
     const BoxArray coarse_valid = coarse_layout.boxArray().simplified();
     Box fine_domain = Geom(lev).Domain();
     for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
@@ -200,13 +129,11 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     auto& fine_work_boxes = interp_direct_fine_boxes[lev];
     auto& fine_indices = interp_direct_fine_index[lev];
     auto& needs_physical_fill = interp_direct_needs_physical_fill[lev];
-    auto& osi_decode_regions = osi_interp_decode_boxes[lev];
     osi_interp_copy_cache.at(lev).clear();
     coarse_stage.clear();
     fine_work_boxes.clear();
     fine_indices.clear();
     needs_physical_fill.clear();
-    osi_decode_regions.clear();
 
     for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
         const Box target =
@@ -249,41 +176,11 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
         DistributionMapping coarse_stage_dm(std::move(coarse_owners));
         coarse_stage.define(coarse_stage_ba, coarse_stage_dm, Q, 0);
     }
-    if (stream_mode == 1 && !coarse_boxes.empty()) {
+    if (streamMode() == 1 && !coarse_boxes.empty()) {
         osi_interp_copy_cache.at(lev).define(
             osi_state.at(lev - 1), coarse_stage,
             Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct);
     }
-    // ParallelCopy 只从与 coarse_stage 在周期映射后对应相交的 coarse valid 区域读取数据。
-    // 在这里一次性反查这些 source boxes，避免每个时间步解码整层 valid。
-    if (stream_mode == 1) {
-        const BoxArray& source_ba = osi_state.at(lev - 1).boxArray();
-        const auto shifts =
-            Geom(lev - 1).periodicity().shiftIntVect();
-        Vector<BoxList> decode_candidates(source_ba.size());
-
-        for (const Box& destination : coarse_boxes) {
-            for (const IntVect& shift : shifts) {
-                const Box source_query = destination - shift;
-                for (const auto& [source_index, source_box] :
-                     source_ba.intersections(source_query)) { // 求source_ba中的相交区域
-                    decode_candidates[source_index].push_back(source_box);
-                }
-            }
-        }
-
-        osi_decode_regions.resize(source_ba.size());
-        for (int source_index = 0; source_index < source_ba.size();
-             ++source_index) {
-            BoxList disjoint =
-                amrex::removeOverlap(decode_candidates[source_index]);
-            disjoint.simplify(true);
-            AMREX_ALWAYS_ASSERT(disjoint.isDisjoint());
-            osi_decode_regions[source_index].assign(
-                disjoint.begin(), disjoint.end());
-        }
-    }
-
     interp_direct_cache_ready[lev] = 1;
     ++perf_stats.interp_cache_builds;
     perf_stats.interp_cache_build += amrex::second() - start;
@@ -570,9 +467,6 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
     for (auto& flags : interp_direct_needs_physical_fill) {
         flags.clear();
     }
-    for (auto& boxes : osi_interp_decode_boxes) {
-        boxes.clear();
-    }
     std::fill(
         interp_direct_cache_ready.begin(),
         interp_direct_cache_ready.end(), 0);
@@ -580,7 +474,7 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
     RebuildCoarseFineCaches();
     bool regrid_valid_check = false;
     ParmParse("verification").query("regrid_valid_check", regrid_valid_check);
-    if (stream_mode == 1 && (osiReferenceEnabled() || regrid_valid_check)) {
+    if (streamMode() == 1 && (osiReferenceEnabled() || regrid_valid_check)) {
         for (int lev = 0; lev <= finest_level; ++lev) {
             const MultiFab& state = osi_state.at(lev);
             MultiFab canonical(state.boxArray(), state.DistributionMap(), Q, 0);
@@ -628,7 +522,6 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
         interp_direct_fine_boxes[lev].clear();
         interp_direct_fine_index[lev].clear();
         interp_direct_needs_physical_fill[lev].clear();
-        osi_interp_decode_boxes[lev].clear();
         interp_direct_cache_ready[lev] = 0;
         boundary_work_boxes[lev].clear();
         average_interface_buffer[lev].clear();
@@ -654,7 +547,7 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
 }
 
 void AmrCoreLBM::RebuildCoarseFineMasks() {
-    if (stream_mode == 1) {
+    if (streamMode() == 1) {
         RebuildCoarseFineMasksForState(osi_state);
     } else {
         RebuildCoarseFineMasksForState(f_old);
@@ -770,7 +663,7 @@ void AmrCoreLBM::BuildAverageCache() {
     for (int lev = 0; lev < finest_level; ++lev) {
         osi_average_copy_cache.at(lev).clear();
         const MultiFab& fine_layout =
-            stream_mode == 1 ? osi_state.at(lev + 1) : f_old.at(lev + 1);
+            streamMode() == 1 ? osi_state.at(lev + 1) : f_old.at(lev + 1);
         const BoxArray coarse_from_fine =
             amrex::coarsen(fine_layout.boxArray(), refRatio(lev));
 
@@ -808,7 +701,7 @@ void AmrCoreLBM::BuildAverageCache() {
             DistributionMapping interface_dm(interface_owners);
             average_interface_buffer[lev].define(interface_ba, interface_dm, Q, 0);
             average_interface_fine_box[lev] = std::move(fine_box_indices); // “把 fine_box_indices 这份索引列表转交给 average_interface_fine_box[lev]，避免复制，直接拿走内部数据。”
-            if (stream_mode == 1) {
+            if (streamMode() == 1) {
                 osi_average_copy_cache.at(lev).define(
                     average_interface_buffer.at(lev), osi_state.at(lev),
                     periodicity, Q, osi_mpi_device_direct);
@@ -843,7 +736,7 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
     force_lev.define(ba, dm, AMREX_SPACEDIM, nghost);
     shear_lev.define(ba, dm, 1, nghost);
 
-    if (stream_mode == 0) {
+    if (streamMode() == 0) {
         amrex::MultiFab& f_new_lev = f_new.at(lev);
         amrex::MultiFab& f_old_lev = f_old.at(lev);
         f_new_lev.define(ba, dm, Q, nghost);
@@ -886,7 +779,7 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
     amrex::MultiFab force_new(ba, dm, AMREX_SPACEDIM, nghost);
     amrex::MultiFab shear_new(ba, dm, 1, nghost);
 
-    if (stream_mode == 1) {
+    if (streamMode() == 1) {
         ++perf_stats.interp_regrid_fill_calls;
         ScopedPerfTimer timer(perf_stats.interp_regrid_fill);
 
@@ -982,7 +875,7 @@ void AmrCoreLBM::InitializeOsiLevel(
 
 void AmrCoreLBM::InitializeNewLevelFromCoarse(int lev, Real time) {
     AMREX_ALWAYS_ASSERT(lev > 0);
-    const bool use_osi = stream_mode == 1;
+    const bool use_osi = streamMode() == 1;
     if (use_osi) {
         AMREX_ALWAYS_ASSERT(osi_phase.at(lev) == 0);
     }
@@ -1104,7 +997,7 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
         f_new_lev.define(ba, dm, Q, nghost);
         f_old_lev.define(ba, dm, Q, nghost);
     }
-    if (stream_mode == 1) {
+    if (streamMode() == 1) {
         // valid 与两层 ghost 共同组成 Fab-local OSI 保护环。ghost 是重叠逻辑
         // 副本，碰撞后按当前 phase 分批同步；它不承担跨 Fab streaming 写入目标。
         InitializeOsiLevel(lev, ba, dm);
@@ -1137,7 +1030,7 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
         }
     }
 
-    if (stream_mode == 1) {
+    if (streamMode() == 1) {
         amrex::MultiFab& state = osi_state[lev];
         state.setVal(std::numeric_limits<Real>::quiet_NaN());
         for (MFIter mfi(state, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
@@ -1186,7 +1079,7 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
     const int clearval = TagBox::CLEAR;
 
     const MultiFab& level_layout =
-        stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
+        streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
     const MultiFab& vort_lev = vorticity[lev];
 
     amrex::IntVect lo2 = static_lo[lev + max_ref_level + 1];

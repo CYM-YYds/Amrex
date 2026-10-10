@@ -12,7 +12,7 @@ using namespace Box3dDetail;
 void AmrCoreLBM::ComputeVorticityLevel(int lev) {
 
     const amrex::MultiFab& level_layout =
-        stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
+        streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
     amrex::MultiFab& u_lev = velocity[lev];
     amrex::MultiFab& vort_lev = vorticity[lev];
     amrex::Real dt = Geom(lev).CellSizeArray()[0];
@@ -38,7 +38,7 @@ void AmrCoreLBM::ComputeVorticity(amrex::Real cur_time) {
 
 void AmrCoreLBM::ComputeShearLevel(int lev) {
     const amrex::MultiFab& level_layout =
-        stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
+        streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
     amrex::MultiFab& u_lev = velocity[lev];
     amrex::MultiFab& shear_lev = shear[lev];
     amrex::Real dt = Geom(lev).CellSizeArray()[0];
@@ -91,7 +91,7 @@ void AmrCoreLBM::AverageDownValid(const std::function<void()>& before_repair) {
     // interface-only 时间推进不会更新深层 covered 粗单元；regrid 可能重新暴露这些单元，
     // 因此重网格前必须先将全部细层 valid 数据完整同步到粗层父单元。
     for (int lev = finest_level - 1; lev >= 0; --lev) {
-        if (stream_mode == 1) {
+        if (streamMode() == 1) {
             AverageDownOsiValidLevel(lev, true);
             if (osiReferenceEnabled()) {
                 // 锁步参考态也要在重网格前完成全部有效单元的平均下传。
@@ -111,7 +111,7 @@ void AmrCoreLBM::AverageDownValid(const std::function<void()>& before_repair) {
 void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复当前状态的物理边界条件。
     ScopedPerfTimer timer(perf_stats.boundary);
     const DdfLayout layout =
-        stream_mode == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
+        streamMode() == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
 
     // 平均后只修复 covered 粗层物理边界，不改写 uncovered 或最细层状态。
     for (int lev = 0; lev < finest_level; ++lev) {
@@ -144,7 +144,7 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int fine_lev, bool is_scale) {
         ProbeAverageInterfaceLevel(coarse_lev, "before"); // 导出一次界面平均前或后的状态快照，供离线逐单元比较
     }
 
-    if (stream_mode == 1) {
+    if (streamMode() == 1) {
         AverageDownOsiLevel(fine_lev, is_scale);
         if (!osiReferenceEnabled()) {
             if (probe_this_call) {
@@ -246,7 +246,7 @@ void AmrCoreLBM::FillGhostLevel(int coarse_lev, amrex::Real time, bool is_scale)
     const int fine_lev = coarse_lev + 1;
     AMREX_ALWAYS_ASSERT(coarse_lev >= 0 && fine_lev <= finest_level);
 
-    if (stream_mode == 1) {
+    if (streamMode() == 1) {
         FillOsiGhostFromCoarse(coarse_lev, time, is_scale);
         if (osiReferenceEnabled()) {
             // 锁步参考态必须与独立 A-B 一样填充粗到细 ghost。
@@ -322,7 +322,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         ++coarse_advance_count;
     }
     const DdfLayout layout =
-        stream_mode == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
+        streamMode() == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         layout == DdfLayout::Canonical || osi_state.at(lev).isDefined(),
         "AdvanceLevel requires an initialized OSI state");
@@ -399,7 +399,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
             auto output = amrex::AllPrint();
             output.SetPrecision(17);
             output << "boundary_probe: step=" << coarse_advance_count
-                   << " mode=" << stream_mode << " lev=0 logical=" << sample
+                   << " mode=" << streamMode() << " lev=0 logical=" << sample
                    << " q=" << sample_q
                    << " covered=" << host_mask.const_array()(sample[0], sample[1], sample[2])
                    << " value=" << host.const_array()(address[0], address[1], address[2], sample_q) << '\n';
@@ -615,13 +615,4 @@ void AmrCoreLBM::SwapLevel(int lev, int n, DdfLayout layout) {
     amrex::MultiFab& f_new_lev = f_new[lev];
 
     std::swap(f_old_lev, f_new_lev);
-}
-
-void AmrCoreLBM::InterpScale(int lev, int n) // n=nghost
-{
-    amrex::AllPrint() << "InterpScale not existing !" << std::endl;
-}
-
-void AmrCoreLBM::AverageScale(int lev, int n) {
-    amrex::AllPrint() << "AverageScale not existing !" << std::endl;
 }

@@ -19,7 +19,7 @@ using namespace Box3dDetail;
 // 基础生命周期、参数、输出、检查点与粒子耦合。
 
 void AmrCoreLBM::ComputeMacroLevel(int lev) {
-    if (stream_mode == 1) {
+    if (streamMode() == 1) {
         const amrex::MultiFab& state = osi_state[lev];
         amrex::MultiFab& rho_lev = density[lev];
         amrex::MultiFab& u_lev = velocity[lev];
@@ -98,7 +98,6 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     interp_direct_fine_boxes.resize(nlevs_max);
     interp_direct_fine_index.resize(nlevs_max);
     interp_direct_needs_physical_fill.resize(nlevs_max);
-    osi_interp_decode_boxes.resize(nlevs_max);
     interp_direct_cache_ready.resize(nlevs_max, 0);
     boundary_work_boxes.resize(nlevs_max);
 
@@ -293,7 +292,7 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  Ma     =" << std::setw(10) << std::right << Ma << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  U0     =" << std::setw(10) << std::right << U0 << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  col_mode=" << std::setw(10) << std::right << collide_mode << std::endl;
-    amrex::Print() << std::setw(15) << std::left << "  str_mode=" << std::setw(10) << std::right << stream_mode << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  str_mode=" << std::setw(10) << std::right << streamMode() << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  int_mode=" << std::setw(10) << std::right << interp_mode << std::endl;
 
     for (int lev = 0; lev <= finest_level; lev++) {
@@ -305,6 +304,8 @@ void AmrCoreLBM::PrintLbmParm() {
 }
 
 void AmrCoreLBM::ReadParameters() {
+    int requested_stream_mode = 0;
+    bool requested_osi_ab_check = false;
     {
         ParmParse pp_performance("performance");
         pp_performance.query("report_int", params_.perf_report_int);
@@ -507,8 +508,8 @@ void AmrCoreLBM::ReadParameters() {
         if (collide_mode < 0 || collide_mode > 1) {
             amrex::Abort("lbm.collide_mode must be 0 or 1");
         }
-        pp.query("stream_mode", stream_mode);
-        if (stream_mode < 0 || stream_mode > 1) {
+        pp.query("stream_mode", requested_stream_mode);
+        if (requested_stream_mode < 0 || requested_stream_mode > 1) {
             amrex::Abort("lbm.stream_mode must be 0 (A-B) or 1 (stage-2 OSI)");
         }
         // 旧开关不再控制路径；拒绝关闭请求，防止旧实验被误认为仍在跑回退。
@@ -534,7 +535,7 @@ void AmrCoreLBM::ReadParameters() {
     {
         ParmParse pp_verify("verification");
         pp_verify.query("osi_seed_pattern", osi_verification_pattern);
-        pp_verify.query("osi_ab_check", osi_ab_check);
+        pp_verify.query("osi_ab_check", requested_osi_ab_check);
         pp_verify.query("particle_checksum", particle_checksum);
         pp_verify.query("convergence_enabled", convergence_.enabled);
         pp_verify.query("convergence_check_int", convergence_.check_int);
@@ -579,9 +580,9 @@ void AmrCoreLBM::ReadParameters() {
         }
     }
 
-    run_mode = stream_mode == 0
+    run_mode = requested_stream_mode == 0
                    ? RunMode::CanonicalAB
-                   : (osi_ab_check ? RunMode::OsiLockstep
+                   : (requested_osi_ab_check ? RunMode::OsiLockstep
                                    : RunMode::OsiProduction);
 }
 
@@ -836,7 +837,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
         }
         header.precision(17);
         header << checkpoint_label_v2 << '\n';
-        header << (stream_mode == 1 ? checkpoint_layout_osi
+        header << (streamMode() == 1 ? checkpoint_layout_osi
                                     : checkpoint_layout_ab)
                << '\n';
         header << step << '\n';
@@ -854,7 +855,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
     for (int lev = 0; lev <= finest_level; ++lev) {
         const std::string old_name = MultiFabFileFullPrefix(
             lev, out_chkname, level_prefix, "f_old");
-        if (stream_mode == 0) {
+        if (streamMode() == 0) {
             VisMF::Write(f_old[lev], old_name);
             continue;
         }
@@ -1042,7 +1043,7 @@ void AmrCoreLBM::ReadCheckpoint() {
             stored_old, 0, 0, Q, IntVect(0), IntVect(0),
             Geom(lev).periodicity());
 
-        if (stream_mode == 1) {
+        if (streamMode() == 1) {
             InitializeOsiLevel(
                 lev, boxArray(lev), DistributionMap(lev));
             osi_state[lev].setVal(

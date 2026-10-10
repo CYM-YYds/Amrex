@@ -133,8 +133,8 @@ void AmrCoreLBM::ProbeAverageInterfaceLevel(int lev, const char* stage) {
     constexpr int ez[Q] = {
         0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
         1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
-    const MultiFab& state = stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
-    const std::string stem = "average_probe_" + std::string(stage) + "_mode" + std::to_string(stream_mode) + "_rank" + std::to_string(ParallelDescriptor::MyProc());
+    const MultiFab& state = streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
+    const std::string stem = "average_probe_" + std::string(stage) + "_mode" + std::to_string(streamMode()) + "_rank" + std::to_string(ParallelDescriptor::MyProc());
     std::ofstream meta(stem + ".meta");
     std::ofstream binary(stem + ".bin", std::ios::binary);
     std::ofstream masks(stem + ".mask", std::ios::binary);
@@ -185,7 +185,7 @@ void AmrCoreLBM::ProbeAverageInterfaceLevel(int lev, const char* stage) {
                 for (int j = valid.smallEnd(1); j <= valid.bigEnd(1); ++j) {
                     for (int i = valid.smallEnd(0); i <= valid.bigEnd(0); ++i) {
                         IntVect address(AMREX_D_DECL(i, j, k));
-                        if (stream_mode == 1) {
+                        if (streamMode() == 1) {
                             const auto raw = OSI::osi_address(
                                 {i, j, k}, {ex[q], ey[q], ez[q]}, fab, shift);
                             address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
@@ -200,7 +200,7 @@ void AmrCoreLBM::ProbeAverageInterfaceLevel(int lev, const char* stage) {
     }
     AMREX_ALWAYS_ASSERT(meta.good() && binary.good() && masks.good());
     amrex::AllPrint() << "average_probe: stage=" << stage
-                      << " mode=" << stream_mode
+                      << " mode=" << streamMode()
                       << " lev=0 first_average=1 local_cells=" << local_cells
                       << " stem=" << stem << '\n';
 }
@@ -216,8 +216,8 @@ void AmrCoreLBM::ProbeFillGhostLevel(int lev) {
     constexpr int ez[Q] = {
         0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
         1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
-    const MultiFab& state = stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
-    const std::string stem = "ghost_probe_mode" + std::to_string(stream_mode) + "_rank" + std::to_string(ParallelDescriptor::MyProc());
+    const MultiFab& state = streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
+    const std::string stem = "ghost_probe_mode" + std::to_string(streamMode()) + "_rank" + std::to_string(ParallelDescriptor::MyProc());
     std::ofstream meta(stem + ".meta");
     std::ofstream binary(stem + ".bin", std::ios::binary);
     AMREX_ALWAYS_ASSERT(meta && binary);
@@ -254,7 +254,7 @@ void AmrCoreLBM::ProbeFillGhostLevel(int lev) {
                 for (int j = work.smallEnd(1); j <= work.bigEnd(1); ++j) {
                     for (int i = work.smallEnd(0); i <= work.bigEnd(0); ++i) {
                         IntVect address(AMREX_D_DECL(i, j, k));
-                        if (stream_mode == 1) {
+                        if (streamMode() == 1) {
                             const auto raw = OSI::osi_address(
                                 {i, j, k}, {ex[q], ey[q], ez[q]}, fab, shift);
                             address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
@@ -269,7 +269,7 @@ void AmrCoreLBM::ProbeFillGhostLevel(int lev) {
                      static_cast<std::streamsize>(values.size() * sizeof(Real)));
     }
     AMREX_ALWAYS_ASSERT(meta.good() && binary.good());
-    amrex::AllPrint() << "ghost_probe: mode=" << stream_mode
+    amrex::AllPrint() << "ghost_probe: mode=" << streamMode()
                       << " lev=1 fill_count=1 boxes=" << work_boxes.size()
                       << " local_cells=" << local_cells
                       << " stem=" << stem << '\n';
@@ -281,7 +281,7 @@ void AmrCoreLBM::ValidateConfiguration() const {
             ? "AB-production"
             : (run_mode == RunMode::OsiProduction ? "OSI-production"
                                                   : "OSI-lockstep");
-    if (stream_mode != 1) {
+    if (streamMode() != 1) {
         amrex::Print() << "[LBM validation] run_mode=" << run_mode_name
                        << " full_ddf_arrays="
                        << (canonicalStateEnabled() ? 2 : 1) << '\n';
@@ -363,10 +363,10 @@ void AmrCoreLBM::ValidateConfiguration() const {
 void AmrCoreLBM::ValidateInitializedState(const char* context) {
     for (int lev = 0; lev <= finest_level; ++lev) {
         const MultiFab& state =
-            stream_mode == 1 ? osi_state.at(lev) : f_old.at(lev);
+            streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
         const bool has_fine = lev < finest_level;
         MultiFab decoded;
-        if (stream_mode == 1) {
+        if (streamMode() == 1) {
             decoded.define(state.boxArray(), state.DistributionMap(),
                            Q, state.nGrowVect());
             DecodeOsiValid(state, osi_phase.at(lev), decoded);
@@ -409,7 +409,7 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
         Real ddf_max = std::numeric_limits<Real>::lowest();
 
         for (int q = 0; q < Q; ++q) {
-            const MultiFab& canonical = stream_mode == 1 ? decoded : state;
+            const MultiFab& canonical = streamMode() == 1 ? decoded : state;
             const auto stats = active_stats(canonical, q, Real(0.0));
             const Real q_min = stats[0];
             const Real q_max = stats[1];
@@ -444,7 +444,7 @@ void AmrCoreLBM::ValidateInitializedState(const char* context) {
             "Initialized macroscopic state is invalid");
         amrex::Print() << '[' << context << "] level=" << lev
                        << " phase="
-                       << (stream_mode == 1 ? osi_phase.at(lev) : 0)
+                       << (streamMode() == 1 ? osi_phase.at(lev) : 0)
                        << " ddf_min=" << ddf_min
                        << " ddf_max=" << ddf_max
                        << " rho_min=" << rho_min
@@ -648,7 +648,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
     int lev, const char* stage, const amrex::MultiFab& reference,
     int compare_ngrow, bool exclude_physical_boundary, bool skip_covered) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        stream_mode == 1,
+        streamMode() == 1,
         "CompareOsiReferenceStage requires lbm.stream_mode=1");
     if (!osiReferenceEnabled()) {
         return;
@@ -856,7 +856,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
 
 void AmrCoreLBM::CompareOsiStreamSources(int lev, const char* stage) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        stream_mode == 1,
+        streamMode() == 1,
         "CompareOsiStreamSources requires lbm.stream_mode=1");
     if (!osiReferenceEnabled()) {
         return;
@@ -1050,7 +1050,7 @@ void AmrCoreLBM::PrintDdfChecksums(int step) {
         Real active_checksum = 0.0;
         GpuArray<Real, Q> active_q{};
 
-        if (stream_mode == 1) {
+        if (streamMode() == 1) {
             const MultiFab& state = osi_state.at(lev);
             MultiFab canonical(state.boxArray(), state.DistributionMap(),
                                Q, state.nGrowVect());
@@ -1127,7 +1127,7 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new)
     Real valid_sum = 0.0;
     Real active_sum = 0.0;
 
-    if (stream_mode == 1) {
+    if (streamMode() == 1) {
         const MultiFab& state = osi_state.at(lev);
         MultiFab canonical(state.boxArray(), state.DistributionMap(),
                            Q, state.nGrowVect());
@@ -1168,7 +1168,7 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new)
 
     if (ParallelDescriptor::IOProcessor()) {
         amrex::Print() << "NEW_LEVEL_DIAG stage=" << stage
-                       << " mode=" << stream_mode
+                       << " mode=" << streamMode()
                        << " lev=" << lev
                        << " array=" << (use_new ? "f_new" : "f_old")
                        << " valid_sum=" << valid_sum
@@ -1183,7 +1183,7 @@ void AmrCoreLBM::PrintLevelDdfChecksum(const char* stage, int lev, bool use_new)
 
 void AmrCoreLBM::PrintInterpolationDiagnostics(const char* stage, int lev) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        stream_mode == 0,
+        streamMode() == 0,
         "PrintInterpolationDiagnostics is only available for the A-B path");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         lev > 0 && lev <= finest_level,
@@ -1319,7 +1319,7 @@ void AmrCoreLBM::PrintParticleChecksums(int step) const {
 
 void AmrCoreLBM::DiagnoseBoundaryResult(int lev) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        stream_mode == 0,
+        streamMode() == 0,
         "DiagnoseBoundaryResult is only available for the A-B path");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         lev >= 0 && lev <= finest_level,
@@ -1470,7 +1470,7 @@ void AmrCoreLBM::DiagnoseBoundaryResult(int lev) {
 
 void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-        stream_mode == 0,
+        streamMode() == 0,
         "DiagnoseStreamResult is only available for the A-B path");
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         lev >= 0 && lev <= finest_level,
@@ -1672,7 +1672,7 @@ void AmrCoreLBM::CompareDdfCheckpoint(
         reference_on_current.ParallelCopy(
             reference, 0, 0, Q, IntVect(0), IntVect(0));
 
-        if (stream_mode == 1) {
+        if (streamMode() == 1) {
             const MultiFab& state = osi_state.at(lev);
             MultiFab difference(
                 state.boxArray(), state.DistributionMap(), Q, 0);

@@ -2237,15 +2237,6 @@ void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
     }
 }
 
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void swap_ddf(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
-              amrex::Array4<amrex::Real> const& fnew) {
-    for (int q = 0; q < Q; q++) {
-        fold(i, j, k, q) = fnew(i, j, k, q);
-    }
-}
-
 // A-B 与 OSI 共用 BGK 数学公式；模板参数只决定 DDF 的读写地址。
 // 编译期分叉可以避免一种存储布局增加另一种布局的运行时判断和寄存器压力。
 template <bool UseOsiAddress>
@@ -2400,41 +2391,6 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q(
     OSI::PhaseShift3 fine_shift) noexcept {
     interp_bilinear_d3q_impl<true>(
         i, j, k, fine, coarse, fine_fab, fine_shift);
-}
-
-// OSI 版本的双线性插值：数学权重与普通 kernel 相同，输入输出通过各自
-// grown-Fab geometry 和 phase 解码/编码，避免把逻辑坐标直接当作 raw 坐标。
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void interp_bilinear_osi_d3q(
-    int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
-    amrex::Array4<amrex::Real const> const& coarse,
-    OSI::FabGeometry fine_fab, OSI::FabGeometry coarse_fab,
-    OSI::PhaseShift3 fine_shift,
-    OSI::PhaseShift3 coarse_shift) noexcept {
-    const int ic = amrex::coarsen(i, 2);
-    const int jc = amrex::coarsen(j, 2);
-    const int kc = amrex::coarsen(k, 2);
-    const int sx = i - 2 * ic == 0 ? -1 : 1;
-    const int sy = j - 2 * jc == 0 ? -1 : 1;
-    const int sz = k - 2 * kc == 0 ? -1 : 1;
-    constexpr Real w000 = Real(27.0 / 64.0), w100 = Real(9.0 / 64.0);
-    constexpr Real w110 = Real(3.0 / 64.0), w111 = Real(1.0 / 64.0);
-    for (int q = 0; q < Q; ++q) {
-        const auto v = [&](int x, int y, int z) {
-            const auto a = OSI::osi_address(
-                {x, y, z}, {e[q][0], e[q][1], e[q][2]}, coarse_fab,
-                coarse_shift);
-            return coarse(a.x, a.y, a.z, q);
-        };
-        const Real value = v(ic, jc, kc) * w000 + v(ic + sx, jc, kc) * w100 +
-                           v(ic, jc + sy, kc) * w100 + v(ic + sx, jc + sy, kc) * w110 +
-                           v(ic, jc, kc + sz) * w100 + v(ic + sx, jc, kc + sz) * w110 +
-                           v(ic, jc + sy, kc + sz) * w110 + v(ic + sx, jc + sy, kc + sz) * w111;
-        const auto dst = OSI::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fine_fab, fine_shift);
-        fine(dst.x, dst.y, dst.z, q) = value;
-    }
 }
 
 // AMReX 中比率为2的单元守恒线性插值的设备端实现。
@@ -2646,33 +2602,6 @@ void average_down_lbm(int i, int j, int k, amrex::Array4<amrex::Real> const& crs
     }
 }
 
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void average_down_osi_lbm(
-    int i, int j, int k, amrex::Array4<amrex::Real> const& coarse,
-    amrex::Array4<amrex::Real const> const& fine,
-    amrex::IntVect const& ratio, OSI::FabGeometry coarse_fab,
-    OSI::FabGeometry fine_fab,
-    OSI::PhaseShift3 coarse_shift,
-    OSI::PhaseShift3 fine_shift) noexcept {
-    const Real inv = Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
-    for (int q = 0; q < Q; ++q) {
-        Real sum = 0.0;
-        for (int kr = 0; kr < ratio[2]; ++kr)
-            for (int jr = 0; jr < ratio[1]; ++jr)
-                for (int ir = 0; ir < ratio[0]; ++ir) {
-                    const auto src = OSI::osi_address(
-                        {i * ratio[0] + ir, j * ratio[1] + jr, k * ratio[2] + kr},
-                        {e[q][0], e[q][1], e[q][2]}, fine_fab, fine_shift);
-                    sum += fine(src.x, src.y, src.z, q);
-                }
-        const auto dst = OSI::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, coarse_fab,
-            coarse_shift);
-        coarse(dst.x, dst.y, dst.z, q) = sum * inv;
-    }
-}
-
 // 从细层 grown-Fab OSI 状态直接读取子单元，把限制结果写入 canonical
 // staging Fab。尺度转换与 average_down_lbm_scaled() 完全相同，只改变寻址。
 AMREX_GPU_DEVICE
@@ -2732,68 +2661,6 @@ void average_down_osi_to_canonical(
         Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
     for (int q = 0; q < Q; ++q) {
         coarse(i, j, k, q) = restricted[q] * inv_children;
-    }
-}
-
-// Regrid 前的完整限制按 q 批次输出，避免为 coarsened-fine 布局保留 Q 分量
-// 临时 MultiFab。每个批次会重新读取子单元宏观量；这是低频 regrid 路径的
-// 明确时间/内存折中。
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void average_down_osi_batch_to_canonical(
-    int i, int j, int k, amrex::Array4<amrex::Real> const& coarse_batch,
-    amrex::Array4<amrex::Real const> const& fine,
-    amrex::IntVect const& ratio, OSI::FabGeometry fine_fab,
-    OSI::PhaseShift3 fine_shift, amrex::Real scale, bool apply_scale,
-    int q0, int ncomp) noexcept {
-    Real restricted[Q]{};
-    const int fi = i * ratio[0];
-    const int fj = j * ratio[1];
-    const int fk = k * ratio[2];
-
-    for (int kr = 0; kr < ratio[2]; ++kr) {
-        for (int jr = 0; jr < ratio[1]; ++jr) {
-            for (int ir = 0; ir < ratio[0]; ++ir) {
-                const int ii = fi + ir;
-                const int jj = fj + jr;
-                const int kk = fk + kr;
-                Real fq[Q];
-                Real rho = 0.0;
-                Real ux = 0.0;
-                Real uy = 0.0;
-                Real uz = 0.0;
-                for (int q = 0; q < Q; ++q) {
-                    const auto src = OSI::osi_address(
-                        {ii, jj, kk}, {e[q][0], e[q][1], e[q][2]},
-                        fine_fab, fine_shift);
-                    fq[q] = fine(src.x, src.y, src.z, q);
-                    rho += fq[q];
-                    ux += fq[q] * e[q][0];
-                    uy += fq[q] * e[q][1];
-                    uz += fq[q] * e[q][2];
-                }
-                if (apply_scale) {
-                    ux /= rho;
-                    uy /= rho;
-                    uz /= rho;
-                }
-                for (int n = 0; n < ncomp; ++n) {
-                    const int q = q0 + n;
-                    if (apply_scale) {
-                        const Real feq = feqQian(rho, {ux, uy, uz}, q);
-                        restricted[n] += feq + (fq[q] - feq) * scale;
-                    } else {
-                        restricted[n] += fq[q];
-                    }
-                }
-            }
-        }
-    }
-
-    const Real inv_children =
-        Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
-    for (int n = 0; n < ncomp; ++n) {
-        coarse_batch(i, j, k, n) = restricted[n] * inv_children;
     }
 }
 
