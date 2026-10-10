@@ -49,7 +49,7 @@ class ScopedPerfTimer {
     double& m_accum;
     double m_start;
 };
-}
+} // namespace Box3dDetail
 
 class AmrCoreLBM : public amrex::AmrCore {
 

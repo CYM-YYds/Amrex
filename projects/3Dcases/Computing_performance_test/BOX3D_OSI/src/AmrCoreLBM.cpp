@@ -16,7 +16,7 @@
 using namespace amrex;
 using namespace Box3dDetail;
 
-// 基础生命周期、参数、宏观量重建、输出、检查点与粒子耦合。
+// 基础生命周期、参数、输出、检查点与粒子耦合。
 
 void AmrCoreLBM::ComputeMacroLevel(int lev) {
     if (stream_mode == 1) {

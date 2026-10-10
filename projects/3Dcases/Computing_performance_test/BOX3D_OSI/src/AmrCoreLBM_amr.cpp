@@ -1074,7 +1074,7 @@ void AmrCoreLBM::ClearLevel(int lev) {
 
 void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex::BoxArray& ba,
                                          const amrex::DistributionMapping& dm) {
-    // 作用“拿到已经规划好的某层网格后，，并从“初始物理条件”生成数据”,InitMesh()会调用到它
+    // 作用“拿到已经规划好的某层网格后，，并从“初始物理条件”生成数据”, InitMesh()会调用到它
     /* main.cpp
   └─ lid.InitMesh(cur_time)
        └─ AmrCoreLBM::InitMesh()

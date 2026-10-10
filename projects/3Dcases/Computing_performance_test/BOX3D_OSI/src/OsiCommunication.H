@@ -143,12 +143,14 @@ struct CopyTiming {
 };
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-std::size_t buffer_cell_index(const amrex::Box& region,
-                              int i, int j, int k) noexcept {
+    std::size_t
+    buffer_cell_index(const amrex::Box& region,
+                      int i, int j, int k) noexcept {
     const auto lo = region.smallEnd();
     return static_cast<std::size_t>(
         ((k - lo[2]) * region.length(1) + (j - lo[1])) *
-            region.length(0) + (i - lo[0]));
+            region.length(0) +
+        (i - lo[0]));
 }
 
 // 按 peer 提交非阻塞接收，保持与本地 GPU 操作的重叠。
@@ -278,7 +280,6 @@ void parallel_copy_mpi(const amrex::TagVector<PackTag>& pack_tags,
     }
 }
 
-
 template <typename SendTagMap, typename RecvTagMap>
 MpiPlan make_mpi_plan(const SendTagMap& send_tags,
                       const RecvTagMap& recv_tags,
@@ -407,8 +408,8 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
                                         AMREX_D_DECL(i - tag.dst_box.smallEnd(0),
                                                      j - tag.dst_box.smallEnd(1),
                                                      k - tag.dst_box.smallEnd(2)));
-}
-
+} // 源坐标 = 目标坐标 + (src_box.smallEnd() - dst_box.smallEnd());
+  // 非周期情况下括号里面的数值为0,  周期情况下为周期偏移量
 } // namespace OSI
 
 #endif

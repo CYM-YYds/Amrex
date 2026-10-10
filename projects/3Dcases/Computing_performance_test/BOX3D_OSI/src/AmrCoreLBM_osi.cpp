@@ -318,14 +318,19 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     const BoxArray& ba = osi_state.at(lev).boxArray();
     const IntVect ng = osi_state.at(lev).nGrowVect();
     const std::uint64_t phase = osi_phase.at(lev);
-    // 直接复用 AMReX FillBoundary 已缓存的通信计划；OSI 只负责 raw 地址投影。
+    // 通过 getFB 获取或创建 AMReX FillBoundary 使用的通信区域计划，
+    // 并据此建立 OSI 地址映射、复制任务及收发缓冲。
     Vector<OSI::LocalCopyTag> local_tags;
     Vector<OSI::RemoteCopyTag> remote_tags;
     const auto fab_geometry = [&](int index) {
         const Box ring = amrex::grow(ba[index], ng);
         return OSI::MakeOsiFabContext(ring, phase).fab;
     };
+    // 通过 FabArrayBase::getFB() 获取 m_LocTags、m_SndTags 和 m_RcvTags。
     const auto& fb = state.getFB(ng, Geom(lev).periodicity());
+    // m_LocTags	当前 rank 收发给本 rank 的区域
+    // m_SndTags	当前 rank 发给其他 rank 的区域
+    // m_RcvTags	当前 rank 从其他 rank 接收的区域
     AMREX_ALWAYS_ASSERT(fb.m_LocTags && fb.m_SndTags && fb.m_RcvTags);
     local_tags.reserve(fb.m_LocTags->size());
     for (const auto& tag : *fb.m_LocTags) {
