@@ -1,7 +1,8 @@
 # BOX3D_OSI 算法原理与 AMReX 集成架构
 
 本文是 `BOX3D_OSI` 的权威设计说明。后续实现若改变这里定义的状态不变量、phase
-推进时机或 canonicalization 契约，必须同步修改本文。
+推进时机或 canonicalization 契约，必须同步修改本文。第 1 节的早期作业列表及
+第 16 节的设计验收条件保留历史时间语境；当前验证范围见[交接状态](current_status.md)。
 
 > 通信/平均的历史实现描述见相应日期；现役函数行为和最新逐点诊断以
 > [当前交接状态](current_status.md) 为准。
@@ -365,7 +366,7 @@ regrid 前完整 AverageDownValid
         -> Clear: 释放该层 OSI state、通信缓冲和地址 tags
         -> 重建通信、插值、restriction 和 coarse-fine mask 缓存
         -> Cycle2 FillGhostLevel(fine): 只建立两步细层子循环需要的 coarse-fine ghost
-        -> AdvanceLevel: OSI 每层碰撞后、phase 提交前同步同层/周期 ghost
+        -> AdvanceLevel: OSI 每层碰撞后、phase 提交前由 FillBoundaryOsi 同步同层/周期 ghost
 ```
 
 宏观量路径也采用 `AverageDownValid() -> ComputeMacroLevel()`，
@@ -389,7 +390,7 @@ $$
 DDF。Remake/MakeNew/MakeNewFromScratch 均只保证 valid，避免在 AMR 回调中混入 ghost
 生命周期。碰撞是逐格点局部操作，因此 level 0 和同层重叠 ghost 不需要预填；fine
 碰撞前只插值 coarse-fine 保护区，同层/周期副本随后由 post-collision
-`CommunicateOsiLevel()` 覆盖。
+`FillBoundaryOsi()` 覆盖。
 jobs `584483`
 （OSI）和 `584484`（A-B）在 2 ranks、10 coarse steps、每 2 步 regrid 下覆盖
 Remake、Clear 和 MakeNew；18 条 active D3Q27 checksum 逐项一致。job `584617` 对上述
@@ -473,34 +474,20 @@ SoA 属性校验和在并行归约容差内一致，两层 D3Q27 全局 `Linf=0`
 
 ## 13. 当前数据结构边界
 
-以下数据边界已经在阶段 2--3 建立；后续阶段仍会扩展其生命周期：
+`AmrCoreLBM.H` 的 `RunMode` 唯一保存 A-B、OSI 生产或 OSI 锁步运行模式；
+`streamMode()` 与 oracle 开关由它派生。`DdfLayout` 仍用于单个阶段的布局选择。
+每层 OSI 生产数据由 `osi_state` 与 `osi_phase` 持有；`f_old/f_new` 只用于 A-B
+生产或锁步参考态。
 
-```cpp
-enum class StreamMode : int {
-    AB = 0,
-    OSI = 1
-};
-
-amrex::Vector<amrex::MultiFab> osi_state;
-amrex::Vector<std::uint64_t> osi_phase;
-
-// Fab 上下文由 OsiIndex.H 准备，不拥有 level 状态。
-const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
-```
-
-同层通信缓存 `[level][global Fab][Box]` 形式的 Decode/Encode 逻辑区域和 direct-copy
-tag；逻辑区域不含 raw OSI 地址。canonical fallback 的 `CommunicationTag` 在
-`CommunicateOsiLevel()` 内随临时 canonical `MultiFab` 构造和销毁，不能跨布局或调用
-缓存其 `Array4` 地址。发生 define、重新分块或销毁布局时，只需重建区域缓存和持久
-direct tag。
+同层通信的 `FillBoundaryCache` 按层保存本地、pack/unpack tag、`MpiPlan` 和
+独立 `MpiBuffers`。粗细层 CPC 缓存复用计划和 tag 构建辅助逻辑，但各传输保留
+自己的缓冲。所有持有 `Array4` 的 tag 都必须在所引用 `MultiFab` 释放或替换前
+失效；布局建立后重新构建。phase 改变时读取当前值，不重建几何任务。
 
 文件职责和实际推进链统一见 [README](../README.md#源码职责与数据所有权)。
-`OsiIndex.H` 负责几何、相位偏移和无状态地址计算；`OsiCommunication.H` 负责通信
-执行骨架；布局选择、区域缓存与具体传递在驱动类实现中组织。
-共享计时器和 checkpoint 常量位于 `AmrCoreLBM.H`，没有独立 detail 头文件。
-
-地址函数必须是无状态 device helper；phase 的所有权属于 level driver，不能在 device
-kernel 内自行修改。
+`OsiIndex.H` 的 `MakeOsiFabContext(ring, phase)` 提供无状态几何和相位映射，
+不拥有 level 状态；`OsiCommunication.H` 提供通信执行辅助。共享计时器和
+checkpoint 常量位于 `AmrCoreLBM.H`，没有独立 detail 头文件。
 
 ## 14. 不能破坏的比较控制
 
@@ -528,7 +515,7 @@ kernel 内自行修改。
 8. **把 canonicalization 成本隐藏**：性能统计必须单列 gather/scatter/regrid reset，不能归并后宣称 OSI kernel 提速。
 9. **边界时序回退**：若重新改为从旧 phase 或 post-collision `fold` 读取内部参考，将恢复跨 phase raw 槽位别名风险。
 
-## 16. 设计完成的判据
+## 16. 早期设计完成判据（历史）
 
 在开始大规模实现前，代码评审至少应确认：
 

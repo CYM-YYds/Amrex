@@ -2,6 +2,27 @@
 
 更新时间：2026-10-11
 
+本文顶部记录当前源码的有限窗口证据；后续按日期保留的作业结论仅对当时
+冻结版本成立。遇到旧 fallback、已删除函数或“重启待验收”的说法时，以顶部
+及[架构文档](osi_algorithm_and_architecture.md)中的现役调用链为准。
+
+## 2026-10-11 当前数值验证边界
+
+提交 `c358a45`、`789bb2c`、`efe5416` 分别完成无调用路径清理、通信与转换整合、
+实验脚本与收敛解析整合。作业 `611228` 使用冻结输入、BoxArray、rank 布局和
+可执行文件，完成 9 组 64 步矩阵；每步每层 uncovered DDF 与各层 checkpoint
+valid/active DDF 对基线均为 `linf=0`。`AfterRepair` covered 差为零；source
+valid/internal-ghost/interface/covered mismatch 为零，但非周期动态算例的
+physical-ghost source mismatch 最多 734020 个源值，不能算作全 ghost 通过。
+作业 `611229` 的 CPC 复用/重建通过，`611230` 的 phase=0 OSI DDF 重启与连续
+运行 valid DDF 相等。CUDA+MPI 构建、OSI index、stage-2 A-B 与插值覆盖正负例
+通过。完整 SHA256、输入和运行矩阵见
+[通信与转换记录](ai_changes/2026-10-11-architecture-dedup-communication.md)。
+
+以上是 64 步、指定布局与 host-staging 环境下的证据。多节点、长期严格逐值、
+多层周期动态 AMR、GPU-aware MPI 和运动 IBM 完整重启仍待独立验收；
+不能把已有 physical-ghost 差异当作已修复。
+
 ## 2026-10-11 实验脚本与收敛绘图入口
 
 现役专项脚本共用 hostfile/MPI 启动辅助逻辑，64/128/256 步锁步参数
@@ -119,7 +140,7 @@ mismatch，但 `mismatch_valid=0`。独立 A-B checkpoint 对比中，level 0/1 
 
 本次验证运行的是带有工作树中 `src/main.cpp` 修改的构建；提交脚本保存了输入、源码差异和可执行文件 SHA256。尚未覆盖单 GPU、device-direct MPI、多节点、多层周期动态 AMR、长程严格逐点对照。
 
-## OSI 通信接口封装（当前实现与验证边界）
+## 2026-10-01 OSI 通信接口封装（历史实现）
 
 同层通信由 `FillBoundaryOsi(lev)` 统一选择 raw direct 或 canonical 回退；
 重构时的旧/新 OSI 布局迁移由 `ParallelCopyOsi()` 处理。后者复用 AMReX CPC
@@ -456,7 +477,7 @@ host-staging 工作配置；2 MiB pipeline 只在已测单节点、单 peer 范�
   在同一 CUDA-aware 栈上也为 45.519--45.535 s，说明退化属于该 MPI transport，
   不能归因于 OSI 地址或 pack/unpack。
 
-## 结论边界与待办
+## 2026-09-26 结论边界与待办（历史）
 
 同层跨 MPI direct 已在单层、多 Fab、2 ranks/2 GPUs 的全周期和六面非周期条件下通过
 逐阶段 A-B；它仍不能证明多层动态 regrid、restart 或运动 IBM 的逐点等价。

@@ -1,5 +1,11 @@
 # BOX3D_OSI 的 OSI ParallelCopy 优化计划
 
+> 本文是 2026-09-21/22 的实施计划，开关、回退路径、所有权和待办按当时
+> 版本保留，不能直接作为现役配置。当前 OSI 插值搬运和接口平均写回统一使用
+> direct 路径，旧 `osi_parallel_copy=0` 请求会报错；不同布局迁移仍由
+> `ParallelCopyOsi()` 完成。现役调用链见[架构文档](osi_algorithm_and_architecture.md)，
+> 验证范围见[当前交接状态](current_status.md)。
+
 ## 目标
 
 在 `BOX3D_OSI` 内增加与 OSI raw state/phase 语义一致的 `OsiParallelCopy` 路径，

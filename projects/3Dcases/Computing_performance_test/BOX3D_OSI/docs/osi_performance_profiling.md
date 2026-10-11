@@ -1,8 +1,12 @@
 # BOX3D_OSI 性能分析与历史 A-B 基线
 
-## 2026-09-14：最新受控通信对照：host-staging 分块流水
+本文保留各作业冻结版本的性能结果。它们不代表 2026-10-11 当前源码的
+端到端性能；架构去重只完成了数值回归，未测得可归因的性能提升。
+现役配置与验证边界见[当前交接状态](current_status.md)。
 
-当前最新受控对照为 job `596146`：2 ranks、2 GPUs、单层 8 Fab、全周期、
+## 2026-09-14：当时受控通信对照：host-staging 分块流水
+
+该阶段的受控对照为 job `596146`：2 ranks、2 GPUs、单层 8 Fab、全周期、
 1000 步，同一资源分配内依次运行 FillBoundary、整块 OSI host-staging 和
 2 MiB chunk 流水。
 
@@ -41,7 +45,7 @@ device-buffer 消除了 host staging，pack/unpack 明显缩短，但 MPI wait �
 也出现约 44.5 s 通信耗时，因此瓶颈属于当前 CUDA-aware MPI transport，而不是 OSI
 地址映射。该结果不能与 HMPI job `591187` 的约 5 s A-B 基线混为同一软件栈比较。
 
-## 2026-09-12 当前双 GPU 同层 MPI 基线
+## 2026-09-12 当时双 GPU 同层 MPI 基线
 
 job `591181` 在同一作业内使用 2 ranks、2 GPUs、单层 8 Fab、全周期边界和 1000 步，
 依次运行当前二进制的 A-B 与 OSI MPI direct：
@@ -174,7 +178,7 @@ bash tests/test_tiny_profile_submit.sh
 
 TinyProfiler 的计数包含 regrid 工作。在 job `569665` 中，它记录了 7136 次 `FillPatchTwoLevels` 调用，而 JaberCycle 记录了 7000 次 `FillGhostLevel` 调用。多出来的 136 次来自 `RemakeLevel()` 等 regrid 路径。同样，7087 次 `average_down` 调用中包含了 87 次 regrid restriction，另外 7000 次来自 JaberCycle 调用。
 
-## 当前全运行基线：Job 571393
+## 历史全运行基线：Job 571393
 
 `logs/submit/571393-out.log` 完成了单 GPU 的 64,000 步 cavity 算例。它包含 64 个独立的 1000 步窗口。下面的数值是这些窗口的累计和，而不是只看最终的 `step64000` 行。
 
@@ -336,9 +340,10 @@ jobs `573417`（模式 2）和 `573418`（模式 3）都是单 GPU、1000 步运
 dsub -s ./scripts/submit_interp_scale_perf.sh
 ```
 
-## 当前 coarse-to-fine 路径
+## coarse-to-fine 路径（历史性能口径）
 
-正常时间推进使用 regrid 缓存的 fine ghost 工作盒：
+下列流程概括当时用于性能归因的 regrid 缓存与 fine ghost 工作盒；
+现役 OSI 粗细层搬运的 CPC 缓存见[架构文档](osi_algorithm_and_architecture.md#13-当前数据结构边界)：
 
 ```text
 coarse_stage.ParallelCopy

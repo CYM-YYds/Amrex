@@ -5,7 +5,7 @@
 相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
 [当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
 
-更新时间：2026-10-09。
+更新时间：2026-10-11。
 
 ## 目录与构建关系
 
@@ -165,15 +165,17 @@ device-direct 关闭，host-staging 分块为 2 MiB；最多 128000 步，PlotFi
 普通粗到细插值缓存会检查父层 valid 模板覆盖，考虑周期像及物理边界延拓；
 域内缺口立即报错，当前没有自动多层递归补缺。
 
-2026-10-09 的 Fab 上下文重构作业 `610666` 在 2 ranks/2 GPUs 上完成 A-B、direct、
-fallback 和周期域四组 64 步检查；direct/fallback 动态 regrid 到 level 2，阶段级
-检查均为 `linf=0`，独立 A-B checkpoint 的全局 DDF 差约 `1.17e-15`。
-非周期 physical-ghost source mismatch 仍存在，valid/internal-ghost mismatch 为零。
-这是该作业冻结版本的有限窗口证据；后续上下文函数合并及头文件合并的编译证据
-与运行证据分别记录在 [当前交接状态](docs/current_status.md)。
+最新的冻结版本对照由作业 `611228` 完成：9 组 64 步动态 AMR/周期多 Fab
+矩阵覆盖 1/2 ranks、插值模式 0/1/2 及三种 host-staging 策略；每步每层
+uncovered DDF、各层 checkpoint valid/active DDF 的前后差均为 `linf=0`。
+作业 `611229` 检查 CPC 缓存复用与重建；`611230` 检查 phase=0 checkpoint
+重启相对连续运行的 valid DDF，均通过。完整条件、源码与可执行文件标识见
+[架构去重验证记录](docs/ai_changes/2026-10-11-architecture-dedup-communication.md)。
+动态算例的既有 physical-ghost source mismatch 仍在，不能称所有 ghost 全等。
 
-长程严格逐值对照、多节点、多层周期动态 AMR、重启和当前 HMPI/UCX 的 device-direct
-仍待对应验收。历史性能、稳定运行或编译成功都不能单独证明数值正确性。
+长程严格逐值对照、多节点、多层周期动态 AMR、当前 HMPI/UCX 的 device-direct
+以及运动 IBM 完整重启仍待对应验收。上述 phase=0 验证只覆盖该次 OSI DDF
+重启，不外推为任意重启情形。历史性能、稳定运行或编译成功都不能单独证明数值正确性。
 运动刚体状态未完整持久化，静态粒子容器的重启证据不能外推为完整 IBM restart。
 
 ## 文档导航
@@ -189,7 +191,3 @@ OSI 已移除 canonical 通信、插值搬运与接口平均写回回退。旧�
 `osi_local_direct`、`osi_parallel_copy`、`osi_mpi_direct` 参数可暂时接受值 1，
 值 0 会明确报错；新输入无需设置。插值工作区、完整 valid restriction、
 A-B 参考态和 checkpoint/诊断需要的 canonical 数据仍保留。
-
-本次删除通过作业 `610808` 的单/双 rank 动态 AMR 与周期域 64 步检查，
-阶段比较均为 `linf=0`；验证细节及边界见
-[变更记录](docs/ai_changes/2026-10-09-remove-canonical-fallbacks.md)。

@@ -4,8 +4,10 @@
 
 > 本文是通信改造的历史计划，阶段记录保留原始时间语境。现役
 > `CommunicateLevel()` 按 DDF 布局分派；OSI 同层通信统一使用 raw 地址直传，
-> 旧的 direct/fallback 选择开关已移除。工作配置及验证边界见
-> [当前交接状态](current_status.md)。
+> `FillBoundaryOsi()` 直接执行同层通信，旧的 direct/fallback 选择开关已移除。
+> 下文第 1–8 节的“当前”“始终保留”和待办只代表各自历史阶段，不是现役约束。
+> 现役数据与缓存边界见[架构文档](osi_algorithm_and_architecture.md#13-当前数据结构边界)，
+> 工作配置及验证范围见[当前交接状态](current_status.md)。
 
 ## 2026-10-10：插值与界面平均的通信缓存
 
