@@ -57,7 +57,6 @@ run_case AB "${RUN_DIR}/ab" \
 ln -s "${RUN_DIR}/seed/seed_chk00000096" "${RUN_DIR}/osi/osi_chk00000096"
 run_case OSI_PARALLELCOPY "${RUN_DIR}/osi" \
     max_step=1096 performance.report_int=1096 lbm.stream_mode=1 \
-    lbm.osi_local_direct=1 lbm.osi_parallel_copy=1 lbm.osi_mpi_direct=0 \
     checkpoint.begin_step=96 checkpoint.chk_int=-1 checkpoint.chk_prefix=osi_chk
 
 echo "single_gpu_multilevel_1000_artifacts: run_dir=${RUN_DIR}"

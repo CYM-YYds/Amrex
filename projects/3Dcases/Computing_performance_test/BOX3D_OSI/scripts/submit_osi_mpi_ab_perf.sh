@@ -19,6 +19,7 @@ module load compilers/cuda/12.8.0
 module load compilers/gcc/11.3.0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/osi_experiment_common.sh"
 CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APP_EXE="${CASE_DIR}/main3d.gnu.TPROF.MPI.CUDA.ex"
 INPUTS="${CASE_DIR}/config/inputs"
@@ -40,21 +41,13 @@ fi
 
 HOSTFILE="$(mktemp /tmp/box3d_osi_mpi_ab_perf.XXXXXX)"
 trap 'rm -f "${HOSTFILE}"' EXIT
-awk '{ if (length($1) > 0 && length($2) > 0) print $1 " slots=" $2 }' \
-    "${CCS_ALLOC_FILE}" > "${HOSTFILE}"
+osi_write_hostfile "${HOSTFILE}"
 
 run_case() {
     local label=$1
     shift
     echo "mpi_ab_perf_begin: mode=${label} ranks=2 steps=1000 grids=8 periodic=1"
-    mpirun \
-        -hostfile "${HOSTFILE}" \
-        -n 2 \
-        -npernode 2 \
-        -x PATH -x LD_LIBRARY_PATH \
-        --mca plm_rsh_agent /opt/batch/agent/tools/dstart \
-        bash -lc 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-${MPI_LOCALRANKID:-0}}; exec "$@"' bash \
-        "${APP_EXE}" "${INPUTS}" \
+    osi_launch_mpi hmpi "${HOSTFILE}" 2 2 "${APP_EXE}" "${INPUTS}" \
         max_step=1000 \
         performance.report_int=1000 \
         amr.max_level=0 \
@@ -73,20 +66,11 @@ run_case() {
     echo "mpi_ab_perf_end: mode=${label}"
 }
 
-run_case AB \
-    lbm.stream_mode=0 \
-    lbm.osi_local_direct=0 \
-    lbm.osi_mpi_direct=0
-
-run_case OSI_MPI_DIRECT \
-    lbm.stream_mode=1 \
-    lbm.osi_local_direct=1 \
-    lbm.osi_mpi_direct=1
+run_case AB lbm.stream_mode=0
+run_case OSI_MPI_DIRECT lbm.stream_mode=1
 
 if (( ${#EXPERIMENT_ARGS[@]} != 0 )); then
     run_case OSI_MPI_EXPERIMENT \
         lbm.stream_mode=1 \
-        lbm.osi_local_direct=1 \
-        lbm.osi_mpi_direct=1 \
         "${EXPERIMENT_ARGS[@]}"
 fi

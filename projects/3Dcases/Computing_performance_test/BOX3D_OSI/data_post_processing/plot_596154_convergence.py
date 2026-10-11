@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """绘制 Re=3200 三段连续计算到 288000 步的收敛趋势。"""
 
+import argparse
 import csv
-import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+
+from convergence_logs import read_records
 
 
 CASE = Path(__file__).resolve().parents[1]
@@ -17,52 +19,18 @@ LOGS = [
 OUT = CASE / "data_post_processing" / "596154_Re3200_convergence.png"
 CSV_OUT = CASE / "data_post_processing" / "596154_Re3200_convergence.csv"
 
-TREND = re.compile(
-    r"CONVERGENCE_TREND step=(\d+) interval=(\d+) "
-    r"velocity_l2_relative=([0-9.eE+-]+) velocity_l2=([0-9.eE+-]+) "
-    r"delta_velocity_l2=([0-9.eE+-]+)"
-)
-FORMAL = re.compile(
-    r"CONVERGENCE step=(\d+) interval=(\d+) "
-    r"velocity_l2_relative=([0-9.eE+-]+) velocity_l2=([0-9.eE+-]+) "
-    r"delta_velocity_l2=([0-9.eE+-]+) tolerance=([0-9.eE+-]+) "
-    r"consecutive=(\d+)/(\d+) converged=(\d+)"
-)
-
-
-def read_records():
-    # 续跑日志可能与前一段在重启步附近重叠，按绝对 step 去重。
-    trend_by_step = {}
-    formal_by_step = {}
-    for log in LOGS:
-        if not log.exists():
-            raise SystemExit(f"Missing log: {log}")
-        for line in log.read_text(errors="replace").splitlines():
-            match = TREND.search(line)
-            if match:
-                step, interval, relative, velocity, delta = match.groups()
-                trend_by_step[int(step)] = (
-                    int(step), int(interval), float(relative), float(velocity), float(delta)
-                )
-            match = FORMAL.search(line)
-            if match:
-                step, interval, relative, velocity, delta, tolerance, count, required, converged = match.groups()
-                formal_by_step[int(step)] = (
-                    int(step), int(interval), float(relative), float(velocity),
-                    float(delta), float(tolerance), int(count), int(required),
-                    bool(int(converged)),
-                )
-    trend_records = [trend_by_step[step] for step in sorted(trend_by_step)]
-    formal_records = [formal_by_step[step] for step in sorted(formal_by_step)]
-    if not trend_records or not formal_records:
-        raise SystemExit("No convergence records found")
-    return trend_records, formal_records
-
-
-trend, formal = read_records()
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--log", action="append", type=Path, dest="logs")
+parser.add_argument("--output", type=Path, default=OUT)
+parser.add_argument("--csv-output", type=Path)
+args = parser.parse_args()
+logs = args.logs or LOGS
+csv_output = args.csv_output or (CSV_OUT if args.output == OUT else args.output.with_suffix(".csv"))
+trend, formal = read_records(logs)
 tolerance = formal[-1][5]
 
-with CSV_OUT.open("w", newline="") as stream:
+csv_output.parent.mkdir(parents=True, exist_ok=True)
+with csv_output.open("w", newline="") as stream:
     writer = csv.writer(stream)
     writer.writerow(
         ["record", "step", "interval", "velocity_l2_relative", "velocity_l2", "delta_velocity_l2"]
@@ -76,21 +44,22 @@ fig, (ax_change, ax_norm) = plt.subplots(
 
 ax_change.semilogy(
     [row[0] for row in trend], [row[2] for row in trend],
-    color="#377eb8", linewidth=1.2, alpha=0.75, label="Trend: 1000-step change",
+    color="#377eb8", linewidth=1.2, alpha=0.75,
+    label=f"Trend: {trend[-1][1]}-step change",
 )
 ax_change.semilogy(
     [row[0] for row in formal], [row[2] for row in formal],
     "o-", color="#d95f02", markersize=3.8, linewidth=1.4,
-    label="Formal check: 3200-step change",
+    label=f"Formal check: {formal[-1][1]}-step change",
 )
 ax_change.axhline(
     tolerance, color="#333333", linestyle="--", linewidth=1.1,
-    label=f"Tolerance = {tolerance:.0e} (3 consecutive checks)",
+    label=f"Tolerance = {tolerance:.0e} ({formal[-1][7]} consecutive checks)",
 )
-for restart_step, label in (
+for restart_step, label in (() if args.logs else (
     (96000, "Restart: 596532 at step 96000"),
     (192000, "Restart: 596888 at step 192000"),
-):
+)):
     ax_change.axvline(
         restart_step, color="#777777", linestyle=":", linewidth=1.1,
         label=label,
@@ -107,16 +76,19 @@ ax_norm.set_xlabel("Coarse step")
 ax_norm.set_ylabel(r"Level-0 velocity $L_2$ norm")
 ax_norm.grid(True, alpha=0.25)
 
-fig.suptitle("BOX3D_OSI Re=3200 convergence trend — steps 0–288000")
+fig.suptitle("BOX3D_OSI Re=3200 convergence trend — steps 0–288000"
+             if args.logs is None else "BOX3D_OSI convergence trend")
 fig.text(
-    0.5, 0.012,
-    "Sources: jobs 596154 + 596532 + 596888; steps 0–288000; "
-    "non-periodic; levels 0–2; "
-    "relative changes use 1000/3200-step intervals",
-    ha="center", fontsize=8,
+    0.5, 0.025,
+    f"Sources: {', '.join(str(path) for path in logs)}\n"
+    f"Steps {trend[0][0]}–{trend[-1][0]}; level-0 relative velocity L2 change; "
+    f"intervals {trend[-1][1]}/{formal[-1][1]}; "
+    "reference: tolerance from final formal log record",
+    ha="center", fontsize=7,
 )
-fig.tight_layout(rect=(0, 0.035, 1, 0.96))
-fig.savefig(OUT, dpi=220)
+fig.tight_layout(rect=(0, 0.07, 1, 0.96))
+args.output.parent.mkdir(parents=True, exist_ok=True)
+fig.savefig(args.output, dpi=220)
 
 minimum = min(formal, key=lambda row: row[2])
 final = formal[-1]
@@ -125,5 +97,5 @@ print(f"formal minimum: step={minimum[0]}, value={minimum[2]:.9e}")
 print(f"formal final: step={final[0]}, value={final[2]:.9e}")
 print(f"final/tolerance: {final[2] / tolerance:.6e}")
 print(f"converged checks: {sum(row[8] for row in formal)}")
-print(OUT)
-print(CSV_OUT)
+print(args.output)
+print(csv_output)

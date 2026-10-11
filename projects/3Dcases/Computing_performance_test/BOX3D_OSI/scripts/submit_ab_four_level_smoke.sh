@@ -32,6 +32,7 @@ module load compilers/cuda/12.8.0
 module load compilers/gcc/11.3.0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/osi_experiment_common.sh"
 CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APP_EXE="${CASE_DIR}/main3d.gnu.TPROF.MPI.CUDA.ex"
 INPUTS="${CASE_DIR}/config/inputs"
@@ -47,20 +48,13 @@ fi
 
 HOSTFILE="$(mktemp /tmp/box3d_ab_four_level_smoke.XXXXXX)"
 trap 'rm -f "${HOSTFILE}"' EXIT
-awk '{ if (length($1) > 0 && length($2) > 0) print $1 " slots=" $2 }' \
-    "${CCS_ALLOC_FILE}" > "${HOSTFILE}"
+osi_write_hostfile "${HOSTFILE}"
 
 RUN_DIR="${CASE_DIR}/tmp/ab_four_level_smoke_${CCS_JOB_ID:-manual}"
 mkdir -p "${RUN_DIR}"
 cd "${RUN_DIR}"
 
-mpirun \
-    -hostfile "${HOSTFILE}" \
-    -n 1 \
-    -x PATH -x LD_LIBRARY_PATH \
-    --mca plm_rsh_agent /opt/batch/agent/tools/dstart \
-    bash -lc 'export CUDA_VISIBLE_DEVICES=0; exec "$@"' bash \
-    "${APP_EXE}" "${INPUTS}" \
+osi_launch_mpi hmpi "${HOSTFILE}" 1 1 "${APP_EXE}" "${INPUTS}" \
     max_step="${MAX_STEP}" \
     amr.max_level=3 \
     amr.regrid_int="${REGRID_INT}" \

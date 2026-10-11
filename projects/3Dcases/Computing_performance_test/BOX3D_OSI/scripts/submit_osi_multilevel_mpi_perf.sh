@@ -19,6 +19,7 @@ module load compilers/cuda/12.8.0
 module load compilers/gcc/11.3.0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/osi_experiment_common.sh"
 CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APP_EXE="${CASE_DIR}/main3d.gnu.TPROF.MPI.CUDA.ex"
 INPUTS="${CASE_DIR}/config/inputs"
@@ -34,8 +35,7 @@ if [[ -z "${CCS_ALLOC_FILE:-}" || ! -r "${CCS_ALLOC_FILE}" ]]; then
     exit 1
 fi
 
-awk '{ if (length($1) > 0 && length($2) > 0) print $1 " slots=" $2 }' \
-    "${CCS_ALLOC_FILE}" > "${HOSTFILE}"
+osi_write_hostfile "${HOSTFILE}"
 
 RUN_DIR="${CASE_DIR}/tmp/multilevel_mpi_perf_${CCS_JOB_ID:-manual}"
 mkdir -p "${RUN_DIR}/seed" "${RUN_DIR}/ab" "${RUN_DIR}/osi"
@@ -47,26 +47,22 @@ run_case() {
     shift 2
     echo "multilevel_mpi_perf_begin: mode=${label}"
     cd "${run_dir}"
-    mpirun \
-        -hostfile "${HOSTFILE}" \
-        -n 2 \
-        -npernode 2 \
-        -x PATH -x LD_LIBRARY_PATH \
-        --mca plm_rsh_agent /opt/batch/agent/tools/dstart \
-        bash -lc 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-${MPI_LOCALRANKID:-0}}; exec "$@"' bash \
-        "${APP_EXE}" "${INPUTS}" \
-        amr.max_level=2 \
-        amr.max_grid_size="128 128 128" \
-        amr.blocking_factor_x="32 32 32" \
-        amr.blocking_factor_y="32 32 32" \
-        amr.blocking_factor_z="32 32 32" \
-        amr.plot_int=-1 \
-        checkpoint.keep_latest_only=false \
-        checkpoint.write_particles=false \
-        verification.convergence_enabled=false \
-        verification.osi_seed_pattern=false \
-        verification.osi_ab_check=false \
+    local args=(
+        amr.max_level=2
+        amr.max_grid_size="128 128 128"
+        amr.blocking_factor_x="32 32 32"
+        amr.blocking_factor_y="32 32 32"
+        amr.blocking_factor_z="32 32 32"
+        amr.plot_int=-1
+        checkpoint.keep_latest_only=false
+        checkpoint.write_particles=false
+        verification.convergence_enabled=false
+        verification.osi_seed_pattern=false
+        verification.osi_ab_check=false
         "$@"
+    )
+    osi_record_command command.txt "${APP_EXE}" "${INPUTS}" "${args[@]}"
+    osi_launch_mpi hmpi "${HOSTFILE}" 2 2 "${APP_EXE}" "${INPUTS}" "${args[@]}"
     echo "multilevel_mpi_perf_end: mode=${label}"
 }
 
@@ -97,8 +93,6 @@ ln -s "${SEED_CHECKPOINT}" "${RUN_DIR}/osi/osi_chk00000096"
 run_case OSI "${RUN_DIR}/osi" \
     max_step=1096 performance.report_int=1096 amr.regrid_int=-1 \
     lbm.stream_mode=1 \
-    lbm.osi_local_direct=1 \
-    lbm.osi_mpi_direct=1 \
     lbm.osi_mpi_device_direct=0 \
     lbm.osi_mpi_pipeline_chunk_bytes=2097152 \
     checkpoint.begin_step=96 checkpoint.chk_int=1096 \

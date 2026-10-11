@@ -18,7 +18,6 @@ export AMREX_RUN_ARGS="${AMREX_RUN_ARGS:-} \
 max_step=128000 \
 lbm.reynolds_number=1000.0 \
 lbm.stream_mode=1 \
-lbm.osi_local_direct=1 \
 amr.max_level=2 \
 amr.regrid_int=32 \
 amr.plot_int=-1 \

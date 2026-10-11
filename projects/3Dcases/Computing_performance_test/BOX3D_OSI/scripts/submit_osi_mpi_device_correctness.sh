@@ -26,26 +26,20 @@ UCX_ROOT=/home/HPCBase/apps/ucx_1.12.1_cuda11.8
 export LD_LIBRARY_PATH="${UCX_ROOT}/lib:${UCX_ROOT}/lib/ucx:${LD_LIBRARY_PATH:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/osi_experiment_common.sh"
 CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 APP_EXE="${CASE_DIR}/main3d_cuda_aware3d.gnu.TPROF.MPI.CUDA.ex"
 HOSTFILE="$(mktemp /tmp/box3d_osi_device_correctness.XXXXXX)"
 trap 'rm -f "${HOSTFILE}"' EXIT
-awk '{ if (length($1) > 0 && length($2) > 0) print $1 " slots=" $2 }' \
-    "${CCS_ALLOC_FILE}" > "${HOSTFILE}"
+osi_write_hostfile "${HOSTFILE}"
 
 cd "${CASE_DIR}"
-mpirun \
-    -hostfile "${HOSTFILE}" -n 2 -npernode 2 \
-    -x PATH -x LD_LIBRARY_PATH -x OPAL_PREFIX \
-    --mca pml ucx \
-    --mca plm_rsh_agent /opt/batch/agent/tools/dstart \
-    bash -lc 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-${MPI_LOCALRANKID:-0}}; exec "$@"' bash \
-    "${APP_EXE}" config/inputs \
+osi_launch_mpi cuda_aware "${HOSTFILE}" 2 2 "${APP_EXE}" config/inputs \
     max_step=64 performance.report_int=64 \
     amr.max_level=0 amr.max_grid_size=64 \
     amr.blocking_factor_x=64 amr.blocking_factor_y=64 amr.blocking_factor_z=64 \
     'geometry.is_periodic=1 1 1' amr.regrid_int=-1 amr.plot_int=-1 \
     checkpoint.chk_int=-1 verification.convergence_enabled=false \
     verification.osi_seed_pattern=true verification.osi_ab_check=true \
-    lbm.stream_mode=1 lbm.osi_local_direct=1 lbm.osi_mpi_direct=1 \
+    lbm.stream_mode=1 \
     lbm.osi_mpi_device_direct=1 amrex.use_gpu_aware_mpi=1
