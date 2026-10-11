@@ -1,6 +1,15 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-10-10
+更新时间：2026-10-11
+
+## 2026-10-11 架构去重
+
+现役 OSI 同层通信任务按层保存在 `FillBoundaryCache`，与 CPC 共用
+`MpiPlan`、`MpiBuffers` 和 tag 构建逻辑；checkpoint 与同布局新层初始化
+统一解码 valid DDF。输入模式由 `RunMode` 唯一保存，方向表从同一列表生成。
+锁步诊断移除重复的 `Boundary`，保留 `BoundaryUncovered`；四套旧推进函数
+和三套 cumulant 数学内核未改。当前验证矩阵及限制见
+[架构去重记录](ai_changes/2026-10-11-architecture-dedup-communication.md)。
 
 ## 2026-10-10 插值与界面平均搬运缓存
 
@@ -32,7 +41,7 @@ direct/fallback 独立 A-B checkpoint 全局差为 `1.165734176e-15`。
 周期 source mismatch 为零。不能外推为所有 ghost 来源等价。
 
 头文件合并后 CUDA+MPI 编译链接通过，日志为
-[compile-20261009T160419.log](../logs/compile/compile-20261009T160419.log)。
+`compile-20261009T160419.log`（当前工作树未保存该日志）。
 本次文档核对时算例 app 的 SHA256 为
 `7516066d02b60d10252ddaab1079751f160bff85b0a136bd9fe9334aa8db1f8e`，
 与 `610666` 冻结 app 不同；因此该运行证据属于冻结版本，后续上下文合并与头文件

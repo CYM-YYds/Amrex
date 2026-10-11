@@ -238,14 +238,14 @@ $$
 
 不能把 twisted `MultiFab` 直接交给普通 `FillBoundary()` 并期待正确结果，因为
 `FillBoundary()` 按相同 `(i,j,k,q)` 复制，而不知道发送和接收 Fab 各自的 OSI 映射。
-canonical fallback 一次将完整 Q 分量解码到临时 canonical `MultiFab`，调用一次普通
-`FillBoundary()` 后，只把实际通信目标 ghost 编码回同一个 phase。
-Decode 只覆盖通信可能读取的 owner-valid 源区；valid 不会从 canonical 缓冲重复回写。
-`lbm.osi_sync_batch_components` 已移除。现役 `CommunicateLevel()` 在单 rank 或两个 direct 开关均打开时
-选择 raw direct；`osi_local_direct=0`，或多 rank 下 `osi_mpi_direct=0` 时选择上述
-fallback。跨 rank direct 使用按 peer 聚合的 host-staging pack/unpack。通信计划、
-偏移和缓冲随布局一次构建，pack/unpack 各由一个 `TagVector` kernel 完成。不能直接对
-twisted `osi_state` 调用 `FillBoundary()`。
+现役 `CommunicateLevel()` 依据 `DdfLayout` 分派；OSI 分支由
+`FillBoundaryOsi()` 直接按当前 phase 完成同 rank raw-to-raw 和跨 rank
+pack/unpack。AMReX `getFB()` 的任务在建层时转换为本地、发送和接收 tag，
+`FillBoundaryCache` 按层保留计划与独立缓冲；布局重建前先使引用旧 `MultiFab`
+的 tag 失效。`MpiPlan`、`MpiBuffers`、peer offset、tag 构建和缓冲索引与
+粗细层 CPC 共用辅助实现。`osi_local_direct`、`osi_parallel_copy`、
+`osi_mpi_direct` 仅兼容旧输入中的值 1，值 0 会报错。
+
 可选的 `osi_mpi_pipeline_chunk_bytes` 将每个 peer 的 host-staging payload 分块：
 发送侧在一块 D2H 完成后立即投递非阻塞 send，与下一块 D2H 重叠；
 接收侧先投递全部 receive，每块到达后在独立 GPU stream 上 H2D，主机继续
@@ -257,7 +257,7 @@ twisted `osi_state` 调用 `FillBoundary()`。
 与 MPI wait 重叠；unpack 仍排在同一 CUDA stream 后方，保持本地和远端 ghost 写入顺序。
 当前 HMPI/UCX 不支持该 device transport，因此默认和当前可运行路径仍是 host staging。
 
-这些源区和目标区由独立的逻辑 `Box` 缓存构造：目标 grown ghost 反向周期平移后与
+历史 canonical fallback 的源区和目标区曾由独立的逻辑 `Box` 缓存构造：目标 grown ghost 反向周期平移后与
 `BoxArray` valid 相交，得到 source box，再平移回 destination ghost。每个 Fab 的候选
 Box 必须先去重，否则同一 canonical cell 会被并发写入。缓存不保存 raw OSI 地址，
 因为 raw 地址随 phase 改变。运行时用 AMReX `TagVector` 将本 rank 全部小 Box 融合为

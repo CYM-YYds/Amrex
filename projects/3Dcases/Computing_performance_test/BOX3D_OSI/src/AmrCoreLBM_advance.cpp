@@ -188,30 +188,10 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int fine_lev, bool is_scale) {
 #ifdef AMREX_USE_CUDA
                     // 一个 warp 负责一个粗层父单元，D3Q27 分量分配给不同 lane；相比
                     // 单线程负责整个父单元，可显著降低单线程寄存器占用。
-                    constexpr int threads_per_block = 256;
-                    constexpr int warp_size = 32;
-                    constexpr int warps_per_block = threads_per_block / warp_size;
-                    const Long ncells = bx.numPts();
-                    const int nblocks = static_cast<int>((ncells + warps_per_block - 1) /
-                                                         warps_per_block);
-                    const auto lo = amrex::lbound(bx); // 返回各方向最小索引
-                    const int nx = bx.length(0);       // x方向格点数量
-                    const int ny = bx.length(1);       // y方向格点数量
-                    amrex::launch<threads_per_block>(
-                        nblocks, amrex::Gpu::Device::gpuStream(),
-                        [=] AMREX_GPU_DEVICE() noexcept {
-                            const int lane = threadIdx.x % warp_size;          // threadIdx.x 是线程在当前 block 内的编号, lane 是线程在 warp 内的编号
-                            const int warp_in_block = threadIdx.x / warp_size; // 取得 block 内 warp 编号
-                            const Long icell = static_cast<Long>(blockIdx.x) * warps_per_block + warp_in_block;
-                            if (icell < ncells) { // 排除了最后一个 block 中的多余 warp
-                                // GPU内部的线程编号映射到AmreX中的网格坐标
-                                const int i = lo.x + static_cast<int>(icell % nx);
-                                const Long yz = icell / nx;
-                                const int j = lo.y + static_cast<int>(yz % ny);
-                                const int k = lo.z + static_cast<int>(yz / ny);
-                                average_down_lbm_scaled_warp(i, j, k, lane, coarse, fine,
-                                                             ratio, scale);
-                            }
+                    LaunchRestrictionWarps(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k, int lane) noexcept {
+                            average_down_lbm_scaled_warp(
+                                i, j, k, lane, coarse, fine, ratio, scale);
                         });
 #else
                     amrex::ParallelFor(
@@ -303,11 +283,6 @@ void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
     f_old_lev.FillBoundary(geom[lev].periodicity());
 }
 
-void AmrCoreLBM::FillBoundaryOsi(int lev) {
-    // 同层通信统一按当前 phase 直接读写 OSI raw 地址。
-    CommunicateOsiLevelLocalDirect(lev);
-}
-
 void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
     // 生产推进只执行一次布局；锁步检测由 AdvanceLevel 显式编排两次布局。
     Collide(lev, nghost, layout);
@@ -355,7 +330,6 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
 
         Boundary(lev, DdfLayout::Osi);
         Boundary(lev, DdfLayout::Canonical);
-        CompareOsiReferenceStage(lev, "Boundary", f_new.at(lev), 0);
         // 边界处理后再次确认该层所有 uncovered valid 单元。
         CompareOsiReferenceStage(lev, "BoundaryUncovered", f_new.at(lev), 0);
 

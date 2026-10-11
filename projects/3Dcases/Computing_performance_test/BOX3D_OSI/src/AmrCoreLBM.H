@@ -49,6 +49,37 @@ class ScopedPerfTimer {
     double& m_accum;
     double m_start;
 };
+#ifdef AMREX_USE_CUDA
+// A-B 与 OSI restriction 只共用启动形状和父单元坐标展开；数学操作由调用方提供。
+template <typename ParentOperation>
+void LaunchRestrictionWarps(const amrex::Box& box, ParentOperation operation) {
+    constexpr int threads_per_block = 256;
+    constexpr int warp_size = 32;
+    constexpr int warps_per_block = threads_per_block / warp_size;
+    static_assert(Q <= warp_size);
+    const amrex::Long ncells = box.numPts();
+    const int nblocks = static_cast<int>(
+        (ncells + warps_per_block - 1) / warps_per_block);
+    const auto lo = amrex::lbound(box);
+    const int nx = box.length(0);
+    const int ny = box.length(1);
+    amrex::launch<threads_per_block>(
+        nblocks, amrex::Gpu::Device::gpuStream(),
+        [=] AMREX_GPU_DEVICE() noexcept {
+            const int lane = threadIdx.x % warp_size;
+            const int warp_in_block = threadIdx.x / warp_size;
+            const amrex::Long icell =
+                static_cast<amrex::Long>(blockIdx.x) * warps_per_block + warp_in_block;
+            if (icell < ncells) {
+                const int i = lo.x + static_cast<int>(icell % nx);
+                const amrex::Long yz = icell / nx;
+                const int j = lo.y + static_cast<int>(yz % ny);
+                const int k = lo.z + static_cast<int>(yz / ny);
+                operation(i, j, k, lane);
+            }
+        });
+}
+#endif
 } // namespace Box3dDetail
 
 class AmrCoreLBM : public amrex::AmrCore {
@@ -225,7 +256,6 @@ class AmrCoreLBM : public amrex::AmrCore {
                           DdfLayout layout = DdfLayout::Canonical);
     // OSI 版 FillBoundary：统一使用本地 raw copy 与 OSI-aware MPI。
     void FillBoundaryOsi(int lev);
-    void CommunicateOsiLevelLocalDirect(int lev);
     void Boundary(int lev, DdfLayout layout = DdfLayout::Canonical);
     void Collide(int lev, int n,
                  DdfLayout layout = DdfLayout::Canonical);
@@ -398,19 +428,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     // osi_ab_check 显式启用。环形区间是每个 Fab 的完整 grown box。
     amrex::Vector<amrex::MultiFab> osi_state;
     amrex::Vector<std::uint64_t> osi_phase;
-    amrex::Vector<amrex::TagVector<OSI::LocalCopyTag>> osi_local_copy_tags;
-    amrex::Vector<amrex::Vector<OSI::RemoteCopyTag>> osi_remote_copy_tags;
-    // MPI 计划、偏移和 staging 缓冲随网格缓存重建，时间步内只复用。
-    amrex::Vector<amrex::TagVector<OSI::MpiPackTag>> osi_mpi_pack_tags;
-    amrex::Vector<amrex::TagVector<OSI::MpiUnpackTag>> osi_mpi_unpack_tags;
-    amrex::Vector<amrex::Vector<std::size_t>> osi_mpi_send_offsets;
-    amrex::Vector<amrex::Vector<std::size_t>> osi_mpi_recv_offsets;
-    amrex::Vector<amrex::Vector<std::size_t>> osi_mpi_send_counts;
-    amrex::Vector<amrex::Vector<std::size_t>> osi_mpi_recv_counts;
-    amrex::Vector<amrex::Gpu::DeviceVector<amrex::Real>> osi_mpi_send_device;
-    amrex::Vector<amrex::Gpu::DeviceVector<amrex::Real>> osi_mpi_recv_device;
-    amrex::Vector<amrex::Gpu::PinnedVector<amrex::Real>> osi_mpi_send_host;
-    amrex::Vector<amrex::Gpu::PinnedVector<amrex::Real>> osi_mpi_recv_host;
+    amrex::Vector<OSI::FillBoundaryCache> osi_fillboundary_cache;
     // 仅在 AMReX 已确认 GPU-aware MPI 时，直接用 device staging buffer 通信。
     bool osi_mpi_device_direct = false;
     // host staging 实验路径：用独立 GPU stream 将批量 D2H/H2D 与本地

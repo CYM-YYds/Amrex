@@ -125,37 +125,48 @@ const Real Epw2 = 0.01;
 //             1. / 36.,
 //             1. / 36.};
 
-// //D3Q27_CUMULANT
+// 单一方向序列同时生成 host 诊断表和 device 数学内核表，顺序不可调整。
+#define BOX3D_D3Q27_DIRECTIONS(X) \
+    X(0, 0, 0) \
+    X(0, 1, 0) \
+    X(0, -1, 0) \
+    X(-1, 0, 0) \
+    X(1, 0, 0) \
+    X(0, 0, 1) \
+    X(0, 0, -1) \
+    X(-1, 1, 0) \
+    X(1, 1, 0) \
+    X(-1, -1, 0) \
+    X(1, -1, 0) \
+    X(0, 1, 1) \
+    X(0, -1, 1) \
+    X(-1, 0, 1) \
+    X(1, 0, 1) \
+    X(0, 1, -1) \
+    X(0, -1, -1) \
+    X(-1, 0, -1) \
+    X(1, 0, -1) \
+    X(1, 1, 1) \
+    X(-1, 1, 1) \
+    X(1, -1, 1) \
+    X(-1, -1, 1) \
+    X(1, 1, -1) \
+    X(-1, 1, -1) \
+    X(1, -1, -1) \
+    X(-1, -1, -1)
+#define BOX3D_HOST_DIRECTION(x, y, z) {x, y, z},
+inline constexpr int e_host[Q][3] = {
+    BOX3D_D3Q27_DIRECTIONS(BOX3D_HOST_DIRECTION)
+};
+#undef BOX3D_HOST_DIRECTION
+
+#define BOX3D_DEVICE_DIRECTION(x, y, z) {x, y, z},
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-    IntVect e[Q] =
-        {
-            {0, 0, 0},
-            {0, 1, 0},
-            {0, -1, 0},
-            {-1, 0, 0},
-            {1, 0, 0},
-            {0, 0, 1},
-            {0, 0, -1},
-            {-1, 1, 0},
-            {1, 1, 0},
-            {-1, -1, 0},
-            {1, -1, 0},
-            {0, 1, 1},
-            {0, -1, 1},
-            {-1, 0, 1},
-            {1, 0, 1},
-            {0, 1, -1},
-            {0, -1, -1},
-            {-1, 0, -1},
-            {1, 0, -1},
-            {1, 1, 1},
-            {-1, 1, 1},
-            {1, -1, 1},
-            {-1, -1, 1},
-            {1, 1, -1},
-            {-1, 1, -1},
-            {1, -1, -1},
-            {-1, -1, -1}};
+    IntVect e[Q] = {
+        BOX3D_D3Q27_DIRECTIONS(BOX3D_DEVICE_DIRECTION)
+    };
+#undef BOX3D_DEVICE_DIRECTION
+#undef BOX3D_D3Q27_DIRECTIONS
 
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     Real w[Q] =

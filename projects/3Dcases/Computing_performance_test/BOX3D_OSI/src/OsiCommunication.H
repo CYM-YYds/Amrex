@@ -32,17 +32,6 @@ struct LocalCopyTag {
     }
 };
 
-// 跨 MPI rank 的 logical 通信配对，供后续 pack/unpack 复用。
-struct RemoteCopyTag {
-    int src_rank = -1;
-    int dst_rank = -1;
-    int src_index = -1;
-    int dst_index = -1;
-    amrex::Box src_box;
-    amrex::Box dst_box;
-    amrex::IntVect periodic_shift{0};
-};
-
 // 跨 rank 通信的 GPU 融合打包描述；offset 指向聚合缓冲中的首元素。
 struct MpiPackTag {
     amrex::Array4<const amrex::Real> src;
@@ -133,6 +122,23 @@ struct MpiBuffers {
             send_host.resize(plan.send_total);
             recv_host.resize(plan.recv_total);
         }
+    }
+};
+
+// 同层 FillBoundary 的按层缓存；引用旧 MultiFab 的 tag 必须先于状态释放失效。
+struct FillBoundaryCache {
+    amrex::TagVector<LocalCopyTag> local_tags;
+    amrex::TagVector<MpiPackTag> pack_tags;
+    amrex::TagVector<MpiUnpackTag> unpack_tags;
+    MpiPlan plan;
+    MpiBuffers buffers;
+
+    void clear() {
+        local_tags.undefine();
+        pack_tags.undefine();
+        unpack_tags.undefine();
+        plan = MpiPlan{};
+        buffers = MpiBuffers{};
     }
 };
 
@@ -311,6 +317,40 @@ MpiPlan make_mpi_plan(const SendTagMap& send_tags,
     return plan;
 }
 
+// 同层 FillBoundary 与粗细层 CPC 共用 peer 顺序、offset 及最终 GPU tag 构建。
+template <typename PackTag, typename UnpackTag, typename SendTagMap,
+          typename RecvTagMap, typename MakePack, typename MakeUnpack>
+void define_mpi_tags(const SendTagMap& send_tags,
+                     const RecvTagMap& recv_tags, const MpiPlan& plan,
+                     int ncomp, amrex::TagVector<PackTag>& pack_tags,
+                     amrex::TagVector<UnpackTag>& unpack_tags,
+                     MakePack make_pack, MakeUnpack make_unpack) {
+    auto send_cursor = plan.send_offsets;
+    auto recv_cursor = plan.recv_offsets;
+    amrex::Vector<PackTag> pack;
+    amrex::Vector<UnpackTag> unpack;
+    for (const auto& [peer, tags] : send_tags) {
+        for (const auto& tag : tags) {
+            pack.push_back(make_pack(tag, send_cursor[peer]));
+            send_cursor[peer] += static_cast<std::size_t>(tag.sbox.numPts()) * ncomp;
+        }
+    }
+    for (const auto& [peer, tags] : recv_tags) {
+        for (const auto& tag : tags) {
+            unpack.push_back(make_unpack(tag, recv_cursor[peer]));
+            recv_cursor[peer] += static_cast<std::size_t>(tag.dbox.numPts()) * ncomp;
+        }
+    }
+    for (int peer = 0; peer < amrex::ParallelDescriptor::NProcs(); ++peer) {
+        AMREX_ALWAYS_ASSERT(send_cursor[peer] ==
+                            plan.send_offsets[peer] + plan.send_counts[peer]);
+        AMREX_ALWAYS_ASSERT(recv_cursor[peer] ==
+                            plan.recv_offsets[peer] + plan.recv_counts[peer]);
+    }
+    pack_tags.define(pack);
+    unpack_tags.define(unpack);
+}
+
 // 插值与平均共用的持久 CPC 派生任务。SourceRaw=true 表示 raw 到 canonical，
 // false 表示 canonical 到 raw；只缓存几何和数据地址，phase 在执行时传入。
 template <bool SourceRaw>
@@ -357,45 +397,25 @@ struct CpcCache {
         local_tags.define(local);
         plan = make_mpi_plan(*cpc.m_SndTags, *cpc.m_RcvTags,
                              amrex::ParallelDescriptor::NProcs(), ncomp);
-        auto send_cursor = plan.send_offsets;
-        auto recv_cursor = plan.recv_offsets;
-        amrex::Vector<PackTag> pack;
-        amrex::Vector<UnpackTag> unpack;
-        for (const auto& [peer, tags] : *cpc.m_SndTags) {
-            for (const auto& tag : tags) {
+        define_mpi_tags(
+            *cpc.m_SndTags, *cpc.m_RcvTags, plan, ncomp,
+            pack_tags, unpack_tags,
+            [&](const auto& tag, std::size_t offset) -> PackTag {
                 if constexpr (SourceRaw) {
-                    pack.push_back({source.const_array(tag.srcIndex), tag.sbox,
-                                    geometry(source, tag.srcIndex), send_cursor[peer]});
+                    return {source.const_array(tag.srcIndex), tag.sbox,
+                            geometry(source, tag.srcIndex), offset};
                 } else {
-                    pack.push_back({source.const_array(tag.srcIndex), tag.sbox,
-                                    send_cursor[peer]});
+                    return {source.const_array(tag.srcIndex), tag.sbox, offset};
                 }
-                send_cursor[peer] +=
-                    static_cast<std::size_t>(tag.sbox.numPts()) * ncomp;
-            }
-        }
-        for (const auto& [peer, tags] : *cpc.m_RcvTags) {
-            for (const auto& tag : tags) {
+            },
+            [&](const auto& tag, std::size_t offset) -> UnpackTag {
                 if constexpr (SourceRaw) {
-                    unpack.push_back({destination.array(tag.dstIndex), tag.dbox,
-                                      recv_cursor[peer]});
+                    return {destination.array(tag.dstIndex), tag.dbox, offset};
                 } else {
-                    unpack.push_back({destination.array(tag.dstIndex), tag.dbox,
-                                      geometry(destination, tag.dstIndex), recv_cursor[peer]});
+                    return {destination.array(tag.dstIndex), tag.dbox,
+                            geometry(destination, tag.dstIndex), offset};
                 }
-                recv_cursor[peer] +=
-                    static_cast<std::size_t>(tag.dbox.numPts()) * ncomp;
-            }
-        }
-        AMREX_ALWAYS_ASSERT(send_cursor.size() == plan.send_counts.size());
-        for (int peer = 0; peer < amrex::ParallelDescriptor::NProcs(); ++peer) {
-            AMREX_ALWAYS_ASSERT(send_cursor[peer] ==
-                                plan.send_offsets[peer] + plan.send_counts[peer]);
-            AMREX_ALWAYS_ASSERT(recv_cursor[peer] ==
-                                plan.recv_offsets[peer] + plan.recv_counts[peer]);
-        }
-        pack_tags.define(pack);
-        unpack_tags.define(unpack);
+            });
         buffers.resize(plan, device_direct);
         ready = true;
     }

@@ -805,7 +805,8 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
         }
 
         MultiFab old_state;
-
+        // 先让含旧 MultiFab Array4 的同层任务失效，再交换状态。
+        osi_fillboundary_cache.at(lev).clear();
         std::swap(old_state, osi_state.at(lev));
 
         const auto old_phase = osi_phase.at(lev);
@@ -868,6 +869,7 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
 
 void AmrCoreLBM::InitializeOsiLevel(
     int lev, const BoxArray& ba, const DistributionMapping& dm) {
+    osi_fillboundary_cache.at(lev).clear();
     osi_state.at(lev).define(ba, dm, Q, nghost);
     osi_phase.at(lev) = 0;
     BuildOsiCommunicationRegionCache(lev);
@@ -897,8 +899,8 @@ void AmrCoreLBM::InitializeNewLevelFromCoarse(int lev, Real time) {
         MultiFab coarse_canonical(
             coarse_state.boxArray(), coarse_state.DistributionMap(), Q,
             nghost);
-        ParallelCopyOsi(lev - 1, coarse_state, osi_phase.at(lev - 1),
-                        coarse_canonical, 0);
+        DecodeOsiValid(coarse_state, osi_phase.at(lev - 1),
+                       coarse_canonical);
         ScaleCanonical(coarse_density, coarse_velocity,
                             coarse_canonical, scale);
         InterpolateCanonicalToFine(
@@ -942,18 +944,7 @@ void AmrCoreLBM::InterpolateCanonicalToFine(
 
 void AmrCoreLBM::ClearLevel(int lev) {
     ClearOsiTransferCaches();
-    osi_local_copy_tags[lev].undefine();
-    osi_remote_copy_tags[lev].clear();
-    osi_mpi_pack_tags[lev].undefine();
-    osi_mpi_unpack_tags[lev].undefine();
-    osi_mpi_send_offsets[lev].clear();
-    osi_mpi_recv_offsets[lev].clear();
-    osi_mpi_send_counts[lev].clear();
-    osi_mpi_recv_counts[lev].clear();
-    osi_mpi_send_device[lev].clear();
-    osi_mpi_recv_device[lev].clear();
-    osi_mpi_send_host[lev].clear();
-    osi_mpi_recv_host[lev].clear();
+    osi_fillboundary_cache[lev].clear();
     f_old[lev].clear();
     f_new[lev].clear();
     osi_state[lev].clear();

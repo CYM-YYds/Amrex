@@ -124,15 +124,7 @@ bool AmrCoreLBM::CheckConvergence(int step) {
 
 void AmrCoreLBM::ProbeAverageInterfaceLevel(int lev, const char* stage) {
     // 首次界面平均的入口和出口分别导出粗层 valid 及区域掩码。
-    constexpr int ex[Q] = {
-        0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
-        1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
-    constexpr int ey[Q] = {
-        0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0,
-        0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
-    constexpr int ez[Q] = {
-        0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
-        1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+
     const MultiFab& state = streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
     const std::string stem = "average_probe_" + std::string(stage) + "_mode" + std::to_string(streamMode()) + "_rank" + std::to_string(ParallelDescriptor::MyProc());
     std::ofstream meta(stem + ".meta");
@@ -187,7 +179,7 @@ void AmrCoreLBM::ProbeAverageInterfaceLevel(int lev, const char* stage) {
                         IntVect address(AMREX_D_DECL(i, j, k));
                         if (streamMode() == 1) {
                             const auto raw = OSI::osi_address(
-                                {i, j, k}, {ex[q], ey[q], ez[q]}, fab, shift);
+                                {i, j, k}, {e_host[q][0], e_host[q][1], e_host[q][2]}, fab, shift);
                             address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
                         }
                         values.push_back(data(address[0], address[1], address[2], q));
@@ -207,15 +199,7 @@ void AmrCoreLBM::ProbeAverageInterfaceLevel(int lev, const char* stage) {
 
 void AmrCoreLBM::ProbeFillGhostLevel(int lev) {
     // 首次重网格后，保存真正由粗层插值写入的 fine ghost，不含同层覆盖区。
-    constexpr int ex[Q] = {
-        0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
-        1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
-    constexpr int ey[Q] = {
-        0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0,
-        0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
-    constexpr int ez[Q] = {
-        0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
-        1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+
     const MultiFab& state = streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
     const std::string stem = "ghost_probe_mode" + std::to_string(streamMode()) + "_rank" + std::to_string(ParallelDescriptor::MyProc());
     std::ofstream meta(stem + ".meta");
@@ -256,7 +240,7 @@ void AmrCoreLBM::ProbeFillGhostLevel(int lev) {
                         IntVect address(AMREX_D_DECL(i, j, k));
                         if (streamMode() == 1) {
                             const auto raw = OSI::osi_address(
-                                {i, j, k}, {ex[q], ey[q], ez[q]}, fab, shift);
+                                {i, j, k}, {e_host[q][0], e_host[q][1], e_host[q][2]}, fab, shift);
                             address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
                         }
                         values.push_back(data(address[0], address[1],
@@ -475,15 +459,7 @@ void AmrCoreLBM::CheckOsiReferenceLevel0(int step, const char* stage) {
 
     // 独立从设备拷回两份状态，逐 cell、逐 q 核对 level 0 全部 valid。
     // 不使用 MultiFab 范数，以便检查已有 GPU 归约诊断的可信度。
-    constexpr int ex[Q] = {
-        0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
-        1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
-    constexpr int ey[Q] = {
-        0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0,
-        0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
-    constexpr int ez[Q] = {
-        0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
-        1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+
     const auto& reference = f_old.at(0);
     const auto& state = osi_state.at(0);
     const auto phase = osi_phase.at(0);
@@ -532,7 +508,7 @@ void AmrCoreLBM::CheckOsiReferenceLevel0(int step, const char* stage) {
                 for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j) {
                     for (int i = bx.smallEnd(0); i <= bx.bigEnd(0); ++i) {
                         const auto raw = OSI::osi_address(
-                            {i, j, k}, {ex[q], ey[q], ez[q]}, fab, shift);
+                            {i, j, k}, {e_host[q][0], e_host[q][1], e_host[q][2]}, fab, shift);
                         const Real a = ab(i, j, k, q);
                         const Real b = osi(raw.x, raw.y, raw.z, q);
                         const bool covered = has_fine &&
@@ -705,15 +681,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
         !std::isfinite(linf) || linf > tolerance;
     if (comparison_failed) {
         // e 位于设备侧，主机诊断必须使用独立的同序速度表。
-        constexpr int ex[Q] = {
-            0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
-            1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
-        constexpr int ey[Q] = {
-            0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0,
-            0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
-        constexpr int ez[Q] = {
-            0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
-            1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+
         bool found_nonfinite = false;
         bool found_finite_mismatch = false;
         Real local_max_error = 0.0;
@@ -762,7 +730,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
                             }
                             const auto raw = OSI::osi_address(
                                 {i, j, k},
-                                {ex[q], ey[q], ez[q]}, fab,
+                                {e_host[q][0], e_host[q][1], e_host[q][2]}, fab,
                                 phase_shift);
                             const Real ab_value = ab(i, j, k, q);
                             const Real osi_value =
@@ -816,12 +784,12 @@ void AmrCoreLBM::CompareOsiReferenceStage(
                    << " local_max_error=" << local_max_error
                    << " logical=" << local_max_iv
                    << " q=" << local_max_q
-                   << " velocity=(" << ex[local_max_q] << ','
-                   << ey[local_max_q] << ',' << ez[local_max_q] << ')'
+                   << " velocity=(" << e_host[local_max_q][0] << ','
+                   << e_host[local_max_q][1] << ',' << e_host[local_max_q][2] << ')'
                    << " raw=" << local_max_raw
                    << " source_logical="
                    << (local_max_iv - IntVect(AMREX_D_DECL(
-                                          ex[local_max_q], ey[local_max_q], ez[local_max_q])))
+                                          e_host[local_max_q][0], e_host[local_max_q][1], e_host[local_max_q][2])))
                    << " physical_boundary="
                    << ((!Geom(lev).isPeriodic(0) &&
                         (local_max_iv[0] == Geom(lev).Domain().smallEnd(0) ||
@@ -884,15 +852,7 @@ void AmrCoreLBM::CompareOsiStreamSources(int lev, const char* stage) {
     IntVect max_target(0);
     IntVect max_source(0);
     int max_q = -1;
-    constexpr int ex[Q] = {
-        0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1,
-        1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
-    constexpr int ey[Q] = {
-        0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0,
-        0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
-    constexpr int ez[Q] = {
-        0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1,
-        1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+
 
     for (MFIter mfi(reference, false); mfi.isValid(); ++mfi) {
         const Box valid = mfi.validbox();
@@ -933,7 +893,7 @@ void AmrCoreLBM::CompareOsiStreamSources(int lev, const char* stage) {
                     for (int q = 0; q < Q; ++q) {
                         const IntVect target(AMREX_D_DECL(i, j, k));
                         const IntVect source(AMREX_D_DECL(
-                            i - ex[q], j - ey[q], k - ez[q]));
+                            i - e_host[q][0], j - e_host[q][1], k - e_host[q][2]));
                         if (!ring.contains(source)) {
                             continue;
                         }
@@ -960,7 +920,7 @@ void AmrCoreLBM::CompareOsiStreamSources(int lev, const char* stage) {
                         source_interface_count += source_interface;
                         const auto raw = OSI::osi_address(
                             {source[0], source[1], source[2]},
-                            {ex[q], ey[q], ez[q]}, fab, phase_shift);
+                            {e_host[q][0], e_host[q][1], e_host[q][2]}, fab, phase_shift);
                         const Real error =
                             std::abs(ab(source[0], source[1], source[2], q) -
                                      osi(raw.x, raw.y, raw.z, q));
@@ -1507,9 +1467,7 @@ void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
     std::array<IntVect, Q> first_iv{};
     std::array<IntVect, Q> first_src{};
     std::array<int, Q> first_has{};
-    constexpr int ex[Q] = {0, 0, 0, -1, 1, 0, 0, -1, 1, -1, 1, 0, 0, -1, 1, 0, 0, -1, 1, 1, -1, 1, -1, 1, -1, 1, -1};
-    constexpr int ey[Q] = {0, 1, -1, 0, 0, 0, 0, 1, 1, -1, -1, 1, -1, 0, 0, 1, -1, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1};
-    constexpr int ez[Q] = {0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, 1, 1, 1, -1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1};
+
     for (MFIter mfi(f_new_lev, false); mfi.isValid(); ++mfi) {
         const Box bx = mfi.validbox();
         FArrayBox host_new(f_new_lev[mfi].box(), Q, The_Pinned_Arena());
@@ -1567,7 +1525,7 @@ void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
                         bad_physical[q] += phys;
                         bad_fab_edge[q] += edge;
                         const IntVect src_iv = iv -
-                                               IntVect(AMREX_D_DECL(ex[q], ey[q], ez[q]));
+                                               IntVect(AMREX_D_DECL(e_host[q][0], e_host[q][1], e_host[q][2]));
                         const bool src_in_valid = bx.contains(src_iv);
                         const bool src_in_fab = source_box.contains(src_iv);
                         source_ghost[q] += !src_in_valid;
@@ -1578,7 +1536,7 @@ void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
                         if (!first_has[q]) {
                             first_has[q] = 1;
                             first_iv[q] = iv;
-                            first_src[q] = iv - IntVect(AMREX_D_DECL(ex[q], ey[q], ez[q]));
+                            first_src[q] = iv - IntVect(AMREX_D_DECL(e_host[q][0], e_host[q][1], e_host[q][2]));
                         }
                     }
                 }

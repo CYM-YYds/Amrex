@@ -132,7 +132,8 @@ MPI、CUDA、TinyProfiler，项目要求 C++20 和 GCC 11+。
 
 续跑时给主提交脚本设置 `RESTART_CHECKPOINT` 为 checkpoint 完整路径；
 脚本在新运行目录创建 `chk<step>` 源链接并设置 begin_step，后续 checkpoint 写在新目录。
-OSI checkpoint 保存 canonical DDF，读取后 phase 从 0 开始。
+OSI checkpoint 保存 canonical DDF，读取后 phase 从 0 开始。当前 checkpoint 写出与同布局新层初始化共用 `DecodeOsiValid`，
+不同布局重网格仍使用 `ParallelCopyOsi`。
 
 Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运行：
 

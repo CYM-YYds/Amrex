@@ -74,20 +74,9 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     f_old.resize(nlevs_max);
     osi_state.resize(nlevs_max);
     osi_phase.resize(nlevs_max, 0);
-    osi_local_copy_tags.resize(nlevs_max);
+    osi_fillboundary_cache.resize(nlevs_max);
     osi_interp_copy_cache.resize(nlevs_max);
     osi_average_copy_cache.resize(nlevs_max);
-    osi_remote_copy_tags.resize(nlevs_max);
-    osi_mpi_pack_tags.resize(nlevs_max);
-    osi_mpi_unpack_tags.resize(nlevs_max);
-    osi_mpi_send_offsets.resize(nlevs_max);
-    osi_mpi_recv_offsets.resize(nlevs_max);
-    osi_mpi_send_counts.resize(nlevs_max);
-    osi_mpi_recv_counts.resize(nlevs_max);
-    osi_mpi_send_device.resize(nlevs_max);
-    osi_mpi_recv_device.resize(nlevs_max);
-    osi_mpi_send_host.resize(nlevs_max);
-    osi_mpi_recv_host.resize(nlevs_max);
     average_interface_buffer.resize(nlevs_max);
     average_interface_fine_box.resize(nlevs_max);
     covered_mask.resize(nlevs_max);
@@ -864,23 +853,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
         const MultiFab& state = osi_state.at(lev);
         MultiFab canonical(
             state.boxArray(), state.DistributionMap(), Q, 0);
-        const std::uint64_t phase = osi_phase.at(lev);
-        for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
-            const Box bx = mfi.validbox();
-            const Box ring = amrex::grow(bx, state.nGrowVect());
-            const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
-            const auto src = state.const_array(mfi);
-            const auto dst = canonical.array(mfi);
-            amrex::ParallelFor(
-                bx, Q,
-                [=] AMREX_GPU_DEVICE(
-                    int i, int j, int k, int q) noexcept {
-                    const auto raw = OSI::osi_address(
-                        {i, j, k},
-                        {e[q][0], e[q][1], e[q][2]}, fab, phase_shift);
-                    dst(i, j, k, q) = src(raw.x, raw.y, raw.z, q);
-                });
-        }
+        DecodeOsiValid(state, osi_phase.at(lev), canonical);
         VisMF::Write(canonical, old_name);
     }
 
