@@ -1277,6 +1277,52 @@ void AmrCoreLBM::PrintParticleChecksums(int step) const {
     }
 }
 
+void AmrCoreLBM::ProbeBoundarySample(int lev, DdfLayout layout) {
+    // 读取 Boundary 返回后采样点的当前 DDF；OSI 布局先换算到 raw 地址。
+    const IntVect sample(AMREX_D_DECL(probe_.boundary_sample[0],
+                                      probe_.boundary_sample[1],
+                                      probe_.boundary_sample[2]));
+    const int sample_q = probe_.boundary_sample_q;
+    const MultiFab& state = layout == DdfLayout::Osi
+                                ? osi_state.at(lev)
+                                : f_new.at(lev);
+    for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+        if (!mfi.validbox().contains(sample)) {
+            continue;
+        }
+        const FArrayBox& device = state[mfi];
+        FArrayBox host(device.box(), Q, The_Pinned_Arena());
+        Gpu::dtoh_memcpy(host.dataPtr(), device.dataPtr(), host.nBytes());
+        IntVect address = sample;
+        if (layout == DdfLayout::Osi) {
+            const Box ring = device.box();
+            const auto [fab, shift] =
+                OSI::MakeOsiFabContext(ring, osi_phase.at(lev));
+            const auto raw = OSI::osi_address(
+                {sample[0], sample[1], sample[2]}, {1, 0, -1}, fab, shift);
+            address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
+        }
+        // 没有更细层时 covered_mask 未分配，采样点按未覆盖处理。
+        int covered = 0;
+        if (lev < finest_level) {
+            const auto& device_mask = covered_mask.at(lev)[mfi];
+            IArrayBox host_mask(device_mask.box(), 1, The_Pinned_Arena());
+            Gpu::dtoh_memcpy(host_mask.dataPtr(), device_mask.dataPtr(),
+                             host_mask.nBytes());
+            covered = host_mask.const_array()(sample[0], sample[1], sample[2]);
+        }
+        auto output = amrex::AllPrint();
+        output.SetPrecision(17);
+        output << "boundary_probe: step=" << probe_.coarse_advance_count
+               << " mode=" << streamMode() << " lev=" << lev
+               << " logical=" << sample << " q=" << sample_q
+               << " covered=" << covered
+               << " value="
+               << host.const_array()(address[0], address[1], address[2], sample_q)
+               << '\n';
+    }
+}
+
 void AmrCoreLBM::DiagnoseBoundaryResult(int lev) {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         streamMode() == 0,

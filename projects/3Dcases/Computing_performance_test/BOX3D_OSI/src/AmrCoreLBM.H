@@ -97,6 +97,19 @@ class AmrCoreLBM : public amrex::AmrCore {
         bool write_particles = true;
     };
 
+    // verification.* 中的一次性探针开关与计数；ReadParameters 读取一次，
+    // 推进路径只做成员访问，不再每次调用 ParmParse。
+    struct ProbeParams {
+        bool average_first = false;     // 首次 0 层界面平均前后导出快照
+        bool ghost_first_fill = false;  // 首次 1 层粗到细 ghost 填充后导出
+        int boundary_step = -1;         // 指定粗步 Boundary 后读取采样点 DDF
+        int boundary_sample[3] = {1, 111, 111};
+        int boundary_sample_q = 18;
+        int coarse_advance_count = 0;   // AdvanceLevel(0) 调用次数
+        int level0_average_count = 0;   // 带缩放的 0 层界面平均次数
+        int level1_fill_count = 0;      // 1 层 ghost 填充次数
+    };
+
     struct PerfStats {
         double interp = 0.0;
         double interp_cache_build = 0.0;
@@ -290,6 +303,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 必须在 Boundary(lev) 之后、SwapLevel(lev, n) 之前调用，
     // 检查 f_new 中非有限值的边界、interface 和相邻单元分布。
     void DiagnoseBoundaryResult(int lev);
+    // 在指定粗步 Boundary 之后读取采样点 DDF，参数见 verification.boundary_probe_*。
+    void ProbeBoundarySample(int lev, DdfLayout layout);
     // OSI A-B 对照、粒子 checksum 和 checkpoint DDF 对照仍由对应
     // verification.* 参数显式启用，它们不属于生产性能路径。
     void AdvanceAndCheckOsiReference(int lev, int step);
@@ -405,6 +420,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 0：原始通用 BGK；1：无外力/无 SGS 的 D3Q27 寄存器复用路径。
     int collide_mode = 0;
     RunMode run_mode = RunMode::CanonicalAB;
+    ProbeParams probe_;
     // 仅用于 OSI A/B 验证：以确定性非均匀 DDF 覆盖均匀初值，暴露错误 halo 来源。
     bool osi_verification_pattern = false;
     // 验证粒子 checkpoint/restart 时输出全局粒子数、坐标与 SoA 属性和。

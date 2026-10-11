@@ -10,6 +10,8 @@
 #include <sstream>
 #include <cctype>
 #include <cmath>
+#include <algorithm>
+#include <vector>
 #include "InitParticles.H"
 #include "Kernels.H"
 
@@ -526,6 +528,20 @@ void AmrCoreLBM::ReadParameters() {
         pp_verify.query("osi_seed_pattern", osi_verification_pattern);
         pp_verify.query("osi_ab_check", requested_osi_ab_check);
         pp_verify.query("particle_checksum", particle_checksum);
+        pp_verify.query("average_probe_first", probe_.average_first);
+        pp_verify.query("ghost_probe_first_fill", probe_.ghost_first_fill);
+        pp_verify.query("boundary_probe_step", probe_.boundary_step);
+        std::vector<int> sample;
+        if (pp_verify.queryarr("boundary_probe_sample", sample)) {
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                sample.size() == 3,
+                "verification.boundary_probe_sample requires 3 integers");
+            std::copy(sample.begin(), sample.end(), probe_.boundary_sample);
+        }
+        pp_verify.query("boundary_probe_q", probe_.boundary_sample_q);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            probe_.boundary_sample_q >= 0 && probe_.boundary_sample_q < Q,
+            "verification.boundary_probe_q out of range");
         pp_verify.query("convergence_enabled", convergence_.enabled);
         pp_verify.query("convergence_check_int", convergence_.check_int);
         pp_verify.query("convergence_trend_int", convergence_.trend_int);

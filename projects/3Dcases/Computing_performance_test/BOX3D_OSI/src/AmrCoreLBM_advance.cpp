@@ -132,14 +132,8 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int fine_lev, bool is_scale) {
     ScopedPerfTimer timer(perf_stats.average);
     ++perf_stats.avgdown_calls;
 
-    static const bool average_probe_enabled = [] {
-        bool value = false;
-        ParmParse("verification").query("average_probe_first", value);
-        return value;
-    }();
-    static int level0_average_count = 0;
-    const bool probe_this_call = average_probe_enabled && coarse_lev == 0 && is_scale &&
-                                 ++level0_average_count == 1;
+    const bool probe_this_call = probe_.average_first && coarse_lev == 0 && is_scale &&
+                                 ++probe_.level0_average_count == 1;
     if (probe_this_call) {
         ProbeAverageInterfaceLevel(coarse_lev, "before"); // 导出一次界面平均前或后的状态快照，供离线逐单元比较
     }
@@ -235,16 +229,8 @@ void AmrCoreLBM::FillGhostLevel(int coarse_lev, amrex::Real time, bool is_scale)
     } else {
         FillDdfGhostFromCoarse(coarse_lev, time, is_scale);
     }
-    static const bool probe_first_fill = [] {
-        bool enabled = false;
-        ParmParse("verification").query("ghost_probe_first_fill", enabled);
-        return enabled;
-    }();
-    if (!probe_first_fill || fine_lev != 1) {
-        return;
-    }
-    static int level1_fill_count = 0;
-    if (++level1_fill_count == 1) {
+    if (probe_.ghost_first_fill && fine_lev == 1 &&
+        ++probe_.level1_fill_count == 1) {
         ProbeFillGhostLevel(fine_lev);
     }
 }
@@ -292,9 +278,8 @@ void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
 }
 
 void AmrCoreLBM::AdvanceLevel(int lev) {
-    static int coarse_advance_count = 0;
     if (lev == 0) {
-        ++coarse_advance_count;
+        ++probe_.coarse_advance_count;
     }
     const DdfLayout layout =
         streamMode() == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
@@ -341,43 +326,8 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
 
     // 生产模式只经过一次布局推进；锁步分支已在上方显式执行两种布局。
     AdvanceOneLayout(lev, layout);
-    int boundary_probe_step = -1;
-    ParmParse("verification").query("boundary_probe_step", boundary_probe_step);
-    if (lev == 0 && coarse_advance_count == boundary_probe_step) {
-        // 在第 33 步已知的 uncovered 格点读取 Boundary 返回后的当前 DDF。
-        const IntVect sample(AMREX_D_DECL(1, 111, 111));
-        constexpr int sample_q = 18;
-        const MultiFab& state = layout == DdfLayout::Osi
-                                    ? osi_state.at(0)
-                                    : f_new.at(0);
-        for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
-            if (!mfi.validbox().contains(sample)) {
-                continue;
-            }
-            const FArrayBox& device = state[mfi];
-            FArrayBox host(device.box(), Q, The_Pinned_Arena());
-            Gpu::dtoh_memcpy(host.dataPtr(), device.dataPtr(), host.nBytes());
-            IntVect address = sample;
-            if (layout == DdfLayout::Osi) {
-                const Box ring = device.box();
-                const auto [fab, shift] = OSI::MakeOsiFabContext(ring, osi_phase.at(0));
-                const auto raw = OSI::osi_address(
-                    {sample[0], sample[1], sample[2]}, {1, 0, -1}, fab, shift);
-                address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
-            }
-            IArrayBox host_mask(covered_mask.at(0)[mfi].box(), 1,
-                                The_Pinned_Arena());
-            const auto& device_mask = covered_mask.at(0)[mfi];
-            Gpu::dtoh_memcpy(host_mask.dataPtr(), device_mask.dataPtr(),
-                             host_mask.nBytes());
-            auto output = amrex::AllPrint();
-            output.SetPrecision(17);
-            output << "boundary_probe: step=" << coarse_advance_count
-                   << " mode=" << streamMode() << " lev=0 logical=" << sample
-                   << " q=" << sample_q
-                   << " covered=" << host_mask.const_array()(sample[0], sample[1], sample[2])
-                   << " value=" << host.const_array()(address[0], address[1], address[2], sample_q) << '\n';
-        }
+    if (lev == 0 && probe_.coarse_advance_count == probe_.boundary_step) {
+        ProbeBoundarySample(lev, layout);
     }
     SwapLevel(lev, nghost, layout);
 }
