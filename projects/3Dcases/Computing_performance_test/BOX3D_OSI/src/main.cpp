@@ -13,12 +13,8 @@
 
 using namespace amrex;
 
-void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 好像更适配cumulant_opt
-void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid); // 更适配cumulant
 void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid,
             OsiAbVerification& verification);
-void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
-void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid);
 
 namespace {
 
@@ -251,9 +247,6 @@ int main(int argc, char* argv[]) {
             weighted_updates_window += lid.ComputeWeightedLatticeUpdatesPerCoarseStep();
             ++stats_steps;
 
-            /*---------------用于计算静止圆球绕流----------------------------------*/
-            // RohdeCycle(0, cur_time, lid);
-
             auto start_time_JaberCycle = std::chrono::high_resolution_clock::now();
             Cycle2(0, cur_time, lid, verification);
             if (verification_enabled) {
@@ -263,17 +256,6 @@ int main(int argc, char* argv[]) {
             auto end_time_JaberCycle = std::chrono::high_resolution_clock::now();
             JaberCycle_time += std::chrono::duration<float, std::milli>(end_time_JaberCycle - start_time_JaberCycle).count();
 
-            // lid.ReduceFxy(max_ref_level, step);
-            /*--------------------------------------------------------------------*/
-
-            /*---------------用于计算多颗粒自由运动----------------------------------*/
-            // RohdeCycleMultiParticle(0, cur_time, lid);
-            // JaberCycleMultiParticle(0, cur_time, lid);
-
-            // lid.SaveParticlePosition(0, step);
-            // lid.SaveParticleVelocity(0, step);
-            // lid.SaveParticleDistance(0, step);
-            /*--------------------------------------------------------------------*/
             auto end_time_compute_time = std::chrono::high_resolution_clock::now();
             compute_time += std::chrono::duration<float, std::milli>(end_time_compute_time - start_time_compute_time).count();
             cur_time += grid.dt;
@@ -417,115 +399,6 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-/*---------------用于计算静止圆球绕流----------------------------------*/
-void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
-    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
-
-    if (lev == max_ref_level) {
-        lid.ComputeParticle(lev);
-    }
-
-    lid.Boundary(lev);
-    lid.Collide(lev, 0);
-
-    if (lev < max_ref_level) {
-        RohdeCycle(lev + 1, cur_time, lid);
-    }
-
-    if (lev > coarsest_level) {
-        // RohdeCycle 尚未按新的 FillGhostLevel 层级语义重构：这里传入当前层，
-        // 但 FillGhostLevel 将 lev 解释为粗层并定位 lev + 1 细层。
-        lid.FillGhostLevel(lev, cur_time, 0);
-    }
-
-    lid.CommunicateLevel(lev);
-    lid.Stream(lev, 2);
-    lid.SwapLevel(lev, 2);
-
-    if (lev < max_ref_level) {
-        lid.AverageDownInterfaceLevel(lev + 1, 0);
-    }
-
-    if (lev == coarsest_level) {
-        return;
-    }
-
-    cur_time += dt;
-
-    if (lev == max_ref_level) {
-        lid.ComputeParticle(lev);
-    }
-
-    lid.Boundary(lev);
-    lid.Collide(lev, 0);
-
-    if (lev < max_ref_level) {
-        RohdeCycle(lev + 1, cur_time, lid);
-    }
-
-    lid.CommunicateLevel(lev);
-    lid.Stream(lev, 2);
-    lid.SwapLevel(lev, 2);
-
-    if (lev < max_ref_level) {
-        lid.AverageDownInterfaceLevel(lev + 1, 0);
-    }
-}
-
-/*---------------用于计算静止圆球绕流----------------------------------*/
-void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
-    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
-    const int nghost = lid.ghostCells();
-
-    if (lev < lid.finestLevel()) {
-        lid.FillGhostLevel(lev, cur_time, 1);
-    }
-
-    // if(lev == max_ref_level)
-    // {
-    //     lid.ComputeParticle(lev);
-    //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
-    // }
-
-    lid.Boundary(lev);
-    lid.Collide(lev, nghost);
-    lid.CommunicateLevel(lev);
-    lid.Stream(lev, nghost);
-    lid.SwapLevel(lev, nghost);
-
-    if (lev < max_ref_level) {
-        JaberCycle(lev + 1, cur_time, lid);
-        lid.AverageDownInterfaceLevel(lev + 1, 1);
-    }
-
-    if (lev == coarsest_level) {
-        return;
-    }
-
-    cur_time += dt;
-
-    if (lev < lid.finestLevel()) {
-        lid.FillGhostLevel(lev, cur_time, 1);
-    }
-
-    // if(lev == max_ref_level)
-    // {
-    //     lid.ComputeParticle(lev);
-    //     lid.FillForceGhostLevel(lev, cur_time);//加一个力的填充ghost就好了
-    // }
-
-    lid.Boundary(lev);
-    lid.Collide(lev, nghost);
-    lid.CommunicateLevel(lev);
-    lid.Stream(lev, nghost);
-    lid.SwapLevel(lev, nghost);
-
-    if (lev < max_ref_level) {
-        JaberCycle(lev + 1, cur_time, lid);
-        lid.AverageDownInterfaceLevel(lev + 1, 1);
-    }
-}
-
 void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid,
             OsiAbVerification& verification) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
@@ -554,123 +427,6 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid,
         Cycle2(lev + 1, cur_time + dt / 2.0, lid, verification);
 
         // 4. 两个细步完成后，只平均一次
-        lid.AverageDownInterfaceLevel(lev + 1, 1);
-    }
-}
-
-/*---------------用于计算多颗粒自由运动----------------------------------*/
-void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
-    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
-
-    if (lev == max_ref_level) {
-        lid.ComputeParticle(lev);
-        // lid.FillForceGhostLevel(lev, cur_time);
-        lid.LubForceParticle(lev, cur_time);
-        lid.MoveParticle(lev, cur_time);
-    }
-
-    lid.Boundary(lev);
-    lid.Collide(lev, 0);
-
-    if (lev < max_ref_level) {
-        RohdeCycleMultiParticle(lev + 1, cur_time, lid);
-    }
-
-    if (lev > coarsest_level) {
-        // RohdeCycleMultiParticle 尚未按新的 FillGhostLevel 层级语义重构；
-        // 这里保留旧调用，后续需要单独核对最细层调用边界。
-        lid.FillGhostLevel(lev, cur_time, 0);
-    }
-
-    lid.CommunicateLevel(lev);
-    lid.Stream(lev, 2);
-    lid.SwapLevel(lev, 2);
-
-    if (lev < max_ref_level) {
-        lid.AverageDownInterfaceLevel(lev + 1, 0);
-    }
-
-    if (lev == coarsest_level) {
-        return;
-    }
-
-    cur_time += dt;
-
-    if (lev == max_ref_level) {
-        lid.ComputeParticle(lev);
-        // lid.FillForceGhostLevel(lev, cur_time);
-        lid.LubForceParticle(lev, cur_time);
-        lid.MoveParticle(lev, cur_time);
-    }
-
-    lid.Boundary(lev);
-    lid.Collide(lev, 0);
-
-    if (lev < max_ref_level) {
-        RohdeCycleMultiParticle(lev + 1, cur_time, lid);
-    }
-
-    lid.CommunicateLevel(lev);
-    lid.Stream(lev, 2);
-    lid.SwapLevel(lev, 2);
-
-    if (lev < max_ref_level) {
-        lid.AverageDownInterfaceLevel(lev + 1, 0);
-    }
-}
-
-/*---------------用于计算多颗粒自由运动----------------------------------*/
-void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
-    amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
-    const int nghost = lid.ghostCells();
-
-    if (lev < max_ref_level) {
-        lid.FillGhostLevel(lev, cur_time, 1);
-    }
-
-    if (lev == max_ref_level) {
-        lid.ComputeParticle(lev);
-        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
-        lid.LubForceParticle(lev, cur_time);
-        lid.MoveParticle(lev, cur_time);
-    }
-
-    lid.Boundary(lev);
-    lid.Collide(lev, nghost);
-    lid.CommunicateLevel(lev);
-    lid.Stream(lev, nghost);
-    lid.SwapLevel(lev, nghost);
-
-    if (lev < max_ref_level) {
-        JaberCycleMultiParticle(lev + 1, cur_time, lid);
-        lid.AverageDownInterfaceLevel(lev + 1, 1);
-    }
-
-    if (lev == coarsest_level) {
-        return;
-    }
-
-    cur_time += dt;
-
-    if (lev < max_ref_level) {
-        lid.FillGhostLevel(lev, cur_time, 1);
-    }
-
-    if (lev == max_ref_level) {
-        lid.ComputeParticle(lev);
-        lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
-        lid.LubForceParticle(lev, cur_time);
-        lid.MoveParticle(lev, cur_time);
-    }
-
-    lid.Boundary(lev);
-    lid.Collide(lev, nghost);
-    lid.CommunicateLevel(lev);
-    lid.Stream(lev, nghost);
-    lid.SwapLevel(lev, nghost);
-
-    if (lev < max_ref_level) {
-        JaberCycleMultiParticle(lev + 1, cur_time, lid);
         lid.AverageDownInterfaceLevel(lev + 1, 1);
     }
 }
