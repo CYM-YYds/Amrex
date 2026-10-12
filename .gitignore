@@ -14,6 +14,8 @@
 *.err
 Backtrace.*
 *.txt
+# 结构审查的 code_audit 白名单需要跟踪
+!**/docs/code_audit_allow.txt
 *.csv
 ./learnamerx.code-workspace
 compile_commands.json
