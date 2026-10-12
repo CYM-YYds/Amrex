@@ -77,7 +77,7 @@ A-B 状态是每层 `f_old/f_new`；OSI 生产状态是每层 `osi_state` 和 `o
 ## 实际推进调用链
 
 `main.cpp` 的现役入口是 `Cycle2`。每个 coarse step 先处理需要的 regrid，
-然后进入多层递归。未接入入口的旧 Rohde/Jaber 周期实现已移除，历史版本可从 Git 查询。
+然后进入多层递归；同文件中的 Rohde/Jaber 等其他周期函数不在当前主调用路径上。
 
 ```text
 main coarse-step 循环
@@ -152,28 +152,6 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 可执行文件、rank/GPU 数及覆盖参数。
 64/128/256 步锁步入口共用 `scripts/osi_lockstep_args.sh`，各自保留步数、
 失败策略和检查间隔。旧 direct 参数无需再写入新脚本；程序仍拒绝旧开关的 `=0` 请求。
-
-## 控制重复与职责膨胀
-
-修改前沿上面的实际调用链确认已有实现、数据所有者和生效模式；新增替代路径时，
-同步说明旧路径是退出、作为对照保留，还是仍由其他配置使用。仅拆文件不能减少重复职责。
-
-从仓库根运行现有只读审计，前后使用不同输出目录：
-
-```bash
-scripts/code_audit.sh projects/3Dcases/Computing_performance_test/BOX3D_OSI/src -o /tmp/box3d-audit-before
-# 完成一个边界明确的变更后，再运行：
-scripts/code_audit.sh projects/3Dcases/Computing_performance_test/BOX3D_OSI/src -o /tmp/box3d-audit-after
-```
-
-审计结果先分类再处理：不可达历史实现检查调用点后移除；现役重复逻辑核对
-输入、区域、时间状态与副作用后再共用；手动诊断、框架回调、CPU/CUDA 分支和
-独立数值对照不能仅凭 unusedFunction 或相似片段判定为冗余。
-关注重复行数、函数复杂度和实际职责变化，不通过移动目录或扩大白名单降低指标。
-
-删除不可达代码应检查剩余引用、现役函数一致性及目标构建；修改现役数值路径则需
-相应阶段的逐 cell/逐 q 对照，并覆盖相关 regrid、OSI phase 和 MPI 配置。
-[首次消重试验](docs/ai_changes/2026-10-11-remove-unused-cycles.md)记录了候选分类和验证边界。
 
 ## 当前配置与验证边界
 
