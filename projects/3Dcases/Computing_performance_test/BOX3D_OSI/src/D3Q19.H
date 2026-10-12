@@ -8,8 +8,16 @@
 
 using namespace amrex;
 
-#define DIM 3
-#define Q 27
+// 编译期格子选择：修改后必须重新编译，不能通过 inputs 在运行时切换。
+// 默认保持当前三维 D3Q27 排列。其余维度、Q 和排列未经本算例验证，可能编译失败或产生错误结果。
+// 二维选择还需同步构建 DIM；本文件的切换不会自动适配三维 OSI、边界及专用碰撞内核。
+#define LBM_DIM 3
+#define LBM_Q 27
+#define LBM_ORDER 0
+
+#define DIM LBM_DIM
+#define Q LBM_Q
+static_assert(LBM_DIM == AMREX_SPACEDIM, "LBM dimension must match AMReX build");
 
 const int coarsest_level = 0;
 const int max_ref_level = 3;
@@ -54,224 +62,175 @@ const Real Epp2 = 0.02;
 const Real Epw1 = 0.125;
 const Real Epw2 = 0.01;
 
-// D3Q19-opt
-// AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-//     IntVect e[Q] =
-//         {
-//             {0, 0, 0},
-//             {1, 0, 0},
-//             {-1, 0, 0},
-//             {0, 1, 0},
-//             {0, -1, 0},
-//             {0, 0, 1},
-//             {0, 0, -1},
-//             {1, 1, 0},
-//             {-1, -1, 0},
-//             {1, 0, 1},
-//             {-1, 0, -1},
-//             {0, 1, 1},
-//             {0, -1, -1},
-//             {1, -1, 0},
-//             {-1, 1, 0},
-//             {1, 0, -1},
-//             {-1, 0, 1},
-//             {0, 1, -1},
-//             {0, -1, 1}};
+// 方向与权重绑定，host/device 表由同一列表生成，避免调整排列时遗漏权重。
+// 排列 0：原 D3Q19 / 当前 D3Q27；排列 1：原 D3Q19-opt / D3Q27_CUMULANT_OPT。
+// D2Q9 只提供排列 0；其他组合明确拒绝，不自动推导未知模型。
+#define LBM_D3Q19_ORDER0(X) \
+    X(0, 0, 0, 1.0 / 3.0) \
+    X(1, 0, 0, 1.0 / 18.0) \
+    X(-1, 0, 0, 1.0 / 18.0) \
+    X(0, 1, 0, 1.0 / 18.0) \
+    X(0, -1, 0, 1.0 / 18.0) \
+    X(0, 0, 1, 1.0 / 18.0) \
+    X(0, 0, -1, 1.0 / 18.0) \
+    X(1, 1, 0, 1.0 / 36.0) \
+    X(-1, -1, 0, 1.0 / 36.0) \
+    X(1, -1, 0, 1.0 / 36.0) \
+    X(-1, 1, 0, 1.0 / 36.0) \
+    X(1, 0, 1, 1.0 / 36.0) \
+    X(-1, 0, -1, 1.0 / 36.0) \
+    X(1, 0, -1, 1.0 / 36.0) \
+    X(-1, 0, 1, 1.0 / 36.0) \
+    X(0, 1, 1, 1.0 / 36.0) \
+    X(0, -1, -1, 1.0 / 36.0) \
+    X(0, 1, -1, 1.0 / 36.0) \
+    X(0, -1, 1, 1.0 / 36.0)
 
-// D3Q19
-// AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-//     IntVect e[Q] =
-//         {
-//             {0, 0, 0},
-//             {1, 0, 0},
-//             {-1, 0, 0},
-//             {0, 1, 0},
-//             {0, -1, 0},
-//             {0, 0, 1},
-//             {0, 0, -1},
-//             {1, 1, 0},
-//             {-1, -1, 0},
-//             {1, -1, 0},
-//             {-1, 1, 0},
-//             {1, 0, 1},
-//             {-1, 0, -1},
-//             {1, 0, -1},
-//             {-1, 0, 1},
-//             {0, 1, 1},
-//             {0, -1, -1},
-//             {0, 1, -1},
-//             {0, -1, 1}};
+#define LBM_D3Q19_ORDER1(X) \
+    X(0, 0, 0, 1.0 / 3.0) \
+    X(1, 0, 0, 1.0 / 18.0) \
+    X(-1, 0, 0, 1.0 / 18.0) \
+    X(0, 1, 0, 1.0 / 18.0) \
+    X(0, -1, 0, 1.0 / 18.0) \
+    X(0, 0, 1, 1.0 / 18.0) \
+    X(0, 0, -1, 1.0 / 18.0) \
+    X(1, 1, 0, 1.0 / 36.0) \
+    X(-1, -1, 0, 1.0 / 36.0) \
+    X(1, 0, 1, 1.0 / 36.0) \
+    X(-1, 0, -1, 1.0 / 36.0) \
+    X(0, 1, 1, 1.0 / 36.0) \
+    X(0, -1, -1, 1.0 / 36.0) \
+    X(1, -1, 0, 1.0 / 36.0) \
+    X(-1, 1, 0, 1.0 / 36.0) \
+    X(1, 0, -1, 1.0 / 36.0) \
+    X(-1, 0, 1, 1.0 / 36.0) \
+    X(0, 1, -1, 1.0 / 36.0) \
+    X(0, -1, 1, 1.0 / 36.0)
 
-// AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-//     Real w[Q] =
-//         {
-//             1. / 3.,
-//             1. / 18.,
-//             1. / 18.,
-//             1. / 18.,
-//             1. / 18.,
-//             1. / 18.,
-//             1. / 18.,
-//             1. / 36.,
-//             1. / 36.,
-//             1. / 36.,
-//             1. / 36.,
-//             1. / 36.,
-//             1. / 36.,
-//             1. / 36.,
-//             1. / 36.,
-//             1. / 36.,
-//             1. / 36.,
-//             1. / 36.,
-//             1. / 36.};
+#define LBM_D3Q27_ORDER0(X) \
+    X(0, 0, 0, 8.0 / 27.0) \
+    X(0, 1, 0, 2.0 / 27.0) \
+    X(0, -1, 0, 2.0 / 27.0) \
+    X(-1, 0, 0, 2.0 / 27.0) \
+    X(1, 0, 0, 2.0 / 27.0) \
+    X(0, 0, 1, 2.0 / 27.0) \
+    X(0, 0, -1, 2.0 / 27.0) \
+    X(-1, 1, 0, 1.0 / 54.0) \
+    X(1, 1, 0, 1.0 / 54.0) \
+    X(-1, -1, 0, 1.0 / 54.0) \
+    X(1, -1, 0, 1.0 / 54.0) \
+    X(0, 1, 1, 1.0 / 54.0) \
+    X(0, -1, 1, 1.0 / 54.0) \
+    X(-1, 0, 1, 1.0 / 54.0) \
+    X(1, 0, 1, 1.0 / 54.0) \
+    X(0, 1, -1, 1.0 / 54.0) \
+    X(0, -1, -1, 1.0 / 54.0) \
+    X(-1, 0, -1, 1.0 / 54.0) \
+    X(1, 0, -1, 1.0 / 54.0) \
+    X(1, 1, 1, 1.0 / 216.0) \
+    X(-1, 1, 1, 1.0 / 216.0) \
+    X(1, -1, 1, 1.0 / 216.0) \
+    X(-1, -1, 1, 1.0 / 216.0) \
+    X(1, 1, -1, 1.0 / 216.0) \
+    X(-1, 1, -1, 1.0 / 216.0) \
+    X(1, -1, -1, 1.0 / 216.0) \
+    X(-1, -1, -1, 1.0 / 216.0)
 
-// 单一方向序列同时生成 host 诊断表和 device 数学内核表，顺序不可调整。
-#define BOX3D_D3Q27_DIRECTIONS(X) \
-    X(0, 0, 0) \
-    X(0, 1, 0) \
-    X(0, -1, 0) \
-    X(-1, 0, 0) \
-    X(1, 0, 0) \
-    X(0, 0, 1) \
-    X(0, 0, -1) \
-    X(-1, 1, 0) \
-    X(1, 1, 0) \
-    X(-1, -1, 0) \
-    X(1, -1, 0) \
-    X(0, 1, 1) \
-    X(0, -1, 1) \
-    X(-1, 0, 1) \
-    X(1, 0, 1) \
-    X(0, 1, -1) \
-    X(0, -1, -1) \
-    X(-1, 0, -1) \
-    X(1, 0, -1) \
-    X(1, 1, 1) \
-    X(-1, 1, 1) \
-    X(1, -1, 1) \
-    X(-1, -1, 1) \
-    X(1, 1, -1) \
-    X(-1, 1, -1) \
-    X(1, -1, -1) \
-    X(-1, -1, -1)
-#define BOX3D_HOST_DIRECTION(x, y, z) {x, y, z},
-inline constexpr int e_host[Q][3] = {
-    BOX3D_D3Q27_DIRECTIONS(BOX3D_HOST_DIRECTION)
-};
-#undef BOX3D_HOST_DIRECTION
+#define LBM_D3Q27_ORDER1(X) \
+    X(0, 0, 0, 8.0 / 27.0) \
+    X(1, 0, 0, 2.0 / 27.0) \
+    X(-1, 0, 0, 2.0 / 27.0) \
+    X(0, 1, 0, 2.0 / 27.0) \
+    X(0, -1, 0, 2.0 / 27.0) \
+    X(0, 0, 1, 2.0 / 27.0) \
+    X(0, 0, -1, 2.0 / 27.0) \
+    X(1, 1, 0, 1.0 / 54.0) \
+    X(-1, -1, 0, 1.0 / 54.0) \
+    X(1, -1, 0, 1.0 / 54.0) \
+    X(-1, 1, 0, 1.0 / 54.0) \
+    X(1, 0, 1, 1.0 / 54.0) \
+    X(-1, 0, -1, 1.0 / 54.0) \
+    X(1, 0, -1, 1.0 / 54.0) \
+    X(-1, 0, 1, 1.0 / 54.0) \
+    X(0, 1, 1, 1.0 / 54.0) \
+    X(0, -1, -1, 1.0 / 54.0) \
+    X(0, 1, -1, 1.0 / 54.0) \
+    X(0, -1, 1, 1.0 / 54.0) \
+    X(1, 1, 1, 1.0 / 216.0) \
+    X(-1, 1, 1, 1.0 / 216.0) \
+    X(1, -1, 1, 1.0 / 216.0) \
+    X(-1, -1, 1, 1.0 / 216.0) \
+    X(1, 1, -1, 1.0 / 216.0) \
+    X(-1, 1, -1, 1.0 / 216.0) \
+    X(1, -1, -1, 1.0 / 216.0) \
+    X(-1, -1, -1, 1.0 / 216.0)
 
-#define BOX3D_DEVICE_DIRECTION(x, y, z) {x, y, z},
+#define LBM_D2Q9_ORDER0(X) \
+    X(0, 0, 0, 4.0 / 9.0) \
+    X(1, 0, 0, 1.0 / 9.0) \
+    X(-1, 0, 0, 1.0 / 9.0) \
+    X(0, 1, 0, 1.0 / 9.0) \
+    X(0, -1, 0, 1.0 / 9.0) \
+    X(1, 1, 0, 1.0 / 36.0) \
+    X(-1, -1, 0, 1.0 / 36.0) \
+    X(1, -1, 0, 1.0 / 36.0) \
+    X(-1, 1, 0, 1.0 / 36.0)
+
+#if LBM_DIM == 3 && LBM_Q == 19 && LBM_ORDER == 0
+#define LBM_DIRECTIONS(X) LBM_D3Q19_ORDER0(X)
+#elif LBM_DIM == 3 && LBM_Q == 19 && LBM_ORDER == 1
+#define LBM_DIRECTIONS(X) LBM_D3Q19_ORDER1(X)
+#elif LBM_DIM == 3 && LBM_Q == 27 && LBM_ORDER == 0
+#define LBM_DIRECTIONS(X) LBM_D3Q27_ORDER0(X)
+#elif LBM_DIM == 3 && LBM_Q == 27 && LBM_ORDER == 1
+#define LBM_DIRECTIONS(X) LBM_D3Q27_ORDER1(X)
+#elif LBM_DIM == 2 && LBM_Q == 9 && LBM_ORDER == 0
+#define LBM_DIRECTIONS(X) LBM_D2Q9_ORDER0(X)
+#else
+#error "Unsupported LBM dimension, Q or ordering"
+#endif
+
+#define LBM_DIRECTION(x, y, z, weight) {AMREX_D_DECL(x, y, z)},
+inline constexpr int e_host[][LBM_DIM] = {
+    LBM_DIRECTIONS(LBM_DIRECTION)};
+static_assert(sizeof(e_host) / sizeof(e_host[0]) == Q,
+              "LBM direction count must match Q");
+
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-    IntVect e[Q] = {
-        BOX3D_D3Q27_DIRECTIONS(BOX3D_DEVICE_DIRECTION)
-    };
-#undef BOX3D_DEVICE_DIRECTION
-#undef BOX3D_D3Q27_DIRECTIONS
+IntVect e[Q] = {
+    LBM_DIRECTIONS(LBM_DIRECTION)};
+#undef LBM_DIRECTION
 
+#define LBM_WEIGHT(x, y, z, weight) Real(weight),
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-    Real w[Q] =
-        {
-            8. / 27.,
-            2. / 27.,
-            2. / 27.,
-            2. / 27.,
-            2. / 27.,
-            2. / 27.,
-            2. / 27.,
-            1. / 54.,
-            1. / 54.,
-            1. / 54.,
-            1. / 54.,
-            1. / 54.,
-            1. / 54.,
-            1. / 54.,
-            1. / 54.,
-            1. / 54.,
-            1. / 54.,
-            1. / 54.,
-            1. / 54.,
-            1. / 216.,
-            1. / 216.,
-            1. / 216.,
-            1. / 216.,
-            1. / 216.,
-            1. / 216.,
-            1. / 216.,
-            1. / 216.};
-
-// D3Q27_CUMULANT_OPT
-//  AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-//  IntVect e[Q] =
-//  {
-//      {  0,  0,  0 },
-//      {  1,  0,  0 },
-//      { -1,  0,  0 },
-//      {  0,  1,  0 },
-//      {  0, -1,  0 },
-//      {  0,  0,  1 },
-//      {  0,  0, -1 },
-//      {  1,  1,  0 },
-//      { -1, -1,  0 },
-//      {  1, -1,  0 },
-//      { -1,  1,  0 },
-//      {  1,  0,  1 },
-//      { -1,  0, -1 },
-//      {  1,  0, -1 },
-//      { -1,  0,  1 },
-//      {  0,  1,  1 },
-//      {  0, -1, -1 },
-//      {  0,  1, -1 },
-//      {  0, -1,  1 },
-//      {  1,  1,  1 },
-//      { -1,  1,  1 },
-//      {  1, -1,  1 },
-//      { -1, -1,  1 },
-//      {  1,  1, -1 },
-//      { -1,  1, -1 },
-//      {  1, -1, -1 },
-//      { -1, -1, -1 }
-//  };
-
-// AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-// Real w[Q] =
-// {
-//     8./27.,
-//     2./27.,
-//     2./27.,
-//     2./27.,
-//     2./27.,
-//     2./27.,
-//     2./27.,
-//     1./54.,
-//     1./54.,
-//     1./54.,
-//     1./54.,
-//     1./54.,
-//     1./54.,
-//     1./54.,
-//     1./54.,
-//     1./54.,
-//     1./54.,
-//     1./54.,
-//     1./54.,
-//     1./216.,
-//     1./216.,
-//     1./216.,
-//     1./216.,
-//     1./216.,
-//     1./216.,
-//     1./216.,
-//     1./216.
-// };
+Real w[Q] = {
+    LBM_DIRECTIONS(LBM_WEIGHT)};
+#undef LBM_WEIGHT
+#undef LBM_DIRECTIONS
+#undef LBM_D3Q19_ORDER0
+#undef LBM_D3Q19_ORDER1
+#undef LBM_D3Q27_ORDER0
+#undef LBM_D3Q27_ORDER1
+#undef LBM_D2Q9_ORDER0
 
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     Real
     feqHeLuo(const Real& pressure, const RealVect& u, const int i) {
     amrex::Real eu, uv, feqt;
 
+#if LBM_DIM == 3
     eu = e[i][0] * u[0] + e[i][1] * u[1] + e[i][2] * u[2];
 
     uv = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+#else
+    // 按所选维度求内积，仅保证本文件公式不固定访问第三分量。
+    eu = Real(0);
+    uv = Real(0);
+    for (int d = 0; d < LBM_DIM; ++d) {
+        eu += e[i][d] * u[d];
+        uv += u[d] * u[d];
+    }
+#endif
 
     feqt = w[i] * (pressure + p0 * (3.0 * eu + 4.5 * eu * eu - 1.5 * uv));
 
@@ -283,9 +242,19 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     feqQian(const Real& rhot, const RealVect& u, const int i) {
     amrex::Real eu, uv, feqt;
 
+#if LBM_DIM == 3
     eu = e[i][0] * u[0] + e[i][1] * u[1] + e[i][2] * u[2];
 
     uv = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+#else
+    // 按所选维度求内积，仅保证本文件公式不固定访问第三分量。
+    eu = Real(0);
+    uv = Real(0);
+    for (int d = 0; d < LBM_DIM; ++d) {
+        eu += e[i][d] * u[d];
+        uv += u[d] * u[d];
+    }
+#endif
 
     feqt = w[i] * rhot * (1.0 + 3.0 * eu + 4.5 * eu * eu - 1.5 * uv);
 
@@ -297,11 +266,28 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     forceGuo(const RealVect& u, const RealVect& Ft, const int i) {
     amrex::Real m, n, nf;
 
+#if LBM_DIM == 3
     m = ((e[i][0] - u[0]) * Ft[0] + (e[i][1] - u[1]) * Ft[1] + (e[i][2] - u[2]) * Ft[2]) / cs2;
 
     n = (e[i][0] * u[0] + e[i][1] * u[1] + e[i][2] * u[2]) / cs2;
 
     nf = (e[i][0] * Ft[0] + e[i][1] * Ft[1] + e[i][2] * Ft[2]) / cs2;
+
+#else
+    // 先累加内积再除以声速平方，保持原公式的运算结构。
+    m = Real(0);
+    n = Real(0);
+    nf = Real(0);
+    for (int d = 0; d < LBM_DIM; ++d) {
+        m += (e[i][d] - u[d]) * Ft[d];
+        n += e[i][d] * u[d];
+        nf += e[i][d] * Ft[d];
+    }
+    m /= cs2;
+    n /= cs2;
+    nf /= cs2;
+
+#endif
 
     return w[i] * (m + n * nf);
 }
