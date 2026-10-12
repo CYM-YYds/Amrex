@@ -2,8 +2,8 @@
 
 本仓库用于维护基于 AMReX 的 LBM + AMR 算例开发与实验代码，包含 2D/3D 多类流动场与粒子耦合场景。
 
-多数算例仍以 `amrex-26.01` 为默认版本，同时保留 `amrex-23.09` 用于历史兼容。
-`amrex-26.06` 既用于上游版本对照，也已被 BOX3D 性能算例采用。
+各算例实际使用的 AMReX 版本以其 `config/GNUmakefile` 中的 `AMREX_HOME` 为准，
+目前 `amrex-26.01` 与 `amrex-26.06` 并存（见 2.1 节）。
 
 ## 1. 项目架构概览
 
@@ -12,8 +12,8 @@
 ```text
 Amrex/
 ├── amrex-23.09/               # AMReX 23.09 源码
-├── amrex-26.01/               # AMReX 26.01 源码（当前主用）
-├── amrex-26.06/               # AMReX 26.06 上游对照源码
+├── amrex-26.01/               # AMReX 26.01 源码（多数算例使用）
+├── amrex-26.06/               # AMReX 26.06 源码（BOX3D 系列与部分圆柱流算例使用）
 ├── projects/                  # 全部算例工程
 │   ├── 2Dcases/               # 2D 具体算例
 │   ├── 3Dcases/               # 3D 具体算例
@@ -21,8 +21,11 @@ Amrex/
 │   ├── 3Dshared/              # 3D 共享组件/模板
 │   └── Cylindertest/          # 圆柱流系列算例
 ├── research/                  # 论文、学习笔记与参考实现（不参与构建）
-├── scripts/                   # 仓库级编译、同步、提交脚本
+├── scripts/                   # 仓库级编译、同步、提交、审计脚本
+├── docs/ai_changes/           # 跨算例工具、仓库规则与根目录文档的变更记录
 ├── 后处理脚本/               # 可视化与后处理脚本（Python/ParaView）
+├── .venv/                     # 全仓库共用的 Python 后处理环境
+├── CLAUDE.md                  # AI 协作规则（AGENTS.md 为其软链）
 └── README.md
 ```
 
@@ -30,9 +33,14 @@ Amrex/
 
 ### 2.1 AMReX 版本目录
 
-- `amrex-26.01/`: 当前主版本，算例默认优先对齐该版本头文件与接口。
-- `amrex-23.09/`: 历史版本/对照版本，便于迁移排查与行为对比。
-- `amrex-26.06/`: 上游版本对照目录；BOX3D 已迁移到该版本，其他算例仍以各自 `config/GNUmakefile` 为准。
+算例使用哪个版本只看其 `config/GNUmakefile` 中的 `AMREX_HOME`，本节仅作概览：
+
+- `amrex-26.01/`: 多数算例（2D/3D 通用算例、大部分圆柱流算例）使用。
+- `amrex-26.06/`: `Computing_performance_test/` 下的 BOX3D、BOX3D_OSI、
+  `amrex_cumulant_cavity_sphere`，以及 `Cylindertest/` 下的 `Cylinder3D`、
+  `Cylinder2D_DF10`、`Cylinder2D_DF15` 和部分 `Cylinder2D_BTDF*` 使用。
+  BOX3D 系列需要 C++20 与 GCC 11+。
+- `amrex-23.09/`: 历史对照版本，便于迁移排查与行为对比；当前没有算例配置引用它。
 
 ### 2.2 算例目录
 
@@ -53,9 +61,9 @@ Amrex/
 
 ```text
 <case>/
-├── GNUmakefile                # 算例构建入口（GNUmake）
+├── GNUmakefile                # 自动生成的包装入口，设置 VPATH 后 include config/GNUmakefile
 ├── config/                    # 生成或整理后的构建配置
-│   ├── GNUmakefile
+│   ├── GNUmakefile            # 实际构建配置（AMREX_HOME、COMP、USE_CUDA 等）
 │   ├── Make.package
 │   ├── inputs
 │   └── compile_commands.json
@@ -118,7 +126,8 @@ dsub -s ./scripts/submit.sh
 ## 5. Python 后处理环境
 
 仓库根 `.venv/` 是所有算例共用的 Python 虚拟环境，供后处理、数据分析和绘图脚本
-使用。算例目录不需要各自维护 `.venv`，也不应依赖系统 Python 的包集合。
+使用。算例目录不需要各自维护 `.venv`，也不应依赖系统 Python 的包集合；缺依赖时只在
+该环境中补齐。
 
 从仓库根调用：
 
@@ -126,10 +135,13 @@ dsub -s ./scripts/submit.sh
 .venv/bin/python <case>/data_post_processing/script.py
 ```
 
-从任意算例目录调用时，先定位仓库根，或使用相对路径调用其 `.venv/bin/python`。生成的
-图表应记录输入数据、步数、归一化方式和参考数据来源，避免与其他配置或历史作业混淆。
+从任意算例目录调用时，先定位仓库根，或使用相对路径调用其 `.venv/bin/python`。
 
 ## 6. 开发备注
+
+- 本仓库没有统一的单元测试布局，验证通常是目标算例构建成功或数值行为符合预期。
+- 代表性生产算例预期采用 GPU + MPI 运行。
+- `scripts/clean.sh` 影响范围广，运行前先检查其清理目标。
 
 - 本仓库包含多个算例并行演化，建议每个算例目录维护独立的 `.clangd` 与 `config/compile_commands.json`，减少跨算例语义干扰。
 - 使用根目录 `learnamerx.code-workspace` 切换多个算例时，`clangd.arguments` 中的 `--query-driver` 路径必须以逗号分隔。生成数据库后应确认编译器、C++ 标准和 `AMREX_HOME` 与该算例一致，再重启 clangd。

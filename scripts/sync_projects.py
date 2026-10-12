@@ -109,10 +109,10 @@ def _make_readme(name: str, description: str) -> str:
 - `docs/` — 附加文档（如有）。
 
 ## 同步说明
-这些文件由 `tools/sync_projects.py` 自动同步。如需再次更新，请在仓库根目录运行：
+这些文件由 `scripts/sync_projects.py` 自动同步。如需再次更新，请在仓库根目录运行：
 
 ```bash
-python tools/sync_projects.py --project {name}
+.venv/bin/python scripts/sync_projects.py --project {name}
 ```
 
 加入 `--clean` 可先清空目标目录，`--extra-exclude PATTERN` 可临时排除更多文件。
