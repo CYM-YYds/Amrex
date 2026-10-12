@@ -1,6 +1,13 @@
 # BOX3D_OSI 有意保留的未调用函数（scripts/code_audit.sh -a 使用）
 # 每行一个函数名，# 后为保留理由。2026-10-12 由用户逐组确认，基于提交 80c12a5。
-# 手动诊断函数（AmrCoreLBM_diagnostics.cpp）未列入，留待整体审查核对。
+
+# 手动诊断：b71f993 删除自动调用后改为按需手动插入，性能测试前移除（见 AmrCoreLBM.H 注释）
+ValidateInitializedState       # 各层 DDF/密度/速度有限性与正密度检查，A-B/OSI 通用
+PrintDdfChecksums              # 各层 valid/active DDF 总和与分量和，A-B/OSI 通用
+PrintLevelDdfChecksum          # 单层阶段 DDF 分量和，A-B/OSI 通用
+DiagnoseStreamResult           # 仅 A-B：Stream 后 NaN 位置与 pull 源
+DiagnoseBoundaryResult         # 仅 A-B：Boundary 后 NaN 的边界/interface 分布
+PrintInterpolationDiagnostics  # 仅 A-B：粗到细插值缓存布局与 DDF 范数
 
 # 旧推进周期：现役为 Cycle2；删除提交 14e46fa 已由用户回退（b620955），保留作对照
 RohdeCycle               # main.cpp，单粒子 Rohde 周期
