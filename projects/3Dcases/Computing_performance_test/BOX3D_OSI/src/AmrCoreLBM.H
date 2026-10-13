@@ -234,7 +234,16 @@ class AmrCoreLBM : public amrex::AmrCore {
     void FillDdfGhostFromCoarse(int lev, amrex::Real time,
                                 bool apply_scale);
     // lev 表示当前粗层；函数处理 lev + 1 的粗网格插值暂存区。
-    void ApplyPhysicalBoundaryToInterpolationStage(int lev);
+    void ApplyPhysicalBoundaryToInterpolationStage(
+        int coarse_lev, amrex::MultiFab& stage,
+        const amrex::Vector<unsigned char>& needs_physical_fill);
+    void ScaleInterpolationStage(amrex::MultiFab& stage, amrex::Real scale);
+    void InterpolateDdfStageToFine(
+        amrex::MultiFab& stage, amrex::MultiFab& fine,
+        const amrex::Vector<amrex::Box>& work_boxes,
+        const amrex::Vector<int>& fine_indices,
+        bool fine_osi, std::uint64_t fine_phase,
+        bool apply_scale, amrex::Real scale);
     void RemakeDdfState(int lev, amrex::Real time,
                         amrex::MultiFab& new_old_state);
     void RebuildCoarseFineMasks();
@@ -379,9 +388,15 @@ class AmrCoreLBM : public amrex::AmrCore {
     void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
                             const amrex::DistributionMapping& dm);
     void InitializeNewLevelFromCoarse(int lev, amrex::Real time);
-    void InterpolateCanonicalToFine(int lev, amrex::Real time,
-                                    amrex::MultiFab& fine,
-                                    amrex::MultiFab& coarse_canonical);
+    void BuildInterpolationStage(
+        int lev, const amrex::MultiFab& coarse, const amrex::MultiFab& fine,
+        const amrex::Vector<amrex::Box>& work_boxes,
+        const amrex::Vector<int>& fine_indices,
+        amrex::MultiFab& stage,
+        amrex::Vector<unsigned char>& needs_physical_fill) const;
+    void InitializeDdfFromCoarse(
+        int lev, amrex::Real time, const amrex::MultiFab& coarse,
+        bool coarse_osi, std::uint64_t coarse_phase, amrex::MultiFab& fine);
 
   public:
     // nvcc extended device lambdas require their enclosing member functions to
@@ -389,9 +404,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     void DecodeOsiValid(const amrex::MultiFab& state,
                         std::uint64_t phase,
                         amrex::MultiFab& canonical) const;
-    void ScaleCanonical(const amrex::MultiFab& density,
-                        const amrex::MultiFab& velocity,
-                        amrex::MultiFab& canonical, amrex::Real scale) const;
     void InterpolateOsiFinePatchFromCoarse(
         int lev, amrex::Real time,
         const amrex::BoxArray& fine_patch_ba,

@@ -139,54 +139,11 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
         }
     }
 
-    ApplyPhysicalBoundaryToInterpolationStage(lev);
-
-    for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-        const int stage_index = mfi.index();
-        const Box stage_box = mfi.validbox();
-        const auto coarse = coarse_stage.array(mfi);
-        if (apply_scale) {
-            amrex::ParallelFor(
-                stage_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    average_scale(i, j, k, coarse, scale);
-                });
-        }
-
-        const int fine_index = fine_indices.at(stage_index);
-        const Box fine_ring = amrex::grow(
-            fine_state.boxArray()[fine_index], fine_state.nGrowVect());
-        const auto [fine_fab, fine_shift] = OSI::MakeOsiFabContext(fine_ring, fine_phase);
-
-        const auto fine = fine_state.array(fine_index);
-        const auto coarse_const = coarse_stage.const_array(mfi);
-        const Box fine_box = fine_work_boxes.at(stage_index);
-        if (interp_mode == 0) {
-            amrex::ParallelFor(
-                fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    interp_bilinear_d3q(
-                        i, j, k, fine, coarse_const, fine_fab, fine_shift);
-                });
-        } else {
-            const Box coarse_parent_box = amrex::coarsen(fine_box, 2);
-            if (interp_mode == 1) {
-                amrex::ParallelFor(
-                    coarse_parent_box,
-                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                        interp_cell_cons_linear_children_d3q(
-                            ic, jc, kc, fine, coarse_const, fine_box,
-                            fine_fab, fine_shift);
-                    });
-            } else {
-                amrex::ParallelFor(
-                    coarse_parent_box,
-                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                        interp_cell_quadratic_children_d3q(
-                            ic, jc, kc, fine, coarse_const, fine_box,
-                            fine_fab, fine_shift);
-                    });
-            }
-        }
-    }
+    ApplyPhysicalBoundaryToInterpolationStage(
+        lev, coarse_stage, interp_direct_needs_physical_fill.at(fine_lev));
+    InterpolateDdfStageToFine(
+        coarse_stage, fine_state, fine_work_boxes, fine_indices,
+        true, fine_phase, apply_scale, scale);
 }
 
 void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
@@ -702,34 +659,6 @@ void AmrCoreLBM::ParallelCopyOsi(
             tag.dst(raw.x, raw.y, raw.z, q) =
                 receive_buffer[tag.offset + cell * Q + q];
         });
-}
-
-void AmrCoreLBM::ScaleCanonical(
-    const MultiFab& density_mf, const MultiFab& velocity_mf,
-    MultiFab& canonical, Real scale) const {
-    AMREX_ALWAYS_ASSERT(density_mf.boxArray() == canonical.boxArray());
-    AMREX_ALWAYS_ASSERT(velocity_mf.boxArray() == canonical.boxArray());
-    AMREX_ALWAYS_ASSERT(density_mf.DistributionMap() == canonical.DistributionMap());
-    AMREX_ALWAYS_ASSERT(velocity_mf.DistributionMap() == canonical.DistributionMap());
-    AMREX_ALWAYS_ASSERT(canonical.nComp() == Q);
-
-    for (MFIter mfi(canonical, false); mfi.isValid(); ++mfi) {
-        const Box bx = mfi.validbox();
-        const auto rho_field = density_mf.const_array(mfi);
-        const auto velocity_field = velocity_mf.const_array(mfi);
-        const auto ddf = canonical.array(mfi);
-        amrex::ParallelFor(
-            bx, Q,
-            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) noexcept {
-                const Real rho = rho_field(i, j, k);
-                const Real ux = velocity_field(i, j, k, 0);
-                const Real uy = velocity_field(i, j, k, 1);
-                const Real uz = velocity_field(i, j, k, 2);
-                const Real feq = feqQian(rho, {ux, uy, uz}, q);
-                ddf(i, j, k, q) =
-                    feq + (ddf(i, j, k, q) - feq) * scale;
-            });
-    }
 }
 
 void AmrCoreLBM::DecodeOsiValid(
