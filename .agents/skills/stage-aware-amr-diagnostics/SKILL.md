@@ -4,7 +4,6 @@ description: 调试 AMR-LBM 的 A-B/OSI 数值差异时，按重构、插值、�
 metadata:
   short-description: 按计算阶段选择 AMR 一致性检查范围
 ---
-
 # 按阶段选择 AMR 诊断范围
 
 用于 BOX3D/BOX3D_OSI 或相同数据流的 AMR-LBM 一致性排查。核心规则是：**检查范围跟随当前阶段的读写集合改变，不能用一个“全体网格”比较器代替所有阶段。**
@@ -13,7 +12,7 @@ metadata:
 
 ### 1. 尚未锁定首个差异时间步
 
-- 按固定间隔（通常每 32 步）锁步推进 A-B 与 OSI。
+- 按固定间隔（网格重构时间步长）锁步推进 A-B 与 OSI。
 - 所有层级只先比较 `uncovered valid` 区域，按 `level、logical cell、q、phase、stage` 记录首个差异。
 - 同时记录每层 `finest_level`、Box 数量、valid cell 数、covered/interface 计数和非有限值。
 - 这个阶段的结论只能是“首个 uncovered 差异在某步某层某阶段出现”，不能据此断言所有 ghost、covered 或 interface 都一致。
@@ -24,15 +23,15 @@ metadata:
 
 ## 各阶段的检查范围
 
-| 阶段 | 必须检查的范围 | 必须排除或单独分类的范围 |
-|---|---|---|
-| 网格重构 | 所有 active level 的所有 valid cell；包含 coarse covered 和 interface；检查 BoxArray、DistributionMap、covered/interface mask、有效 DDF | 不把“Box 数量一致”当作 DDF 一致；物理域外 ghost 单独检查 |
-| 重构后首次状态/插值 | 实际被插值写入的 fine ghost、coarse/fine stencil source、对应 level 的 phase-aware raw 地址 | 物理边界 ghost 与粗细接口 ghost 分开统计；不要只比较 uncovered valid |
-| 碰撞 | 与 `Collide(lev,n,layout)` 相同的 launch box、active mask、interface 例外规则；逐 cell、逐 q 比较碰撞前后 | 不比较未被碰撞 kernel 访问的整个 Fab；covered interior 若被跳过必须明确标记 |
-| 通信 | 实际 FB/CPC/OSI tag 的 send、receive 和目标 ghost 区；包括同层 patch ghost、MPI ghost、周期 ghost | 非周期物理边界 ghost 不归入通信正确性，另列为 physical-boundary ghost |
-| 迁移/Stream | 实际 target launch cell；每个 q 的 source 是 `target - e[q]`；检查 source 的 valid、interface/covered、内部 patch ghost | 迁移比较先排除非周期物理边界 target；物理边界 target 由 Boundary 阶段处理 |
-| 边界处理 | `boundary_work_boxes` 覆盖的物理边界 valid/ghost 和所有 active uncovered 边界 cell；比较 Boundary 后结果 | 不把内部 interface 或内部 patch ghost 归入物理边界处理 |
-| 平均/Restriction | 实际 fine-to-coarse source、coarse destination、covered/interface 过渡区和 average-down cache 覆盖范围 | 不用全层 norm 替代逐点 source/destination 检查；重构后重新暴露的 coarse cell 单独记录 |
+| 阶段                | 必须检查的范围                                                                                                                          | 必须排除或单独分类的范围                                                              |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 网格重构            | 所有 active level 的所有 valid cell；包含 coarse covered 和 interface；检查 BoxArray、DistributionMap、covered/interface mask、有效 DDF | 不把“Box 数量一致”当作 DDF 一致；物理域外 ghost 单独检查                            |
+| 重构后首次状态/插值 | 实际被插值写入的 fine ghost、coarse/fine stencil source、对应 level 的 phase-aware raw 地址                                             | 物理边界 ghost 与粗细接口 ghost 分开统计；不要只比较 uncovered valid                  |
+| 碰撞                | 与`Collide(lev,n,layout)` 相同的 launch box、active mask、interface 例外规则；逐 cell、逐 q 比较碰撞前后                              | 不比较未被碰撞 kernel 访问的整个 Fab；covered interior 若被跳过必须明确标记           |
+| 通信                | 实际 FB/CPC/OSI tag 的 send、receive 和目标 ghost 区；包括同层 patch ghost、MPI ghost、周期 ghost                                       | 非周期物理边界 ghost 不归入通信正确性，另列为 physical-boundary ghost                 |
+| 迁移/Stream         | 实际 target launch cell；每个 q 的 source 是`target - e[q]`；检查 source 的 valid、interface/covered、内部 patch ghost                | 迁移比较先排除非周期物理边界 target；物理边界 target 由 Boundary 阶段处理             |
+| 边界处理            | `boundary_work_boxes` 覆盖的物理边界 valid/ghost 和所有 active uncovered 边界 cell；比较 Boundary 后结果                              | 不把内部 interface 或内部 patch ghost 归入物理边界处理                                |
+| 平均/Restriction    | 实际 fine-to-coarse source、coarse destination、covered/interface 过渡区和 average-down cache 覆盖范围                                  | 不用全层 norm 替代逐点 source/destination 检查；重构后重新暴露的 coarse cell 单独记录 |
 
 ## 分类定义
 

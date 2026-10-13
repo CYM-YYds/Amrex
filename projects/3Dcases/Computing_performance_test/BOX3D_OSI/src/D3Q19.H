@@ -32,7 +32,6 @@ const Real R = D / 2.0;
 #define rho0 (1.0) //(p0 / cs2)
 #define p0 (rho0 * cs2)
 
-
 /*---------圆球绕流--------------------------*/
 #define U0 (0.05)
 #define Ma (U0 / cs)
