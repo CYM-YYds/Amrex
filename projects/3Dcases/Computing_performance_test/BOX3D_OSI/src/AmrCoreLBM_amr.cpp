@@ -179,7 +179,8 @@ void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
     if (streamMode() == 1 && !coarse_boxes.empty()) {
         osi_interp_copy_cache.at(lev).define(
             osi_state.at(lev - 1), coarse_stage,
-            Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct);
+            Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct,
+            osi_fab_phase_cache.at(lev - 1));
     }
     interp_direct_cache_ready[lev] = 1;
     ++perf_stats.interp_cache_builds;
@@ -704,7 +705,8 @@ void AmrCoreLBM::BuildAverageCache() {
             if (streamMode() == 1) {
                 osi_average_copy_cache.at(lev).define(
                     average_interface_buffer.at(lev), osi_state.at(lev),
-                    periodicity, Q, osi_mpi_device_direct);
+                    periodicity, Q, osi_mpi_device_direct,
+                    osi_fab_phase_cache.at(lev));
             }
         }
     }
@@ -872,6 +874,7 @@ void AmrCoreLBM::InitializeOsiLevel(
     osi_fillboundary_cache.at(lev).clear();
     osi_state.at(lev).define(ba, dm, Q, nghost);
     osi_phase.at(lev) = 0;
+    osi_fab_phase_cache.at(lev).define(osi_state.at(lev), 0);
     BuildOsiCommunicationRegionCache(lev);
 }
 
@@ -945,6 +948,7 @@ void AmrCoreLBM::InterpolateCanonicalToFine(
 void AmrCoreLBM::ClearLevel(int lev) {
     ClearOsiTransferCaches();
     osi_fillboundary_cache[lev].clear();
+    osi_fab_phase_cache[lev].clear();
     f_old[lev].clear();
     f_new[lev].clear();
     osi_state[lev].clear();

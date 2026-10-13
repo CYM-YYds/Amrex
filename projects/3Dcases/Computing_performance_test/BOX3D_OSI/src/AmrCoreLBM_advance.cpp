@@ -492,7 +492,10 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
 void AmrCoreLBM::Stream(int lev, int n, DdfLayout layout) {
     if (layout == DdfLayout::Osi) {
         // OSI 的逻辑迁移由 phase 提交完成，不搬运体积级 DDF。
+        ScopedPerfTimer timer(perf_stats.stream);
         ++osi_phase.at(lev);
+        // 当前 stream 上更新，后续边界、通信和粗细层传输读取同一份偏移。
+        osi_fab_phase_cache.at(lev).update(osi_phase.at(lev));
         return;
     }
 

@@ -76,6 +76,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     f_old.resize(nlevs_max);
     osi_state.resize(nlevs_max);
     osi_phase.resize(nlevs_max, 0);
+    osi_fab_phase_cache.resize(nlevs_max);
     osi_fillboundary_cache.resize(nlevs_max);
     osi_interp_copy_cache.resize(nlevs_max);
     osi_average_copy_cache.resize(nlevs_max);

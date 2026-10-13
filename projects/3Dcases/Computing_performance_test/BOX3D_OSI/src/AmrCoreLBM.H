@@ -444,6 +444,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     // osi_ab_check 显式启用。环形区间是每个 Fab 的完整 grown box。
     amrex::Vector<amrex::MultiFab> osi_state;
     amrex::Vector<std::uint64_t> osi_phase;
+    // 每层本地 Fab 的共享偏移表；随布局建立、随相位更新。
+    amrex::Vector<OSI::FabPhaseCache> osi_fab_phase_cache;
     amrex::Vector<OSI::FillBoundaryCache> osi_fillboundary_cache;
     // 仅在 AMReX 已确认 GPU-aware MPI 时，直接用 device staging buffer 通信。
     bool osi_mpi_device_direct = false;
@@ -472,7 +474,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::Vector<unsigned char>> interp_direct_needs_physical_fill;
     amrex::Vector<unsigned char> interp_direct_cache_ready;
     // 按细层编号保存插值搬运缓存，按粗层编号保存平均写回缓存。
-    // 几何、Array4 和收发缓冲只在布局重建时更新；当前 phase 在执行时传入。
+    // 几何、Array4 和收发缓冲只在布局重建时更新；相位偏移在执行时从对应层的共享表读取。
     amrex::Vector<OSI::CpcCache<true>> osi_interp_copy_cache;
     amrex::Vector<OSI::CpcCache<false>> osi_average_copy_cache;
     amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; // boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box

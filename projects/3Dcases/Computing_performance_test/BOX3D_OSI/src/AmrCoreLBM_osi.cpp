@@ -91,6 +91,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
 
     auto& cache = osi_interp_copy_cache.at(fine_lev);
     AMREX_ALWAYS_ASSERT(cache.ready);
+    const auto* phase_shifts = osi_fab_phase_cache.at(lev).data(coarse_phase);
     {
         ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy);
         OSI::parallel_copy_local(
@@ -99,7 +100,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
                                  const OSI::LocalCopyTag& tag) noexcept {
                 const auto source = OSI::source_cell(tag, i, j, k);
                 const auto phase_shift =
-                    OSI::osi_phase_shift(coarse_phase, tag.src_fab);
+                    phase_shifts[tag.src_phase_index];
                 const auto raw = OSI::osi_address(
                     {source[0], source[1], source[2]},
                     {e[q][0], e[q][1], e[q][2]}, tag.src_fab,
@@ -121,7 +122,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
                         ((k - lo[2]) * ny + (j - lo[1])) * nx +
                         (i - lo[0]));
                     const auto phase_shift =
-                        OSI::osi_phase_shift(coarse_phase, tag.fab);
+                        phase_shifts[tag.phase_index];
                     const auto raw = OSI::osi_address(
                         {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
                         phase_shift);
@@ -238,6 +239,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
     // 本地及远端写回任务随平均缓存建立，推进时只读取当前 coarse phase。
     auto& cache = osi_average_copy_cache.at(coarse_lev);
     AMREX_ALWAYS_ASSERT(cache.ready);
+    const auto* phase_shifts = osi_fab_phase_cache.at(coarse_lev).data(coarse_phase);
     ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy);
     OSI::parallel_copy_local(
         cache.local_tags, Q,
@@ -245,7 +247,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
                              const OSI::LocalCopyTag& tag) noexcept {
             const auto source = OSI::source_cell(tag, i, j, k);
             const auto shift =
-                OSI::osi_phase_shift(coarse_phase, tag.dst_fab);
+                phase_shifts[tag.dst_phase_index];
             const auto raw = OSI::osi_address(
                 {i, j, k}, {e[q][0], e[q][1], e[q][2]},
                 tag.dst_fab, shift);
@@ -270,7 +272,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
                 const std::size_t cell =
                     OSI::buffer_cell_index(tag.region, i, j, k);
                 const auto shift =
-                    OSI::osi_phase_shift(coarse_phase, tag.fab);
+                    phase_shifts[tag.phase_index];
                 const auto raw = OSI::osi_address(
                     {i, j, k}, {e[q][0], e[q][1], e[q][2]},
                     tag.fab, shift);
@@ -288,6 +290,8 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     auto& cache = osi_fillboundary_cache.at(lev);
     cache.clear();
     MultiFab& state = osi_state.at(lev);
+    const auto& phases = osi_fab_phase_cache.at(lev);
+    AMREX_ALWAYS_ASSERT(phases.matches(state));
     const BoxArray& ba = state.boxArray();
     const IntVect ng = state.nGrowVect();
     const std::uint64_t phase = osi_phase.at(lev);
@@ -303,7 +307,8 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
         local_tags.push_back({state.const_array(tag.srcIndex),
                               state.array(tag.dstIndex), tag.sbox, tag.dbox,
                               fab_geometry(tag.srcIndex),
-                              fab_geometry(tag.dstIndex)});
+                              fab_geometry(tag.dstIndex), phases.slot(tag.srcIndex),
+                              phases.slot(tag.dstIndex)});
     }
     cache.local_tags.define(local_tags);
 
@@ -322,11 +327,11 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
         cache.pack_tags, cache.unpack_tags,
         [&](const auto& tag, std::size_t offset) -> OSI::MpiPackTag {
             return {state.const_array(tag.srcIndex), tag.sbox,
-                    fab_geometry(tag.srcIndex), offset};
+                    fab_geometry(tag.srcIndex), offset, phases.slot(tag.srcIndex)};
         },
         [&](const auto& tag, std::size_t offset) -> OSI::MpiUnpackTag {
             return {state.array(tag.dstIndex), tag.dbox,
-                    fab_geometry(tag.dstIndex), offset};
+                    fab_geometry(tag.dstIndex), offset, phases.slot(tag.dstIndex)};
         });
     cache.buffers.resize(cache.plan, osi_mpi_device_direct);
 
@@ -349,6 +354,7 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
     ScopedPerfTimer timer(perf_stats.osi_fillboundary);
     const std::uint64_t phase = osi_phase.at(lev);
     auto& cache = osi_fillboundary_cache.at(lev);
+    const auto* phase_shifts = osi_fab_phase_cache.at(lev).data(phase);
 
     // 多 rank 时在投递远端 MPI 后启动本地 seam copy，使 GPU 工作与 MPI wait 重叠。
     const auto launch_local_copy = [&]() {
@@ -360,8 +366,8 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
                 const int si = source[0];
                 const int sj = source[1];
                 const int sk = source[2];
-                const auto src_shift = OSI::osi_phase_shift(phase, tag.src_fab);
-                const auto dst_shift = OSI::osi_phase_shift(phase, tag.dst_fab);
+                const auto src_shift = phase_shifts[tag.src_phase_index];
+                const auto dst_shift = phase_shifts[tag.dst_phase_index];
                 for (int q = 0; q < Q; ++q) {
                     const auto src_raw = OSI::osi_address(
                         {si, sj, sk}, {e[q][0], e[q][1], e[q][2]},
@@ -409,7 +415,7 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
                 [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
                                      const OSI::MpiPackTag& tag) noexcept {
                     const std::size_t cell = OSI::buffer_cell_index(tag.region, i, j, k);
-                    const auto phase_shift = OSI::osi_phase_shift(phase, tag.fab);
+                    const auto phase_shift = phase_shifts[tag.phase_index];
                     const auto raw = OSI::osi_address(
                         {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
                         phase_shift);
@@ -563,7 +569,7 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
                 [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
                                      const OSI::MpiUnpackTag& tag) noexcept {
                     const std::size_t cell = OSI::buffer_cell_index(tag.region, i, j, k);
-                    const auto phase_shift = OSI::osi_phase_shift(phase, tag.fab);
+                    const auto phase_shift = phase_shifts[tag.phase_index];
                     const auto raw = OSI::osi_address(
                         {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
                         phase_shift);

@@ -7,6 +7,7 @@
 #include <AMReX_GpuContainers.H>
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_MultiFab.H>
+#include <AMReX_MFIter.H>
 #include <AMReX_TagParallelFor.H>
 #include <AMReX_Vector.H>
 
@@ -18,7 +19,81 @@
 
 namespace OSI {
 
-// 同一 rank 内直接进行 OSI raw-to-raw 拷贝的通信描述。
+// 每层 OSI 状态的本地 Fab 相位表：全局盒编号只用于建立紧凑索引，
+// GPU 数据量随本地 Fab 数增长。相位唯一来自 osi_phase，表不独立推进时间。
+// 初始化/布局重建时 define；Stream 提交新相位时 update；释放状态前 clear。
+// 更新和读取必须在同一 GPU stream 上有序执行，禁止跨 stream 并发改写。
+struct FabPhaseCache {
+    amrex::Vector<int> slots;
+    amrex::Gpu::DeviceVector<FabGeometry> geometry;
+    amrex::Gpu::DeviceVector<PhaseShift3> shifts;
+    amrex::BoxArray layout;
+    amrex::DistributionMapping mapping;
+    amrex::IntVect ng;
+    std::uint64_t prepared_phase = 0;
+    bool ready = false;
+
+    void clear() {
+        amrex::Gpu::streamSynchronize();
+        ready = false;
+        slots.clear();
+        geometry.clear();
+        shifts.clear();
+        layout = amrex::BoxArray{};
+        mapping = amrex::DistributionMapping{};
+    }
+
+    void define(const amrex::MultiFab& state, std::uint64_t phase) {
+        clear();
+        layout = state.boxArray();
+        mapping = state.DistributionMap();
+        ng = state.nGrowVect();
+        slots.assign(layout.size(), -1);
+        amrex::Vector<FabGeometry> local;
+        for (amrex::MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+            slots[mfi.index()] = static_cast<int>(local.size());
+            local.push_back(MakeOsiFabContext(
+                amrex::grow(mfi.validbox(), ng), 0).fab);
+        }
+        geometry.resize(local.size());
+        shifts.resize(local.size());
+        amrex::Gpu::copy(amrex::Gpu::hostToDevice,
+                         local.begin(), local.end(), geometry.begin());
+        ready = true;
+        update(phase);
+    }
+
+    void update(std::uint64_t phase) {
+        AMREX_ALWAYS_ASSERT(ready);
+        const auto* fabs = geometry.data();
+        auto* values = shifts.data();
+        // 每个本地 Fab 一次取模；同一个 Fab 的所有 tag 和 Q 分量共用结果。
+        amrex::ParallelFor(static_cast<int>(shifts.size()),
+            [=] AMREX_GPU_DEVICE(int index) noexcept {
+                values[index] = osi_phase_shift(phase, fabs[index]);
+            });
+        prepared_phase = phase;
+    }
+
+    [[nodiscard]] int slot(int global_index) const {
+        AMREX_ALWAYS_ASSERT(ready && global_index >= 0 &&
+                            global_index < static_cast<int>(slots.size()));
+        AMREX_ALWAYS_ASSERT(slots[global_index] >= 0);
+        return slots[global_index];
+    }
+
+    [[nodiscard]] bool matches(const amrex::MultiFab& state) const {
+        return ready && layout == state.boxArray() &&
+               mapping == state.DistributionMap() && ng == state.nGrowVect();
+    }
+
+    [[nodiscard]] const PhaseShift3* data(std::uint64_t phase) const {
+        AMREX_ALWAYS_ASSERT(ready && prepared_phase == phase);
+        return shifts.data();
+    }
+};
+
+// 同一 rank 内的复制描述；持久任务使用相位表索引，临时迁移只使用 Fab 几何。
 struct LocalCopyTag {
     amrex::Array4<const amrex::Real> src;
     amrex::Array4<amrex::Real> dst;
@@ -26,6 +101,9 @@ struct LocalCopyTag {
     amrex::Box dst_box;
     FabGeometry src_fab;
     FabGeometry dst_fab;
+    // 指向所属层的本地 Fab 偏移表；临时 raw 迁移保留 -1 并自行计算相位。
+    int src_phase_index = -1;
+    int dst_phase_index = -1;
 
     [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
         return dst_box;
@@ -38,6 +116,7 @@ struct MpiPackTag {
     amrex::Box region;
     FabGeometry fab;
     std::size_t offset = 0;
+    int phase_index = -1;
 
     [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
         return region;
@@ -53,6 +132,7 @@ struct MpiUnpackTag {
     amrex::Box region;
     FabGeometry fab;
     std::size_t offset = 0;
+    int phase_index = -1;
 
     [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
         return region;
@@ -77,6 +157,7 @@ struct CanonicalRawUnpackTag {
     amrex::Box region;
     FabGeometry fab;
     std::size_t offset = 0;
+    int phase_index = -1;
 
     [[nodiscard]] AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE const amrex::Box& box() const noexcept {
         return region;
@@ -352,7 +433,8 @@ void define_mpi_tags(const SendTagMap& send_tags,
 }
 
 // 插值与平均共用的持久 CPC 派生任务。SourceRaw=true 表示 raw 到 canonical，
-// false 表示 canonical 到 raw；只缓存几何和数据地址，phase 在执行时传入。
+// false 表示 canonical 到 raw；几何、数据地址及相位表索引随布局缓存，
+// 执行时读取共享偏移表，不为每条 tag 单独保存或更新相位。
 template <bool SourceRaw>
 struct CpcCache {
     using PackTag = std::conditional_t<SourceRaw, RawPackTag, CanonicalPackTag>;
@@ -377,8 +459,9 @@ struct CpcCache {
 
     void define(const amrex::MultiFab& source, amrex::MultiFab& destination,
                 const amrex::Periodicity& periodicity, int ncomp,
-                bool device_direct) {
+                bool device_direct, const FabPhaseCache& phases) {
         clear();
+        AMREX_ALWAYS_ASSERT(phases.matches(SourceRaw ? source : destination));
         const auto& cpc = destination.getCPC(
             amrex::IntVect(0), source, amrex::IntVect(0), periodicity);
         AMREX_ALWAYS_ASSERT(cpc.m_LocTags && cpc.m_SndTags && cpc.m_RcvTags);
@@ -392,7 +475,9 @@ struct CpcCache {
             local.push_back({source.const_array(tag.srcIndex),
                              destination.array(tag.dstIndex), tag.sbox, tag.dbox,
                              geometry(source, tag.srcIndex),
-                             geometry(destination, tag.dstIndex)});
+                             geometry(destination, tag.dstIndex),
+                             SourceRaw ? phases.slot(tag.srcIndex) : -1,
+                             SourceRaw ? -1 : phases.slot(tag.dstIndex)});
         }
         local_tags.define(local);
         plan = make_mpi_plan(*cpc.m_SndTags, *cpc.m_RcvTags,
@@ -403,7 +488,8 @@ struct CpcCache {
             [&](const auto& tag, std::size_t offset) -> PackTag {
                 if constexpr (SourceRaw) {
                     return {source.const_array(tag.srcIndex), tag.sbox,
-                            geometry(source, tag.srcIndex), offset};
+                            geometry(source, tag.srcIndex), offset,
+                            phases.slot(tag.srcIndex)};
                 } else {
                     return {source.const_array(tag.srcIndex), tag.sbox, offset};
                 }
@@ -413,7 +499,8 @@ struct CpcCache {
                     return {destination.array(tag.dstIndex), tag.dbox, offset};
                 } else {
                     return {destination.array(tag.dstIndex), tag.dbox,
-                            geometry(destination, tag.dstIndex), offset};
+                            geometry(destination, tag.dstIndex), offset,
+                            phases.slot(tag.dstIndex)};
                 }
             });
         buffers.resize(plan, device_direct);
