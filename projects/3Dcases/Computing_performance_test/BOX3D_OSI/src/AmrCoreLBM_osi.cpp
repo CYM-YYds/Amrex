@@ -89,55 +89,8 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
         return;
     }
 
-    auto& cache = osi_interp_copy_cache.at(fine_lev);
-    AMREX_ALWAYS_ASSERT(cache.ready);
-    const auto* phase_shifts = osi_fab_phase_cache.at(lev).data(coarse_phase);
-    {
-        ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy);
-        OSI::parallel_copy_local(
-            cache.local_tags, Q,
-            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                                 const OSI::LocalCopyTag& tag) noexcept {
-                const auto source = OSI::source_cell(tag, i, j, k);
-                const auto phase_shift =
-                    phase_shifts[tag.src_phase_index];
-                const auto raw = OSI::osi_address(
-                    {source[0], source[1], source[2]},
-                    {e[q][0], e[q][1], e[q][2]}, tag.src_fab,
-                    phase_shift);
-                tag.dst(i, j, k, q) = tag.src(raw.x, raw.y, raw.z, q);
-            });
-
-        if (ParallelDescriptor::NProcs() > 1) {
-            OSI::parallel_copy_mpi(
-                cache.pack_tags, cache.unpack_tags, cache.plan,
-                osi_mpi_device_direct, Q, ParallelDescriptor::NProcs(),
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                                     const OSI::RawPackTag& tag,
-                                     Real* buffer) noexcept {
-                    const auto lo = tag.region.smallEnd();
-                    const int nx = tag.region.length(0);
-                    const int ny = tag.region.length(1);
-                    const std::size_t cell = static_cast<std::size_t>(
-                        ((k - lo[2]) * ny + (j - lo[1])) * nx +
-                        (i - lo[0]));
-                    const auto phase_shift =
-                        phase_shifts[tag.phase_index];
-                    const auto raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
-                        phase_shift);
-                    buffer[tag.offset + cell * Q + q] =
-                        tag.src(raw.x, raw.y, raw.z, q);
-                },
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                                     const OSI::CanonicalUnpackTag& tag,
-                                     const Real* buffer) noexcept {
-                    const std::size_t cell = OSI::buffer_cell_index(tag.region, i, j, k);
-                    tag.dst(i, j, k, q) =
-                        buffer[tag.offset + cell * Q + q];
-                }, {}, &cache.buffers);
-        }
-    }
+    ParallelCopyOsi(osi_interp_copy_cache.at(fine_lev),
+                    osi_fab_phase_cache.at(lev).data(coarse_phase));
 
     ApplyPhysicalBoundaryToInterpolationStage(
         lev, coarse_stage, interp_direct_needs_physical_fill.at(fine_lev));
@@ -193,54 +146,12 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
 #endif
     }
 
-    // 本地及远端写回任务随平均缓存建立，推进时只读取当前 coarse phase。
-    auto& cache = osi_average_copy_cache.at(coarse_lev);
-    AMREX_ALWAYS_ASSERT(cache.ready);
-    const auto* phase_shifts = osi_fab_phase_cache.at(coarse_lev).data(coarse_phase);
-    ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy);
-    OSI::parallel_copy_local(
-        cache.local_tags, Q,
-        [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                             const OSI::LocalCopyTag& tag) noexcept {
-            const auto source = OSI::source_cell(tag, i, j, k);
-            const auto shift =
-                phase_shifts[tag.dst_phase_index];
-            const auto raw = OSI::osi_address(
-                {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                tag.dst_fab, shift);
-            tag.dst(raw.x, raw.y, raw.z, q) =
-                tag.src(source[0], source[1], source[2], q);
-        });
-
-    if (ParallelDescriptor::NProcs() > 1) {
-        OSI::parallel_copy_mpi(
-            cache.pack_tags, cache.unpack_tags, cache.plan,
-            osi_mpi_device_direct, Q, ParallelDescriptor::NProcs(),
-            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                                 const OSI::CanonicalPackTag& tag,
-                                 Real* buffer) noexcept {
-                const std::size_t cell =
-                    OSI::buffer_cell_index(tag.region, i, j, k);
-                buffer[tag.offset + cell * Q + q] = tag.src(i, j, k, q);
-            },
-            [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                                 const OSI::CanonicalRawUnpackTag& tag,
-                                 const Real* buffer) noexcept {
-                const std::size_t cell =
-                    OSI::buffer_cell_index(tag.region, i, j, k);
-                const auto shift =
-                    phase_shifts[tag.phase_index];
-                const auto raw = OSI::osi_address(
-                    {i, j, k}, {e[q][0], e[q][1], e[q][2]},
-                    tag.fab, shift);
-                tag.dst(raw.x, raw.y, raw.z, q) =
-                    buffer[tag.offset + cell * Q + q];
-            },
-            {&perf_stats.osi_mpi_pack, &perf_stats.osi_mpi_wait,
-             &perf_stats.osi_mpi_unpack}, &cache.buffers);
-    } else {
-        amrex::Gpu::streamSynchronize();
-    }
+    // 复用布局缓存，入口统一负责本地/MPI 分派和当前 phase 的地址映射。
+    ParallelCopyOsi(
+        osi_average_copy_cache.at(coarse_lev),
+        osi_fab_phase_cache.at(coarse_lev).data(coarse_phase),
+        {&perf_stats.osi_mpi_pack, &perf_stats.osi_mpi_wait,
+         &perf_stats.osi_mpi_unpack});
 }
 
 void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
@@ -538,6 +449,71 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
 #else
     amrex::Abort("OSI remote communication requires an MPI build");
 #endif
+}
+
+// 缓存搬运只更新当前相位，复用已有任务与缓冲；不重建 CPC 几何。
+template <bool SourceRaw>
+void AmrCoreLBM::ParallelCopyOsi(
+    OSI::CpcCache<SourceRaw>& cache, const OSI::PhaseShift3* phase_shifts,
+    OSI::CopyTiming timing) {
+    AMREX_ALWAYS_ASSERT(cache.ready);
+    ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy);
+    OSI::parallel_copy_local(
+        cache.local_tags, Q,
+        [phase_shifts] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                             const OSI::LocalCopyTag& tag) noexcept {
+            const auto source = OSI::source_cell(tag, i, j, k);
+            if constexpr (SourceRaw) {
+                const auto raw = OSI::osi_address(
+                    {source[0], source[1], source[2]},
+                    {e[q][0], e[q][1], e[q][2]}, tag.src_fab,
+                    phase_shifts[tag.src_phase_index]);
+                tag.dst(i, j, k, q) = tag.src(raw.x, raw.y, raw.z, q);
+            } else {
+                const auto raw = OSI::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.dst_fab,
+                    phase_shifts[tag.dst_phase_index]);
+                tag.dst(raw.x, raw.y, raw.z, q) =
+                    tag.src(source[0], source[1], source[2], q);
+            }
+        });
+    const int nprocs = ParallelDescriptor::NProcs();
+    if (nprocs == 1) {
+        // 平均写回保留同步；插值随后在同一 stream 消费暂存数据。
+        if constexpr (!SourceRaw) {
+            Gpu::streamSynchronize();
+        }
+        return;
+    }
+    using PackTag = typename OSI::CpcCache<SourceRaw>::PackTag;
+    using UnpackTag = typename OSI::CpcCache<SourceRaw>::UnpackTag;
+    OSI::parallel_copy_mpi(
+        cache.pack_tags, cache.unpack_tags, cache.plan,
+        osi_mpi_device_direct, Q, nprocs,
+        [phase_shifts] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                             const PackTag& tag, Real* buffer) noexcept {
+            const std::size_t cell = OSI::buffer_cell_index(tag.region, i, j, k);
+            if constexpr (SourceRaw) {
+                const auto raw = OSI::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                    phase_shifts[tag.phase_index]);
+                buffer[tag.offset + cell * Q + q] = tag.src(raw.x, raw.y, raw.z, q);
+            } else {
+                buffer[tag.offset + cell * Q + q] = tag.src(i, j, k, q);
+            }
+        },
+        [phase_shifts] AMREX_GPU_DEVICE(int i, int j, int k, int q,
+                             const UnpackTag& tag, const Real* buffer) noexcept {
+            const std::size_t cell = OSI::buffer_cell_index(tag.region, i, j, k);
+            if constexpr (SourceRaw) {
+                tag.dst(i, j, k, q) = buffer[tag.offset + cell * Q + q];
+            } else {
+                const auto raw = OSI::osi_address(
+                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                    phase_shifts[tag.phase_index]);
+                tag.dst(raw.x, raw.y, raw.z, q) = buffer[tag.offset + cell * Q + q];
+            }
+        }, timing, &cache.buffers);
 }
 
 void AmrCoreLBM::ParallelCopyOsi(

@@ -414,6 +414,11 @@ class AmrCoreLBM : public amrex::AmrCore {
                                 bool apply_scale);
     // fine_lev 表示当前细层；将 fine_lev 平均下传到 fine_lev - 1 粗层。
     void AverageDownOsiLevel(int fine_lev, bool is_scale);
+    // 缓存重载统一执行插值/平均搬运，不重建布局计划。
+    template <bool SourceRaw>
+    void ParallelCopyOsi(OSI::CpcCache<SourceRaw>& cache,
+                         const OSI::PhaseShift3* phase_shifts,
+                         OSI::CopyTiming timing = {});
     // OSI 版 ParallelCopy：按 CPC 逻辑交集把旧 raw 状态迁移到新 Fab 布局。
     void ParallelCopyOsi(int lev, const amrex::MultiFab& source,
                          std::uint64_t source_phase,
