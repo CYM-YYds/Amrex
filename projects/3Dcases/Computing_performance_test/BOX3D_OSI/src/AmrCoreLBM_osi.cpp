@@ -2,7 +2,6 @@
 
 #include <AMReX_BoxList.H>
 #include <AMReX_MultiFabUtil.H>
-#include <AMReX_PhysBCFunct.H>
 #include <AMReX_Utility.H>
 #include <algorithm>
 #include <optional>
@@ -668,80 +667,13 @@ void AmrCoreLBM::InterpolateOsiFinePatchFromCoarse(
     }
     AMREX_ALWAYS_ASSERT(lev > 0);
     AMREX_ALWAYS_ASSERT(refRatio(lev - 1) == IntVect(2));
-    const IntVect ratio = refRatio(lev - 1);
-    const auto coarsener = DdfInterpolater()->BoxCoarsener(ratio);
-    Vector<Box> coarse_boxes;
-    coarse_boxes.reserve(fine_patch_ba.size());
-    for (int ibox = 0; ibox < fine_patch_ba.size(); ++ibox) {
-        coarse_boxes.push_back(coarsener.doit(fine_patch_ba[ibox]));
-    }
-
-    BoxArray coarse_ba(
-        coarse_boxes.data(), static_cast<int>(coarse_boxes.size()));
-    MultiFab coarse_patch(coarse_ba, patch_dm, Q, 0);
-    coarse_patch.setDomainBndry(
-        std::numeric_limits<Real>::quiet_NaN(), Geom(lev - 1));
-
-    const MultiFab& coarse_state = osi_state.at(lev - 1);
-    const auto coarse_phase = osi_phase.at(lev - 1);
-    // 稀疏粗层 patch 也直接使用 phase-aware 完整 Q 复制，避免重复分批解码。
-    ParallelCopyOsi(lev - 1, coarse_state, coarse_phase, coarse_patch, 0);
-
-    if (Gpu::inLaunchRegion()) { // 处理 coarse 物理边界
-        GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cphysbc(
-            geom[lev - 1], bcs, gpu_bndry_func);
-        cphysbc(coarse_patch, 0, Q, coarse_patch.nGrowVect(), time, 0);
-    } else {
-        CpuBndryFuncFab bndry_func(nullptr);
-        PhysBCFunct<CpuBndryFuncFab> cphysbc(
-            geom[lev - 1], bcs, bndry_func);
-        cphysbc(coarse_patch, 0, Q, coarse_patch.nGrowVect(), time, 0);
-    }
-
-    const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
-    for (MFIter mfi(coarse_patch, false); mfi.isValid(); ++mfi) {
-        const Box bx = mfi.validbox();
-        const auto coarse = coarse_patch.array(mfi);
-        amrex::ParallelFor(
-            bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                average_scale(i, j, k, coarse, scale);
-            });
-    }
-
-    // regrid 只为新增 fine valid 区构造稀疏 patch。destination 是完整
-    // phase-0 level，二者布局不同，因此始终通过 sparse patch 中转。
+    // 重构只补缺少旧 fine 来源的 valid 区；稀疏 patch 与完整目标布局不同。
     MultiFab fine_patch(fine_patch_ba, patch_dm, Q, 0);
+    InitializeDdfFromCoarse(
+        lev, time, osi_state.at(lev - 1), true,
+        osi_phase.at(lev - 1), fine_patch);
 
-    for (MFIter mfi(fine_patch, false); mfi.isValid(); ++mfi) {
-        const Box bx = mfi.validbox();
-        const auto fine = fine_patch.array(mfi);
-        const auto coarse = coarse_patch.const_array(mfi);
-        if (interp_mode == 0) {
-            amrex::ParallelFor(
-                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                    interp_bilinear_d3q(i, j, k, fine, coarse);
-                });
-        } else {
-            const Box coarse_parent_box = amrex::coarsen(bx, 2);
-            if (interp_mode == 1) {
-                amrex::ParallelFor(
-                    coarse_parent_box,
-                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) noexcept {
-                        interp_cell_cons_linear_children_d3q(
-                            ic, jc, kc, fine, coarse, bx);
-                    });
-            } else {
-                amrex::ParallelFor(
-                    coarse_parent_box,
-                    [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) noexcept {
-                        interp_cell_quadratic_children_d3q(
-                            ic, jc, kc, fine, coarse, bx);
-                    });
-            }
-        }
-    }
-
+    // 目标层 phase=0，按 canonical 地址写回，保留已迁移的旧 fine 数据。
     destination.ParallelCopy(
         fine_patch, 0, 0, Q, IntVect(0), IntVect(0),
         Geom(lev).periodicity());
