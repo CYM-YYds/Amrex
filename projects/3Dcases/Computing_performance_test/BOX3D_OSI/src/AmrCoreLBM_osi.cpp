@@ -658,23 +658,3 @@ void AmrCoreLBM::DecodeOsiValid(
             });
     }
 }
-
-void AmrCoreLBM::InterpolateOsiFinePatchFromCoarse(
-    int lev, Real time, const BoxArray& fine_patch_ba,
-    const DistributionMapping& patch_dm, MultiFab& destination) {
-    if (fine_patch_ba.empty()) {
-        return;
-    }
-    AMREX_ALWAYS_ASSERT(lev > 0);
-    AMREX_ALWAYS_ASSERT(refRatio(lev - 1) == IntVect(2));
-    // 重构只补缺少旧 fine 来源的 valid 区；稀疏 patch 与完整目标布局不同。
-    MultiFab fine_patch(fine_patch_ba, patch_dm, Q, 0);
-    InitializeDdfFromCoarse(
-        lev, time, osi_state.at(lev - 1), true,
-        osi_phase.at(lev - 1), fine_patch);
-
-    // 目标层 phase=0，按 canonical 地址写回，保留已迁移的旧 fine 数据。
-    destination.ParallelCopy(
-        fine_patch, 0, 0, Q, IntVect(0), IntVect(0),
-        Geom(lev).periodicity());
-}

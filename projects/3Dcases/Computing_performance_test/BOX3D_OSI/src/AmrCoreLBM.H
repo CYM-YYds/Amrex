@@ -403,11 +403,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     void DecodeOsiValid(const amrex::MultiFab& state,
                         std::uint64_t phase,
                         amrex::MultiFab& canonical) const;
-    void InterpolateOsiFinePatchFromCoarse(
-        int lev, amrex::Real time,
-        const amrex::BoxArray& fine_patch_ba,
-        const amrex::DistributionMapping& patch_dm,
-        amrex::MultiFab& destination);
     void AverageDownOsiValidLevel(int lev, bool is_scale);
     // lev 表示当前粗层；函数填充 lev + 1 细层的 OSI ghost。
     void FillOsiGhostFromCoarse(int lev, amrex::Real time,

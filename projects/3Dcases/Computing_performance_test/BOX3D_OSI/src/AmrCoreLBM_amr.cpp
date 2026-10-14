@@ -874,9 +874,18 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
             const auto& fpc = FabArrayBase::TheFPinfo(
                 old_state, new_osi_state, fill_ng, coarsener,
                 Geom(lev), Geom(lev - 1), nullptr); // 得到新 fine 中不被旧 fine 覆盖的区域以及为了插值这些 fine 区域需要读取的粗层 stencil
-            InterpolateOsiFinePatchFromCoarse(
-                lev, time, fpc.ba_fine_patch, fpc.dm_patch,
-                new_osi_state);
+            if (!fpc.ba_fine_patch.empty()) {
+                AMREX_ALWAYS_ASSERT(ratio == IntVect(2));
+                // 重构只补缺少旧 fine 来源的 valid 区，保留稀疏 patch 中转。
+                MultiFab fine_patch(fpc.ba_fine_patch, fpc.dm_patch, Q, 0);
+                InitializeDdfFromCoarse(
+                    lev, time, osi_state.at(lev - 1), true,
+                    osi_phase.at(lev - 1), fine_patch);
+                // 新层 phase=0，只写 patch valid，保留已迁移的旧 fine 数据。
+                new_osi_state.ParallelCopy(
+                    fine_patch, 0, 0, Q, IntVect(0), IntVect(0),
+                    Geom(lev).periodicity());
+            }
         }
 
         force_new.setVal(0.0, nghost);
