@@ -360,7 +360,8 @@ regrid 前完整 AverageDownValid
         -> 按各粗层当前 phase 只修复 covered valid 物理边界
         -> Remake 布局不变: 保留旧 raw state 和 phase
         -> Remake 布局变化: ParallelCopyOsi 经 CPC 本地/MPI 标签迁移旧 fine valid 到新布局 phase 0
-        -> Remake 新增区: coarse OSI -> 稀疏 coarse/fine patch -> 新 fine phase 0
+        -> Remake 新增区: FPinfo patch 与目标 Fab 求交 -> 稀疏 coarse staging
+                         -> InitializeDdfFromCoarse 直接写所需 fine valid，phase 0
         -> MakeNew: InitializeDdfFromCoarse 按 fine valid 建立稀疏 coarse stencil
                     -> 按 coarse 当前 phase 搬运 Q 分量，延拓 stencil 的物理域外来源
                     -> 非平衡缩放与自定义插值核 -> 新 fine valid，phase 0（不填 fine ghost）

@@ -417,6 +417,13 @@ $$
 patch 的 coarse 插值初始化新增 valid 区域，再以旧 `f_old[lev]` 覆盖可迁移的
 fine valid 数据；此迁移路径的目标 ghost 宽度为 0。
 
+上述 `RemakeDdfState()` 是 A-B 分支。OSI 分支先用 `ParallelCopyOsi()` 迁移
+旧 fine valid，再对 FPinfo 缺失 patch 与新 BoxArray 求交，得到实际写入区域和
+目标 Fab 索引。`InitializeDdfFromCoarse()` 接收这组映射，coarse staging owner
+与目标 Fab 一致，直接写 phase=0 的新层 valid；不分配 fine 中转数组，也不填 ghost。
+空缺失集合跳过，旧 fine 迁移结果保留。普通 ghost 插值继续复用长期缓存，
+重构的 coarse staging 是调用内工作区。验证与诊断范围见[当前状态](current_status.md)。
+
 ## 8. 容易混淆的五个点
 
 1. **DDF coarse-to-fine 填充不是 IBM 插值。** `InterpForce()` 处理拉格朗日粒子与欧拉网格的耦合，两者的数据拥有者、kernel 和物理意义都不同。

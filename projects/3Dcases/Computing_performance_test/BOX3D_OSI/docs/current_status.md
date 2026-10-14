@@ -6,6 +6,45 @@
 冻结版本成立。遇到旧 fallback、已删除函数或“重启待验收”的说法时，以顶部
 及[架构文档](osi_algorithm_and_architecture.md)中的现役调用链为准。
 
+## 2026-10-14 直接重构插值与诊断范围
+
+现役 `RemakeLevel()` 按 FPinfo 缺失 valid patch 与目标 BoxArray 求交，建立
+work_boxes/fine_indices，并调用带区域参数的 `InitializeDdfFromCoarse()`。
+插值直接写目标 phase=0 的 valid；没有 fine_patch 中转或最后一次复制。
+coarse staging 仍按目标 Fab owner 建立。省略区域参数时初始化整层 valid。
+机制统一见[DDF 填充文档](DDF粗细网格填充学习文档.md#7-normal-ghost-填充与重构迁移两条调用路径)。
+
+`ParallelCopyOsi()` 有临时 MultiFab 搬运和缓存搬运两个重载；插值/平均使用
+缓存重载统一分派本地/MPI，复用原 tag、plan 和 buffer，临时迁移保留调用内计划。
+退役的 `InterpolateOsiFinePatchFromCoarse` 已合入 RemakeLevel。
+
+`356a845` 的冻结 app 在作业 613414 完成四组 64 步动态 AMR：mode 0 单/双 rank、
+mode 1/2 双 rank，包含 step 32/64 重构。33 个改动前后 DDF checkpoint 文件
+逐字节一致，平均探针一致；构建通过。运行包含当时用户未提交的 amr.cpp 修改，
+不能将此 app 等同于干净提交构建。详见
+[直接写回记录](ai_changes/2026-10-14-direct-regrid-interpolation.md)。
+
+诊断范围按[阶段诊断 skill](../../../../../.agents/skills/stage-aware-amr-diagnostics/SKILL.md)：
+普通推进粗检先比较 uncovered valid；重构返回处才专门检查全 valid，包括
+covered/interface；插值和平均检查实际读写集合。推进结束后的全 valid checkpoint
+比较是存储回归检查，不替代重构测点，也不作为一般 uncovered 粗检的验收条件。
+`submit_cpc_cache_validation.sh` 仍执行专项全 valid checkpoint 范数检查；本次未改脚本。
+
+613414 日志的部分全 valid 差值 L1/L2 为 NaN；未逐点定位，不能直接归因于
+covered，也不能由 Linf=0 推断所有 valid 有限。字节一致支持存储未改变，
+不支持数据全部有限的结论。一般粗检不把这一未分类范数当作 active 流场失败。
+若需查因，另开按阶段、范围和非有限值分类的诊断。
+
+本次知识收尾：代码/规则 verified-current，文档 changed-and-verified；运行证据
+verified-current 仅指上述冻结窗口，用户后续未提交源码修改的编译/运行 pending。
+记忆 generated-read-only，未写入；部署 not-applicable。其他算例、性能重新测量、
+长期/多节点/运动 IBM 验收 out-of-scope；既有 physical-ghost source 差异保留。
+
+新增现场全部保留：`runs/cpc_cache_613414` 约 3.7 GiB，含不可丢弃的验证证据；
+`parallel_copy_entry_20261014`、`direct_remake_20261014` 各约 119 MiB，含基线 app；
+`regrid_interp_reuse_20261014`、`inline_regrid_patch_20261014` 仅约 276/328 KiB 的编译日志。
+本轮未确认新的冗余运行目录，不新增删除项，不复用上次清场授权。
+
 ## 2026-10-14 新层初始化与插值收尾
 
 现役 `InitializeDdfFromCoarse()` 仅插值 fine valid，按所需 stencil 建立调用内
@@ -30,7 +69,7 @@ AMReX 的 `DdfInterpolater()` 只提供几何。公式说明统一见
   [自定义插值](ai_changes/2026-10-14-custom-ddf-interpolation.md)；其中旧的
   AMReX 数值初始化和 valid+ghost 范围只代表当时版本。
 
-本次知识收尾：代码与根规则链 verified-current；文档 changed-and-verified；
+上一轮知识收尾（对应当时源码）：代码与根规则链 verified-current；文档 changed-and-verified；
 运行证据限于上述冻结作业和当前合并的编译验证；记忆 generated-read-only，
 其中旧 builder 名称已过期，以本节和现役源码为准，未写记忆。
 长期严格、多节点、GPU-aware MPI、运动 IBM 完整重启仍 pending；
