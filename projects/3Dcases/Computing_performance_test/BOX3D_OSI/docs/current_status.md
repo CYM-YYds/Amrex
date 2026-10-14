@@ -37,13 +37,14 @@ AMReX 的 `DdfInterpolater()` 只提供几何。公式说明统一见
 非周期 physical-ghost source 差异未消除。其他算例、性能重新测量与全仓库
 结构审查 out-of-scope；没有部署环节，部署验收 not-applicable。
 
-会话运行现场保留，未清场：`sparse_init_20261013`、`custom_interp_20261014`、
-`valid_init_20261014` 各约 305 MiB，`merge_interp_cache_20261014` 约 119 MiB，
-都含基线 app/源码或构建证据；613335/613372/613389 的成功运行必须保留，
-613319/613324/613371 的失败现场用于解释修复和比较范围。
-删除候选仅为这些构建目录中可再生的对象文件，以及已取消的
-`runs/sparse_initialization_613392/`（约 327 MiB，只有部分执行证据，须先保留
-输入、源码和 app 快照再考虑清除）。复核现场仍保留，等待用户确认后清场。
+2026-10-14 用户在收尾汇报后授权清理冗余运行：已删除三轮初始化测试构建
+目录内的 `build/tmp_build_dir`，保留测试 app、源码及编译日志。
+已取消的 `runs/sparse_initialization_613392/` 归并到
+`runs/merge_interp_cache_20261014/cancelled_job613392/`：保留独有输入、源码、
+日志与 `after.ex`；重复的 before/test app 经 SHA256 确认后删除，其保留位置
+记录于归档中的 `retained_executables.json`。合计移除约 500 MiB 文件内容。
+613335/613372/613389 成功证据和 613319/613324/613371 失败诊断现场均未删除；
+其余历史运行未作冗余判定，继续保留。
 
 ## 2026-10-11 当前数值验证边界（冻结版本）
 
