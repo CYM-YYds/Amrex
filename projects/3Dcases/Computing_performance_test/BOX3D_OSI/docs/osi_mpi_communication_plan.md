@@ -11,7 +11,8 @@
 
 ## 2026-10-10：插值与界面平均的通信缓存
 
-`BuildDirectInterpolationCache()` 和 `BuildAverageCache()` 分别建立
+现役 `BuildInterpolationCache()`（原单层 builder 已于 2026-10-14 合入）
+和 `BuildAverageCache()` 分别建立
 `OSI::CpcCache<true>`（raw 到 canonical）和 `OSI::CpcCache<false>`
 （canonical 到 raw）。两者都一次性从 AMReX CPC 获取本地、发送及接收记录，
 转换为 GPU tag，计算 peer counts/offsets，并分配 device/pinned 收发缓冲。

@@ -406,16 +406,16 @@ stencil，也不改变 `ParallelCopy`、coarse 缩放、插值或 fine `FillBoun
 
 ## direct 插值缓存生命周期与计时归属
 
-direct 路径的单层几何布局现由 `BuildDirectInterpolationCache()` 构造，并在
+direct 路径的单层几何布局现由 `BuildInterpolationCache()` 构造，并在
 `RebuildCoarseFineCaches()` 中随 mask、边界工作区和 restriction 缓存一起失效和重建。
-总入口只负责清理和编排：
+入口内部逐层构建插值工作区和搬运计划：
 
 ```text
 RebuildCoarseFineCaches
   -> RebuildCoarseFineMasks
   -> BuildBoundaryWorkBoxes
   -> BuildInterpolationCache
-       -> BuildDirectInterpolationCache(lev)
+       -> 逐层建立 stencil 与 CPC 搬运计划
   -> BuildRestrictionCache
 ```
 

@@ -75,13 +75,23 @@ valid 数据并初始化新增 valid 区域。两条路径采用相同的 coarse
 | `1` | `cell_cons_interp` | `interp_cell_cons_linear_children_d3q()` |
 | `2` | `quadratic_interp` | `interp_cell_quadratic_children_d3q()` |
 
+新层的 `InitializeDdfFromCoarse()` 也使用上述自定义 kernel，只写 fine valid，
+不填 fine ghost；coarse 暂存区仅包含这些 valid 所需的完整 stencil。
+`DdfInterpolater()` 只提供 BoxCoarsener/FPinfo 几何，不执行 DDF 数值插值。
+coarse stencil 的物理域外延拓仍用于 fine valid 边缘取值。
+
+mode 1 使用逐分量、逐方向 minmod 斜率，完整八子单元平均守恒，
+不等同于 AMReX 多分量 limiter，也不保证多维最大值原理。
+mode 2 使用中心差分的二阶 Taylor 展开；不将测试数据上的一致外推为任意数据
+与 AMReX 公式等价。验证范围见[当前交接状态](current_status.md)。
+
 ## 2. 学习所需的四个文件
 
 | 文件                                | 重点内容                                                      |
 | ----------------------------------- | ------------------------------------------------------------- |
 | [`main.cpp`](../src/main.cpp)             | `Cycle2()` 何时请求 ghost 填充                              |
 | [`AmrCoreLBM.H`](../src/AmrCoreLBM.H)     | DDF`MultiFab`、运行模式和 direct cache 的所有权             |
-| [`AmrCoreLBM_amr.cpp`](../src/AmrCoreLBM_amr.cpp) | `BuildDirectInterpolationCache()`、ghost 填充和重构迁移逻辑 |
+| [`AmrCoreLBM_amr.cpp`](../src/AmrCoreLBM_amr.cpp) | `BuildInterpolationCache()`、ghost 填充和重构迁移逻辑 |
 | [`Kernels.H`](../src/Kernels.H)           | `average_scale()` 和 `interp_bilinear_d3q()` 的数值公式   |
 
 推荐在编辑器中按以下顺序跳转：
@@ -90,13 +100,13 @@ valid 数据并初始化新增 valid 区域。两条路径采用相同的 coarse
 Cycle2
   -> FillGhostLevel
   -> FillDdfGhostFromCoarse
-  -> BuildDirectInterpolationCache
+  -> BuildInterpolationCache
   -> average_scale
   -> interp_bilinear_d3q
 ```
 
-拆分后的 `FillGhostLevel()`、`FillDdfGhostFromCoarse()` 和 `BuildDirectInterpolationCache()`
-位于 `AmrCoreLBM_amr.cpp`；推进调用和 boundary 调度位于
+`FillDdfGhostFromCoarse()` 和 `BuildInterpolationCache()` 位于
+`AmrCoreLBM_amr.cpp`；`FillGhostLevel()`、推进调用和 boundary 调度位于
 `AmrCoreLBM_advance.cpp`，A-B/OSI 对照诊断位于 `AmrCoreLBM_diagnostics.cpp`。
 
 ## 3. 参数、容器和所有权
@@ -133,7 +143,7 @@ void AmrCoreLBM::RemakeDdfState(
 
 ## 4. 第一层：先看几何区域如何构造
 
-这一层在 `BuildDirectInterpolationCache(lev)` 中完成。它由 `RebuildCoarseFineCaches()` 在初始建网、regrid 或 restart 后统一重建，而不是每个时间步重复构造；正常推进进入填充函数时缓存已经就绪。
+这一层在 `BuildInterpolationCache()` 的逐层循环 中完成。它由 `RebuildCoarseFineCaches()` 在初始建网、regrid 或 restart 后统一重建，而不是每个时间步重复构造；正常推进进入填充函数时缓存已经就绪。
 
 4.1 `fine_ba` 与 `fine_ba_simplified`
 
@@ -210,7 +220,7 @@ cache 构建和 `RemakeDdfState()` 必须使用与 GPU kernel 相同的模式，
 
 ### 4.5.1 完整模板覆盖门禁
 
-`BuildDirectInterpolationCache()` 得到每个 `coarse_box` 后、分配 staging 和建立
+`BuildInterpolationCache()` 得到每个 `coarse_box` 后、分配 staging 和建立
 copy tags 前，调用 `RequireInterpolationCoverage()`。它与
 `MissingInterpolationSources()` 都是 `AmrCoreLBM_amr.cpp` 匿名命名空间内的辅助函数。
 检查对象是父层 valid Box 的并集及其周期像，父层 ghost 不计入可用来源。
@@ -404,8 +414,8 @@ $$
 
 `FillDdfGhostFromCoarse()` 固定写当前粗层对应的 `f_old[lev + 1]` ghost：它使用缓存的 staging Box，
 不迁移 valid 数据。`RemakeLevel()` 单独调用 `RemakeDdfState()`：后者先用 `FPinfo` 临时
-patch 的 coarse 插值初始化新增 valid 区域和所需 ghost，再以旧 `f_old[lev]` 覆盖可迁移的
-fine valid 数据，最后处理物理边界。
+patch 的 coarse 插值初始化新增 valid 区域，再以旧 `f_old[lev]` 覆盖可迁移的
+fine valid 数据；此迁移路径的目标 ghost 宽度为 0。
 
 ## 8. 容易混淆的五个点
 

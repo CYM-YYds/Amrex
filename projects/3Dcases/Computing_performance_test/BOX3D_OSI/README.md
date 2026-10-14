@@ -5,7 +5,7 @@
 相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
 [当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
 
-更新时间：2026-10-11。
+更新时间：2026-10-14。
 
 ## 目录与构建关系
 
@@ -73,6 +73,10 @@ A-B 状态是每层 `f_old/f_new`；OSI 生产状态是每层 `osi_state` 和 `o
 开启 `verification.osi_ab_check` 时额外分配 A-B 状态用于锁步对照。
 `ring` 必须来自完整 grown-Fab，不能用 tilebox、碰撞域或物理域裁剪后的 Box 替代。
 相位属于 level 驱动，在 host 上准备 Fab 上下文，再供整个 kernel 复用。
+
+新层 DDF 初始化只写 valid，并按目标所需 stencil 搬运 coarse 数据；初始化、
+ghost 填充和重构迁移统一采用自定义数值插值核。AMReX 仍提供 stencil 几何。
+范围、公式及最新验证边界见[当前状态](docs/current_status.md#2026-10-14-新层初始化与插值收尾)。
 
 ## 实际推进调用链
 
@@ -183,7 +187,7 @@ uncovered DDF、各层 checkpoint valid/active DDF 的前后差均为 `linf=0`�
 - [当前交接状态](docs/current_status.md)：验证版本、运行证据、历史结果与 pending 项。
 - [OSI 算法与架构](docs/osi_algorithm_and_architecture.md)：地址、phase、边界、AMR 和 checkpoint 契约。
 - [DDF 粗细网格填充](docs/DDF粗细网格填充学习文档.md)：模板来源、缓存与覆盖门禁。
-- [MPI 通信计划](docs/osi_mpi_communication_plan.md)与 [ParallelCopy 计划](docs/osi_parallelcopy_optimization_plan.md)：机制、实验阶段和未决事项。
+- [MPI 通信计划](docs/osi_mpi_communication_plan.md)：历史实验阶段与通信机制；现役粗细传输见 [OSI 架构](docs/osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)。
 - [性能分析](docs/osi_performance_profiling.md)与 [MLUPS 记录](docs/MLUPS记录.md)：历史性能及适用范围。
 - [变更记录](docs/ai_changes/)：按提交保留的修改目的与验证摘要。
 

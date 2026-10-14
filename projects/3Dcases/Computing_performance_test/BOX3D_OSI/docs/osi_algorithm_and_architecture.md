@@ -361,13 +361,18 @@ regrid 前完整 AverageDownValid
         -> Remake 布局不变: 保留旧 raw state 和 phase
         -> Remake 布局变化: ParallelCopyOsi 经 CPC 本地/MPI 标签迁移旧 fine valid 到新布局 phase 0
         -> Remake 新增区: coarse OSI -> 稀疏 coarse/fine patch -> 新 fine phase 0
-        -> MakeNew: 刷新已有 coarse density/velocity，完整 Q 解码并缩放非平衡 DDF
-                    -> DdfInterpolater() 所选插值 -> 新 fine phase 0
+        -> MakeNew: InitializeDdfFromCoarse 按 fine valid 建立稀疏 coarse stencil
+                    -> 按 coarse 当前 phase 搬运 Q 分量，延拓 stencil 的物理域外来源
+                    -> 非平衡缩放与自定义插值核 -> 新 fine valid，phase 0（不填 fine ghost）
         -> Clear: 释放该层 OSI state、通信缓冲和地址 tags
         -> 重建通信、插值、restriction 和 coarse-fine mask 缓存
         -> Cycle2 FillGhostLevel(fine): 只建立两步细层子循环需要的 coarse-fine ghost
         -> AdvanceLevel: OSI 每层碰撞后、phase 提交前由 FillBoundaryOsi 同步同层/周期 ghost
 ```
+
+DDF 初始化、ghost 填充和重构迁移统一使用自定义插值核；AMReX 插值器只提供
+DDF stencil/FPinfo 几何。宏观量与力场的 AMReX 插值不属于本次替换范围。
+公式和工作区范围见[DDF 填充文档](DDF粗细网格填充学习文档.md#13-当前三种插值模式)。
 
 宏观量路径也采用 `AverageDownValid() -> ComputeMacroLevel()`，
 其中 `AverageDownValid()` 内部完成当前态物理边界修复，因此输出和收敛检查读取的是

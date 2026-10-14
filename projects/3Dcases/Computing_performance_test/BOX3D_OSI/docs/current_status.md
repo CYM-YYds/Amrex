@@ -1,12 +1,51 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-10-11
+更新时间：2026-10-14
 
 本文顶部记录当前源码的有限窗口证据；后续按日期保留的作业结论仅对当时
 冻结版本成立。遇到旧 fallback、已删除函数或“重启待验收”的说法时，以顶部
 及[架构文档](osi_algorithm_and_architecture.md)中的现役调用链为准。
 
-## 2026-10-11 当前数值验证边界
+## 2026-10-14 新层初始化与插值收尾
+
+现役 `InitializeDdfFromCoarse()` 仅插值 fine valid，按所需 stencil 建立调用内
+coarse staging，不复制整层 coarse，不初始化 fine ghost。coarse stencil 的物理
+延拓仍保留。初始化、普通 ghost 填充和重构迁移使用相同自定义数值插值核；
+AMReX 的 `DdfInterpolater()` 只提供几何。公式说明统一见
+[DDF 填充文档](DDF粗细网格填充学习文档.md#13-当前三种插值模式)。
+
+- `97d998e` 的冻结验证作业 613389：72 组初始化 valid oracle 最大差
+  `2.220446049e-16`，全部非 valid sentinel 未改变；测试 stencil 暂存 648
+  单元，parent valid 32768 单元。四组 64 步动态 AMR 共 4464 条阶段检查
+  `linf=0`。mode 0 改动前后全 valid checkpoint 零差，mode 1/2 独立
+  canonical/OSI 的 active 零差，covered 粗层仍约 0.00931062/0.009269。
+  详见[valid-only 记录](ai_changes/2026-10-14-valid-only-new-level-initialization.md)。
+- `7b4f177` 将单调用者 `BuildDirectInterpolationCache` 原样合入
+  `BuildInterpolationCache()` 的逐层循环，未改变计划、状态或失效条件。
+  按用户要求只做 CUDA+MPI 编译验证；日志为
+  [production_build.log](../runs/merge_interp_cache_20261014/production_build.log)。
+  作业 613392 已取消，部分日志不计作完整数值回归。此前作业不是该提交的运行证据。
+- 稀疏化与自定义公式切换的历史过程分别见
+  [稀疏初始化](ai_changes/2026-10-13-sparse-new-level-interpolation.md)和
+  [自定义插值](ai_changes/2026-10-14-custom-ddf-interpolation.md)；其中旧的
+  AMReX 数值初始化和 valid+ghost 范围只代表当时版本。
+
+本次知识收尾：代码与根规则链 verified-current；文档 changed-and-verified；
+运行证据限于上述冻结作业和当前合并的编译验证；记忆 generated-read-only，
+其中旧 builder 名称已过期，以本节和现役源码为准，未写记忆。
+长期严格、多节点、GPU-aware MPI、运动 IBM 完整重启仍 pending；
+非周期 physical-ghost source 差异未消除。其他算例、性能重新测量与全仓库
+结构审查 out-of-scope；没有部署环节，部署验收 not-applicable。
+
+会话运行现场保留，未清场：`sparse_init_20261013`、`custom_interp_20261014`、
+`valid_init_20261014` 各约 305 MiB，`merge_interp_cache_20261014` 约 119 MiB，
+都含基线 app/源码或构建证据；613335/613372/613389 的成功运行必须保留，
+613319/613324/613371 的失败现场用于解释修复和比较范围。
+删除候选仅为这些构建目录中可再生的对象文件，以及已取消的
+`runs/sparse_initialization_613392/`（约 327 MiB，只有部分执行证据，须先保留
+输入、源码和 app 快照再考虑清除）。复核现场仍保留，等待用户确认后清场。
+
+## 2026-10-11 当前数值验证边界（冻结版本）
 
 提交 `c358a45`、`789bb2c`、`efe5416` 分别完成无调用路径清理、通信与转换整合、
 实验脚本与收敛解析整合。作业 `611228` 使用冻结输入、BoxArray、rank 布局和
@@ -106,7 +145,7 @@ SHA256 为 `def82cc37115d4f41b69a44d49a43808473a330a3197091698f38cfab5f8744c`，
 
 提交 `19c2650` 增加普通粗到细 ghost 插值的覆盖检查，`cdffef1` 将辅助函数归入
 `src/AmrCoreLBM_amr.cpp` 匿名命名空间；不再使用独立的 `InterpolationCoverage.H`。
-`BuildDirectInterpolationCache()` 在分配 staging 和建立 copy tags 前检查实际模板来源，
+当时的 `BuildDirectInterpolationCache()`（现已合入 `BuildInterpolationCache()`）在分配 staging 和建立 copy tags 前检查实际模板来源，
 覆盖 A-B、OSI direct 和 canonical fallback 共享的缓存。规则与报错后的处理见
 [DDF 填充文档](DDF粗细网格填充学习文档.md#451-完整模板覆盖门禁)，验证记录见
 [本次变更记录](ai_changes/2026-10-08-interpolation-stencil-coverage.md)。
