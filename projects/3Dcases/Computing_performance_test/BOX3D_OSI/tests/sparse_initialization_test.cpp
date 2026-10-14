@@ -39,7 +39,7 @@ public:
 
 // 原初始化路径：全父层求宏观量并缩放，随后交给 AMReX 独立插值。
 void old_initialization(AmrCoreLBM& lbm, const MultiFab& source,
-                        bool osi_macro, MultiFab& fine) {
+                        bool osi_macro, MultiFab& fine, bool custom_reference=false) {
     MultiFab coarse(source.boxArray(), source.DistributionMap(), Q, 2);
     MultiFab rho(source.boxArray(), source.DistributionMap(), 1, 0);
     MultiFab velocity(source.boxArray(), source.DistributionMap(), 3, 0);
@@ -70,6 +70,71 @@ void old_initialization(AmrCoreLBM& lbm, const MultiFab& source,
             const Real eq=feqQian(r(i,j,k),{u(i,j,k,0),u(i,j,k,1),u(i,j,k,2)},q);
             f(i,j,k,q)=eq+(f(i,j,k,q)-eq)*scale;
         });
+    }
+    if (custom_reference && lbm.interp_mode != 0) {
+        // 独立逐点 oracle：在完整父层缩放后收集模板，按标量系数求值，
+        // 不调用生产 children kernel 或生产插值调度函数。
+        BoxArray patch_ba=amrex::coarsen(fine.boxArray(),2);
+        patch_ba.grow(2);
+        MultiFab patch(patch_ba,fine.DistributionMap(),Q,0);
+        patch.ParallelCopy(coarse,0,0,Q,IntVect(0),IntVect(0),lbm.geom[0].periodicity());
+        if (Gpu::inLaunchRegion()) {
+            GpuBndryFuncFab<AmrCoreFill> bndry(AmrCoreFill{});
+            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> cb(lbm.geom[0],lbm.bcs,bndry);
+            cb(patch,0,Q,IntVect(0),0.,0);
+        } else {
+            CpuBndryFuncFab bndry(nullptr);
+            PhysBCFunct<CpuBndryFuncFab> cb(lbm.geom[0],lbm.bcs,bndry);
+            cb(patch,0,Q,IntVect(0),0.,0);
+        }
+        const int mode=lbm.interp_mode;
+        const Box domain=lbm.geom[1].growPeriodicDomain(fine.nGrowVect());
+        for (MFIter mfi(fine);mfi.isValid();++mfi) {
+            const auto samples=patch.const_array(mfi);
+            const auto f=fine.array(mfi);
+            const Box work=amrex::grow(mfi.validbox(),fine.nGrowVect())&domain;
+            ParallelFor(work,Q,[=] AMREX_GPU_DEVICE(int i,int j,int k,int q) {
+                const int x=amrex::coarsen(i,2), y=amrex::coarsen(j,2), z=amrex::coarsen(k,2);
+                const Real ox=(i-2*x)==0 ? Real(-0.25) : Real(0.25);
+                const Real oy=(j-2*y)==0 ? Real(-0.25) : Real(0.25);
+                const Real oz=(k-2*z)==0 ? Real(-0.25) : Real(0.25);
+                const Real center=samples(x,y,z,q);
+                Real value;
+                if (mode==1) {
+                    const Real lo[3]={center-samples(x-1,y,z,q),center-samples(x,y-1,z,q),center-samples(x,y,z-1,q)};
+                    const Real hi[3]={samples(x+1,y,z,q)-center,samples(x,y+1,z,q)-center,samples(x,y,z+1,q)-center};
+                    const Real offsets[3]={ox,oy,oz};
+                    value=center;
+                    for(int d=0;d<3;++d) {
+                        Real slope=0;
+                        if(lo[d]>0 && hi[d]>0) slope=amrex::min(lo[d],hi[d]);
+                        if(lo[d]<0 && hi[d]<0) slope=amrex::max(lo[d],hi[d]);
+                        value+=offsets[d]*slope;
+                    }
+                } else {
+                    // 二阶多项式的直接 stencil 系数形式，独立于生产斜率展开。
+                    value=center*(1-ox*ox-oy*oy-oz*oz);
+                    value+=samples(x+1,y,z,q)*(ox+ox*ox)/2+samples(x-1,y,z,q)*(-ox+ox*ox)/2;
+                    value+=samples(x,y+1,z,q)*(oy+oy*oy)/2+samples(x,y-1,z,q)*(-oy+oy*oy)/2;
+                    value+=samples(x,y,z+1,q)*(oz+oz*oz)/2+samples(x,y,z-1,q)*(-oz+oz*oz)/2;
+                    for(int a=-1;a<=1;a+=2) for(int b=-1;b<=1;b+=2) {
+                        value+=Real(a*b)/4*(ox*oy*samples(x+a,y+b,z,q)
+                            +ox*oz*samples(x+a,y,z+b,q)+oy*oz*samples(x,y+a,z+b,q));
+                    }
+                }
+                f(i,j,k,q)=value;
+            });
+        }
+        if (Gpu::inLaunchRegion()) {
+            GpuBndryFuncFab<AmrCoreFill> bndry(AmrCoreFill{});
+            PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fb(lbm.geom[1],lbm.bcs,bndry);
+            fb(fine,0,Q,fine.nGrowVect(),0.,0);
+        } else {
+            CpuBndryFuncFab bndry(nullptr);
+            PhysBCFunct<CpuBndryFuncFab> fb(lbm.geom[1],lbm.bcs,bndry);
+            fb(fine,0,Q,fine.nGrowVect(),0.,0);
+        }
+        return;
     }
     if (Gpu::inLaunchRegion()) {
         GpuBndryFuncFab<AmrCoreFill> bndry(AmrCoreFill{});
@@ -140,7 +205,9 @@ void run_case(int mode, int periodic_case, bool coarse_osi, std::uint64_t phase,
         lbm.InitializeDdfFromCoarse(1,0.,canonical,false,0,actual);
         Abort("missing coverage unexpectedly accepted");
     }
-    old_initialization(lbm,canonical,coarse_osi,reference);
+    old_initialization(lbm,canonical,coarse_osi,reference,true);
+    MultiFab amrex_reference(fba,fdm,Q,2);
+    old_initialization(lbm,canonical,coarse_osi,amrex_reference);
     // 被测入口接收驱动当前的全 foextrap 记录，入口应自行保留周期语义。
     const auto correct_bcs=lbm.bcs;
     for (auto& bc: lbm.bcs) {
@@ -150,9 +217,11 @@ void run_case(int mode, int periodic_case, bool coarse_osi, std::uint64_t phase,
     lbm.bcs=correct_bcs;
     AMREX_ALWAYS_ASSERT(!reference.contains_nan(0,Q,2));
     AMREX_ALWAYS_ASSERT(!actual.contains_nan(0,Q,2) && !actual.contains_inf(0,Q,2));
+    MultiFab::Subtract(amrex_reference,reference,0,0,Q,2);
+    const Real amrex_linf=amrex_reference.norm0(0,Q,IntVect(2));
     MultiFab::Subtract(actual,reference,0,0,Q,2);
     const Real linf=actual.norm0(0,Q,IntVect(2));
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(linf < Real(2.e-14), "sparse initialization differs from old AMReX path");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(linf < Real(2.e-14), "sparse initialization differs from independent custom oracle");
     Vector<Box> work;
     Vector<int> indices;
     for (int i=0;i<fba.size();++i) {
@@ -165,7 +234,7 @@ void run_case(int mode, int periodic_case, bool coarse_osi, std::uint64_t phase,
     AMREX_ALWAYS_ASSERT(stage.nGrow()==0 && stage.boxArray().numPts() < ba.numPts());
     Print() << "PASS sparse initialization mode=" << mode << " periodic=" << periodic_case
             << " osi=" << coarse_osi << " phase=" << phase << " linf=" << linf
-            << " stage_cells=" << stage.boxArray().numPts() << " parent_cells=" << ba.numPts() << '\n';
+            << " amrex_linf=" << amrex_linf << " stage_cells=" << stage.boxArray().numPts() << " parent_cells=" << ba.numPts() << '\n';
 }
 
 int main(int argc,char** argv) {

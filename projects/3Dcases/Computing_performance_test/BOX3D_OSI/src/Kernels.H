@@ -2393,9 +2393,9 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q(
         i, j, k, fine, coarse, fine_fab, fine_shift);
 }
 
-// AMReX 中比率为2的单元守恒线性插值的设备端实现。
-// 采用限制型单侧斜率，保证所有精细网格数值落在相邻粗网格单元取值区间内，
-// 同时维持粗网格单元平均值守恒。
+// 自定义 ratio=2 单元守恒线性插值；各方向使用 minmod 单侧斜率。
+// 完整八个子单元的平均值等于父单元；该限幅规则不等同于 AMReX 的
+// 多分量限幅，也不据此宣称多维情况下满足所有邻居取值的最大值原理。
 template <bool UseOsiAddress>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q_impl(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
@@ -2465,8 +2465,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q(
         ic, jc, kc, fine, coarse, fine_work_box, fine_fab, fine_shift);
 }
 
-// AMReX CellQuadratic 在 ratio=2、笛卡尔网格和当前 foextrap 边界下的
-// 融合设备实现。每个 coarse cell 只计算一次一阶、纯二阶和混合斜率，
+// 自定义 ratio=2 单元二次插值，按中心差分构造二阶 Taylor 展开。
+// 每个 coarse cell 只计算一次一阶、纯二阶和混合斜率，
 // 随后直接写入 fine_work_box 内的最多八个子单元。
 template <bool UseOsiAddress>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q_impl(

@@ -91,6 +91,7 @@ void AmrCoreLBM::InitMesh(amrex::Real cur_time) {
     RebuildCoarseFineCaches();
 }
 
+// 只复用 AMReX 插值器的模板几何，不调用其数值插值函数。
 amrex::Interpolater* AmrCoreLBM::DdfInterpolater() const {
     if (interp_mode == 1) {
         return &cell_cons_interp;
@@ -976,7 +977,10 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
     ApplyPhysicalBoundaryToInterpolationStage(
         lev - 1, coarse_stage, needs_physical_fill);
     const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
-    ScaleInterpolationStage(coarse_stage, scale);
+    // 初始化目标为 canonical 或 phase=0 OSI，直接使用同一组自定义核。
+    InterpolateDdfStageToFine(
+        coarse_stage, fine_state, work_boxes, fine_indices,
+        false, 0, true, scale);
 
     // 插值只写域内或周期目标；物理 ghost 仍按原 foextrap 规则补全。
     // 混合周期边界下，周期方向不能使用 foextrap；否则物理面的
@@ -990,13 +994,6 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
             }
         }
     }
-    // 初始化仍使用原 AMReX 插值器；其限幅规则与运行期 ghost 的
-    // 自定义 kernel 不完全相同，不能仅为共用流程替换数值公式。
-    AMREX_ALWAYS_ASSERT(coarse_stage.size() == fine_state.size());
-    amrex::FillPatchInterp(
-        fine_state, 0, coarse_stage, 0, Q, fine_state.nGrowVect(),
-        Geom(lev - 1), Geom(lev), fine_domain, refRatio(lev - 1),
-        DdfInterpolater(), fine_bcs, 0);
     if (Gpu::inLaunchRegion()) {
         GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
         PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(

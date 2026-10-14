@@ -44,18 +44,30 @@ for expected in '[InterpolationCoverage]' 'missing_coarse_boxes=' 'fine_level=1'
     grep -Fq "${expected}" "${RUN_DIR}/coverage_fail.log"
 done
 echo 'PASS initialization rejects missing parent stencil'
-# 与同布局、同 rank 的旧执行文件比较，动态 AMR 的共享 ghost 路径也纳入回归。
+# mode 0 与旧执行文件回归；mode 1/2 的初始化规则已改变，使用新版本
+# 独立 canonical A-B 运行作为 active checkpoint oracle，不要求旧公式等价。
+# covered 粗层在独立存储模式下可能保留不同的失效状态，原始全 valid 范数仍输出。
 for mode in 0 1 2; do
     ranks_list=(2)
     if [[ "${mode}" == 0 ]]; then ranks_list=(1 2); fi
     for ranks in "${ranks_list[@]}"; do
-        for version in before after; do
+        baseline=before
+        if [[ "${mode}" != 0 ]]; then baseline=canonical; fi
+        for version in "${baseline}" after; do
+            executable="${RUN_DIR}/${version}.ex"
+            stream_mode=1
+            ab_check=true
+            if [[ "${version}" == canonical ]]; then
+                executable="${RUN_DIR}/after.ex"
+                stream_mode=0
+                ab_check=false
+            fi
             name="${version}_r${ranks}_i${mode}"
             mkdir "${RUN_DIR}/${name}"
             cd "${RUN_DIR}/${name}"
             extra=()
             if [[ "${version}" == after ]]; then
-                extra+=("verification.ddf_reference_checkpoint=${RUN_DIR}/before_r${ranks}_i${mode}/chk00000064")
+                extra+=("verification.ddf_reference_checkpoint=${RUN_DIR}/${baseline}_r${ranks}_i${mode}/chk00000064")
             fi
             args=(max_step=64 performance.report_int=64
                 amr.n_cell=64 64 64 amr.max_level=2 amr.max_grid_size=32 32 32
@@ -63,16 +75,16 @@ for mode in 0 1 2; do
                 amr.blocking_factor_z=16 16 16 amr.regrid_int=32 amr.plot_int=-1
                 checkpoint.chk_int=64 checkpoint.write_particles=false
                 verification.convergence_enabled=false verification.osi_seed_pattern=false
-                verification.osi_ab_check=true verification.osi_ab_continue_on_mismatch=false
+                verification.osi_ab_check="${ab_check}" verification.osi_ab_continue_on_mismatch=false
                 verification.osi_step_entry_check_interval=1 verification.osi_check_after_average_valid=true
-                verification.check_after_first_fill=true lbm.stream_mode=1 lbm.interp_mode="${mode}"
+                verification.check_after_first_fill=true lbm.stream_mode="${stream_mode}" lbm.interp_mode="${mode}"
                 lbm.osi_mpi_device_direct=0 lbm.osi_mpi_pipeline_chunk_bytes=0)
-            osi_record_command command.txt "${RUN_DIR}/${version}.ex" "${RUN_DIR}/inputs" "${args[@]}" "${extra[@]}"
+            osi_record_command command.txt "${executable}" "${RUN_DIR}/inputs" "${args[@]}" "${extra[@]}"
             osi_launch_mpi hmpi "${RUN_DIR}/hostfile" "${ranks}" "${ranks}" \
-                "${RUN_DIR}/${version}.ex" "${RUN_DIR}/inputs" "${args[@]}" "${extra[@]}" > run.log 2>&1
+                "${executable}" "${RUN_DIR}/inputs" "${args[@]}" "${extra[@]}" > run.log 2>&1
             if [[ "${version}" == after ]]; then
-                awk '/^ddf_cell_norm_level:/ {
-                    for (i=1;i<=NF;++i) if ($i ~ /^valid_linf=/) {
+                awk -v mode="${mode}" '/^ddf_cell_norm_level:/ {
+                    for (i=1;i<=NF;++i) if ((mode==0 && $i ~ /^valid_linf=/) || (mode!=0 && $i ~ /^active_linf=/)) {
                         split($i,a,"="); ++levels; if (a[2]+0>2e-14) failed=1;
                     }
                 } END { exit(failed || levels!=3) }' run.log
