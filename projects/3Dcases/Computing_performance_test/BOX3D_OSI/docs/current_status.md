@@ -43,7 +43,10 @@ verified-current 仅指上述冻结窗口，用户后续未提交源码修改的
 新增现场全部保留：`runs/cpc_cache_613414` 约 3.7 GiB，含不可丢弃的验证证据；
 `parallel_copy_entry_20261014`、`direct_remake_20261014` 各约 119 MiB，含基线 app；
 `regrid_interp_reuse_20261014`、`inline_regrid_patch_20261014` 仅约 276/328 KiB 的编译日志。
-本轮未确认新的冗余运行目录，不新增删除项，不复用上次清场授权。
+后续用户于 2026-10-14 在清单汇报后确认清场：重复执行文件硬链接去重、
+job596888 中间 PlotFile 清理已完成，合计约 16.12 GiB。
+保留最终输出及 checkpoint，其他运行目录未删除，明细见
+[清理记录](ai_changes/2026-10-14-runs-dedup-cleanup.md)。
 
 ## 2026-10-14 新层初始化与插值收尾
 
