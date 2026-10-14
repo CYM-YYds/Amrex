@@ -102,57 +102,6 @@ amrex::Interpolater* AmrCoreLBM::DdfInterpolater() const {
     return &cell_bilinear_interp;
 }
 
-void AmrCoreLBM::BuildDirectInterpolationCache(int lev) {
-    const double start = amrex::second();
-    AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
-
-    const MultiFab& fine_layout =
-        streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
-    const auto fill_ng = fine_layout.nGrowVect();
-    const BoxArray& fine_ba = fine_layout.boxArray();
-    const BoxArray fine_ba_simplified = fine_ba.simplified();
-    const MultiFab& coarse_layout =
-        streamMode() == 1 ? osi_state.at(lev - 1) : f_old.at(lev - 1);
-    Box fine_domain = Geom(lev).Domain();
-    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-        if (Geom(lev).isPeriodic(dir)) {
-            fine_domain.grow(dir, fill_ng[dir]); // 根据周期性条件扩展 fine_domain 的边界。
-        }
-    }
-
-    auto& coarse_stage = interp_direct_coarse_stage[lev];
-    auto& fine_work_boxes = interp_direct_fine_boxes[lev];
-    auto& fine_indices = interp_direct_fine_index[lev];
-    auto& needs_physical_fill = interp_direct_needs_physical_fill[lev];
-    osi_interp_copy_cache.at(lev).clear();
-    fine_work_boxes.clear();
-    fine_indices.clear();
-
-    for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
-        const Box target =
-            amrex::grow(fine_ba[fine_index], fill_ng) & fine_domain;
-        const BoxList leftover =
-            fine_ba_simplified.complementIn(target, Geom(lev).periodicity()); // 计算 target 中没有被 fine_ba_simplified 覆盖的区域, 并以多个互不重叠的 Box 返回，考虑周期性情况。
-        for (const Box& work_box : leftover) {
-            fine_work_boxes.push_back(work_box);
-            fine_indices.push_back(fine_index);
-        }
-    }
-
-    BuildInterpolationStage(
-        lev, coarse_layout, fine_layout, fine_work_boxes, fine_indices,
-        coarse_stage, needs_physical_fill);
-    if (streamMode() == 1 && coarse_stage.isDefined()) {
-        osi_interp_copy_cache.at(lev).define(
-            osi_state.at(lev - 1), coarse_stage,
-            Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct,
-            osi_fab_phase_cache.at(lev - 1));
-    }
-    interp_direct_cache_ready[lev] = 1;
-    ++perf_stats.interp_cache_builds;
-    perf_stats.interp_cache_build += amrex::second() - start;
-}
-
 void AmrCoreLBM::BuildInterpolationStage(
     int lev, const MultiFab& coarse, const MultiFab& fine,
     const Vector<Box>& work_boxes, const Vector<int>& fine_indices,
@@ -712,7 +661,54 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
 
 void AmrCoreLBM::BuildInterpolationCache() {
     for (int lev = 1; lev <= finest_level; ++lev) {
-        BuildDirectInterpolationCache(lev);
+        const double start = amrex::second();
+        AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
+
+        const MultiFab& fine_layout =
+            streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
+        const auto fill_ng = fine_layout.nGrowVect();
+        const BoxArray& fine_ba = fine_layout.boxArray();
+        const BoxArray fine_ba_simplified = fine_ba.simplified();
+        const MultiFab& coarse_layout =
+            streamMode() == 1 ? osi_state.at(lev - 1) : f_old.at(lev - 1);
+        Box fine_domain = Geom(lev).Domain();
+        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+            if (Geom(lev).isPeriodic(dir)) {
+                fine_domain.grow(dir, fill_ng[dir]); // 根据周期性条件扩展 fine_domain 的边界。
+            }
+        }
+
+        auto& coarse_stage = interp_direct_coarse_stage[lev];
+        auto& fine_work_boxes = interp_direct_fine_boxes[lev];
+        auto& fine_indices = interp_direct_fine_index[lev];
+        auto& needs_physical_fill = interp_direct_needs_physical_fill[lev];
+        osi_interp_copy_cache.at(lev).clear();
+        fine_work_boxes.clear();
+        fine_indices.clear();
+
+        for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
+            const Box target =
+                amrex::grow(fine_ba[fine_index], fill_ng) & fine_domain;
+            const BoxList leftover =
+                fine_ba_simplified.complementIn(target, Geom(lev).periodicity()); // 计算 target 中没有被 fine_ba_simplified 覆盖的区域, 并以多个互不重叠的 Box 返回，考虑周期性情况。
+            for (const Box& work_box : leftover) {
+                fine_work_boxes.push_back(work_box);
+                fine_indices.push_back(fine_index);
+            }
+        }
+
+        BuildInterpolationStage(
+            lev, coarse_layout, fine_layout, fine_work_boxes, fine_indices,
+            coarse_stage, needs_physical_fill);
+        if (streamMode() == 1 && coarse_stage.isDefined()) {
+            osi_interp_copy_cache.at(lev).define(
+                osi_state.at(lev - 1), coarse_stage,
+                Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct,
+                osi_fab_phase_cache.at(lev - 1));
+        }
+        interp_direct_cache_ready[lev] = 1;
+        ++perf_stats.interp_cache_builds;
+        perf_stats.interp_cache_build += amrex::second() - start;
     }
 }
 
