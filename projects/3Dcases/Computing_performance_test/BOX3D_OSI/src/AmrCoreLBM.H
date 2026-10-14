@@ -395,7 +395,9 @@ class AmrCoreLBM : public amrex::AmrCore {
         amrex::Vector<unsigned char>& needs_physical_fill) const;
     void InitializeDdfFromCoarse(
         int lev, amrex::Real time, const amrex::MultiFab& coarse,
-        bool coarse_osi, std::uint64_t coarse_phase, amrex::MultiFab& fine);
+        bool coarse_osi, std::uint64_t coarse_phase, amrex::MultiFab& fine,
+        const amrex::Vector<amrex::Box>& requested_boxes = {},
+        const amrex::Vector<int>& requested_indices = {});
 
   public:
     // nvcc extended device lambdas require their enclosing member functions to

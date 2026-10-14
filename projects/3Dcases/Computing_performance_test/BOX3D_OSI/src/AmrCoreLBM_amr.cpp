@@ -874,17 +874,21 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
             const auto& fpc = FabArrayBase::TheFPinfo(
                 old_state, new_osi_state, fill_ng, coarsener,
                 Geom(lev), Geom(lev - 1), nullptr); // 得到新 fine 中不被旧 fine 覆盖的区域以及为了插值这些 fine 区域需要读取的粗层 stencil
-            if (!fpc.ba_fine_patch.empty()) {
-                AMREX_ALWAYS_ASSERT(ratio == IntVect(2));
-                // 重构只补缺少旧 fine 来源的 valid 区，保留稀疏 patch 中转。
-                MultiFab fine_patch(fpc.ba_fine_patch, fpc.dm_patch, Q, 0);
+
+            // patch 索引不同于目标 Fab 索引；求交建立直接写回的区域与 owner。
+            Vector<Box> work_boxes;
+            Vector<int> fine_indices;
+            for (int patch = 0; patch < fpc.ba_fine_patch.size(); ++patch) {
+                for (const auto& entry : ba.intersections(fpc.ba_fine_patch[patch])) {
+                    work_boxes.push_back(entry.second);
+                    fine_indices.push_back(entry.first);
+                }
+            }
+            if (!work_boxes.empty()) {
                 InitializeDdfFromCoarse(
                     lev, time, osi_state.at(lev - 1), true,
-                    osi_phase.at(lev - 1), fine_patch);
-                // 新层 phase=0，只写 patch valid，保留已迁移的旧 fine 数据。
-                new_osi_state.ParallelCopy(
-                    fine_patch, 0, 0, Q, IntVect(0), IntVect(0),
-                    Geom(lev).periodicity());
+                    osi_phase.at(lev - 1), new_osi_state,
+                    work_boxes, fine_indices);
             }
         }
 
@@ -950,16 +954,20 @@ void AmrCoreLBM::InitializeNewLevelFromCoarse(int lev, Real time) {
 
 void AmrCoreLBM::InitializeDdfFromCoarse(
     int lev, Real time, const MultiFab& coarse_state,
-    bool coarse_osi, std::uint64_t coarse_phase, MultiFab& fine_state) {
+    bool coarse_osi, std::uint64_t coarse_phase, MultiFab& fine_state,
+    const Vector<Box>& requested_boxes, const Vector<int>& requested_indices) {
     (void)time;
     // 新层只构造 valid DDF；OSI 目标 phase=0，此时地址等同 canonical。
     // 不初始化 fine ghost，其生命周期由后续 FillGhostLevel、同层通信
     // 和物理边界处理维护。粗层模板的域外延拓仍用于 valid 边缘插值。
-    Vector<Box> work_boxes;
-    Vector<int> fine_indices;
-    for (int index = 0; index < fine_state.boxArray().size(); ++index) {
-        work_boxes.push_back(fine_state.boxArray()[index]);
-        fine_indices.push_back(index);
+    AMREX_ALWAYS_ASSERT(requested_boxes.size() == requested_indices.size());
+    Vector<Box> work_boxes = requested_boxes;
+    Vector<int> fine_indices = requested_indices;
+    if (work_boxes.empty()) {
+        for (int index = 0; index < fine_state.boxArray().size(); ++index) {
+            work_boxes.push_back(fine_state.boxArray()[index]);
+            fine_indices.push_back(index);
+        }
     }
     MultiFab coarse_stage;
     Vector<unsigned char> needs_physical_fill;

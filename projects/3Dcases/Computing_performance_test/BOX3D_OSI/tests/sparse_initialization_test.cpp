@@ -31,7 +31,8 @@ public:
     void ScaleInterpolationStage(MultiFab&, Real);
     void InterpolateDdfStageToFine(MultiFab&, MultiFab&, const Vector<Box>&,
         const Vector<int>&, bool, std::uint64_t, bool, Real);
-    void InitializeDdfFromCoarse(int, Real, const MultiFab&, bool, std::uint64_t, MultiFab&);
+    void InitializeDdfFromCoarse(int, Real, const MultiFab&, bool, std::uint64_t, MultiFab&,
+        const Vector<Box>& = {}, const Vector<int>& = {});
     void ParallelCopyOsi(int, const MultiFab&, std::uint64_t, MultiFab&, std::uint64_t);
 };
 
