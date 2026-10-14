@@ -237,7 +237,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ApplyPhysicalBoundaryToInterpolationStage(
         int coarse_lev, amrex::MultiFab& stage,
         const amrex::Vector<unsigned char>& needs_physical_fill);
-    void ScaleInterpolationStage(amrex::MultiFab& stage, amrex::Real scale);
     void InterpolateDdfStageToFine(
         amrex::MultiFab& stage, amrex::MultiFab& fine,
         const amrex::Vector<amrex::Box>& work_boxes,

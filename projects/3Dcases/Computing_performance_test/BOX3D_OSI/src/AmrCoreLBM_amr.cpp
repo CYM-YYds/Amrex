@@ -218,24 +218,19 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(
         false, 0, apply_scale, scale);
 }
 
-void AmrCoreLBM::ScaleInterpolationStage(MultiFab& stage, Real scale) {
-    for (MFIter mfi(stage, false); mfi.isValid(); ++mfi) {
-        const auto coarse = stage.array(mfi);
-        amrex::ParallelFor(
-            mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                average_scale(i, j, k, coarse, scale);
-            });
-    }
-}
-
 void AmrCoreLBM::InterpolateDdfStageToFine(
     MultiFab& coarse_stage, MultiFab& fine_state,
     const Vector<Box>& fine_work_boxes, const Vector<int>& fine_indices,
     bool fine_osi, std::uint64_t fine_phase, bool apply_scale, Real scale) {
-    if (apply_scale) {
-        ScaleInterpolationStage(coarse_stage, scale);
-    }
     for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+        // 每个 Fab 在同一 stream 上先缩放再插值，省去独立遍历的同步。
+        if (apply_scale) {
+            const auto stage = coarse_stage.array(mfi);
+            amrex::ParallelFor(
+                mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                    average_scale(i, j, k, stage, scale);
+                });
+        }
         const int stage_index = mfi.index();
         const auto coarse = coarse_stage.const_array(mfi);
 
