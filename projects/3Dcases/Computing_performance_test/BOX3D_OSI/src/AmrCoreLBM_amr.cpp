@@ -172,7 +172,9 @@ void AmrCoreLBM::BuildInterpolationStage(
         const Box stencil = coarsener.doit(work);
         RequireInterpolationCoverage(
             stencil, coarse_valid, Geom(lev - 1), lev, fine_index,
-            work, interp_mode, fine.nGrowVect(), nProper());
+            work, interp_mode,
+            fine.boxArray()[fine_index].contains(work)
+                ? IntVect(0) : fine.nGrowVect(), nProper());
         bool needs_fill = false;
         for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
             needs_fill = needs_fill ||
@@ -944,19 +946,15 @@ void AmrCoreLBM::InitializeNewLevelFromCoarse(int lev, Real time) {
 void AmrCoreLBM::InitializeDdfFromCoarse(
     int lev, Real time, const MultiFab& coarse_state,
     bool coarse_osi, std::uint64_t coarse_phase, MultiFab& fine_state) {
-    // 新层的 OSI phase 固定为零，此时目标地址就是 canonical 地址。
-    // 工作区与原 InterpFromCoarseLevel 一致：valid 加请求 ghost，
-    // 非周期方向裁剪到物理域，周期方向保留域外 ghost。
-    const Box fine_domain = Geom(lev).growPeriodicDomain(fine_state.nGrowVect());
+    (void)time;
+    // 新层只构造 valid DDF；OSI 目标 phase=0，此时地址等同 canonical。
+    // 不初始化 fine ghost，其生命周期由后续 FillGhostLevel、同层通信
+    // 和物理边界处理维护。粗层模板的域外延拓仍用于 valid 边缘插值。
     Vector<Box> work_boxes;
     Vector<int> fine_indices;
     for (int index = 0; index < fine_state.boxArray().size(); ++index) {
-        const Box work = amrex::grow(
-            fine_state.boxArray()[index], fine_state.nGrowVect()) & fine_domain;
-        if (work.ok()) {
-            work_boxes.push_back(work);
-            fine_indices.push_back(index);
-        }
+        work_boxes.push_back(fine_state.boxArray()[index]);
+        fine_indices.push_back(index);
     }
     MultiFab coarse_stage;
     Vector<unsigned char> needs_physical_fill;
@@ -982,29 +980,6 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
         coarse_stage, fine_state, work_boxes, fine_indices,
         false, 0, true, scale);
 
-    // 插值只写域内或周期目标；物理 ghost 仍按原 foextrap 规则补全。
-    // 混合周期边界下，周期方向不能使用 foextrap；否则物理面的
-    // 角部填充可能覆盖周期数据或读取尚未补全的物理 ghost。
-    auto fine_bcs = bcs;
-    for (auto& bc : fine_bcs) {
-        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-            if (Geom(lev).isPeriodic(dir)) {
-                bc.setLo(dir, BCType::int_dir);
-                bc.setHi(dir, BCType::int_dir);
-            }
-        }
-    }
-    if (Gpu::inLaunchRegion()) {
-        GpuBndryFuncFab<AmrCoreFill> gpu_bndry_func(AmrCoreFill{});
-        PhysBCFunct<GpuBndryFuncFab<AmrCoreFill>> fphysbc(
-            geom[lev], fine_bcs, gpu_bndry_func);
-        fphysbc(fine_state, 0, Q, fine_state.nGrowVect(), time, 0);
-    } else {
-        CpuBndryFuncFab bndry_func(nullptr);
-        PhysBCFunct<CpuBndryFuncFab> fphysbc(
-            geom[lev], fine_bcs, bndry_func);
-        fphysbc(fine_state, 0, Q, fine_state.nGrowVect(), time, 0);
-    }
 }
 
 void AmrCoreLBM::ClearLevel(int lev) {

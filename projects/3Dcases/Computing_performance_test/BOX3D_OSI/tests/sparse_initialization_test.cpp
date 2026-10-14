@@ -200,7 +200,7 @@ void run_case(int mode, int periodic_case, bool coarse_osi, std::uint64_t phase,
     DistributionMapping fdm(fowners);
     MultiFab reference(fba,fdm,Q,2), actual(fba,fdm,Q,2);
     reference.setVal(std::numeric_limits<Real>::quiet_NaN());
-    actual.setVal(std::numeric_limits<Real>::quiet_NaN());
+    actual.setVal(-777);
     if (fail_coverage) {
         lbm.InitializeDdfFromCoarse(1,0.,canonical,false,0,actual);
         Abort("missing coverage unexpectedly accepted");
@@ -208,24 +208,30 @@ void run_case(int mode, int periodic_case, bool coarse_osi, std::uint64_t phase,
     old_initialization(lbm,canonical,coarse_osi,reference,true);
     MultiFab amrex_reference(fba,fdm,Q,2);
     old_initialization(lbm,canonical,coarse_osi,amrex_reference);
-    // 被测入口接收驱动当前的全 foextrap 记录，入口应自行保留周期语义。
-    const auto correct_bcs=lbm.bcs;
-    for (auto& bc: lbm.bcs) {
-        for (int d=0;d<3;++d) { bc.setLo(d,BCType::foextrap); bc.setHi(d,BCType::foextrap); }
-    }
     lbm.InitializeDdfFromCoarse(1,0.,coarse_osi ? raw : canonical,coarse_osi,phase,actual);
-    lbm.bcs=correct_bcs;
-    AMREX_ALWAYS_ASSERT(!reference.contains_nan(0,Q,2));
-    AMREX_ALWAYS_ASSERT(!actual.contains_nan(0,Q,2) && !actual.contains_inf(0,Q,2));
-    MultiFab::Subtract(amrex_reference,reference,0,0,Q,2);
-    const Real amrex_linf=amrex_reference.norm0(0,Q,IntVect(2));
-    MultiFab::Subtract(actual,reference,0,0,Q,2);
-    const Real linf=actual.norm0(0,Q,IntVect(2));
+    AMREX_ALWAYS_ASSERT(!reference.contains_nan(0,Q,0));
+    AMREX_ALWAYS_ASSERT(!actual.contains_nan(0,Q,0) && !actual.contains_inf(0,Q,0));
+    // 所有非 valid 单元（物理、周期和内部 ghost）必须保持输入 sentinel。
+    MultiFab ghost_error(fba,fdm,Q,2);
+    for (MFIter mfi(actual);mfi.isValid();++mfi) {
+        const auto values=actual.const_array(mfi);
+        const auto error=ghost_error.array(mfi);
+        const Box valid=mfi.validbox();
+        ParallelFor(actual[mfi].box(),Q,[=] AMREX_GPU_DEVICE(int i,int j,int k,int q) {
+            error(i,j,k,q)=!valid.contains(i,j,k) && values(i,j,k,q)!=Real(-777) ? Real(1) : Real(0);
+        });
+    }
+    const Real ghost_linf=ghost_error.norm0(0,Q,IntVect(2));
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(ghost_linf==0,"initialization overwrote fine ghost");
+    MultiFab::Subtract(amrex_reference,reference,0,0,Q,0);
+    const Real amrex_linf=amrex_reference.norm0(0,Q,IntVect(0));
+    MultiFab::Subtract(actual,reference,0,0,Q,0);
+    const Real linf=actual.norm0(0,Q,IntVect(0));
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(linf < Real(2.e-14), "sparse initialization differs from independent custom oracle");
     Vector<Box> work;
     Vector<int> indices;
     for (int i=0;i<fba.size();++i) {
-        work.push_back(amrex::grow(fba[i],2)&lbm.Geom(1).growPeriodicDomain(2));
+        work.push_back(fba[i]);
         indices.push_back(i);
     }
     MultiFab stage;
@@ -234,7 +240,7 @@ void run_case(int mode, int periodic_case, bool coarse_osi, std::uint64_t phase,
     AMREX_ALWAYS_ASSERT(stage.nGrow()==0 && stage.boxArray().numPts() < ba.numPts());
     Print() << "PASS sparse initialization mode=" << mode << " periodic=" << periodic_case
             << " osi=" << coarse_osi << " phase=" << phase << " linf=" << linf
-            << " amrex_linf=" << amrex_linf << " stage_cells=" << stage.boxArray().numPts() << " parent_cells=" << ba.numPts() << '\n';
+            << " ghost_linf=" << ghost_linf << " amrex_linf=" << amrex_linf << " stage_cells=" << stage.boxArray().numPts() << " parent_cells=" << ba.numPts() << '\n';
 }
 
 int main(int argc,char** argv) {
