@@ -84,7 +84,7 @@ convertToDeviceVector(amrex::Vector<T> v) {
     return v_d;
 }
 
-}
+} // namespace
 
 void AmrCoreLBM::InitMesh(amrex::Real cur_time) {
     InitFromScratch(cur_time);
@@ -123,13 +123,15 @@ void AmrCoreLBM::BuildInterpolationStage(
             stencil, coarse_valid, Geom(lev - 1), lev, fine_index,
             work, interp_mode,
             fine.boxArray()[fine_index].contains(work)
-                ? IntVect(0) : fine.nGrowVect(), nProper());
+                ? IntVect(0)
+                : fine.nGrowVect(),
+            nProper());
         bool needs_fill = false;
         for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
             needs_fill = needs_fill ||
-                (!Geom(lev - 1).isPeriodic(dir) &&
-                 (stencil.smallEnd(dir) < domain.smallEnd(dir) ||
-                  stencil.bigEnd(dir) > domain.bigEnd(dir)));
+                         (!Geom(lev - 1).isPeriodic(dir) &&
+                          (stencil.smallEnd(dir) < domain.smallEnd(dir) ||
+                           stencil.bigEnd(dir) > domain.bigEnd(dir)));
         }
         // 每个工作区保留独立模板，owner 与目标 fine Fab 相同。
         // 模板可重叠，但不会把包围它们的无关粗层区域一并分配。
@@ -230,7 +232,6 @@ void AmrCoreLBM::InterpolateDdfStageToFine(
     MultiFab& coarse_stage, MultiFab& fine_state,
     const Vector<Box>& fine_work_boxes, const Vector<int>& fine_indices,
     bool fine_osi, std::uint64_t fine_phase, bool apply_scale, Real scale) {
-    const int interp_mode_local = interp_mode;
     if (apply_scale) {
         ScaleInterpolationStage(coarse_stage, scale);
     }
@@ -275,12 +276,12 @@ void AmrCoreLBM::InterpolateDdfStageToFine(
             }
             continue;
         }
-        if (interp_mode_local == 0) {
+        if (interp_mode == 0) {
             amrex::ParallelFor(
                 fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                     interp_bilinear_d3q(i, j, k, fine, coarse);
                 });
-        } else if (interp_mode_local == 1) {
+        } else if (interp_mode == 1) {
             const Box coarse_parent_box = amrex::coarsen(fine_box, 2);
             amrex::ParallelFor(
                 coarse_parent_box,
@@ -974,9 +975,7 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
     BuildInterpolationStage(
         lev, coarse_state, fine_state, work_boxes, fine_indices,
         coarse_stage, needs_physical_fill);
-    if (!coarse_stage.isDefined()) {
-        return;
-    }
+
     if (coarse_osi) {
         // 调用内搬运计划只绑定当前临时模板，不进入长期 ghost 缓存。
         ParallelCopyOsi(lev - 1, coarse_state, coarse_phase, coarse_stage, 0);
@@ -992,7 +991,6 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
     InterpolateDdfStageToFine(
         coarse_stage, fine_state, work_boxes, fine_indices,
         false, 0, true, scale);
-
 }
 
 void AmrCoreLBM::ClearLevel(int lev) {
