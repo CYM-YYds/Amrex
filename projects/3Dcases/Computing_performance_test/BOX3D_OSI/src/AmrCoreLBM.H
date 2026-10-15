@@ -404,7 +404,7 @@ class AmrCoreLBM : public amrex::AmrCore {
 
     std::array<amrex::Real, 3> MeasureLevel0VelocityChange(
         const amrex::MultiFab& previous) const;
-    void BuildBoundaryWorkBoxes();
+    void BuildBoundaryWorkCache();
     void BuildOsiCommunicationRegionCache(int lev);
     void BuildInterpolationCache();
     void BuildAverageCache();
@@ -518,7 +518,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 几何、Array4 和收发缓冲只在布局重建时更新；相位偏移在执行时从对应层的共享表读取。
     amrex::Vector<OSI::CpcCache<true>> osi_interp_copy_cache;
     amrex::Vector<OSI::CpcCache<false>> osi_average_copy_cache;
-    // 只由 BuildBoundaryWorkBoxes 建立；布局重建或清层时失效，不缓存 DDF 地址或相位值。
+    // 只由 BuildBoundaryWorkCache 建立；布局重建或清层时失效，不缓存 DDF 地址或相位值。
     amrex::Vector<Box3dDetail::BoundaryWorkCache> boundary_work_cache;
 
     amrex::Vector<amrex::Real> tau;

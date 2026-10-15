@@ -539,7 +539,7 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
 
     // 预先找出各 fine Fab 位于非周期物理边界上的互不重叠工作 Box，
     // Boundary() 批量执行缓存任务，不必在每个时间步重复分析几何关系。
-    BuildBoundaryWorkBoxes();
+    BuildBoundaryWorkCache();
 
     // 为每个 fine ghost work_box 建立所需的 coarse stencil staging Fab、
     // fine Fab 索引和 owner 映射，供 FillDdfGhostFromCoarse() 直接插值。
@@ -616,7 +616,7 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
     }
 }
 
-void AmrCoreLBM::BuildBoundaryWorkBoxes() {
+void AmrCoreLBM::BuildBoundaryWorkCache() {
     for (int lev = 0; lev <= finest_level; ++lev) {
         const BoxArray& ba = boxArray(lev);
         const Box domain = Geom(lev).Domain();
