@@ -218,7 +218,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
 }
 
 void AmrCoreLBM::FillBoundaryOsi(int lev) {
-    ScopedPerfTimer timer(perf_stats.osi_fillboundary);
+    ScopedPerfTimer timer(perf_stats.osi_fillboundary, params_.perf_osi_detail_timing);
     const std::uint64_t phase = osi_phase.at(lev);
     auto& cache = osi_fillboundary_cache.at(lev);
     const auto* phase_shifts = osi_fab_phase_cache.at(lev).data(phase);
@@ -273,9 +273,9 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
     bool local_copy_launched = false;
 
     {
-        ScopedPerfTimer pack_timer(perf_stats.osi_mpi_pack);
+        ScopedPerfTimer pack_timer(perf_stats.osi_mpi_pack, params_.perf_osi_detail_timing);
         {
-            ScopedPerfTimer kernel_timer(perf_stats.osi_mpi_pack_kernel);
+            ScopedPerfTimer kernel_timer(perf_stats.osi_mpi_pack_kernel, params_.perf_osi_detail_timing);
             Real* buffer = send_device.data();
             amrex::ParallelFor(
                 cache.pack_tags, Q,
@@ -307,9 +307,9 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
                 Gpu::Device::setStreamIndex(1);
                 Gpu::streamSynchronize();
                 Gpu::Device::resetStreamIndex();
-                perf_stats.osi_mpi_dtoh += amrex::second() - dtoh_start;
+                if (params_.perf_osi_detail_timing) { perf_stats.osi_mpi_dtoh += amrex::second() - dtoh_start; }
             } else {
-                ScopedPerfTimer dtoh_timer(perf_stats.osi_mpi_dtoh);
+                ScopedPerfTimer dtoh_timer(perf_stats.osi_mpi_dtoh, params_.perf_osi_detail_timing);
                 Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
                                  send_device.size() * sizeof(Real));
             }
@@ -317,7 +317,7 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
     }
 
     {
-        ScopedPerfTimer wait_timer(perf_stats.osi_mpi_wait);
+        ScopedPerfTimer wait_timer(perf_stats.osi_mpi_wait, params_.perf_osi_detail_timing);
         const int mpi_tag = ParallelDescriptor::SeqNum();
         Vector<ParallelDescriptor::Message> receives;
         Vector<ParallelDescriptor::Message> sends;
@@ -363,7 +363,7 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
                                            count * sizeof(Real));
                     Gpu::streamSynchronize();
                     Gpu::Device::resetStreamIndex();
-                    perf_stats.osi_mpi_dtoh += amrex::second() - dtoh_start;
+                    if (params_.perf_osi_detail_timing) { perf_stats.osi_mpi_dtoh += amrex::second() - dtoh_start; }
                     sends.push_back(ParallelDescriptor::Asend(
                         send_host.data() + offset, count, peer, mpi_tag));
                 }
@@ -409,27 +409,27 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
             Gpu::Device::setStreamIndex(1);
             Gpu::streamSynchronize();
             Gpu::Device::resetStreamIndex();
-            perf_stats.osi_mpi_htod += amrex::second() - pipeline_htod_start;
+            if (params_.perf_osi_detail_timing) { perf_stats.osi_mpi_htod += amrex::second() - pipeline_htod_start; }
         }
         if (osi_mpi_async_staging && !recv_device.empty()) {
             Gpu::Device::setStreamIndex(1);
             Gpu::streamSynchronize();
             Gpu::Device::resetStreamIndex();
-            perf_stats.osi_mpi_htod += amrex::second() - htod_start;
+            if (params_.perf_osi_detail_timing) { perf_stats.osi_mpi_htod += amrex::second() - htod_start; }
         }
     }
 
     {
-        ScopedPerfTimer unpack_timer(perf_stats.osi_mpi_unpack);
+        ScopedPerfTimer unpack_timer(perf_stats.osi_mpi_unpack, params_.perf_osi_detail_timing);
         if (!osi_mpi_device_direct && !osi_mpi_async_staging &&
             !pipeline_staging &&
             !recv_device.empty()) {
-            ScopedPerfTimer htod_timer(perf_stats.osi_mpi_htod);
+            ScopedPerfTimer htod_timer(perf_stats.osi_mpi_htod, params_.perf_osi_detail_timing);
             Gpu::htod_memcpy(recv_device.data(), recv_host.data(),
                              recv_device.size() * sizeof(Real));
         }
         {
-            ScopedPerfTimer kernel_timer(perf_stats.osi_mpi_unpack_kernel);
+            ScopedPerfTimer kernel_timer(perf_stats.osi_mpi_unpack_kernel, params_.perf_osi_detail_timing);
             const Real* buffer = recv_device.data();
             amrex::ParallelFor(
                 cache.unpack_tags, Q,
@@ -456,7 +456,9 @@ void AmrCoreLBM::ParallelCopyOsi(
     OSI::CpcCache<SourceRaw>& cache, const OSI::PhaseShift3* phase_shifts,
     OSI::CopyTiming timing) {
     AMREX_ALWAYS_ASSERT(cache.ready);
-    ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy);
+    // 关闭细分计时只移除计时指针；搬运与缓冲生命周期同步仍由执行层保证。
+    if (!params_.perf_osi_detail_timing) { timing = {}; }
+    ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy, params_.perf_osi_detail_timing);
     OSI::parallel_copy_local(
         cache.local_tags, Q,
         [phase_shifts] AMREX_GPU_DEVICE(int i, int j, int k, int q,

@@ -61,16 +61,20 @@ struct BoundaryWorkCache {
 
 class ScopedPerfTimer {
   public:
-    explicit ScopedPerfTimer(double& accum)
-        : m_accum(accum), m_start(amrex::second()) {}
+    explicit ScopedPerfTimer(double& accum, bool enabled = true)
+        : m_accum(accum), m_enabled(enabled),
+          m_start(enabled ? amrex::second() : 0.0) {}
 
     ~ScopedPerfTimer() {
+        // 关闭细分计时时不读取时钟、不同步 GPU，也不累加伪耗时。
+        if (!m_enabled) { return; }
         amrex::Gpu::streamSynchronize();
         m_accum += amrex::second() - m_start;
     }
 
   private:
     double& m_accum;
+    bool m_enabled;
     double m_start;
 };
 #ifdef AMREX_USE_CUDA
@@ -114,6 +118,7 @@ class AmrCoreLBM : public amrex::AmrCore {
         int plot_int = -1;
         int begin_plot = 0;
         int perf_report_int = 1000;
+        bool perf_osi_detail_timing = true; // OSI 嵌套细分计时会引入额外同步。
         int chk_int = -1;
         int begin_step = 0;
         std::string chk_prefix = "chk";

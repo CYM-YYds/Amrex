@@ -505,6 +505,11 @@ SoA 属性校验和在并行归约容差内一致，两层 D3Q27 全局 `Linf=0`
 不拥有 level 状态；`OsiCommunication.H` 提供通信执行辅助。共享计时器和
 checkpoint 常量位于 `AmrCoreLBM.H`，没有独立 detail 头文件。
 
+OSI 通信/缓存搬运的嵌套细分计时由 `RuntimeParams` 中一次读取的
+`performance.osi_detail_timing` 控制，默认保留。关闭时跳过计时器及其同步，
+保留显式数据依赖同步和主阶段计时；日志明确标记未测量，不能把零值解释为没有搬运成本。
+用法和配对结果见[README](../README.md#构建运行与实验记录)。
+
 ## 14. 不能破坏的比较控制
 
 引入 OSI 时只改变 DDF 存储与 streaming 实现，不同时修改：

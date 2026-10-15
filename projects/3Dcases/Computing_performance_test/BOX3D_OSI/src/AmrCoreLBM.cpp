@@ -301,6 +301,7 @@ void AmrCoreLBM::ReadParameters() {
     {
         ParmParse pp_performance("performance");
         pp_performance.query("report_int", params_.perf_report_int);
+        pp_performance.query("osi_detail_timing", params_.perf_osi_detail_timing);
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
             params_.perf_report_int > 0,
             "performance.report_int must be positive");

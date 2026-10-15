@@ -304,7 +304,8 @@ int main(int argc, char* argv[]) {
                 std::cout << "step" << step << " compute_time: " << compute_time << " ms" << " regrid_time: " << regrid_time << " ms" << " JaberCycle_time: " << JaberCycle_time << " ms"
                           << std::endl;
                 std::cout << "step" << step
-                          << " perf(s): interp=" << perf.interp
+                          << " perf(s): osi_detail_timing=" << lid.params().perf_osi_detail_timing
+                          << " interp=" << perf.interp
                           << " collide=" << perf.collide
                           << " stream=" << perf.stream
                           << " average=" << perf.average

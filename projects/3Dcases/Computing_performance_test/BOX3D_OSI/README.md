@@ -145,6 +145,12 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 .venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/plot_586660_convergence.py
 ```
 
+`performance.osi_detail_timing=1` 默认保留 OSI 细分计时；设为 0 可关闭通信与缓存搬运的
+嵌套细分计时，保留 `comm/interp/average` 等主阶段计时。关闭时 `osi_*` 细分秒数为 0，
+表示未测量；`perf(s)` 的 `osi_detail_timing` 字段给出实际开关。
+细分计时会增加同步，算法性能对比应保持开关一致；
+[开关配对实验](docs/ai_changes/2026-10-15-osi-optional-detail-timing.md)未证明关闭后有一致的整体加速。
+
 该示例处理历史作业，输入路径以脚本为准；图表应注明数据、步数、归一化和参考来源。
 两个收敛绘图入口都可重复传入 `--log <path>` 并用 `--output <path>`
 指定新图位置；`plot_596154_convergence.py` 另有 `--csv-output <path>`。

@@ -6,6 +6,13 @@
 冻结版本成立。遇到旧 fallback、已删除函数或“重启待验收”的说法时，以顶部
 及[架构文档](osi_algorithm_and_architecture.md)中的现役调用链为准。
 
+## 2026-10-15 OSI 细分计时开关
+
+`performance.osi_detail_timing=0` 可关闭 OSI 嵌套细分计时及其同步，主阶段和数据依赖
+同步保留。九组 64 步数值回归前后阶段记录及 checkpoint 相同；关闭细分后的单 GPU
+整体变化接近零，双 rank 配对中位数慢约 0.54%，未证明一致加速，最终默认 1 延续原统计。
+具体范围、冻结版本和证据见[变更记录](ai_changes/2026-10-15-osi-optional-detail-timing.md)。
+
 ## 2026-10-15 批量薄面边界收尾
 
 后续按用户要求扩大到当前 Fab 的全部域内物理面，见
