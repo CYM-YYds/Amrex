@@ -1,0 +1,53 @@
+# BOX3D_OSI 有意保留的未调用函数（scripts/code_audit.sh -a 使用）
+# 每行一个函数名，# 后为保留理由。2026-10-12 由用户逐组确认，基于提交 80c12a5。
+
+# 手动诊断：b71f993 删除自动调用后改为按需手动插入，性能测试前移除（见 AmrCoreLBM.H 注释）
+ValidateInitializedState       # 各层 DDF/密度/速度有限性与正密度检查，A-B/OSI 通用
+PrintDdfChecksums              # 各层 valid/active DDF 总和与分量和，A-B/OSI 通用
+PrintLevelDdfChecksum          # 单层阶段 DDF 分量和，A-B/OSI 通用
+DiagnoseStreamResult           # 仅 A-B：Stream 后 NaN 位置与 pull 源
+DiagnoseBoundaryResult         # 仅 A-B：Boundary 后 NaN 的边界/interface 分布
+PrintInterpolationDiagnostics  # 仅 A-B：粗到细插值缓存布局与 DDF 范数
+
+# 旧推进周期：现役为 Cycle2；删除提交 14e46fa 已由用户回退（b620955），保留作对照
+RohdeCycle               # main.cpp，单粒子 Rohde 周期
+JaberCycle               # main.cpp，单粒子 Jaber 周期；osi_performance_profiling.md 引用
+RohdeCycleMultiParticle  # main.cpp，多粒子 Rohde 周期
+JaberCycleMultiParticle  # main.cpp，多粒子 Jaber 周期
+
+# 备选碰撞核：现役为 collide_bgk_register(_osi)，保留作碰撞模型对照
+collide_cumulant         # Kernels.H，cumulant 碰撞
+collide_cumulant_opt     # Kernels.H，cumulant 优化版
+collide_cumulant_opt2    # Kernels.H，cumulant 七月版
+forwardChimeraWithK      # Kernels.H，cumulant 中心矩变换
+backwardChimeraWithK     # Kernels.H，cumulant 中心矩逆变换
+compute_shear2           # Kernels.H，剪切率备选算法
+feqHeLuo                 # D3Q19.H，He-Luo 平衡态
+
+# AMR 加密标记备选准则
+state_error              # Kernels.H
+state_error_2            # Kernels.H
+state_error_4            # Kernels.H
+state_error_5            # Kernels.H
+state_error_6            # Kernels.H
+
+# 输出与后处理：调用处在 main.cpp/AmrCoreLBM.cpp 中被注释，按需启用
+WriteDensityFile         # AmrCoreLBM.cpp
+WriteVorticityFile       # AmrCoreLBM.cpp
+WriteParticleFile        # AmrCoreLBM.cpp
+WriteMultiParticleFile   # AmrCoreLBM.cpp
+SaveParticleVelocity     # AmrCoreLBM.cpp
+SaveParticlePosition     # AmrCoreLBM.cpp
+SaveParticleDistance     # AmrCoreLBM.cpp
+ComputeCp                # AmrCoreLBM.cpp
+ReduceFxy                # AmrCoreLBM.cpp
+ComputeShear             # AmrCoreLBM_advance.cpp
+
+# 粒子初始化与壁面模型：调用处被注释，按需启用
+InterpForceWallModel     # LagrangeParticleContainer.cpp
+InitParticleFromFile     # LagrangeParticleContainer.cpp
+generateSpheres          # InitParticles.H
+
+# 访问器接口
+gridParams               # AmrCoreLBM.H
+runMode                  # AmrCoreLBM.H

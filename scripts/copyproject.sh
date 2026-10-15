@@ -1,203 +1,87 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# 在下方直接修改源路径与目标路径即可使用。
-# 优先严格按 .gitignore 语义（git 文件清单）复制；不在 git 仓库内时回退到 rsync 的 per-dir .gitignore 过滤。
-
-# ===== 配置区域（请按需修改） =====
-# 源目录（默认：脚本所在目录）
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-SOURCE_DIR="/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D" # <--- 修改为你希望复制的源目录绝对路径
-
-# 目标目录（最终落地目录名，可不存在，会被创建）
-DEST_DIR="/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI" # <--- 修改为你希望复制到的目标目录绝对路径；避免目录名包含空格，AMReX/GNU make 对空格路径支持不稳定
-
-# 注意：该脚本会实际复制（无 dry-run/删除开关）；如需试运行建议临时手动在 rsync 命令上添加 -n。
-# ===== 配置结束 =====
-
-escape_regex() {
-	local value=${1:-}
-	value=${value//\\/\\\\}
-	value=${value//./\\.}
-	value=${value//^/\\^}
-	value=${value//\$/\\$}
-	value=${value//\*/\\*}
-	value=${value//+/\\+}
-	value=${value//\?/\\?}
-	value=${value//\(/\\(}
-	value=${value//\)/\\)}
-	value=${value//\[/\\[}
-	value=${value//\]/\\]}
-	value=${value//|/\\|}
-	printf '%s' "$value"
+# 复制开发文件；历史结果留在原算例，已有目标目录一律拒绝覆盖。
+usage() {
+    echo "用法: $0 [--dry-run] SOURCE_DIR DEST_DIR"
+    echo "复制 Git 跟踪及未忽略的文件，排除 runs/logs/data/tmp、checkpoint、构建产物和编译数据库。"
 }
-
-rewrite_clangd() {
-	local clangd_file=$1
-	local case_root=$2
-	local repo_root=$3
-	local amrex_root="$repo_root/amrex-26.01"
-	local case_root_re repo_root_re amrex_root_re
-
-	if [[ ! -f "$clangd_file" ]]; then
-		return 0
-	fi
-
-	case_root_re=$(escape_regex "$case_root")
-	repo_root_re=$(escape_regex "$repo_root")
-	amrex_root_re=$(escape_regex "$amrex_root")
-
-	cat >"$clangd_file" <<EOF
-If:
-  PathMatch: .*
-
-CompileFlags:
-  CompilationDatabase: config
-  Remove:
-    - "^-D__CUDA_ARCH__=.*"
-    - "^-D__CUDA_ARCH_LIST__=.*"
-  Add:
-    - -D__host__=
-    - -D__device__=
-    - -D__global__=
-    - -D__constant__=
-    - -D__shared__=
-    - -D__launch_bounds__(...)=
-    - -isystem
-    - /home/HPCBase/compilers/cuda/12.1.0/targets/sbsa-linux/include
-    - -include
-    - cuda_runtime.h
-
-Index:
-  Background: Build
-  StandardLibrary: Yes
-
-Diagnostics:
-  ClangTidy:
-    Add: []
-    Remove: ['*']
-
-Completion:
-  AllScopes: true
-
----
-If:
-  PathMatch: .*D2Q9\.H
-
-CompileFlags:
-  Add:
-    - -DAMREX_CXX_NVHPC
-    - -include
-    - $amrex_root/Src/Base/AMReX_REAL.H
-    - -include
-    - $amrex_root/Src/Base/AMReX_RealVect.H
-
----
-If:
-  # Index only this case root using absolute path.
-  PathMatch: ^$case_root_re/.*
-
-Index:
-  Background: Build
-
----
-If:
-  # Re-enable AMReX source tree indexing using absolute path.
-  PathMatch: ^$amrex_root_re/.*
-
-Index:
-  Background: Build
-
----
-If:
-  # Skip other repository paths to reduce cross-case symbol pollution.
-  PathMatch: ^$repo_root_re/.*
-
-Index:
-  Background: Skip
-EOF
+DRY_RUN=0
+if [[ ${1:-} == --dry-run ]]; then
+    DRY_RUN=1
+    shift
+fi
+if [[ ${1:-} == --help || ${1:-} == -h ]]; then
+    usage
+    exit 0
+fi
+if [[ $# != 2 ]]; then
+    usage >&2
+    exit 1
+fi
+for tool in git rsync realpath python3; do
+    command -v "$tool" >/dev/null || { echo "错误: 未找到 $tool" >&2; exit 1; }
+done
+SOURCE_DIR=$(realpath -e -- "$1")
+DEST_DIR=$(realpath -m -- "$2")
+[[ -d "$SOURCE_DIR" ]] || { echo "错误: 源目录不存在" >&2; exit 1; }
+[[ ! -e "$DEST_DIR" && ! -L "$DEST_DIR" ]] || { echo "错误: 目标已存在: $DEST_DIR" >&2; exit 1; }
+[[ "$DEST_DIR" != "$SOURCE_DIR/"* && "$DEST_DIR" != *[[:space:]]* ]] || {
+    echo "错误: 目标不能位于源目录内，且路径不能包含空白" >&2; exit 1;
 }
-
-if ! command -v rsync >/dev/null 2>&1; then
-	echo "错误: 未找到 rsync，请安装后重试。" >&2
-	exit 1
-fi
-
-if [[ ! -d "$SOURCE_DIR" ]]; then
-	echo "错误: 源目录不存在: $SOURCE_DIR" >&2
-	exit 1
-fi
-
-mkdir -p "$(dirname -- "$DEST_DIR")"
-mkdir -p "$DEST_DIR"
-
+git -C "$SOURCE_DIR" rev-parse --show-toplevel >/dev/null
+# 必须使用算例目录，避免误把整个仓库当作源目录。
+[[ -d "$SOURCE_DIR/src" && -f "$SOURCE_DIR/config/GNUmakefile" ]] || {
+    echo "错误: 源目录不是具有 src 和 config/GNUmakefile 的算例" >&2; exit 1;
+}
+tmp_list=$(mktemp)
+trap 'rm -f "$tmp_list"' EXIT
+# Git 清单保留反选规则；额外排除实验历史，即使这些文件已被跟踪。
+git -C "$SOURCE_DIR" ls-files -z --cached --others --exclude-standard -- . > "$tmp_list"
+python3 - "$SOURCE_DIR" "$tmp_list" <<'PY'
+import os
+import pathlib
+import sys
+source, listing = sys.argv[1:]
+excluded = {'runs', 'logs', 'data', 'tmp', 'tmp_build_dir', '__pycache__', '.cache', '.git'}
+paths = pathlib.Path(listing).read_bytes().split(b'\0')
+kept = []
+for raw in paths:
+    if not raw:
+        continue
+    name = os.fsdecode(raw)
+    path = pathlib.PurePosixPath(name)
+    if any(p in excluded or p.startswith(('chk', 'plt', 'data32to')) for p in path.parts[:-1]):
+        continue
+    if path.name == 'compile_commands.json' or path.suffix in {'.ex', '.o', '.cuo', '.log', '.out', '.err', '.pyc'}:
+        continue
+    if os.path.lexists(os.path.join(source, name)):
+        kept.append(raw)
+pathlib.Path(listing).write_bytes(b''.join(p + b'\0' for p in dict.fromkeys(kept)))
+print(f'开发文件数量: {len(set(kept))}')
+PY
+[[ -s "$tmp_list" ]] || { echo "错误: 文件清单为空" >&2; exit 1; }
 echo "源: $SOURCE_DIR"
 echo "目标: $DEST_DIR"
-
-if command -v git >/dev/null 2>&1 && git -C "$SOURCE_DIR" rev-parse --show-toplevel >/dev/null 2>&1; then
-	REPO_ROOT=$(git -C "$SOURCE_DIR" rev-parse --show-toplevel)
-elif command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --show-toplevel >/dev/null 2>&1; then
-	REPO_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
-else
-	REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
+if (( DRY_RUN )); then
+    # 预览不创建目标或其父目录。
+    while IFS= read -r -d '' file; do printf '%s\n' "$file"; done < "$tmp_list"
+    exit 0
 fi
-
-# 优先使用 git 文件清单，严格按 .gitignore 语义处理（包含未被忽略的未跟踪文件，支持 ! 反选）
-if command -v git >/dev/null 2>&1 && git -C "$SOURCE_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-	# 计算 SOURCE_DIR 相对于仓库根的路径
-	if command -v realpath >/dev/null 2>&1; then
-		SOURCE_REL=$(realpath --relative-to="$REPO_ROOT" "$SOURCE_DIR")
-	else
-		if command -v python3 >/dev/null 2>&1; then
-			SOURCE_REL=$(
-				python3 - <<'PY'
-import os
-repo=os.path.realpath(os.environ['REPO'])
-src=os.path.realpath(os.environ['SRC'])
-print(os.path.relpath(src, repo))
+mkdir -p -- "$(dirname -- "$DEST_DIR")"
+mkdir -- "$DEST_DIR"
+rsync -a --from0 --files-from="$tmp_list" "$SOURCE_DIR/" "$DEST_DIR/"
+# 保留源算例的 AMReX 版本和全部编辑器选项，只替换算例绝对路径。
+if [[ -f "$DEST_DIR/.clangd" ]]; then
+    python3 - "$DEST_DIR/.clangd" "$SOURCE_DIR" "$DEST_DIR" <<'PY'
+import pathlib
+import re
+import sys
+file, source, dest = sys.argv[1:]
+path = pathlib.Path(file)
+text = path.read_text()
+text = text.replace(re.escape(source), re.escape(dest)).replace(source, dest)
+path.write_text(text)
 PY
-				REPO="$REPO_ROOT" SRC="$SOURCE_DIR"
-			)
-		else
-			SOURCE_REL="${SOURCE_DIR#"$REPO_ROOT/"}"
-		fi
-	fi
-
-	WORK_DIR="$REPO_ROOT/$SOURCE_REL"
-	RSYNC_OPTS=(-a -v -m --exclude '.git/')
-
-	echo "模式: 使用 git 文件清单"
-	# 仅同步 git 识别为未忽略的文件（跟踪 + 未被忽略的未跟踪）；并过滤掉工作区中不存在的路径
-	tmp_list=$(mktemp)
-	trap 'rm -f "$tmp_list"' EXIT
-	git -C "$WORK_DIR" ls-files -z --cached --others --exclude-standard -- . |
-		{ while IFS= read -r -d '' f; do
-			if [[ -e "$WORK_DIR/$f" ]]; then
-				printf '%s\0' "$f"
-			fi
-		done >"$tmp_list"; } || true
-
-	if [[ -s "$tmp_list" ]]; then
-		rsync "${RSYNC_OPTS[@]}" --files-from="$tmp_list" --from0 "$WORK_DIR/" "$DEST_DIR/"
-		rewrite_clangd "$DEST_DIR/.clangd" "$DEST_DIR" "$REPO_ROOT"
-		echo "完成：$DEST_DIR"
-		exit 0
-	else
-		echo "提示: git 文件清单为空，回退到 rsync + .gitignore 模式。"
-		# 回退：使用 rsync 的 per-dir .gitignore 过滤（不完美，不支持 ! 反选）
-		RSYNC_OPTS=(-a -v -m --exclude '.git/' --filter ":- .gitignore")
-		rsync "${RSYNC_OPTS[@]}" "$SOURCE_DIR/" "$DEST_DIR/"
-		rewrite_clangd "$DEST_DIR/.clangd" "$DEST_DIR" "$REPO_ROOT"
-		echo "完成：$DEST_DIR"
-		exit 0
-	fi
 fi
-
-# 回退：使用 rsync 的 per-dir .gitignore 过滤（不完美，不支持 ! 反选）
-RSYNC_OPTS=(-a -v -m --exclude '.git/' --filter ":- .gitignore")
-
-echo "模式: 使用 rsync + .gitignore（回退）"
-rsync "${RSYNC_OPTS[@]}" "$SOURCE_DIR/" "$DEST_DIR/"
-rewrite_clangd "$DEST_DIR/.clangd" "$DEST_DIR" "$REPO_ROOT"
-
-echo "完成：$DEST_DIR"
+echo "完成: $DEST_DIR"

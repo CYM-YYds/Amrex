@@ -1,0 +1,208 @@
+# BOX3D_OSI
+
+基于 AMReX 26.06、C++20、CUDA 和 MPI 的三维 D3Q27 LBM 动态 AMR 算例。
+本目录支持 canonical 双数组 A-B 基准和 one-step index（OSI）单数组推进；
+相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
+[当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
+
+更新时间：2026-10-15。
+
+## 目录与构建关系
+
+```text
+BOX3D_OSI/
+├── GNUmakefile                  # 包装入口：设置 src 搜索路径，包含 config/GNUmakefile
+├── config/
+│   ├── GNUmakefile              # AMReX 版本、MPI/CUDA/TinyProfiler 等构建选项
+│   ├── Make.package             # 编译的源文件和头文件登记
+│   ├── inputs                   # 当前物理、网格、AMR、通信及输出配置
+│   └── compile_commands.json    # clangd 编译数据库
+├── src/
+│   ├── main.cpp                # 启动、coarse-step 主循环、Cycle2 多层子循环
+│   ├── AmrCoreLBM.H             # 唯一驱动类：接口、状态、缓存及共享辅助定义
+│   ├── AmrCoreLBM.cpp           # 基础生命周期、密度/速度重建、输出和 checkpoint
+│   ├── AmrCoreLBM_amr.cpp       # AMReX 回调、regrid、粗细网格缓存与插值
+│   ├── AmrCoreLBM_advance.cpp   # 单层推进、边界、平均和布局分派
+│   ├── AmrCoreLBM_osi.cpp       # OSI 编解码、同层通信、粗细传递与迁移
+│   ├── AmrCoreLBM_diagnostics.cpp # 逐值对照、source 诊断、checksum 和收敛
+│   ├── OsiAbVerification.H/.cpp # 将验证动作插入生命周期，不拥有生产状态
+│   ├── OsiIndex.H              # Fab-local 地址映射和几何/相位上下文
+│   ├── OsiCommunication.H      # 通信 tag、MPI staging 和交换执行骨架
+│   ├── Kernels.H               # 单元级碰撞、迁移、边界及宏观量 kernel
+│   ├── D3Q19.H                 # 历史文件名；当前实际为 D3Q27，Q=27
+│   ├── LbmGridParams.H         # 可传给 host/GPU 的运行时网格与物理参数
+│   ├── LagrangeParticleContainer.H/.cpp # 粒子存储、插值和受力计算
+│   ├── AuxiliaryPointContainer.H/.cpp  # 辅助测点容器
+│   └── InitParticles.H         # 粒子初始化辅助函数
+├── scripts/                    # 编译、生产提交和专项实验入口
+├── tests/                      # 独立地址/覆盖测试及实验日志检查
+├── docs/                       # 算法、状态、历史性能与 ai_changes 变更记录
+├── data_post_processing/       # Python 后处理及历史图片
+├── runs/                       # 独立实验目录：输入、命令、证据与输出
+├── logs/                       # 编译和调度日志
+├── tmp_build_dir/              # 构建中间文件
+└── main3d.gnu.TPROF.MPI.CUDA.ex # 生产可执行文件
+```
+
+其他 `chk*`、`data*` 目录属于历史结果，不能当作待删除构建残留。
+`.clangd`、`.clang-format` 和 `.clang-tidy` 是开发工具配置。
+`config/Make.package` 决定实际参与构建的文件；源码目录并不自动全量编译。
+
+## 源码职责与数据所有权
+
+五个 `AmrCoreLBM*.cpp` 实现的是**同一个类**，共享 `AmrCoreLBM.H` 声明的成员；
+它们不是五个独立管理器。头文件中的 `Box3dDetail` 保存共享计时器、checkpoint
+格式常量及批量边界任务类型，原 `AmrCoreLBM_detail.H` 已合并并移除。
+
+| 文件 | 负责的工作与代表入口 |
+| --- | --- |
+| [main.cpp](src/main.cpp) | 读取启动配置、构造 Geometry/AmrInfo/驱动对象；初始化或重启；安排 regrid、`Cycle2`、输出与停止条件 |
+| [AmrCoreLBM.H](src/AmrCoreLBM.H) | 声明 RuntimeParams、PerfStats、RunMode/DdfLayout；拥有 DDF、phase、宏观场、mask、粗细层与通信缓存 |
+| [AmrCoreLBM.cpp](src/AmrCoreLBM.cpp) | 构造与参数读取、`ComputeMacroLevel`、PlotFile、`WriteCheckpoint`/`ReadCheckpoint`、粒子接口 |
+| [AmrCoreLBM_amr.cpp](src/AmrCoreLBM_amr.cpp) | `MakeNewLevel*`/`RemakeLevel`/`ClearLevel`/`ErrorEst` 等 AMReX 回调；`RefineMesh`、覆盖 mask、插值/平均缓存、模板覆盖检查 |
+| [AmrCoreLBM_advance.cpp](src/AmrCoreLBM_advance.cpp) | `AdvanceLevel`、Collide/Stream/Boundary/Swap；`FillGhostLevel`、`CommunicateLevel` 等布局分派；界面/完整平均及平均后物理边界修复；涡量与剪切 |
+| [AmrCoreLBM_osi.cpp](src/AmrCoreLBM_osi.cpp) | `DecodeOsiValid`；`FillOsiGhostFromCoarse`、`AverageDownOsi*`；`FillBoundaryOsi` 分派后的通信实现、通信缓存与 `ParallelCopyOsi` 重网格迁移 |
+| [AmrCoreLBM_diagnostics.cpp](src/AmrCoreLBM_diagnostics.cpp) | 阶段级/逐 cell 对照、Stream 源诊断、checksum、checkpoint 对比和收敛测量；不是生产推进入口 |
+| [OsiAbVerification.H/.cpp](src/OsiAbVerification.H) | 按 `verification.*` 配置安排 regrid 前后、首次 FillGhost 和推进后的检查；实际比较由驱动类诊断函数执行 |
+| [OsiIndex.H](src/OsiIndex.H) | `FabGeometry`、`PhaseShift3`、`MakeOsiFabContext(ring, phase)` 和 `osi_address`；只计算索引，不拥有 level 状态 |
+| [OsiCommunication.H](src/OsiCommunication.H) | local/remote copy、pack/unpack tag 和 MPI 交换公共骨架；具体区域与布局选择由 `_osi.cpp` 决定 |
+| [Kernels.H](src/Kernels.H) | 单元级数值计算；由驱动层传入 Array4、几何、相位和物理参数并发射 kernel |
+| [D3Q19.H](src/D3Q19.H) / [LbmGridParams.H](src/LbmGridParams.H) | 前者给出速度集、权重、Q、最大编译层级等模型常量；后者传递运行时尺寸、dx/dt 与黏度 |
+
+A-B 状态是每层 `f_old/f_new`；OSI 生产状态是每层 `osi_state` 和 `osi_phase`。
+开启 `verification.osi_ab_check` 时额外分配 A-B 状态用于锁步对照。
+`ring` 必须来自完整 grown-Fab，不能用 tilebox、碰撞域或物理域裁剪后的 Box 替代。
+相位属于 level 驱动，在 host 上准备 Fab 上下文，再供整个 kernel 复用。
+
+新层 DDF 初始化只写 valid，并按目标所需 stencil 搬运 coarse 数据；初始化、
+ghost 填充和重构迁移统一采用自定义数值插值核。AMReX 仍提供 stencil 几何。
+范围、公式及最新验证边界见[当前状态](docs/current_status.md#2026-10-14-新层初始化与插值收尾)。
+
+## 实际推进调用链
+
+`main.cpp` 的现役入口是 `Cycle2`。每个 coarse step 先处理需要的 regrid，
+然后进入多层递归；同文件中的 Rohde/Jaber 等其他周期函数不在当前主调用路径上。
+
+```text
+main coarse-step 循环
+  ├─ regrid 步：AverageDownValid → RepairCurrentStatePhysicalBoundary → RefineMesh
+  └─ Cycle2(lev, time)
+       ├─ 有细层时：FillGhostLevel(lev, time, scale) 填 lev+1 的 ghost
+       ├─ AdvanceLevel(lev)
+       │    ├─ Collide → CommunicateLevel → Stream → Boundary
+       │    └─ SwapLevel
+       └─ 有细层时：Cycle2(lev+1) 两次 → AverageDownInterfaceLevel(lev+1)
+```
+
+两个 fine substeps 共用父层在本次调用开始时的 ghost 填充。
+普通推进只执行所选布局；锁步验证模式在 `AdvanceLevel` 内显式执行两种布局，
+在碰撞、通信、迁移、边界等阶段立即比较。
+A-B 的 Stream 写入 `f_new`，随后 Swap；OSI 的 Stream 提交 phase，Swap 无需交换数组。
+完整平均后的边界修复只改 covered 粗层 valid 物理边界，排除 uncovered、ghost 和最细层；
+[算法文档](docs/osi_algorithm_and_architecture.md#101-完整平均后的边界修复)给出筛选细节。
+
+| 要修改什么 | 先定位哪里 |
+| --- | --- |
+| coarse-step 顺序、细层子循环或输出时机 | `main.cpp` 与 `config/inputs` |
+| 新建/重建 level、嵌套与粗细模板来源 | `AmrCoreLBM_amr.cpp` |
+| 碰撞、边界或单层阶段顺序 | `AmrCoreLBM_advance.cpp` → `Kernels.H` |
+| OSI 地址、phase 映射 | `OsiIndex.H`；phase 的提交点在 `_advance.cpp` |
+| OSI MPI、粗细 raw/canonical 传递 | `AmrCoreLBM_osi.cpp` → `OsiCommunication.H` |
+| 增加逐值检查及检查时机 | `_diagnostics.cpp` 与 `OsiAbVerification.H/.cpp` |
+| 参数、checkpoint 格式或密度/速度输出 | `AmrCoreLBM.cpp` |
+
+## 构建、运行与实验记录
+
+在本算例目录执行：
+
+```bash
+./scripts/compile.sh
+dsub -s ./scripts/submit.sh
+```
+
+`compile.sh` 转发到仓库级编译脚本，在编译节点加载环境；构建采用 AMReX 26.06、
+MPI、CUDA、TinyProfiler，项目要求 C++20 和 GCC 11+。
+主提交脚本创建 `runs/<timestamp>_job<job-id>/`，冻结 `inputs`、`overrides.txt`、
+`command.txt`、`manifest.txt`，并保存 `run.log`；相对 PlotFile/checkpoint 路径落在该目录。
+它记录可执行文件 SHA256，但程序使用指向算例可执行文件的符号链接；不能把该流程
+描述为冻结了独立可执行副本或完整源码快照。严格版本对比应另存 app 与源码证据。
+
+修改生产配置使用 [config/inputs](config/inputs)。专项测试可通过 `AMREX_RUN_ARGS`
+覆盖参数，主提交脚本会记录原始字符串。`scripts/submit_*.sh` 的行为需逐脚本查看：
+有些包装主提交脚本，有些自建实验目录和 app 快照，不能一概而论。
+`submit_osi_stage2_smoke.sh`、`submit_osi_stage3_single.sh`、
+`submit_osi_stage3_single_array.sh`、`submit_osi_stage7_restart.sh` 仍引用缺失的
+`config/inputs_osi`，属于历史入口，不能直接作为当前验收命令。
+
+续跑时给主提交脚本设置 `RESTART_CHECKPOINT` 为 checkpoint 完整路径；
+脚本在新运行目录创建 `chk<step>` 源链接并设置 begin_step，后续 checkpoint 写在新目录。
+OSI checkpoint 保存 canonical DDF，读取后 phase 从 0 开始。当前 checkpoint 写出与同布局新层初始化共用 `DecodeOsiValid`，
+不同布局重网格仍使用 `ParallelCopyOsi`。
+
+Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运行：
+
+```bash
+.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/plot_586660_convergence.py
+```
+
+`performance.osi_detail_timing=1` 默认保留 OSI 细分计时；设为 0 可关闭通信与缓存搬运的
+嵌套细分计时，保留 `comm/interp/average` 等主阶段计时。关闭时 `osi_*` 细分秒数为 0，
+表示未测量；`perf(s)` 的 `osi_detail_timing` 字段给出实际开关。
+细分计时会增加同步，算法性能对比应保持开关一致；
+[开关配对实验](docs/ai_changes/2026-10-15-osi-optional-detail-timing.md)未证明关闭后有一致的整体加速。
+
+该示例处理历史作业，输入路径以脚本为准；图表应注明数据、步数、归一化和参考来源。
+两个收敛绘图入口都可重复传入 `--log <path>` 并用 `--output <path>`
+指定新图位置；`plot_596154_convergence.py` 另有 `--csv-output <path>`。
+省略这些选项时仍使用原有历史作业和默认图表布局。日志按绝对 step 去重，
+后传入的日志覆盖同一步；缺少必需采样字段会报错。
+
+多个现役专项提交脚本共用 `scripts/osi_experiment_common.sh` 生成 hostfile 和
+启动 MPI；带独立运行目录的实验还可用它记录完整命令。入口仍明确选择环境、
+可执行文件、rank/GPU 数及覆盖参数。
+64/128/256 步锁步入口共用 `scripts/osi_lockstep_args.sh`，各自保留步数、
+失败策略和检查间隔。旧 direct 参数无需再写入新脚本；程序仍拒绝旧开关的 `=0` 请求。
+
+## 当前配置与验证边界
+
+当前 `config/inputs`：Re=1000，基础网格 `128³`，最高 level=2，regrid 间隔 32；
+`stream_mode=1`、`collide_mode=1`、`interp_mode=0`；OSI 同层通信、插值搬运及接口平均统一使用 direct 路径；
+device-direct 关闭，host-staging 分块为 2 MiB；最多 128000 步，PlotFile 间隔
+3200、checkpoint 间隔 32000，收敛容差为 `1e-4`。这些是配置值，不表示长程已经完成。
+
+网格尺寸、物理域和周期性由 inputs 设置；程序校验各向同性 spacing，并通过
+`LbmGridParams` 传递派生参数。粗细覆盖掩码固定启用，`lbm.cf_mask_mode` 已移除。
+普通粗到细插值缓存会检查父层 valid 模板覆盖，考虑周期像及物理边界延拓；
+域内缺口立即报错，当前没有自动多层递归补缺。
+
+当前边界使用按层缓存的批量薄面任务，处理 Fab grown 区域内的非周期物理面，排除域外 ghost。
+2026-10-15 作业 `613463` 完成三种插值、单/双 rank 动态 AMR 及固定周期网格
+的六组 64 步前后对照；独立测试在 1/2 rank 各通过 432 组。数值范围及性能结果见
+[最新边界交接状态](docs/current_status.md#2026-10-15-批量薄面边界收尾)。
+
+2026-10-11 的冻结版本对照由作业 `611228` 完成：9 组 64 步动态 AMR/周期多 Fab
+矩阵覆盖 1/2 ranks、插值模式 0/1/2 及三种 host-staging 策略；每步每层
+uncovered DDF、各层 checkpoint valid/active DDF 的前后差均为 `linf=0`。
+作业 `611229` 检查 CPC 缓存复用与重建；`611230` 检查 phase=0 checkpoint
+重启相对连续运行的 valid DDF，均通过。完整条件、源码与可执行文件标识见
+[架构去重验证记录](docs/ai_changes/2026-10-11-architecture-dedup-communication.md)。
+动态算例的既有 physical-ghost source mismatch 仍在，不能称所有 ghost 全等。
+
+长程严格逐值对照、多节点、多层周期动态 AMR、当前 HMPI/UCX 的 device-direct
+以及运动 IBM 完整重启仍待对应验收。上述 phase=0 验证只覆盖该次 OSI DDF
+重启，不外推为任意重启情形。历史性能、稳定运行或编译成功都不能单独证明数值正确性。
+运动刚体状态未完整持久化，静态粒子容器的重启证据不能外推为完整 IBM restart。
+
+## 文档导航
+
+- [当前交接状态](docs/current_status.md)：验证版本、运行证据、历史结果与 pending 项。
+- [OSI 算法与架构](docs/osi_algorithm_and_architecture.md)：地址、phase、边界、AMR 和 checkpoint 契约。
+- [DDF 粗细网格填充](docs/DDF粗细网格填充学习文档.md)：模板来源、缓存与覆盖门禁。
+- [MPI 通信计划](docs/osi_mpi_communication_plan.md)：历史实验阶段与通信机制；现役粗细传输见 [OSI 架构](docs/osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)。
+- [性能分析](docs/osi_performance_profiling.md)与 [MLUPS 记录](docs/MLUPS记录.md)：历史性能及适用范围。
+- [变更记录](docs/ai_changes/)：按提交保留的修改目的与验证摘要。
+
+OSI 已移除 canonical 通信、插值搬运与接口平均写回回退。旧的
+`osi_local_direct`、`osi_parallel_copy`、`osi_mpi_direct` 参数可暂时接受值 1，
+值 0 会明确报错；新输入无需设置。插值工作区、完整 valid restriction、
+A-B 参考态和 checkpoint/诊断需要的 canonical 数据仍保留。
