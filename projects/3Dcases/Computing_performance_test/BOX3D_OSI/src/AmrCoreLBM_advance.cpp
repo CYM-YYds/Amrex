@@ -347,48 +347,44 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
     const bool has_fine_level = lev < finest_level;
     const std::uint64_t phase = use_osi ? osi_phase.at(lev) : 0;
 
-    for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
-        const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
-        const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
-        const Array4<Real> state = state_lev.array(mfi);
-        const Array4<const int> covered =
-            has_fine_level ? covered_mask[lev].const_array(mfi)
-                           : Array4<const int>{};
-        perf_stats.boundary_full_cells += mfi.tilebox().numPts();
+    // 索引任务与当前布局一致；数组在调用时取得，避免 canonical 交换后绑定旧存储。
+    AMREX_ALWAYS_ASSERT(state_lev.boxArray() == boxArray(lev) &&
+                        state_lev.DistributionMap() == DistributionMap(lev) &&
+                        state_lev.nGrowVect() == IntVect(nghost));
+    const auto states = state_lev.arrays();
+    const auto masks = has_fine_level ? covered_mask[lev].const_arrays()
+                                     : MultiArray4<const int>{};
+    const auto& cache = boundary_work_cache[lev];
+    const auto& tags = repair_after_average ? cache.repair_tags : cache.advance_tags;
+    perf_stats.boundary_full_cells += cache.full_cells;
+    perf_stats.boundary_launch_cells += repair_after_average
+        ? cache.repair_cells : cache.advance_cells;
 
-        const auto& boundary_boxes = boundary_work_boxes[lev][mfi.index()];
-        for (const Box& boundary_box : boundary_boxes) {
-            // 完整平均只改写 valid；修复时排除 ghost，正常推进保留原工作范围。
-            const Box bx = repair_after_average
-                ? boundary_box & mfi.validbox() : boundary_box;
-            if (!bx.ok()) {
-                continue;
-            }
-            perf_stats.boundary_launch_cells += bx.numPts();
-            if (use_osi) {
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        if (has_fine_level &&
-                            (repair_after_average ? covered(i, j, k) == 0
-                                                  : covered(i, j, k) != 0)) {
-                            return;
-                        }
-                        fill_boundary_osi_state(
-                            i, j, k, state, hi, is_periodic, fab,
-                            phase_shift);
-                    });
-            } else {
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        if (has_fine_level &&
-                            (repair_after_average ? covered(i, j, k) == 0
-                                                  : covered(i, j, k) != 0)) {
-                            return;
-                        }
-                        fill_boundary(i, j, k, state, hi, is_periodic);
-                    });
-            }
-        }
+    if (use_osi) {
+        const auto* phase_shifts = osi_fab_phase_cache.at(lev).data(phase);
+        amrex::ParallelFor(
+            tags, [=] AMREX_GPU_DEVICE(int i, int j, int k,
+                                      const BoundaryWorkTag& tag) noexcept {
+                if (has_fine_level &&
+                    (repair_after_average ? masks[tag.local_index](i, j, k) == 0
+                                          : masks[tag.local_index](i, j, k) != 0)) {
+                    return;
+                }
+                fill_boundary_osi_state(
+                    i, j, k, states[tag.local_index], hi, is_periodic,
+                    tag.fab, phase_shifts[tag.phase_index]);
+            });
+    } else {
+        amrex::ParallelFor(
+            tags, [=] AMREX_GPU_DEVICE(int i, int j, int k,
+                                      const BoundaryWorkTag& tag) noexcept {
+                if (has_fine_level &&
+                    (repair_after_average ? masks[tag.local_index](i, j, k) == 0
+                                          : masks[tag.local_index](i, j, k) != 0)) {
+                    return;
+                }
+                fill_boundary(i, j, k, states[tag.local_index], hi, is_periodic);
+            });
     }
 }
 

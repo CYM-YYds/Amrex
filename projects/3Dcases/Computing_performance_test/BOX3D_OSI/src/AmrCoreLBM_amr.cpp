@@ -453,6 +453,9 @@ void AmrCoreLBM::FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf) 
 
 void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新生成 AMR 网格,并把所有依赖旧网格拓扑的缓存同步重建。
     ClearOsiTransferCaches();
+    for (auto& cache : boundary_work_cache) {
+        cache.clear();
+    }
     regrid_tag_counts.assign(max_level + 1, -1);
     for (auto& buffer : average_interface_buffer) {
         buffer.clear();
@@ -525,7 +528,7 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
         interp_direct_fine_index[lev].clear();
         interp_direct_needs_physical_fill[lev].clear();
         interp_direct_cache_ready[lev] = 0;
-        boundary_work_boxes[lev].clear();
+        boundary_work_cache[lev].clear();
         average_interface_buffer[lev].clear();
         average_interface_fine_box[lev].clear();
     }
@@ -535,7 +538,7 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
     RebuildCoarseFineMasks();
 
     // 预先找出各 fine Fab 位于非周期物理边界上的互不重叠工作 Box，
-    // Boundary() 可直接遍历这些 Box，而不必在每个时间步重复分析几何关系。
+    // Boundary() 批量执行缓存任务，不必在每个时间步重复分析几何关系。
     BuildBoundaryWorkBoxes();
 
     // 为每个 fine ghost work_box 建立所需的 coarse stencil staging Fab、
@@ -618,11 +621,19 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
         const BoxArray& ba = boxArray(lev);
         const Box domain = Geom(lev).Domain();
         const auto is_periodic = Geom(lev).isPeriodicArray();
-        auto& level_boundary_boxes = boundary_work_boxes[lev];
-        level_boundary_boxes.resize(ba.size());
-
-        for (int ibox = 0; ibox < ba.size(); ++ibox) {
-            const Box& valid_box = ba[ibox];
+        auto& cache = boundary_work_cache[lev];
+        cache.clear();
+        Vector<BoundaryWorkTag> advance_tags;
+        Vector<BoundaryWorkTag> repair_tags;
+        const bool use_osi = streamMode() == 1;
+        const MultiFab& state = use_osi ? osi_state.at(lev) : f_new.at(lev);
+        for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+            const Box& valid_box = ba[mfi.index()];
+            const auto fab = OSI::MakeOsiFabContext(
+                amrex::grow(valid_box, state.nGrowVect()), 0).fab;
+            const int phase_index = use_osi
+                ? osi_fab_phase_cache.at(lev).slot(mfi.index()) : -1;
+            cache.full_cells += valid_box.numPts();
 
             // 边界条件同样会更新域内Fab对象中、紧邻非周期物理边界的ghost单元。
             const Box boundary_source_box = amrex::grow(valid_box, nghost) & domain;
@@ -650,8 +661,18 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
             }
 
             const BoxList disjoint_faces = amrex::removeOverlap(boundary_faces);
-            level_boundary_boxes[ibox].assign(disjoint_faces.begin(), disjoint_faces.end());
+            for (const Box& box : disjoint_faces) {
+                advance_tags.push_back({box, fab, mfi.LocalIndex(), phase_index});
+                cache.advance_cells += box.numPts();
+                const Box valid_part = box & valid_box;
+                if (valid_part.ok()) {
+                    repair_tags.push_back({valid_part, fab, mfi.LocalIndex(), phase_index});
+                    cache.repair_cells += valid_part.numPts();
+                }
+            }
         }
+        cache.advance_tags.define(advance_tags);
+        cache.repair_tags.define(repair_tags);
     }
 }
 
@@ -990,6 +1011,7 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
 
 void AmrCoreLBM::ClearLevel(int lev) {
     ClearOsiTransferCaches();
+    boundary_work_cache[lev].clear();
     osi_fillboundary_cache[lev].clear();
     osi_fab_phase_cache[lev].clear();
     f_old[lev].clear();

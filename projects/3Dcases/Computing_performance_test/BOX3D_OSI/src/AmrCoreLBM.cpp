@@ -91,7 +91,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     interp_direct_fine_index.resize(nlevs_max);
     interp_direct_needs_physical_fill.resize(nlevs_max);
     interp_direct_cache_ready.resize(nlevs_max, 0);
-    boundary_work_boxes.resize(nlevs_max);
+    boundary_work_cache.resize(nlevs_max);
 
     velocity.resize(nlevs_max);
     vorticity.resize(nlevs_max);

@@ -35,6 +35,30 @@ inline constexpr char checkpoint_label_v1[] = "LBMCheckpoint";
 inline constexpr char checkpoint_label_v2[] = "LBMCheckpointV2";
 inline constexpr char checkpoint_layout_ab[] = "canonical_ab_two_array_v1";
 inline constexpr char checkpoint_layout_osi[] = "canonical_osi_single_array_v1";
+// 边界任务仅保存布局几何和本地索引；执行时取当前数组，允许 canonical 双缓冲交换。
+struct BoundaryWorkTag {
+    amrex::Box region;
+    OSI::FabGeometry fab;
+    int local_index;
+    int phase_index;
+
+    AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    const amrex::Box& box() const noexcept { return region; }
+};
+struct BoundaryWorkCache {
+    amrex::TagVector<BoundaryWorkTag> advance_tags;
+    amrex::TagVector<BoundaryWorkTag> repair_tags;
+    amrex::Long full_cells = 0;
+    amrex::Long advance_cells = 0;
+    amrex::Long repair_cells = 0;
+
+    void clear() {
+        advance_tags.undefine();
+        repair_tags.undefine();
+        full_cells = advance_cells = repair_cells = 0;
+    }
+};
+
 class ScopedPerfTimer {
   public:
     explicit ScopedPerfTimer(double& accum)
@@ -489,7 +513,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 几何、Array4 和收发缓冲只在布局重建时更新；相位偏移在执行时从对应层的共享表读取。
     amrex::Vector<OSI::CpcCache<true>> osi_interp_copy_cache;
     amrex::Vector<OSI::CpcCache<false>> osi_average_copy_cache;
-    amrex::Vector<amrex::Vector<amrex::Vector<amrex::Box>>> boundary_work_boxes; // boundary_work_boxes[lev][ibox][iface] ibox：该层级中的网格块编号;iface：该网格块上的某个物理边界工作 Box
+    // 只由 BuildBoundaryWorkBoxes 建立；布局重建或清层时失效，不缓存 DDF 地址或相位值。
+    amrex::Vector<Box3dDetail::BoundaryWorkCache> boundary_work_cache;
 
     amrex::Vector<amrex::Real> tau;
 
