@@ -7,7 +7,7 @@
 
 using namespace amrex;
 
-// 用真实生产函数测试批量调度；参考路径逐 Fab 扫描完整 grown 区域，独立判定旧厚盒。
+// 用真实生产函数测试批量调度；参考路径逐 Fab 扫描完整 grown 区域，独立判定域内非周期物理面。
 class AmrCoreLBM {
 public:
 #include "boundary_batch_types.inc"
@@ -57,14 +57,12 @@ void reference(AmrCoreLBM& driver, MultiFab& expected, bool osi, bool repair) {
             const IntVect cell(i,j,k);
             if (!clipped.contains(cell) || (repair && !valid.contains(cell))) return;
             if (has_fine && (repair ? mask(i,j,k)==0 : mask(i,j,k)!=0)) return;
-            bool in_work=false;
+            bool on_wall=false;
             for(int dir=0;dir<3;++dir) {
-                if(periodic[dir]) continue;
-                in_work = in_work ||
-                    (valid.smallEnd(dir)==domain.smallEnd(dir) && cell[dir]<=domain.smallEnd(dir)+ng) ||
-                    (domain.bigEnd(dir)!=domain.smallEnd(dir) && valid.bigEnd(dir)==domain.bigEnd(dir) && cell[dir]>=domain.bigEnd(dir)-ng);
+                on_wall = on_wall || (!periodic[dir] &&
+                    (cell[dir]==domain.smallEnd(dir) || cell[dir]==domain.bigEnd(dir)));
             }
-            if(!in_work) return;
+            if(!on_wall) return;
             if(osi) fill_boundary_osi_state(i,j,k,data,hi,periodic,context.fab,context.phase_shift);
             else fill_boundary(i,j,k,data,hi,periodic);
         });
@@ -82,7 +80,7 @@ int main(int argc,char** argv) {
         for(int periodic_bits=0;periodic_bits<8;++periodic_bits) {
             int periodic[3]={periodic_bits&1,(periodic_bits>>1)&1,(periodic_bits>>2)&1};
             driver.geometry=Geometry(domain,&physical,0,periodic);
-            for(int partition=0;partition<3;++partition) {
+            for(int partition=0;partition<4;++partition) {
                 BoxArray ba(domain);
                 if(partition==1) ba.maxSize(IntVect(4,8,16));
                 if(partition==2) {
@@ -90,6 +88,14 @@ int main(int argc,char** argv) {
                     boxes.push_back(Box(IntVect(0,0,0),IntVect(4,15,15)));
                     boxes.push_back(Box(IntVect(5,0,0),IntVect(15,7,15)));
                     boxes.push_back(Box(IntVect(5,8,0),IntVect(15,15,15)));
+                    ba=BoxArray(boxes);
+                }
+                // valid 距 x 壁面两格，ghost 到达壁面；应更新整张域内 ghost 面。
+                if(partition==3) {
+                    BoxList boxes;
+                    boxes.push_back(Box(IntVect(0,0,0),IntVect(1,15,15)));
+                    boxes.push_back(Box(IntVect(2,0,0),IntVect(15,7,15)));
+                    boxes.push_back(Box(IntVect(2,8,0),IntVect(15,15,15)));
                     ba=BoxArray(boxes);
                 }
                 DistributionMapping dm(ba);

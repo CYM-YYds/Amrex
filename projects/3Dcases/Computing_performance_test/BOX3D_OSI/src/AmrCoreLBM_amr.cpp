@@ -647,32 +647,11 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
                         side > boundary_source_box.bigEnd(face_dir)) {
                         continue;
                     }
-                    // 先直接构造单层物理面，再保留原近壁范围内的部分。
+                    // 直接处理域内物理面，包含当前 Fab 的 valid 与 ghost。
                     Box face = boundary_source_box;
                     face.setSmall(face_dir, side);
                     face.setBig(face_dir, side);
-                    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-                        if (is_periodic[dir]) {
-                            continue;
-                        }
-                        const int lo = domain.smallEnd(dir);
-                        const int hi = domain.bigEnd(dir);
-                        // 即使 valid 不贴当前面，也保留其他贴壁方向带来的切向 ghost。
-                        if (valid_box.smallEnd(dir) == lo) {
-                            Box part = face;
-                            part.setBig(dir, std::min(face.bigEnd(dir), lo + nghost));
-                            if (part.ok()) {
-                                physical_faces.push_back(part);
-                            }
-                        }
-                        if (hi != lo && valid_box.bigEnd(dir) == hi) {
-                            Box part = face;
-                            part.setSmall(dir, std::max(face.smallEnd(dir), hi - nghost));
-                            if (part.ok()) {
-                                physical_faces.push_back(part);
-                            }
-                        }
-                    }
+                    physical_faces.push_back(face);
                 }
             }
             const BoxList disjoint_faces = amrex::removeOverlap(physical_faces);
