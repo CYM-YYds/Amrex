@@ -40,6 +40,12 @@
 set -euo pipefail
 
 # 可配置项（通过环境变量覆盖）
+# 仅显式指定的算例传入构建维度，未指定时由各算例 Makefile 决定。
+AMREX_BUILD_DIM="${AMREX_BUILD_DIM:-}"
+if [[ -n "$AMREX_BUILD_DIM" && "$AMREX_BUILD_DIM" != 2 && "$AMREX_BUILD_DIM" != 3 ]]; then
+    echo "错误: AMREX_BUILD_DIM 必须为 2 或 3" >&2
+    exit 1
+fi
 MAKE_J="${MAKE_J:-16}"
 CUDA_ARCH="${CUDA_ARCH:-80}"
 #   - GEN_CCDB : 是否生成编译数据库 compile_commands.json（0 不生成；1 生成；默认 1）

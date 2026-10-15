@@ -14,7 +14,7 @@ verify_artifacts() {
 	# 仅提示，不改变返回码。
 	local found=0
 	shopt -s nullglob
-	for f in main*.ex *.ex; do
+	for f in main${AMREX_BUILD_DIM:-}d*.ex main*.ex *.ex; do
 		if [[ -x "$f" ]]; then
 			info "检测到可执行文件: $f"
 			found=1
@@ -71,6 +71,7 @@ run_build_entry() {
 		fi
 		ssh_workdir=$(printf '%q' "$PROJECT_ROOT")
 		ssh_make_j=$(printf '%q' "$MAKE_J")
+		ssh_build_dim=$(printf '%q' "${AMREX_BUILD_DIM:-}")
 		ssh_cuda_arch=$(printf '%q' "$CUDA_ARCH")
 		ssh_gen_ccdb=$(printf '%q' "$GEN_CCDB")
 		ssh_ccdb_method=$(printf '%q' "$CCDB_METHOD")
@@ -88,6 +89,7 @@ run_build_entry() {
 		ssh_script_dir=$(printf '%q' "$SCRIPT_DIR")
 		ssh whshare-agent-1 "cd ${ssh_workdir}; \
             MAKE_J=${ssh_make_j} \
+            AMREX_BUILD_DIM=${ssh_build_dim} \
             CUDA_ARCH=${ssh_cuda_arch} \
             GEN_CCDB=${ssh_gen_ccdb} \
             CCDB_METHOD=${ssh_ccdb_method} \

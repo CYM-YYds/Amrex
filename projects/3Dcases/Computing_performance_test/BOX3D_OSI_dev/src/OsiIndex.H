@@ -72,8 +72,13 @@ template <typename Box>
 inline OsiFabContext MakeOsiFabContext(const Box& ring,
                                       std::uint64_t phase) noexcept {
     const auto lo = ring.smallEnd();
+#if defined(AMREX_SPACEDIM) && AMREX_SPACEDIM == 2
+    const FabGeometry fab{{lo[0], lo[1], 0},
+                          {ring.length(0), ring.length(1), 1}};
+#else
     const FabGeometry fab{{lo[0], lo[1], lo[2]},
                           {ring.length(0), ring.length(1), ring.length(2)}};
+#endif
     return {fab, osi_phase_shift(phase, fab)};
 }
 

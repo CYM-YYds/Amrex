@@ -39,7 +39,7 @@ generate_summary() {
 		echo "$ERROR_MARK 编译错误"
 		echo "$SEP_LINE"
 		if grep -Ei "error:|Error |ERROR |error |Error:|FATAL:|fatal " "$LOGFILE" >/dev/null 2>&1; then
-			grep -Ei "error:|Error |ERROR |error |Error:|FATAL:|fatal " -A 2 -B 2 "$LOGFILE" | head -n "$LOG_SUMMARY_LINES"
+			grep -Ei "error:|Error |ERROR |error |Error:|FATAL:|fatal " -A 2 -B 2 "$LOGFILE" | sed -n "1,${LOG_SUMMARY_LINES}p"
 		else
 			echo "(无编译错误)"
 		fi
@@ -48,7 +48,7 @@ generate_summary() {
 		echo "$LINK_MARK 链接错误"
 		echo "$SEP_LINE"
 		if grep -Ei "undefined reference|cannot find -l" "$LOGFILE" >/dev/null 2>&1; then
-			grep -Ei "undefined reference|cannot find -l" -A 2 -B 2 "$LOGFILE" | head -n "$LOG_SUMMARY_LINES"
+			grep -Ei "undefined reference|cannot find -l" -A 2 -B 2 "$LOGFILE" | sed -n "1,${LOG_SUMMARY_LINES}p"
 		else
 			echo "(无链接错误)"
 		fi
@@ -57,7 +57,7 @@ generate_summary() {
 		echo "$FILE_MARK 文件错误"
 		echo "$SEP_LINE"
 		if grep -Ei "No such file|cannot open" "$LOGFILE" >/dev/null 2>&1; then
-			grep -Ei "No such file|cannot open" -A 2 -B 2 "$LOGFILE" | head -n "$LOG_SUMMARY_LINES"
+			grep -Ei "No such file|cannot open" -A 2 -B 2 "$LOGFILE" | sed -n "1,${LOG_SUMMARY_LINES}p"
 		else
 			echo "(无文件错误)"
 		fi
@@ -66,7 +66,7 @@ generate_summary() {
 		echo "$WARN_MARK 警告信息"
 		echo "$SEP_LINE"
 		if grep -Ei "warning:|Warning |WARNING " "$LOGFILE" >/dev/null 2>&1; then
-			grep -Ei "warning:|Warning |WARNING " -A 2 -B 2 "$LOGFILE" | head -n "$LOG_SUMMARY_LINES"
+			grep -Ei "warning:|Warning |WARNING " -A 2 -B 2 "$LOGFILE" | sed -n "1,${LOG_SUMMARY_LINES}p"
 		else
 			echo "(无警告信息)"
 		fi

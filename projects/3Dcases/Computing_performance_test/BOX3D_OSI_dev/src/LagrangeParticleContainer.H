@@ -7,7 +7,7 @@
 #include <AMReX_Particles.H>
 #include <AMReX_AmrParticles.H>
 
-#include "D3Q19.H"
+#include "LbmLattice.H"
 #include "LbmGridParams.H"
 
 struct PIdx

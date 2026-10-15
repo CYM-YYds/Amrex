@@ -18,6 +18,11 @@ do_compile() {
 	# 统一返回 make_status，调用方据此决定后续动作。
 	local make_status=0
 	local make_cmd=(make -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}")
+	local dimension_args=()
+	if [[ -n "${AMREX_BUILD_DIM:-}" ]]; then
+		dimension_args+=("DIM=${AMREX_BUILD_DIM}")
+	fi
+	make_cmd+=("${dimension_args[@]}")
 	if [ "${MAKE_KEEP_GOING}" = "1" ]; then
 		make_cmd+=(-k)
 	fi
@@ -355,7 +360,7 @@ PY
 				info "检测到旧 compile_commands.json 不属于当前项目目录，忽略复用并触发全量重建。"
 			fi
 			info "未捕获到编译步骤，强制重建以生成编译数据库..."
-			make -B -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" || make_status=$?
+			make -B -j"${MAKE_J}" CUDA_ARCH="${CUDA_ARCH}" "${dimension_args[@]}" || make_status=$?
 		fi
 		local NEW_CCDB="${CCDB_FILE}.new.$$"
 		echo '[' >"$NEW_CCDB"

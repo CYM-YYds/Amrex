@@ -12,7 +12,9 @@
 #include <cmath>
 #include <algorithm>
 #include <vector>
+#if AMREX_SPACEDIM == 3
 #include "InitParticles.H"
+#endif
 #include "Kernels.H"
 
 using namespace amrex;
@@ -122,18 +124,22 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     static_hi.resize(2 * nlevs_max);
 
     // 多颗粒生成
+#if AMREX_SPACEDIM == 3
     particles.resize(particle_num);
+#endif
     points.resize(particle_num);
     // generateSpheres(particle_num, R, NX, NY, NZ, points);
     // generateSpheres(D, NX, NY, NZ, points);
-    points[0] = {0.5 * grid_.nx_cells, 0.5 * grid_.ny_cells,
-                 0.5 * grid_.nz_cells};
+    points[0] = {AMREX_D_DECL(0.5 * grid_.nx_cells, 0.5 * grid_.ny_cells,
+                 0.5 * grid_.nz_cells)};
     // points[1] = {X + 2.0*D, Y, Z};
     // points[0] = {X + 0.03*D, Y + 0.03*D, 21.00*D};
     // points[1] = {X - 0.03*D, Y - 0.03*D, 18.96*D};
 
     // 表面压力系数容器
+#if AMREX_SPACEDIM == 3
     particlesCp.resize(particle_num);
+#endif
 
     for (int lev = 0; lev <= max_level; lev++) {
         amrex::Real dx = Geom(lev).CellSizeArray()[0];
@@ -527,6 +533,7 @@ void AmrCoreLBM::ReadParameters() {
 
     {
         ParmParse pp_verify("verification");
+        pp_verify.query("regrid_fixture", probe_.regrid_fixture);
         pp_verify.query("osi_seed_pattern", osi_verification_pattern);
         pp_verify.query("osi_ab_check", requested_osi_ab_check);
         pp_verify.query("particle_checksum", particle_checksum);
@@ -536,8 +543,8 @@ void AmrCoreLBM::ReadParameters() {
         std::vector<int> sample;
         if (pp_verify.queryarr("boundary_probe_sample", sample)) {
             AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-                sample.size() == 3,
-                "verification.boundary_probe_sample requires 3 integers");
+                sample.size() == AMREX_SPACEDIM,
+                "verification.boundary_probe_sample requires DIM integers");
             std::copy(sample.begin(), sample.end(), probe_.boundary_sample);
         }
         pp_verify.query("boundary_probe_q", probe_.boundary_sample_q);
@@ -572,6 +579,9 @@ void AmrCoreLBM::ReadParameters() {
         pp_ckpt.query("chk_prefix", params_.chk_prefix);
         pp_ckpt.query("keep_latest_only", params_.keep_latest_only);
         pp_ckpt.query("write_particles", params_.write_particles);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            AMREX_SPACEDIM == 3 || !params_.write_particles,
+            "DIM=2 does not support particle checkpoints; set checkpoint.write_particles=false");
 
         if (amrex::ParallelDescriptor::IOProcessor()) {
             amrex::Print() << "[Params] checkpoint:\n"
@@ -602,7 +612,7 @@ void AmrCoreLBM::WriteVelocityFile(const int step, const amrex::Real time) {
         mf.push_back(&velocity[i]);
     }
 
-    amrex::Vector<std::string> varnames = {"ux", "uy", "uz"};
+    amrex::Vector<std::string> varnames = {AMREX_D_DECL("ux", "uy", "uz")};
 
     amrex::WriteMultiLevelPlotfile(plotfilename, finest_level + 1, mf, varnames,
                                    Geom(), time, Vector<int>(finest_level + 1, step), refRatio());
@@ -631,7 +641,7 @@ void AmrCoreLBM::WriteVelocityFile(const int step, const amrex::Real time, const
 
     mf.push_back(&velocity[lev]);
 
-    amrex::Vector<std::string> varnames = {"ux", "uy", "uz"};
+    amrex::Vector<std::string> varnames = {AMREX_D_DECL("ux", "uy", "uz")};
 
     amrex::WriteMultiLevelPlotfile(plotfilename, 1, mf, varnames,
                                    Geom(), time, Vector<int>(1, step), refRatio());
@@ -653,6 +663,7 @@ void AmrCoreLBM::WriteVorticityFile(const int step, const amrex::Real time) {
                                    Geom(), time, Vector<int>(finest_level + 1, step), refRatio());
 }
 
+#if AMREX_SPACEDIM == 3
 void AmrCoreLBM::WriteParticleFile(const int step, const amrex::Real time) {
     for (int i = 0; i < particle_num; i++) {
         particles[i]->WriteParticle(step);
@@ -809,6 +820,8 @@ void AmrCoreLBM::MoveParticle(int lev, amrex::Real cur_time) {
     }
 }
 
+#endif
+
 void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
     const std::string level_prefix = "Level_";
     const bool isIOP = ParallelDescriptor::IOProcessor();
@@ -856,6 +869,10 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             DistributionMap(lev).writeOn(header);
             header << '\n';
         }
+        std::ofstream model(out_chkname + "/Lattice");
+        model << "LBMLatticeV1 " << AMREX_SPACEDIM << ' ' << Q << ' ' << LBM_ORDER << '\n';
+        model.flush();
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(model.good(), "Cannot write checkpoint lattice metadata");
         header.flush(); // 将 C++ 输出缓冲区中的数据立即刷新到文件中
     }
 
@@ -875,6 +892,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
         VisMF::Write(canonical, old_name);
     }
 
+#if AMREX_SPACEDIM == 3
     if (!write_particles) {
         if (isIOP) {
             amrex::Print() << "[Checkpoint] Skip particle containers (checkpoint.write_particles=0)\n";
@@ -887,6 +905,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             }
         }
     }
+#endif
     ParallelDescriptor::Barrier();
 
     if (params_.keep_latest_only && isIOP) {
@@ -930,6 +949,28 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
     }
 }
 
+void AmrCoreLBM::ValidateCheckpointLattice(const std::string& checkpoint_path) const {
+    // 在解析维度相关的 BoxArray 之前核对模型，旧格式只接受既有三维模型。
+    const std::string model_file = checkpoint_path + "/Lattice";
+    if (amrex::FileExists(model_file)) {
+        amrex::Vector<char> chars;
+        ParallelDescriptor::ReadAndBcastFile(model_file, chars);
+        std::istringstream model(std::string(chars.dataPtr()));
+        std::string label;
+        int dimension = 0, directions = 0, order = -1;
+        model >> label >> dimension >> directions >> order;
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            model && label == "LBMLatticeV1" && dimension == AMREX_SPACEDIM &&
+                directions == Q && order == LBM_ORDER,
+            "[Checkpoint] Lattice mismatch: dimension, Q or ordering differs from executable");
+    } else {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            AMREX_SPACEDIM == 3 && Q == 27 && LBM_ORDER == 0,
+            "[Checkpoint] Legacy checkpoint without Lattice metadata requires DIM=3 D3Q27 order=0");
+    }
+
+}
+
 void AmrCoreLBM::ReadCheckpoint() {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params_.begin_step > 0,
                                      "checkpoint.begin_step must be > 0 when restarting.");
@@ -944,6 +985,8 @@ void AmrCoreLBM::ReadCheckpoint() {
         amrex::Print() << "[Checkpoint] Restart directory resolved to '" << chkname
                        << "' (begin_step=" << params_.begin_step << ")" << std::endl;
     }
+
+    ValidateCheckpointLattice(chkname);
 
     amrex::Vector<char> header_chars;
     ParallelDescriptor::ReadAndBcastFile(header_file, header_chars);
@@ -1064,6 +1107,7 @@ void AmrCoreLBM::ReadCheckpoint() {
         force[lev].setVal(0.0, nghost);
     }
 
+#if AMREX_SPACEDIM == 3
     if (params_.write_particles) {
         for (int i = 0; i < particle_num; ++i) {
             const std::string pname = "particles_" + std::to_string(i);
@@ -1072,6 +1116,8 @@ void AmrCoreLBM::ReadCheckpoint() {
             particles[i]->Restart(chkname, pname);
         }
     }
+
+#endif
 
     RebuildCoarseFineCaches();
 }

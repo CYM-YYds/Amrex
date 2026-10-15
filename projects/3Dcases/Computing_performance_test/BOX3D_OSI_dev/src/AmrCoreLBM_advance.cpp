@@ -50,7 +50,11 @@ void AmrCoreLBM::ComputeShearLevel(int lev) {
         Array4<Real> const& shear = shear_lev.array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+#if AMREX_SPACEDIM == 3
             compute_shear(i, j, k, u, shear, dt);
+#else
+            shear(i, j, k, 0) = 0;
+#endif
         });
     }
 }
@@ -158,7 +162,7 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int fine_lev, bool is_scale) {
     ScopedPerfTimer avgdown_timer(perf_stats.average_down);
 
     {
-        const Long children_per_parent = ratio[0] * ratio[1] * ratio[2];
+        const Long children_per_parent = ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]);
         // 交界区域融合路径只处理缓存的 coarse-interface 父单元。
         MultiFab& interface_result = average_interface_buffer[coarse_lev];
         const Vector<int>& fine_box_indices = average_interface_fine_box[coarse_lev];
@@ -340,9 +344,7 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
     }
     const bool use_osi = layout == DdfLayout::Osi;
     const Box domain = Geom(lev).Domain();
-    const amrex::IntVect hi{domain.length(0) - 1,
-                            domain.length(1) - 1,
-                            domain.length(2) - 1};
+    const amrex::IntVect hi = domain.bigEnd();
     const auto is_periodic = Geom(lev).isPeriodicArray();
     const bool has_fine_level = lev < finest_level;
     const std::uint64_t phase = use_osi ? osi_phase.at(lev) : 0;
@@ -400,9 +402,7 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
 
     const bool use_osi = layout == DdfLayout::Osi;
     const Box domain = Geom(lev).Domain();
-    const amrex::IntVect hi{domain.length(0) - 1,
-                            domain.length(1) - 1,
-                            domain.length(2) - 1};
+    const amrex::IntVect hi = domain.bigEnd();
     amrex::MultiFab& state_lev =
         use_osi ? osi_state.at(lev) : f_old.at(lev);
     amrex::MultiFab& shear_lev = shear[lev];

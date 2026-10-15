@@ -235,7 +235,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
                       int i, int j, int k) noexcept {
     const auto lo = region.smallEnd();
     return static_cast<std::size_t>(
-        ((k - lo[2]) * region.length(1) + (j - lo[1])) *
+        ((k - AMREX_D_PICK(0, 0, lo[2])) * region.length(1) + (j - lo[1])) *
             region.length(0) +
         (i - lo[0]));
 }

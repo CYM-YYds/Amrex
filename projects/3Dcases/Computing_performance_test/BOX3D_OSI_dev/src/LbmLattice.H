@@ -1,5 +1,5 @@
-#ifndef D3Q19_H_
-#define D3Q19_H_
+#ifndef LBM_LATTICE_H_
+#define LBM_LATTICE_H_
 
 #include <AMReX_Array4.H>
 #include <AMReX_RealVect.H>
@@ -8,11 +8,15 @@
 
 using namespace amrex;
 
-// 编译期格子选择：修改后必须重新编译，不能通过 inputs 在运行时切换。
-// 默认保持当前三维 D3Q27 排列。其余维度、Q 和排列未经本算例验证，可能编译失败或产生错误结果。
-// 二维选择还需同步构建 DIM；本文件的切换不会自动适配三维 OSI、边界及专用碰撞内核。
-#define LBM_DIM 3
+// 维度唯一来自 AMReX 构建配置，二维使用 D2Q9，三维使用 D3Q27。
+#define LBM_DIM AMREX_SPACEDIM
+#if AMREX_SPACEDIM == 2
+#define LBM_Q 9
+#elif AMREX_SPACEDIM == 3
 #define LBM_Q 27
+#else
+#error "Only DIM=2 and DIM=3 are supported"
+#endif
 #define LBM_ORDER 0
 
 #define DIM LBM_DIM
@@ -218,7 +222,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     amrex::Real eu, uv, feqt;
 
 #if LBM_DIM == 3
-    eu = e[i][0] * u[0] + e[i][1] * u[1] + e[i][2] * u[2];
+    eu = e[i][0] * u[0] + e[i][1] * u[1] + AMREX_D_PICK(0, 0, e[i][2]) * u[2];
 
     uv = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
 #else
@@ -242,7 +246,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     amrex::Real eu, uv, feqt;
 
 #if LBM_DIM == 3
-    eu = e[i][0] * u[0] + e[i][1] * u[1] + e[i][2] * u[2];
+    eu = e[i][0] * u[0] + e[i][1] * u[1] + AMREX_D_PICK(0, 0, e[i][2]) * u[2];
 
     uv = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
 #else
@@ -266,11 +270,11 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     amrex::Real m, n, nf;
 
 #if LBM_DIM == 3
-    m = ((e[i][0] - u[0]) * Ft[0] + (e[i][1] - u[1]) * Ft[1] + (e[i][2] - u[2]) * Ft[2]) / cs2;
+    m = ((e[i][0] - u[0]) * Ft[0] + (e[i][1] - u[1]) * Ft[1] + (AMREX_D_PICK(0, 0, e[i][2]) - u[2]) * Ft[2]) / cs2;
 
-    n = (e[i][0] * u[0] + e[i][1] * u[1] + e[i][2] * u[2]) / cs2;
+    n = (e[i][0] * u[0] + e[i][1] * u[1] + AMREX_D_PICK(0, 0, e[i][2]) * u[2]) / cs2;
 
-    nf = (e[i][0] * Ft[0] + e[i][1] * Ft[1] + e[i][2] * Ft[2]) / cs2;
+    nf = (e[i][0] * Ft[0] + e[i][1] * Ft[1] + AMREX_D_PICK(0, 0, e[i][2]) * Ft[2]) / cs2;
 
 #else
     // 先累加内积再除以声速平方，保持原公式的运算结构。

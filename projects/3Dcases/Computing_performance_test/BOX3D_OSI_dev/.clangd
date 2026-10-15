@@ -44,7 +44,7 @@ CompileFlags:
 
 ---
 If:
-  PathMatch: .*D3Q19\.H
+  PathMatch: .*LbmLattice\.H
 
 CompileFlags:
   Add:

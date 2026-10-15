@@ -1,6 +1,6 @@
 CEXE_headers += AmrCoreLBM.H
 CEXE_headers += OsiCommunication.H
-CEXE_headers += D3Q19.H
+CEXE_headers += LbmLattice.H
 CEXE_headers += LagrangeParticleContainer.H
 CEXE_headers += AuxiliaryPointContainer.H
 CEXE_headers += InitParticles.H
@@ -14,5 +14,7 @@ CEXE_sources += AmrCoreLBM_advance.cpp
 CEXE_sources += AmrCoreLBM_diagnostics.cpp
 CEXE_sources += OsiAbVerification.cpp
 CEXE_sources += main.cpp
+ifeq ($(DIM),3)
 CEXE_sources += LagrangeParticleContainer.cpp
 CEXE_sources += AuxiliaryPointContainer.cpp
+endif

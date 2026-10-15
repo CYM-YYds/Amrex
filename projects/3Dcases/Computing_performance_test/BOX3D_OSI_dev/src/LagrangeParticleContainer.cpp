@@ -1,5 +1,5 @@
 #include "LagrangeParticleContainer.H"
-#include "D3Q19.H"
+#include "LbmLattice.H"
 #include "Kernels.H"
 using namespace amrex;
 

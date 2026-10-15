@@ -24,8 +24,11 @@
 
 #include "LbmGridParams.H"
 
+#include "LbmLattice.H"
+#if AMREX_SPACEDIM == 3
 #include "LagrangeParticleContainer.H"
 #include "AuxiliaryPointContainer.H"
+#endif
 #include "OsiIndex.H"
 #include "OsiCommunication.H"
 
@@ -123,17 +126,18 @@ class AmrCoreLBM : public amrex::AmrCore {
         int begin_step = 0;
         std::string chk_prefix = "chk";
         bool keep_latest_only = true;
-        bool write_particles = true;
+        bool write_particles = AMREX_SPACEDIM == 3;
     };
 
     // verification.* 中的一次性探针开关与计数；ReadParameters 读取一次，
     // 推进路径只做成员访问，不再每次调用 ParmParse。
     struct ProbeParams {
+        bool regrid_fixture = false;     // 仅验证时按粗步切换受控加密区域。
         bool average_first = false;     // 首次 0 层界面平均前后导出快照
         bool ghost_first_fill = false;  // 首次 1 层粗到细 ghost 填充后导出
         int boundary_step = -1;         // 指定粗步 Boundary 后读取采样点 DDF
         int boundary_sample[3] = {1, 111, 111};
-        int boundary_sample_q = 18;
+        int boundary_sample_q = Q - 1;
         int coarse_advance_count = 0;   // AdvanceLevel(0) 调用次数
         int level0_average_count = 0;   // 带缩放的 0 层界面平均次数
         int level1_fill_count = 0;      // 1 层 ghost 填充次数
@@ -217,11 +221,17 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ReadParameters();
     void WriteVelocityFile(const int step, const amrex::Real time);
     void WriteDensityFile(const int step, const amrex::Real time);
+#if AMREX_SPACEDIM == 3
     void WriteParticleFile(const int step, const amrex::Real time);
+#endif
+#if AMREX_SPACEDIM == 3
     void WriteMultiParticleFile(const int step, const amrex::Real time);
+#endif
     void WriteVorticityFile(const int step, const amrex::Real time);
     void WriteVelocityFile(const int step, const amrex::Real time, const int lev);
+#if AMREX_SPACEDIM == 3
     void WriteVelocityFileWithParticle(const int step, const amrex::Real time);
+#endif
     void WriteCheckpoint(int step, amrex::Real time) const;
     void ReadCheckpoint();
     void InitializeConvergence();
@@ -277,7 +287,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     void RebuildCoarseFineMasks();
     void RebuildCoarseFineMasksForState(
         const amrex::Vector<amrex::MultiFab>& state);
+#if AMREX_SPACEDIM == 3
     void FindCentre();
+#endif
     //********************************************************************//
     //                           lbm  function                            //
     //********************************************************************//
@@ -360,6 +372,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     //********************************************************************//
     //                           ibm  function                            //
     //********************************************************************//
+#if AMREX_SPACEDIM == 3
     void InitParticle(int lev);
     void InitCpPoint(int lev);
     void InterpForce(int lev);
@@ -374,6 +387,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ComputeCp(int lev, int step);
     void MoveParticle(int lev, amrex::Real cur_time);
     void LubForceParticle(int lev, amrex::Real cur_time);
+#endif
     //********************************************************************//
     //                     Pure virtual function                          //
     //********************************************************************//
@@ -389,6 +403,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow) override;
 
   private:
+    void ValidateCheckpointLattice(const std::string& checkpoint_path) const;
     LbmGridParams grid_{};
     struct ConvergenceState {
         bool enabled = false;
@@ -526,8 +541,10 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::IntVect> static_lo;
     amrex::Vector<amrex::IntVect> static_hi;
 
+#if AMREX_SPACEDIM == 3
     amrex::Vector<std::unique_ptr<LagrangeParticleContainer>> particles;
     amrex::Vector<std::unique_ptr<AuxiliaryPointContainer>> particlesCp;
+#endif
     amrex::Vector<amrex::RealVect> points;
     amrex::Vector<amrex::Long> regrid_tag_counts;
     PerfStats perf_stats;
