@@ -423,8 +423,9 @@ A-B 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`；锁步参考态采
 执行上，`BuildBoundaryWorkBoxes()` 为本层本地 Fab 建立 `boundary_work_cache`，
 以两组 `TagVector` 分别缓存正常推进和 valid 修复任务；每次边界调用批量提交对应任务。
 任务只保存几何与索引，执行时取得当前数组、读取现有 OSI 相位表，支持 canonical
-双缓冲交换；regrid 和清层使缓存失效。构建时将原厚盒与所有非周期物理面求交，
-保留切向 Fab ghost 中原本会写入的壁面单元，并去除面、棱、角的重叠；内部邻点仍由
+双缓冲交换；regrid 和清层使缓存失效。构建时直接固定非周期物理面坐标，再按 valid
+贴壁方向的近壁范围裁剪面内区域，不构造三维厚盒。保留切向 Fab ghost 中原本会写入的
+壁面单元，并去除面、棱、角的重叠；内部邻点仍由
 边界线程读取。批量执行证据见[边界批量执行记录](ai_changes/2026-10-15-boundary-batch.md)，
 当前薄面范围与测量见[薄面配对实验](ai_changes/2026-10-15-boundary-batch-thin.md)。
 

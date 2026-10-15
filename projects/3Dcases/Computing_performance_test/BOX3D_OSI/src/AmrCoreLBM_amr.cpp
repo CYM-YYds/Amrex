@@ -637,46 +637,41 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
 
             // 边界条件同样会更新域内Fab对象中、紧邻非周期物理边界的ghost单元。
             const Box boundary_source_box = amrex::grow(valid_box, nghost) & domain;
-            BoxList boundary_faces;
-
-            for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-                if (is_periodic[dir]) {
+            BoxList physical_faces;
+            for (int face_dir = 0; face_dir < AMREX_SPACEDIM; ++face_dir) {
+                if (is_periodic[face_dir]) {
                     continue;
                 }
-
-                const int lo = domain.smallEnd(dir);
-                const int hi = domain.bigEnd(dir);
-                if (valid_box.smallEnd(dir) == lo) {
-                    Box face = boundary_source_box;
-                    face.setSmall(dir, lo);
-                    face.setBig(dir, std::min(hi, lo + nghost));
-                    boundary_faces.push_back(face);
-                }
-                if (hi != lo && valid_box.bigEnd(dir) == hi) {
-                    Box face = boundary_source_box;
-                    face.setSmall(dir, std::max(lo, hi - nghost));
-                    face.setBig(dir, hi);
-                    boundary_faces.push_back(face);
-                }
-            }
-
-            // 只启动真正位于非周期物理面上的单元，邻点由边界线程直接读取。
-            // 与所有物理面求交，保留原厚盒中位于其他物理面的切向 Fab ghost。
-            BoxList physical_faces;
-            for (const Box& candidate : boundary_faces) {
-                for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-                    if (is_periodic[dir]) {
+                for (const int side : {domain.smallEnd(face_dir), domain.bigEnd(face_dir)}) {
+                    if (side < boundary_source_box.smallEnd(face_dir) ||
+                        side > boundary_source_box.bigEnd(face_dir)) {
                         continue;
                     }
-                    for (const int side : {domain.smallEnd(dir), domain.bigEnd(dir)}) {
-                        if (side < candidate.smallEnd(dir) ||
-                            side > candidate.bigEnd(dir)) {
+                    // 先直接构造单层物理面，再保留原近壁范围内的部分。
+                    Box face = boundary_source_box;
+                    face.setSmall(face_dir, side);
+                    face.setBig(face_dir, side);
+                    for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                        if (is_periodic[dir]) {
                             continue;
                         }
-                        Box face = candidate;
-                        face.setSmall(dir, side);
-                        face.setBig(dir, side);
-                        physical_faces.push_back(face);
+                        const int lo = domain.smallEnd(dir);
+                        const int hi = domain.bigEnd(dir);
+                        // 即使 valid 不贴当前面，也保留其他贴壁方向带来的切向 ghost。
+                        if (valid_box.smallEnd(dir) == lo) {
+                            Box part = face;
+                            part.setBig(dir, std::min(face.bigEnd(dir), lo + nghost));
+                            if (part.ok()) {
+                                physical_faces.push_back(part);
+                            }
+                        }
+                        if (hi != lo && valid_box.bigEnd(dir) == hi) {
+                            Box part = face;
+                            part.setSmall(dir, std::max(face.smallEnd(dir), hi - nghost));
+                            if (part.ok()) {
+                                physical_faces.push_back(part);
+                            }
+                        }
                     }
                 }
             }
