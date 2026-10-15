@@ -420,7 +420,7 @@ Remake、Clear 和 MakeNew；18 条 active D3Q27 checksum 逐项一致。job `58
 单层没有平均目标，修复不写状态；最细层、uncovered、内部格点和 ghost 均不被该修复改写。
 A-B 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`；锁步参考态采用同一范围。
 
-执行上，`BuildBoundaryWorkBoxes()` 为本层本地 Fab 建立 `boundary_work_cache`，
+执行上，边界缓存构建入口为本层本地 Fab 建立 `boundary_work_cache`，
 以两组 `TagVector` 分别缓存正常推进和 valid 修复任务；每次边界调用批量提交对应任务。
 任务只保存几何与索引，执行时取得当前数组、读取现有 OSI 相位表，支持 canonical
 双缓冲交换；regrid 和清层使缓存失效。在 `grow(valid, nghost) & domain` 中直接

@@ -13,6 +13,32 @@
 整体变化接近零，双 rank 配对中位数慢约 0.54%，未证明一致加速，最终默认 1 延续原统计。
 具体范围、冻结版本和证据见[变更记录](ai_changes/2026-10-15-osi-optional-detail-timing.md)。
 
+本轮收尾以 `13e7bda` 加现场函数重命名为准：当前源码、生产 app 和 inputs 与
+`runs/osi_timing_20261015/final_src/`、`final.ex`、`final_inputs` 一致。
+`613485` 数值矩阵、`613486`/`613487` 性能实验、`613490` 最终默认值调整后的
+双 rank 开关验收均为 `SUCCEEDED`；默认仍为 1，开关 0/1 的阶段和 checkpoint 对照均通过。
+代码及上述有限窗口运行证据、根规则链为 `verified-current`；现役说明为
+`changed-and-verified`。记忆 `generated-read-only`，未写入；部署 `not-applicable`。
+
+工作区集成仍为 `pending`：
+
+- 用户未提交的 `BuildBoundaryWorkBoxes` → `BuildBoundaryWorkCache` 重命名已进入本轮
+  构建，但永久 `tests/build_boundary_batch_test.sh` 和夹具仍使用旧名，不能将该入口
+  描述为在当前 dirty 工作区可直接运行。此前独立测试使用实验目录内适配脚本；
+  后续正式集成重命名时需同步测试入口，本次不代为提交用户代码。
+- 用户待提交删除 `DDF粗细网格填充学习文档.md`、`osi_performance_profiling.md`，
+  导致 README、架构和状态页共七个链接暂不可用；保留引用与删除现场，未恢复或代为提交。
+  `MLUPS记录.md`、`osi_mpi_communication_plan.md` 的用户修改也未纳入收尾。
+- 长程严格、多节点、GPU-aware MPI、运动 IBM 完整重启和既有 physical-ghost source
+  差异仍未闭合；本次没有重新做数值或性能实验。其他算例、结构审查及记忆写入为 `out-of-scope`。
+
+复核现场继续保留：`runs/osi_timing_20261015/` 约 14 GiB；
+`boundary_latest_perf_20261015/` 约 2.8 GiB（失败现场），
+`boundary_repaired_perf_20261015/` 约 5.3 GiB（成功复测）；
+`boundary_direct_faces_20261015/`、`boundary_full_faces_20261015/` 各约 208 MiB。
+新增可再生成的清理候选仅为后两个目录的 `unit_build/tmp_build_dir/`，各约 71 MiB；
+加上上轮尚未清理的两份同类候选，共约 284 MiB。未删除任何文件，须汇报后确认才清场。
+
 ## 2026-10-15 批量薄面边界收尾
 
 后续按用户要求扩大到当前 Fab 的全部域内物理面，见
@@ -20,7 +46,8 @@
 恢复 Fab 范围检查后重新编译的性能作业 `613478` 成功，当前整面与上一版批量薄面
 整体耗时差异接近零，见[修复后配对记录](ai_changes/2026-10-15-boundary-repaired-performance.md)。
 
-现役边界由 `a46d4d1` 的批量调度和 `347db9c` 的薄面裁剪组成。
+本节冻结版本由 `a46d4d1` 的批量调度和 `347db9c` 的薄面裁剪组成；
+后续 `1f61f85` 改为直接构造薄面，`6f4c5f6` 扩大到全部域内物理面。
 状态所有权、失效时机与写入范围统一见
 [架构文档](osi_algorithm_and_architecture.md#101-完整平均后的边界修复)。
 2026-10-14 的逐盒薄面候选曾回退，不能据其结论判断当前批量实现。
@@ -37,7 +64,7 @@
   [批量记录](ai_changes/2026-10-15-boundary-batch.md)、
   [薄面记录](ai_changes/2026-10-15-boundary-batch-thin.md)。
   两轮节点不同，不提供跨轮累计加速数字。
-- 2026-10-15 收尾复核：当前源码、生产 app 与薄面冻结候选一致；代码、冻结运行证据、
+- 截至 `347db9c` 的收尾复核：当时源码、生产 app 与薄面冻结候选一致；代码、冻结运行证据、
   根规则链为 `verified-current`，文档为 `changed-and-verified`。
   记忆为只读 `generated-read-only`，没有写入；部署为 `not-applicable`。
   长程严格、多节点、GPU-aware MPI、运动 IBM 完整重启和历史 physical-ghost
