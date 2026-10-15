@@ -411,11 +411,11 @@ Remake、Clear 和 MakeNew；18 条 active D3Q27 checksum 逐项一致。job `58
 
 | 调用 | `repair_after_average` | 边界筛选与实际写入范围 |
 |---|---|---|
-| 正常推进 `Boundary()` | `false` | 有细层时跳过 `covered != 0`；保留原边界工作盒及其中域内 ghost 副本 |
+| 正常推进 `Boundary()` | `false` | 有细层时跳过 `covered != 0`；保留原物理面写入范围及其中域内 ghost 副本 |
 | 平均后修复 | `true` | 仅遍历 `lev < finest_level`，工作盒裁剪到当前 Fab valid；跳过 `covered == 0` |
 
-`ApplyPhysicalBoundaryLevel()` 复用同一非平衡外推核。工作盒还包含近壁内部格点，
-最终由 `fill_boundary_impl()` 判断非周期方向的 `0/hi` 壁面坐标；因此修复实际只写
+`ApplyPhysicalBoundaryLevel()` 复用同一非平衡外推核。工作盒裁剪到非周期物理面，
+`fill_boundary_impl()` 仍检查非周期方向的 `0/hi` 壁面坐标；因此修复实际只写
 **covered 粗层 valid 与非周期物理边界的交集**。无需细层 BoxArray 粗化或临时求交列表。
 单层没有平均目标，修复不写状态；最细层、uncovered、内部格点和 ghost 均不被该修复改写。
 A-B 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`；锁步参考态采用同一范围。
@@ -423,8 +423,10 @@ A-B 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`；锁步参考态采
 执行上，`BuildBoundaryWorkBoxes()` 为本层本地 Fab 建立 `boundary_work_cache`，
 以两组 `TagVector` 分别缓存正常推进和 valid 修复任务；每次边界调用批量提交对应任务。
 任务只保存几何与索引，执行时取得当前数组、读取现有 OSI 相位表，支持 canonical
-双缓冲交换；regrid 和清层使缓存失效。厚工作范围及上述筛选不变，数值与性能证据见
-[边界批量执行记录](ai_changes/2026-10-15-boundary-batch.md)。
+双缓冲交换；regrid 和清层使缓存失效。构建时将原厚盒与所有非周期物理面求交，
+保留切向 Fab ghost 中原本会写入的壁面单元，并去除面、棱、角的重叠；内部邻点仍由
+边界线程读取。批量执行证据见[边界批量执行记录](ai_changes/2026-10-15-boundary-batch.md)，
+当前薄面范围与测量见[薄面配对实验](ai_changes/2026-10-15-boundary-batch-thin.md)。
 
 这不是新建层/重构插值的通用边界重建接口，也不刷新平均后的同层 ghost。
 当前验证确认范围与现有公式一致，并与修改前基线逐值等价；边界离散精度阶数未验证。

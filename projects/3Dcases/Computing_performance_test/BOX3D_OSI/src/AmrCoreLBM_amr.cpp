@@ -660,7 +660,27 @@ void AmrCoreLBM::BuildBoundaryWorkBoxes() {
                 }
             }
 
-            const BoxList disjoint_faces = amrex::removeOverlap(boundary_faces);
+            // 只启动真正位于非周期物理面上的单元，邻点由边界线程直接读取。
+            // 与所有物理面求交，保留原厚盒中位于其他物理面的切向 Fab ghost。
+            BoxList physical_faces;
+            for (const Box& candidate : boundary_faces) {
+                for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                    if (is_periodic[dir]) {
+                        continue;
+                    }
+                    for (const int side : {domain.smallEnd(dir), domain.bigEnd(dir)}) {
+                        if (side < candidate.smallEnd(dir) ||
+                            side > candidate.bigEnd(dir)) {
+                            continue;
+                        }
+                        Box face = candidate;
+                        face.setSmall(dir, side);
+                        face.setBig(dir, side);
+                        physical_faces.push_back(face);
+                    }
+                }
+            }
+            const BoxList disjoint_faces = amrex::removeOverlap(physical_faces);
             for (const Box& box : disjoint_faces) {
                 advance_tags.push_back({box, fab, mfi.LocalIndex(), phase_index});
                 cache.advance_cells += box.numPts();
