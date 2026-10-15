@@ -5,7 +5,7 @@
 相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
 [当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
 
-更新时间：2026-10-14。
+更新时间：2026-10-15。
 
 ## 目录与构建关系
 
@@ -51,8 +51,8 @@ BOX3D_OSI/
 ## 源码职责与数据所有权
 
 五个 `AmrCoreLBM*.cpp` 实现的是**同一个类**，共享 `AmrCoreLBM.H` 声明的成员；
-它们不是五个独立管理器。头文件中的 `Box3dDetail` 保存共享计时器和 checkpoint
-格式常量，原 `AmrCoreLBM_detail.H` 已合并并移除。
+它们不是五个独立管理器。头文件中的 `Box3dDetail` 保存共享计时器、checkpoint
+格式常量及批量边界任务类型，原 `AmrCoreLBM_detail.H` 已合并并移除。
 
 | 文件 | 负责的工作与代表入口 |
 | --- | --- |
@@ -169,7 +169,12 @@ device-direct 关闭，host-staging 分块为 2 MiB；最多 128000 步，PlotFi
 普通粗到细插值缓存会检查父层 valid 模板覆盖，考虑周期像及物理边界延拓；
 域内缺口立即报错，当前没有自动多层递归补缺。
 
-最新的冻结版本对照由作业 `611228` 完成：9 组 64 步动态 AMR/周期多 Fab
+当前边界使用按层缓存的批量薄面任务，保留原物理面写入范围及域内 Fab ghost。
+2026-10-15 作业 `613463` 完成三种插值、单/双 rank 动态 AMR 及固定周期网格
+的六组 64 步前后对照；独立测试在 1/2 rank 各通过 432 组。数值范围及性能结果见
+[最新边界交接状态](docs/current_status.md#2026-10-15-批量薄面边界收尾)。
+
+2026-10-11 的冻结版本对照由作业 `611228` 完成：9 组 64 步动态 AMR/周期多 Fab
 矩阵覆盖 1/2 ranks、插值模式 0/1/2 及三种 host-staging 策略；每步每层
 uncovered DDF、各层 checkpoint valid/active DDF 的前后差均为 `linf=0`。
 作业 `611229` 检查 CPC 缓存复用与重建；`611230` 检查 phase=0 checkpoint

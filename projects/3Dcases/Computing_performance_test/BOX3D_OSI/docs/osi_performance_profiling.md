@@ -1,8 +1,26 @@
 # BOX3D_OSI 性能分析与历史 A-B 基线
 
-本文保留各作业冻结版本的性能结果。它们不代表 2026-10-11 当前源码的
-端到端性能；架构去重只完成了数值回归，未测得可归因的性能提升。
+本文保留各作业冻结版本的性能结果，不能把不同日期、节点和输入的结果
+直接合并为当前源码的端到端加速。2026-10-11 架构去重只做数值回归；
+2026-10-15 边界优化另有配对性能实验。
 现役配置与验证边界见[当前交接状态](current_status.md)。
+
+## 2026-10-15：批量边界与薄面范围
+
+现役实现为按层批量执行薄面任务；几何、缓存与写入范围以
+[架构文档](osi_algorithm_and_architecture.md#101-完整平均后的边界修复)为准。
+两项增量实验各自使用同节点、五对交替运行，详细输入、计时窗口及数据见原记录：
+
+- [逐盒厚盒 → 批量厚盒](ai_changes/2026-10-15-boundary-batch.md)：job `613457`，
+  最大 Box=32/128 的 Boundary 耗时配对中位数分别降低 27.24%/18.28%，
+  total 降低 10.88%/1.38%；小 Box 波动较大，不能全部归因于边界 kernel。
+- [批量厚盒 → 批量薄面](ai_changes/2026-10-15-boundary-batch-thin.md)：job `613464`，
+  Boundary 降低 1.07%/1.80%，total 降低 0.02%/0.17%。小 Box 整体有快有慢，
+  未证明稳定的整体加速。逻辑启动格点减少约 66%，实际外推数量不变。
+
+两轮节点不同，百分比不能直接相加或相乘当作实测累计收益。
+[2026-10-14 逐盒薄面试验](ai_changes/2026-10-14-boundary-face-launch-benchmark.md)
+曾因无一致收益而回退，其调度方式和基线不同；它不是现役批量薄面的测试结果。
 
 ## 2026-09-14：当时受控通信对照：host-staging 分块流水
 
@@ -214,14 +232,18 @@ TinyProfiler 的计数包含 regrid 工作。在 job `569665` 中，它记录了
 
 ### 性能总览图
 
-可从任意完整提交日志生成一个六面板总览：
+可在算例目录使用仓库根 Python 环境，从完整运行日志生成六面板总览
+（将 `/path/to/run.log` 替换为实际输入）：
 
 ```bash
-python3 scripts/plot_run_performance.py logs/submit/571393-out.log \
+../../../../.venv/bin/python scripts/plot_run_performance.py /path/to/run.log \
   --output docs/571393_performance_overview.png
 ```
 
-已提交的输出文件是 [`571393_performance_overview.png`](../data_post_processing/571393_performance_overview.png)。第四个面板使用 `average_scale_cells` 作为重复 AMR 传输工作的代理量，而不是当前有效网格单元的瞬时数量。在 job 571393 中，它与 Stream 时间的 Pearson 相关系数为 0.9994；这说明两者都随 AMR 覆盖范围变化，而不是 restriction 直接导致 Stream 变慢。
+历史 `571393_performance_overview.png` 及 `571393-out.log` 在当前工作区均未保留，
+无法在本次收尾复核该图。第四个面板使用 `average_scale_cells` 作为重复 AMR 传输工作的
+代理量，而不是当前有效网格单元的瞬时数量。当时记录其与 Stream 时间的 Pearson
+相关系数为 0.9994；这描述两者随 AMR 覆盖范围变化，不证明 restriction 直接导致 Stream 变慢。
 
 ### Jaber A6 对比的适用范围
 

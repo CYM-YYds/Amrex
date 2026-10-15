@@ -1,10 +1,42 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-10-14
+更新时间：2026-10-15
 
 本文顶部记录当前源码的有限窗口证据；后续按日期保留的作业结论仅对当时
 冻结版本成立。遇到旧 fallback、已删除函数或“重启待验收”的说法时，以顶部
 及[架构文档](osi_algorithm_and_architecture.md)中的现役调用链为准。
+
+## 2026-10-15 批量薄面边界收尾
+
+现役边界由 `a46d4d1` 的批量调度和 `347db9c` 的薄面裁剪组成。
+状态所有权、失效时机与写入范围统一见
+[架构文档](osi_algorithm_and_architecture.md#101-完整平均后的边界修复)。
+2026-10-14 的逐盒薄面候选曾回退，不能据其结论判断当前批量实现。
+
+- `613458` 验证批量厚盒，`613463` 验证最终薄面，均为 `SUCCEEDED`。
+  两轮各完成六组 64 步回归：三种插值单 rank 动态 AMR、两 rank 动态 AMR，
+  以及混合周期/全周期固定单层。前后阶段记录内容及 checkpoint 文件相同，
+  阶段完整性检查通过；MPI 日志比较保留重复次数、允许跨 rank 输出交错。
+  独立测试每轮在 1/2 rank 各通过 432 组，比较全部 grown 存储和 27 分量，
+  全部有限且 `linf=0`。生产 checkpoint 相等仅覆盖保存的 valid DDF，
+  不扩展为全部生产 ghost 等价；没有覆盖混合周期动态重网格的历史基线失败。
+- `613457`/`613464` 为已成功的单 GPU 配对性能实验。批量调度收益明显，
+  进一步薄面裁剪仅有小幅 Boundary 收益，整体改善很小；数值和性能条件分别见
+  [批量记录](ai_changes/2026-10-15-boundary-batch.md)、
+  [薄面记录](ai_changes/2026-10-15-boundary-batch-thin.md)。
+  两轮节点不同，不提供跨轮累计加速数字。
+- 2026-10-15 收尾复核：当前源码、生产 app 与薄面冻结候选一致；代码、冻结运行证据、
+  根规则链为 `verified-current`，文档为 `changed-and-verified`。
+  记忆为只读 `generated-read-only`，没有写入；部署为 `not-applicable`。
+  长程严格、多节点、GPU-aware MPI、运动 IBM 完整重启和历史 physical-ghost
+  source 问题仍为 `pending`；其他算例、结构审查、重新性能测量为 `out-of-scope`。
+
+工作区保留用户原有 `docs/MLUPS记录.md` 空行修改，未纳入收尾提交。
+本轮三个实验目录 `runs/boundary_faces_20261014/`、`runs/boundary_batch_20261015/`、
+`runs/boundary_batch_thin_20261015/` 分别约 7.5/8.3/8.3 GiB，含源码、app、输入、
+日志和 checkpoint，继续作为复核证据保留。
+仅将后两目录中各约 71 MiB 的 `unit_build/tmp_build_dir/` 列为可再生成的清理候选；
+未删除任何文件，须在用户看过汇报并确认后才清场。该候选不包含 unit app 和构建日志。
 
 ## 2026-10-14 直接重构插值与诊断范围
 
@@ -64,8 +96,8 @@ AMReX 的 `DdfInterpolater()` 只提供几何。公式说明统一见
   详见[valid-only 记录](ai_changes/2026-10-14-valid-only-new-level-initialization.md)。
 - `7b4f177` 将单调用者 `BuildDirectInterpolationCache` 原样合入
   `BuildInterpolationCache()` 的逐层循环，未改变计划、状态或失效条件。
-  按用户要求只做 CUDA+MPI 编译验证；日志为
-  [production_build.log](../runs/merge_interp_cache_20261014/production_build.log)。
+  按用户要求只做 CUDA+MPI 编译验证；历史日志路径为
+  `runs/merge_interp_cache_20261014/production_build.log`，当前工作区未保留，无法复核。
   作业 613392 已取消，部分日志不计作完整数值回归。此前作业不是该提交的运行证据。
 - 稀疏化与自定义公式切换的历史过程分别见
   [稀疏初始化](ai_changes/2026-10-13-sparse-new-level-interpolation.md)和
@@ -143,7 +175,8 @@ OSI 的粗到细 ghost 搬运和界面平均写回均在缓存构建阶段准备
 `Box3dDetail`，移除 `AmrCoreLBM_detail.H` 及构建登记。
 
 作业 `610666` 的四组日志均记录正常完成 64 步，调度汇总有完整 completed 标记；
-输入、app、SHA256、命令与源码差异见 [运行目录](../runs/osi_context_matrix_610666)。
+输入、app、SHA256、命令与源码差异原位于 `runs/osi_context_matrix_610666/`，
+当前工作区未保留该目录；本节作业结果为历史记录，本次未重新验证。
 该冻结 app 的 SHA256 为
 `2db5e0f089cc2823f10418291cd7c730f3d74e4b59a5055e78a446330ebcea3e`。
 direct/fallback 各 1250 条阶段检查、单层周期组 576 条均为 `linf=0`；
@@ -178,10 +211,9 @@ SHA256 为 `def82cc37115d4f41b69a44d49a43808473a330a3197091698f38cfab5f8744c`，
 - 这也是 2026-10-08 插值门禁加入后的有限窗口推进回归；模板缺口布局的自动补缺、
   长程、多节点、重启、device-direct，以及边界离散精度阶数仍为 pending。
 
-输入、命令、源码差异、可执行文件、checkpoint 和日志在
-[runs/fixed_covered_mask_20261009/job610641](../runs/fixed_covered_mask_20261009/job610641)；
-[验证汇总](../runs/fixed_covered_mask_20261009/job610641/validation_summary.json)和
-[变更记录](ai_changes/2026-10-09-fixed-covered-mask.md)提供具体检查范围。
+输入、命令、源码差异、可执行文件、checkpoint、日志和 `validation_summary.json`
+原位于 `runs/fixed_covered_mask_20261009/job610641/`，当前工作区未保留，无法复核；
+现存[变更记录](ai_changes/2026-10-09-fixed-covered-mask.md)描述当时的检查范围。
 以下历史作业均按原版本解释，不能用新结果覆盖旧结果。
 
 ## 2026-10-08 插值模板覆盖门禁
