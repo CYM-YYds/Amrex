@@ -9,7 +9,6 @@
 #DSUB -o logs/submit/%J-out.log
 #DSUB -e logs/submit/%J-out.log
 #DSUB -l cuda122
-#DSUB -T 14400
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -90,6 +89,6 @@ echo "BOX3D_OSI run directory: ${RUN_DIR}"
 # 应用日志直接写入 run.log；启动器超过完成宽限期仍未退出则按失败回收。
 REPO_DIR="$(git -C "${CASE_DIR}" rev-parse --show-toplevel)"
 exec "${REPO_DIR}/.venv/bin/python" "${SCRIPT_DIR}/guard_run.py" \
-    --wall-seconds "${BOX3D_WALL_SECONDS:-10800}" \
+    --wall-seconds "${BOX3D_WALL_SECONDS:-0}" \
     --exit-grace-seconds "${BOX3D_EXIT_GRACE_SECONDS:-60}" \
     -- bash "${SHARED_DIR}/submit.sh" "$@"

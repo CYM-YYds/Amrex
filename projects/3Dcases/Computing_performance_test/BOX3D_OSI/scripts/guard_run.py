@@ -12,13 +12,14 @@ import time
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--wall-seconds', type=float, default=10800)
+    parser.add_argument('--wall-seconds', type=float, default=0,
+                        help='总运行时限（秒），0 表示不限制')
     parser.add_argument('--exit-grace-seconds', type=float, default=60)
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
-    if not command or args.wall_seconds <= 0 or args.exit_grace_seconds <= 0:
-        parser.error('command and positive time limits are required')
+    if not command or args.wall_seconds < 0 or args.exit_grace_seconds <= 0:
+        parser.error('command, nonnegative wall limit and positive exit grace are required')
     started = time.monotonic()
     reason = 'launcher_exit'
     completion = None
@@ -50,7 +51,7 @@ def main():
             if interrupted:
                 reason = 'signal'
                 break
-            if now - started >= args.wall_seconds:
+            if args.wall_seconds > 0 and now - started >= args.wall_seconds:
                 reason = 'wall_timeout'
                 break
             if completion is not None and now - completion >= args.exit_grace_seconds:

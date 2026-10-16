@@ -172,13 +172,13 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 - 应用打印 finalized 或所有 rank 返回后，启动器超过 60 秒仍不退出，回收该进程组，退出码 124。
 - 提交节点读到退出凭证后，调度器超过 60 秒仍为 RUNNING，执行 `djob -T`，记录在
   `logs/submit/<job>-supervisor.json`。此类 FAILED 是异常收尾回收，须与应用退出码区分。
-- 进程运行时限默认 10800 秒（3 小时），调度器硬时限默认 14400 秒（4 小时）。更长计算须同时
-  设置 `BOX3D_WALL_SECONDS` 和提交参数 `-T`，例如 `BOX3D_WALL_SECONDS=21600 ./scripts/submit_guarded.sh -T 25200`。
+- 默认不设置总运行时限或调度硬时限。需要时可显式设置 `BOX3D_WALL_SECONDS`（0 表示不限）
+  或提交参数 `-T`；平台自身的限制仍以平台配置为准。
 - `BOX3D_EXIT_GRACE_SECONDS` 和 `BOX3D_SCHEDULER_EXIT_GRACE_SECONDS` 控制两层宽限期。
 
-直接 `dsub -s scripts/submit.sh` 只有作业内监督和硬时限，没有提交节点自动回收；
+直接 `dsub -s scripts/submit.sh` 只有作业内监督，没有提交节点自动回收；
 历史 runs 中复制的提交脚本也不会自动获得新保护。计算节点或提交节点故障、调度命令不可用时，
-外部监督可能无法执行回收，调度器硬时限仍是最后约束，不能承诺平台故障时绝不继续计费。
+外部监督可能无法执行回收，不能承诺平台故障时绝不继续计费。
 事故证据与验证见[退出收尾记录](docs/ai_changes/2026-10-16-job-exit-guard.md)。
 
 ## 当前配置与验证边界
