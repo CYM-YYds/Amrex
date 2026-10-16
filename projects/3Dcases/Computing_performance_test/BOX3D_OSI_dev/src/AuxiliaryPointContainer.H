@@ -54,7 +54,7 @@ public:
         :   amrex::ParticleContainer<0, 0, PIdx2::nattribs>(amr_core->GetParGDB())
     {
         grid_ = grid;
-        radius = rb;      //lev=0网格下的解析度
+        radius = AMREX_D_PICK(0, rate * R, rb);      //lev=0网格下的解析度
         id = idx;
         centre  = {AMREX_D_DECL(point[0], point[1], point[2])};    //lev=0网格下
 
@@ -71,7 +71,9 @@ public:
 
     void InitCpPoint(int lev);
 
+#if AMREX_SPACEDIM == 3
     void InterpCp(int lev, amrex::MultiFab& rho_lev);
+#endif
 
     void WriteCp(int step);
 

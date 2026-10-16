@@ -16,13 +16,17 @@ struct PIdx
     {
         fx = 0,
         fy,
+#if AMREX_SPACEDIM == 3
         fz,
         tx,
         ty,
+#endif
         tz,
         xlocal,
         ylocal,
+#if AMREX_SPACEDIM == 3
         zlocal,
+#endif
         area,
         nattribs
     };
@@ -73,10 +77,11 @@ public:
                                 0.5 * grid_.nz_cells)};    //lev=0网格下
 
         const Real particle_length = D * grid_.dx;
-        const Real particle_volume = PI * particle_length * particle_length *
-                                     particle_length / 6.0;
+        const Real particle_volume = AMREX_D_PICK(0,
+            PI * particle_length * particle_length / 4.0,
+            PI * particle_length * particle_length * particle_length / 6.0);
         particle_mass_ = rhop * particle_volume;
-        particle_inertia_ = particle_mass_ * particle_length * particle_length / 10.0;
+        particle_inertia_ = particle_mass_ * particle_length * particle_length / AMREX_D_PICK(1, 8.0, 10.0);
 
         F_tot      = {AMREX_D_DECL(0., 0., 0.)};
         T_tot      = {AMREX_D_DECL(0., 0., 0.)};
@@ -93,15 +98,16 @@ public:
         :   amrex::ParticleContainer<0, 0, PIdx::nattribs>(amr_core->GetParGDB())
     {
         grid_ = grid;
-        radius = rb;      //lev=0网格下的解析度, 算球体可能要内缩一下
+        radius = AMREX_D_PICK(0, rate * R, rb);      //lev=0网格下的解析度, 算球体可能要内缩一下
         id = idx;
         centre  = {AMREX_D_DECL(point[0], point[1], point[2])};    //lev=0网格下
 
         const Real particle_length = D * grid_.dx;
-        const Real particle_volume = PI * particle_length * particle_length *
-                                     particle_length / 6.0;
+        const Real particle_volume = AMREX_D_PICK(0,
+            PI * particle_length * particle_length / 4.0,
+            PI * particle_length * particle_length * particle_length / 6.0);
         particle_mass_ = rhop * particle_volume;
-        particle_inertia_ = particle_mass_ * particle_length * particle_length / 10.0;
+        particle_inertia_ = particle_mass_ * particle_length * particle_length / AMREX_D_PICK(1, 8.0, 10.0);
 
         F_tot      = {AMREX_D_DECL(0., 0., 0.)};
         T_tot      = {AMREX_D_DECL(0., 0., 0.)};
@@ -127,24 +133,37 @@ public:
     void InitParticle(int lev);
     void InitParticleFromFile(int lev, const std::string object);
 
+#if AMREX_SPACEDIM == 3
     void MoveParticle(int lev, amrex::Real cur_time);
+#endif
 
     amrex::RealVect ReturnCentre();
     amrex::RealVect ReturnVelocity();
 
     void SaveVelocity(int lev, int step);
+#if AMREX_SPACEDIM == 3
     void SetLubVal(amrex::RealVect& force_lub);
+#endif
     void SavePosition(int lev, int step);
 
+#if AMREX_SPACEDIM == 3
     void InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev);
     void InterpForceWallModel(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev);
+#endif
 
+#if AMREX_SPACEDIM == 3
     void SaveFxy(int lev, int step);
+#endif
 
     void WriteParticle(int step);
+    // 静态几何元数据与标记坐标共同保存；读取前校验维度和形状。
+    void Checkpoint(const std::string& directory, const std::string& name) const;
+    void Restart(const std::string& directory, const std::string& name);
 
+#if AMREX_SPACEDIM == 3
     void CollideParticle(const std::unique_ptr<LagrangeParticleContainer>& p2);
     void CollideWall();
+#endif
 
 private://颗粒信息
 
@@ -152,7 +171,7 @@ private://颗粒信息
     amrex::Real particle_mass_ = 0.0;
     amrex::Real particle_inertia_ = 0.0;
 
-    int id;
+    int id = 0;
 
     amrex::Real     radius; 
 

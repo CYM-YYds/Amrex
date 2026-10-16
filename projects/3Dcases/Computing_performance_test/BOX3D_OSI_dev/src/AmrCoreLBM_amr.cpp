@@ -775,15 +775,12 @@ void AmrCoreLBM::BuildAverageCache() {
     }
 }
 
-#if AMREX_SPACEDIM == 3
 void AmrCoreLBM::FindCentre() {
 
     for (int p_num = 0; p_num < particle_num; p_num++) {
         points[p_num] = particles[p_num]->ReturnCentre();
     }
 }
-
-#endif
 
 void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::BoxArray& ba,
                                         const amrex::DistributionMapping& dm) {

@@ -6,6 +6,12 @@ using namespace amrex;
 
 void LagrangeParticleContainer::PrintParticleParm()
 {
+#if AMREX_SPACEDIM == 2
+    amrex::Print() << "Particle geometry: disk radius=" << radius * grid_.dx_min
+                   << " mass_per_depth=" << particle_mass_
+                   << " inertia_per_depth=" << particle_inertia_ << "\n";
+    return;
+#endif
     amrex::Print() << "╔══════════════════════════════════════════════════════╗" << std::endl;
     amrex::Print() << "║                      IBM PARAMETERS                  ║" << std::endl;
     amrex::Print() << "╚══════════════════════════════════════════════════════╝" << std::endl;
@@ -31,6 +37,33 @@ void LagrangeParticleContainer::PrintParticleParm()
 
 void LagrangeParticleContainer::InitParticle(int lev)
 {
+#if AMREX_SPACEDIM == 2
+    // 二维仅生成圆盘边界；area 槽保存以最细网格为单位的弧长。
+    const int count = static_cast<int>(std::ceil(2 * PI * radius / ds0));
+    if (ParallelDescriptor::IOProcessor()) {
+        auto& tile = GetParticles(0)[{0, 0}];
+        for (int n = 0; n < count; ++n) {
+            const Real angle = 2 * PI * n / count;
+            ParticleType p;
+            p.id() = ParticleType::NextID();
+            p.cpu() = ParallelDescriptor::MyProc();
+            std::array<ParticleReal, PIdx::nattribs> attribs{};
+            attribs[PIdx::xlocal] = radius * std::cos(angle) * grid_.dx_min;
+            attribs[PIdx::ylocal] = radius * std::sin(angle) * grid_.dx_min;
+            attribs[PIdx::area] = 2 * PI * radius / count;
+            for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+                p.pos(d) = Geom(0).ProbLo(d) + centre[d] * Geom(0).CellSize(d)
+                    + attribs[PIdx::xlocal + d];
+                AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                    p.pos(d) > Geom(0).ProbLo(d) && p.pos(d) < Geom(0).ProbHi(d),
+                    "disk boundary must lie strictly inside the physical domain");
+            }
+            tile.push_back(p);
+            tile.push_back_real(attribs);
+        }
+    }
+    Redistribute();
+#else
     ParticleType p;
     std::array<ParticleReal, PIdx::nattribs> attribs;
     const Real* delta = Geom(0).CellSize();
@@ -132,11 +165,15 @@ void LagrangeParticleContainer::InitParticle(int lev)
         }
     }
     Redistribute();
+#endif
 }
 
 
 void LagrangeParticleContainer::InitParticleFromFile(int lev, const std::string object)
 {
+#if AMREX_SPACEDIM == 2
+    amrex::Abort("DIM=2 supports generated disks and disk checkpoints only; 3D .lpa files are forbidden");
+#else
     ParticleType p;
     std::array<ParticleReal, PIdx::nattribs> attribs;
     const Real* delta = Geom(0).CellSize();
@@ -198,11 +235,13 @@ void LagrangeParticleContainer::InitParticleFromFile(int lev, const std::string 
     }
 
     Redistribute();
+#endif
 }
 
 
 
 
+#if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::MoveParticle(int lev, amrex::Real cur_time)
 {
     amrex::RealVect pos_dif, pos_new;
@@ -260,6 +299,7 @@ void LagrangeParticleContainer::MoveParticle(int lev, amrex::Real cur_time)
         });
     }
 }
+#endif
 
 amrex::RealVect LagrangeParticleContainer::ReturnCentre()
 {
@@ -272,6 +312,7 @@ amrex::RealVect LagrangeParticleContainer::ReturnVelocity()
 }
 
 
+#if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev)
 {
     const Real delta = Geom(lev).CellSize()[0];
@@ -360,7 +401,9 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
     F_lub[1] = 0.0;
     F_lub[2] = 0.0;
 }
+#endif
 
+#if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::InterpForceWallModel(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev)
 {
     const Real delta = Geom(lev).CellSize()[0];
@@ -449,7 +492,9 @@ void LagrangeParticleContainer::InterpForceWallModel(int lev, amrex::MultiFab& r
     F_lub[1] = 0.0;
     F_lub[2] = 0.0;
 }
+#endif
 
+#if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::CollideParticle(const std::unique_ptr<LagrangeParticleContainer>& p2)
 {
     amrex::RealVect Fpw_lub   = {0.0, 0.0, 0.0};
@@ -498,7 +543,9 @@ void LagrangeParticleContainer::CollideParticle(const std::unique_ptr<LagrangePa
 
     p2->SetLubVal(Fp2_lub);//得有一个单独清零的地方
 }
+#endif
 
+#if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::CollideWall()
 {
     amrex::RealVect Fpw_lub   = {0.0, 0.0, 0.0};
@@ -670,21 +717,24 @@ void LagrangeParticleContainer::CollideWall()
     F_lub[1] += Fpw_lub[1];
     F_lub[2] += Fpw_lub[2];
 }
+#endif
 
 
 
+#if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::SetLubVal(amrex::RealVect& force_lub)
 {
     F_lub[0] += force_lub[0];
     F_lub[1] += force_lub[1];
     F_lub[2] += force_lub[2];
 }
+#endif
 
 
 
 void LagrangeParticleContainer::SaveVelocity(int lev, int step)
 {
-    amrex::Real uz = vel[2] * U0;
+    amrex::Real uz = vel[AMREX_D_PICK(0, 1, 2)] * U0;
 
     if(ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber())
     {
@@ -707,7 +757,7 @@ void LagrangeParticleContainer::SavePosition(int lev, int step)
 {
     amrex::Real pos_x = centre[0];
     amrex::Real pos_y = centre[1];
-    amrex::Real pos_z = centre[2];
+    amrex::Real pos_z = AMREX_D_PICK(0, 0, centre[2]);
 
     if(ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber())
     {
@@ -720,11 +770,16 @@ void LagrangeParticleContainer::SavePosition(int lev, int step)
             std::exit(1);  // 错误退出            
         }
 
-        file << step << "\t" << pos_x << "\t" << pos_y << "\t" << pos_z << "\n";
+        file << step << "\t" << pos_x << "\t" << pos_y;
+#if AMREX_SPACEDIM == 3
+        file << "\t" << pos_z;
+#endif
+        file << "\n";
         file.close();
     } 
 }
 
+#if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::SaveFxy(int lev, int step)
 {
     using SPType  = typename LagrangeParticleContainer::SuperParticleType;
@@ -781,6 +836,7 @@ void LagrangeParticleContainer::SaveFxy(int lev, int step)
         file.close();	
     }    
 }
+#endif
 
 void LagrangeParticleContainer::WriteParticle(int step)
 {
@@ -788,4 +844,49 @@ void LagrangeParticleContainer::WriteParticle(int step)
     filename += '_';
     const std::string& pltfile = amrex::Concatenate(filename, step, 5);
     WriteAsciiFile(pltfile);//这个没啥用，只能用来调试     
+}
+
+void LagrangeParticleContainer::Checkpoint(const std::string& directory,
+                                           const std::string& name) const
+{
+    amrex::ParticleContainer<0, 0, PIdx::nattribs>::Checkpoint(directory, name);
+    if (ParallelDescriptor::IOProcessor()) {
+        std::ofstream out(directory + "/" + name + "/Geometry");
+        out << std::setprecision(17) << "ParticleGeometryV1 " << AMREX_SPACEDIM
+            << " " << AMREX_D_PICK("", "disk", "sphere") << " " << radius
+            << " " << grid_.dx << " " << grid_.dx_min;
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) { out << " " << centre[d]; }
+        out << "\n";
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(out.good(), "cannot write particle geometry metadata");
+    }
+}
+
+void LagrangeParticleContainer::Restart(const std::string& directory,
+                                        const std::string& name)
+{
+    std::ifstream in(directory + "/" + name + "/Geometry");
+    if (in) {
+        std::string version, shape;
+        int dimension = 0;
+        Real saved_radius = 0, saved_dx = 0, saved_dx_min = 0;
+        RealVect saved_centre;
+        in >> version >> dimension >> shape >> saved_radius >> saved_dx >> saved_dx_min;
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(in && version == "ParticleGeometryV1" &&
+            dimension == AMREX_SPACEDIM && shape == AMREX_D_PICK("", "disk", "sphere"),
+            "particle checkpoint dimension or shape mismatch");
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) { in >> saved_centre[d]; }
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(in && std::isfinite(saved_radius) && saved_radius > 0,
+            "invalid particle geometry metadata");
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(std::isfinite(saved_centre[d]), "invalid particle centre");
+        }
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(saved_dx == grid_.dx && saved_dx_min == grid_.dx_min,
+            "particle checkpoint grid spacing mismatch");
+        radius = saved_radius;
+        centre = saved_centre;
+    } else {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(AMREX_SPACEDIM == 3,
+            "DIM=2 requires disk geometry metadata; legacy sphere checkpoints are forbidden");
+    }
+    amrex::ParticleContainer<0, 0, PIdx::nattribs>::Restart(directory, name);
 }

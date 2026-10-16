@@ -25,10 +25,8 @@
 #include "LbmGridParams.H"
 
 #include "LbmLattice.H"
-#if AMREX_SPACEDIM == 3
 #include "LagrangeParticleContainer.H"
 #include "AuxiliaryPointContainer.H"
-#endif
 #include "OsiIndex.H"
 #include "OsiCommunication.H"
 
@@ -221,9 +219,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ReadParameters();
     void WriteVelocityFile(const int step, const amrex::Real time);
     void WriteDensityFile(const int step, const amrex::Real time);
-#if AMREX_SPACEDIM == 3
     void WriteParticleFile(const int step, const amrex::Real time);
-#endif
 #if AMREX_SPACEDIM == 3
     void WriteMultiParticleFile(const int step, const amrex::Real time);
 #endif
@@ -287,9 +283,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void RebuildCoarseFineMasks();
     void RebuildCoarseFineMasksForState(
         const amrex::Vector<amrex::MultiFab>& state);
-#if AMREX_SPACEDIM == 3
     void FindCentre();
-#endif
     //********************************************************************//
     //                           lbm  function                            //
     //********************************************************************//
@@ -372,9 +366,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     //********************************************************************//
     //                           ibm  function                            //
     //********************************************************************//
-#if AMREX_SPACEDIM == 3
     void InitParticle(int lev);
     void InitCpPoint(int lev);
+#if AMREX_SPACEDIM == 3
     void InterpForce(int lev);
     void SumForce(int lev);
     void ComputeParticle(int lev);
@@ -382,12 +376,15 @@ class AmrCoreLBM : public amrex::AmrCore {
     void SaveParticleVelocity(int lev, int step);
     void SaveParticlePosition(int lev, int step);
     void SaveParticleDistance(int lev, int step);
+#endif
     void PrintParticleParm();
     void RedistributeParticle();
+#if AMREX_SPACEDIM == 3
     void ComputeCp(int lev, int step);
     void MoveParticle(int lev, amrex::Real cur_time);
     void LubForceParticle(int lev, amrex::Real cur_time);
 #endif
+
     //********************************************************************//
     //                     Pure virtual function                          //
     //********************************************************************//
@@ -541,10 +538,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::IntVect> static_lo;
     amrex::Vector<amrex::IntVect> static_hi;
 
-#if AMREX_SPACEDIM == 3
     amrex::Vector<std::unique_ptr<LagrangeParticleContainer>> particles;
     amrex::Vector<std::unique_ptr<AuxiliaryPointContainer>> particlesCp;
-#endif
     amrex::Vector<amrex::RealVect> points;
     amrex::Vector<amrex::Long> regrid_tag_counts;
     PerfStats perf_stats;

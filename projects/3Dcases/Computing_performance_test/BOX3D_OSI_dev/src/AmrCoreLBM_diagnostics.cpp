@@ -1231,7 +1231,6 @@ void AmrCoreLBM::PrintRegridDiagnostics() const {
     }
 }
 
-#if AMREX_SPACEDIM == 3
 void AmrCoreLBM::PrintParticleChecksums(int step) const {
     if (!particle_checksum) {
         return;
@@ -1281,12 +1280,6 @@ void AmrCoreLBM::PrintParticleChecksums(int step) const {
         amrex::Print() << '\n';
     }
 }
-#else
-void AmrCoreLBM::PrintParticleChecksums(int) const {
-    if (!particle_checksum) { return; }
-    amrex::Abort("DIM=2 does not support particle diagnostics");
-}
-#endif
 
 void AmrCoreLBM::ProbeBoundarySample(int lev, DdfLayout layout) {
     // 读取 Boundary 返回后采样点的当前 DDF；OSI 布局先换算到 raw 地址。

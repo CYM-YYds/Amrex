@@ -20,8 +20,6 @@ try:
     rows = json.loads((case / 'config/compile_commands.json').read_text())
     actual = {Path(row['file']).name for row in rows}
     expected = {p.name for p in (case / 'src').glob('*.cpp')}
-    if dimension == '2':
-        expected -= {'LagrangeParticleContainer.cpp', 'AuxiliaryPointContainer.cpp'}
     valid = expected <= actual and all(
         f'-DAMREX_SPACEDIM={dimension}' in row.get('arguments', row.get('command', '').split())
         for row in rows)

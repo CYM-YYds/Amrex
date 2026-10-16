@@ -45,7 +45,7 @@ dsub -x 'all;DIM=2;' -s ./scripts/submit.sh
 - 二维平均使用四个子单元，三维使用八个；两者保留相同的非平衡分布缩放和 `Cycle2` 子循环。
 - OSI 沿用三坐标内部表示；二维 z=0、z 环长度=1、z 速度与相位偏移=0，不构造额外 z 单元。
 - MPI 默认使用 host staging；设备直传仍要求独立验证的 CUDA-aware MPI 环境。
-- 二维只提供流体主链；球形粒子、IBM、SGS 和 cumulant 仍为三维功能。二维必须关闭粒子 checkpoint。
+- 二维支持流体主链和静态圆盘容器；IBM 力、粒子运动、碰撞、润滑、压力采样、SGS 和 cumulant 仍为三维功能。
 
 速度输出在二维为 ux、uy，在三维为 ux、uy、uz。涡量输出仍含 Q 和 Vorticity；
 二维使用平面速度梯度，Vorticity 为平面旋度的绝对值。
@@ -59,11 +59,44 @@ Checkpoint 保存 canonical DDF，并写独立 `Lattice` 元数据。重启和�
 [src/OsiIndex.H](src/OsiIndex.H)，AMR、推进、OSI 和诊断按实现文件拆分。
 历史专项提交脚本保留三维用途；不能仅设置 DIM 就将其作为二维入口。
 
+## 静态粒子容器
+
+二维默认关闭粒子，可在输入或运行覆盖参数中设置：
+
+```text
+checkpoint.write_particles = true
+particles.shape = disk
+```
+
+三维形状为 `sphere`（默认）。二维显式拒绝 `sphere`、三维 `.lpa` 文件和缺少
+圆盘几何元数据的粒子 checkpoint；目前二维外部几何仅支持读取本程序的圆盘 checkpoint。
+此开关沿用现有接口，同时控制静态标记初始化和 checkpoint，不施加流固耦合力。
+
+二维圆心默认在计算域中心，直径沿用源码 `D=32` 个 coarse cell，
+标记半径为 `R * grid.dx`，不采用球体的有效半径修正。圆周等角采样，数量
+`ceil(2*pi*rate*R/ds0)`；二维属性为 `fx, fy, tz, xlocal, ylocal, area`，
+其中 `area` 表示以 `grid.dx_min` 为单位的弧长，局部坐标为物理长度。
+圆周必须严格位于计算域内部。质量与惯量按单位厚度圆盘定义：
+`m=rhop*pi*(D*dx)^2/4`，`Iz=m*(D*dx)^2/8`；当前仅用于几何参数报告。
+
+每逢 `amr.plot_int` 输出时，保存 `particle_0_<五位步数>` 的 AMReX ASCII 标记数据；
+二维另输出 `cp_0_<六位步数>` 的 180 个圆周辅助点，`cp=0` 代表尚未执行压力采样。
+ASCII 文件前五行是数量及属性布局，后续每行是 DIM 个坐标、ID、CPU、SoA 属性。
+二维坐标仅有 x、y。容器复用 AMReX 的多层归属和 MPI 重分配。
+
+粒子 checkpoint 在 `particles_0/Geometry` 保存版本、维度、形状、半径、网格尺度和圆心，
+读取标记前先校验；AMReX 保存全部标记坐标及属性。二维重启按保存圆心重建静态辅助点。
+旧三维粒子 checkpoint 仍可读。运动刚体的速度/姿态历史重启不在本次范围内。
+实现及验证见[圆盘容器变更记录](docs/ai_changes/2026-10-16-particle-disk-container.md)。
+
 ## 验证
 
 ```bash
 bash tests/run_dimension_kernels_test.sh
 bash tests/run_osi_index_test.sh
+# 静态粒子容器检查：先构建两个维度，并准备脚本指定的修改前三维基线。
+# 可用 PARTICLE_BASELINE_EXE 环境变量指定经过核对的基线程序。
+dsub -s tests/submit_particle_geometry_validation.sh
 # 必须先分别编译二维和三维；基线程序默认取本次修改前保存的快照。
 dsub -s tests/submit_dimension_validation.sh
 # 可通过 DIMENSION_BASELINE_EXE 显式提供其他经核对的三维基线。

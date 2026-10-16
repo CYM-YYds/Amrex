@@ -106,7 +106,9 @@ checkpoint.chk_int = 32000
 # checkpoint 保持在运行目录顶层，以兼容 keep_latest_only 的现有清理逻辑。
 checkpoint.chk_prefix = chk
 checkpoint.keep_latest_only = true
+# 设为 true 时初始化静态圆盘并保存标记；尚不施加 IBM 力或推进粒子运动。
 checkpoint.write_particles = false
+particles.shape = disk
 
 # =============================================================================
 # 9. Level 0 速度场收敛监测

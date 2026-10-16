@@ -202,13 +202,12 @@ int main(int argc, char* argv[]) {
             lid.InitMesh(cur_time);
             lid.PrintMeshInfo();
             lid.PrintLbmParm();
-#if AMREX_SPACEDIM == 3
             if (lid.params().write_particles) {
-                lid.InitParticle(max_ref_level);
-                lid.InitCpPoint(max_ref_level);
+                lid.InitParticle(lid.finestLevel());
+                lid.InitCpPoint(lid.finestLevel());
                 lid.PrintParticleParm();
             }
-#endif
+
         }
 
         lid.ValidateConfiguration(); // 配置、层级、OSI 数组和模式是否允许计算
@@ -247,20 +246,18 @@ int main(int argc, char* argv[]) {
                 if (verification_enabled) {
                     verification.AfterRepair(lid, step);
                 }
-#if AMREX_SPACEDIM == 3
                 if (lid.streamMode() == 0 && lid.params().write_particles) {
                     lid.FindCentre();
                 }
-#endif
+
                 lid.RefineMesh(cur_time);
                 if (verification_enabled) {
                     verification.AfterRefineMesh(lid, step);
                 }
-#if AMREX_SPACEDIM == 3
                 if (lid.params().write_particles) {
                     lid.RedistributeParticle();
                 }
-#endif
+
             }
 
             auto end_time_regrid_time = std::chrono::high_resolution_clock::now();
@@ -405,7 +402,9 @@ int main(int argc, char* argv[]) {
                 // lid.ComputeCp(max_ref_level, step);
                 // lid.WriteMultiParticleFile(step, cur_time);
                 // lid.WriteVelocityFile(step, cur_time, max_ref_level);
-                // lid.WriteParticleFile(step, cur_time);
+                if (lid.params().write_particles) {
+                    lid.WriteParticleFile(step, cur_time);
+                }
                 // lid.WriteVorticityFile(step, cur_time);
                 // lid.WriteVelocityFileWithParticle(step, cur_time);
             }
