@@ -161,9 +161,9 @@ void compute_vorticity(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
     Real v_x = (u(i + 1, j, k, 1) - u(i - 1, j, k, 1)) / (2 * dt);
     Real v_y = (u(i, j + 1, k, 1) - u(i, j - 1, k, 1)) / (2 * dt);
     Real v_z = AMREX_D_PICK(Real(0), Real(0), (u(i, j, k + 1, 1) - u(i, j, k - 1, 1)) / (2 * dt));
-    Real w_x = AMREX_D_PICK(Real(0), Real(0), (AMREX_D_PICK(Real(0), Real(0), u(i + 1, j, k, 2)) - AMREX_D_PICK(Real(0), Real(0), u(i - 1, j, k, 2))) / (2 * dt));
-    Real w_y = AMREX_D_PICK(Real(0), Real(0), (AMREX_D_PICK(Real(0), Real(0), u(i, j + 1, k, 2)) - AMREX_D_PICK(Real(0), Real(0), u(i, j - 1, k, 2))) / (2 * dt));
-    Real w_z = AMREX_D_PICK(Real(0), Real(0), (AMREX_D_PICK(Real(0), Real(0), u(i, j, k + 1, 2)) - AMREX_D_PICK(Real(0), Real(0), u(i, j, k - 1, 2))) / (2 * dt));
+    Real w_x = AMREX_D_PICK(Real(0), Real(0), (u(i + 1, j, k, 2) - u(i - 1, j, k, 2)) / (2 * dt));
+    Real w_y = AMREX_D_PICK(Real(0), Real(0), (u(i, j + 1, k, 2) - u(i, j - 1, k, 2)) / (2 * dt));
+    Real w_z = AMREX_D_PICK(Real(0), Real(0), (u(i, j, k + 1, 2) - u(i, j, k - 1, 2)) / (2 * dt));
 
     Real WX = w_y - v_z;
     Real WY = u_z - w_x;
@@ -190,9 +190,9 @@ void compute_shear(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
     Real v_x = (u(i + 1, j, k, 1) - u(i - 1, j, k, 1)) / (2 * dt);
     Real v_y = (u(i, j + 1, k, 1) - u(i, j - 1, k, 1)) / (2 * dt);
     Real v_z = (u(i, j, k + 1, 1) - u(i, j, k - 1, 1)) / (2 * dt);
-    Real w_x = (AMREX_D_PICK(Real(0), Real(0), u(i + 1, j, k, 2)) - AMREX_D_PICK(Real(0), Real(0), u(i - 1, j, k, 2))) / (2 * dt);
-    Real w_y = (AMREX_D_PICK(Real(0), Real(0), u(i, j + 1, k, 2)) - AMREX_D_PICK(Real(0), Real(0), u(i, j - 1, k, 2))) / (2 * dt);
-    Real w_z = (AMREX_D_PICK(Real(0), Real(0), u(i, j, k + 1, 2)) - AMREX_D_PICK(Real(0), Real(0), u(i, j, k - 1, 2))) / (2 * dt);
+    Real w_x = (u(i + 1, j, k, 2) - u(i - 1, j, k, 2)) / (2 * dt);
+    Real w_y = (u(i, j + 1, k, 2) - u(i, j - 1, k, 2)) / (2 * dt);
+    Real w_z = (u(i, j, k + 1, 2) - u(i, j, k - 1, 2)) / (2 * dt);
 
     Real XX = u_x;
     Real YY = v_y;
@@ -235,9 +235,9 @@ void compute_shear2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
     Real v_x = (u(i + 1, j, k, 1) - u(i - 1, j, k, 1)) / (2 * dt);
     Real v_y = (u(i, j + 1, k, 1) - u(i, j - 1, k, 1)) / (2 * dt);
     Real v_z = (u(i, j, k + 1, 1) - u(i, j, k - 1, 1)) / (2 * dt);
-    Real w_x = (AMREX_D_PICK(Real(0), Real(0), u(i + 1, j, k, 2)) - AMREX_D_PICK(Real(0), Real(0), u(i - 1, j, k, 2))) / (2 * dt);
-    Real w_y = (AMREX_D_PICK(Real(0), Real(0), u(i, j + 1, k, 2)) - AMREX_D_PICK(Real(0), Real(0), u(i, j - 1, k, 2))) / (2 * dt);
-    Real w_z = (AMREX_D_PICK(Real(0), Real(0), u(i, j, k + 1, 2)) - AMREX_D_PICK(Real(0), Real(0), u(i, j, k - 1, 2))) / (2 * dt);
+    Real w_x = (u(i + 1, j, k, 2) - u(i - 1, j, k, 2)) / (2 * dt);
+    Real w_y = (u(i, j + 1, k, 2) - u(i, j - 1, k, 2)) / (2 * dt);
+    Real w_z = (u(i, j, k + 1, 2) - u(i, j, k - 1, 2)) / (2 * dt);
 
     Real XX = u_x;
     Real YY = v_y;
@@ -341,11 +341,11 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
         boundary = true;
     }
 #if AMREX_SPACEDIM == 3
-    if (!AMREX_D_PICK(0, 0, is_periodic[2]) && k == 0) {
+    if (!is_periodic[2] && k == 0) {
         z1 = k + 1;
         boundary = true;
     }
-    if (!AMREX_D_PICK(0, 0, is_periodic[2]) && k == AMREX_D_PICK(0, 0, hi[2])) {
+    if (!is_periodic[2] && k == hi[2]) {
         z1 = k - 1;
         boundary = true;
     }
@@ -484,7 +484,7 @@ void collide_cumulant(int i, int j, int k,
         rhot += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * AMREX_D_PICK(0, 0, e[q][2]);
+        uzt += ft * e[q][2];
     }
 
     //   Ftx = Ft(i, j, k, 0);
@@ -1304,7 +1304,7 @@ void collide_cumulant_opt(int i, int j, int k,
         drho += ft;
         vvx += ft * e[q][0];
         vvy += ft * e[q][1];
-        vvz += ft * AMREX_D_PICK(0, 0, e[q][2]);
+        vvz += ft * e[q][2];
     }
     oneOverRho = c1o1 / (drho + c1o1);
     vvx *= oneOverRho;
@@ -1733,7 +1733,7 @@ void collide_cumulant_opt2(int i, int j, int k,
         rhot += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * AMREX_D_PICK(0, 0, e[q][2]);
+        uzt += ft * e[q][2];
     }
 
     Real drho = rhot;
@@ -2860,7 +2860,7 @@ AMREX_GPU_HOST_DEVICE // 自适应加密
                 amrex::IntVect const& hi2, amrex::RealVect const& pos) {
     Real x_r = pos[0] * coarse_dx / dx;
     Real y_r = pos[1] * coarse_dx / dx;
-    Real z_r = AMREX_D_PICK(0, 0, pos[2]) * coarse_dx / dx;
+    Real z_r = pos[2] * coarse_dx / dx;
 
     Real r_r = R * coarse_dx / dx;
 
@@ -2879,8 +2879,8 @@ AMREX_GPU_HOST_DEVICE // 自适应加密
     // }
 
     // 触碰边界处加密清除
-    if (i <= lo2[0] || i >= hi2[0] || j <= lo2[1] || j >= hi2[1] || k <= AMREX_D_PICK(0, 0, lo2[2]) ||
-        k >= AMREX_D_PICK(0, 0, hi2[2])) {
+    if (i <= lo2[0] || i >= hi2[0] || j <= lo2[1] || j >= hi2[1] || k <= lo2[2] ||
+        k >= hi2[2]) {
         tag(i, j, k) = clearval;
     }
 }
@@ -2897,7 +2897,7 @@ AMREX_GPU_HOST_DEVICE // 自适应加密
 
     Real x_r = pos[0] * coarse_dx / dx[0];
     Real y_r = pos[1] * coarse_dx / dx[1];
-    Real z_r = AMREX_D_PICK(0, 0, pos[2]) * coarse_dx / dx[2];
+    Real z_r = pos[2] * coarse_dx / dx[2];
 
     Real r_r = R * coarse_dx / dx[0];
 
@@ -2909,8 +2909,8 @@ AMREX_GPU_HOST_DEVICE // 自适应加密
         tag(i, j, k) = tagval;
     }
 
-    if (i >= lo2[0] && i <= hi2[0] && j >= lo2[1] && j <= hi2[1] && k >= AMREX_D_PICK(0, 0, lo2[2]) &&
-        k <= AMREX_D_PICK(0, 0, hi2[2])) {
+    if (i >= lo2[0] && i <= hi2[0] && j >= lo2[1] && j <= hi2[1] && k >= lo2[2] &&
+        k <= hi2[2]) {
         tag(i, j, k) = tagval;
     }
     // 网格自适应加密
@@ -3033,8 +3033,8 @@ AMREX_GPU_HOST_DEVICE // 用于多复杂结构体固定区域加密
     //     }
     // }
 
-    if (i >= lo2[0] && i <= hi2[0] && j >= lo2[1] && j <= hi2[1] && k >= AMREX_D_PICK(0, 0, lo2[2]) &&
-        k <= AMREX_D_PICK(0, 0, hi2[2])) {
+    if (i >= lo2[0] && i <= hi2[0] && j >= lo2[1] && j <= hi2[1] && k >= lo2[2] &&
+        k <= hi2[2]) {
         tag(i, j, k) = tagval;
     }
 
@@ -3225,7 +3225,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
 
                 uxt += u(xx, yy, zz, 0) * IB_Interp;
                 uyt += u(xx, yy, zz, 1) * IB_Interp;
-                uzt += AMREX_D_PICK(Real(0), Real(0), u(xx, yy, zz, 2)) * IB_Interp;
+                uzt += u(xx, yy, zz, 2) * IB_Interp;
                 rhot += rho(xx, yy, zz, 0) * IB_Interp;
             }
         }
@@ -3318,7 +3318,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_wall_model(
 
                 uxRef += u(xx, yy, zz, 0) * IB_Interp;
                 uyRef += u(xx, yy, zz, 1) * IB_Interp;
-                uzRef += AMREX_D_PICK(Real(0), Real(0), u(xx, yy, zz, 2)) * IB_Interp;
+                uzRef += u(xx, yy, zz, 2) * IB_Interp;
                 rhoRef += rho(xx, yy, zz, 0) * IB_Interp;
             }
         }
