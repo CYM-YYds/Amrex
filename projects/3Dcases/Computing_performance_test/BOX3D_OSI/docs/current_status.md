@@ -1,10 +1,36 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-10-15
+更新时间：2026-10-16
 
 本文顶部记录当前源码的有限窗口证据；后续按日期保留的作业结论仅对当时
 冻结版本成立。遇到旧 fallback、已删除函数或“重启待验收”的说法时，以顶部
 及[架构文档](osi_algorithm_and_architecture.md)中的现役调用链为准。
+
+## 2026-10-16 退出防护与可视化续跑交接
+
+推荐提交入口为 `./scripts/submit_guarded.sh`，仅覆盖本目录，不自动扩展到
+`BOX3D_OSI_dev` 或旧 runs 内复制的脚本。运行配置与限制见
+[README](../README.md#付费作业的退出保护)，事故和验证见
+[退出收尾记录](ai_changes/2026-10-16-job-exit-guard.md)。
+
+- `613495` 从 `613417` 的 128000 步 checkpoint 续跑至 256000 步，2026-10-15
+  18:26 完成；保留 40 份 `ux/uy/uz` 多层速度场、最终 `chk00256000`（level 0–2）。
+  实际目录为 `runs/20261015_171801_job613495/`。2026-10-16 手动回收退出挂起分配，
+  调度终态 FAILED 不表示这 128000 步没有完成；不据此断言数值收敛或统计充分。
+- `614521` 复现应用和 MPI 启动器均退出 0、调度仍 RUNNING；去掉 tee 仍复现，
+  具体平台/退出收尾根因 pending。`614522/614523` 验证外部监督自动回收，
+  终态 FAILED、运行任务数为 0，退出凭证与回收凭证均保留。
+- 现役保护默认：完成后内部退出宽限 60 秒、启动器退出后调度宽限 60 秒；
+  运行时限 3 小时、调度硬时限 4 小时。长算例需同时提高两项时限。
+- 文档删除已由 `afca3b0` 提交；本次移除失效导航，已有机制指向架构和源码。
+  根 AGENTS.md → CLAUDE.md 同源链有效；生成记忆只读，未写入。
+- 七项本地生命周期测试和三个 shell 语法检查通过；应用数值路径未改动。
+  历史边界独立测试夹具仍引用 `BuildBoundaryWorkBoxes`，与现役
+  `BuildBoundaryWorkCache` 不一致，保持 pending，不宣称该测试已适配。
+
+代码/运行证据为 verified-current，文档为 changed-and-verified；平台根因、
+多 rank 新提交入口验收为 pending，其他算例及结构审查为 out-of-scope。
+日志、checkpoint、plot 和实验目录全部保留；本次不执行删除。
 
 ## 2026-10-15 OSI 细分计时开关
 
@@ -20,7 +46,7 @@
 代码及上述有限窗口运行证据、根规则链为 `verified-current`；现役说明为
 `changed-and-verified`。记忆 `generated-read-only`，未写入；部署 `not-applicable`。
 
-工作区集成仍为 `pending`：
+以下为 2026-10-15 当时的工作区快照，后续状态以上方 2026-10-16 记录为准：
 
 - 用户未提交的 `BuildBoundaryWorkBoxes` → `BuildBoundaryWorkCache` 重命名已进入本轮
   构建，但永久 `tests/build_boundary_batch_test.sh` 和夹具仍使用旧名，不能将该入口
@@ -83,7 +109,7 @@
 work_boxes/fine_indices，并调用带区域参数的 `InitializeDdfFromCoarse()`。
 插值直接写目标 phase=0 的 valid；没有 fine_patch 中转或最后一次复制。
 coarse staging 仍按目标 Fab owner 建立。省略区域参数时初始化整层 valid。
-机制统一见[DDF 填充文档](DDF粗细网格填充学习文档.md#7-normal-ghost-填充与重构迁移两条调用路径)。
+机制统一见[粗细层传输说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)。
 
 `ParallelCopyOsi()` 有临时 MultiFab 搬运和缓存搬运两个重载；插值/平均使用
 缓存重载统一分派本地/MPI，复用原 tag、plan 和 buffer，临时迁移保留调用内计划。
@@ -125,7 +151,7 @@ job596888 中间 PlotFile 清理已完成，合计约 16.12 GiB。
 coarse staging，不复制整层 coarse，不初始化 fine ghost。coarse stencil 的物理
 延拓仍保留。初始化、普通 ghost 填充和重构迁移使用相同自定义数值插值核；
 AMReX 的 `DdfInterpolater()` 只提供几何。公式说明统一见
-[DDF 填充文档](DDF粗细网格填充学习文档.md#13-当前三种插值模式)。
+[粗细层传输说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)。
 
 - `97d998e` 的冻结验证作业 613389：72 组初始化 valid oracle 最大差
   `2.220446049e-16`，全部非 valid sentinel 未改变；测试 stencil 暂存 648
@@ -261,7 +287,7 @@ SHA256 为 `def82cc37115d4f41b69a44d49a43808473a330a3197091698f38cfab5f8744c`，
 `src/AmrCoreLBM_amr.cpp` 匿名命名空间；不再使用独立的 `InterpolationCoverage.H`。
 当时的 `BuildDirectInterpolationCache()`（现已合入 `BuildInterpolationCache()`）在分配 staging 和建立 copy tags 前检查实际模板来源，
 覆盖 A-B、OSI direct 和 canonical fallback 共享的缓存。规则与报错后的处理见
-[DDF 填充文档](DDF粗细网格填充学习文档.md#451-完整模板覆盖门禁)，验证记录见
+[粗细层传输说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)，验证记录见
 [本次变更记录](ai_changes/2026-10-08-interpolation-stencil-coverage.md)。
 
 当日可执行文件在 2026-10-08 19:28:30 完成 CUDA+MPI 构建，对应

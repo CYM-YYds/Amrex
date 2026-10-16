@@ -5,7 +5,7 @@
 相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
 [当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
 
-更新时间：2026-10-15。
+更新时间：2026-10-16。
 
 ## 目录与构建关系
 
@@ -215,9 +215,9 @@ uncovered DDF、各层 checkpoint valid/active DDF 的前后差均为 `linf=0`�
 
 - [当前交接状态](docs/current_status.md)：验证版本、运行证据、历史结果与 pending 项。
 - [OSI 算法与架构](docs/osi_algorithm_and_architecture.md)：地址、phase、边界、AMR 和 checkpoint 契约。
-- [DDF 粗细网格填充](docs/DDF粗细网格填充学习文档.md)：模板来源、缓存与覆盖门禁。
+- [OSI 架构](docs/osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)：粗细层传输、缓存与覆盖门禁。
 - [MPI 通信计划](docs/osi_mpi_communication_plan.md)：历史实验阶段与通信机制；现役粗细传输见 [OSI 架构](docs/osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)。
-- [性能分析](docs/osi_performance_profiling.md)与 [MLUPS 记录](docs/MLUPS记录.md)：历史性能及适用范围。
+- [MLUPS 记录](docs/MLUPS记录.md)：历史性能及适用范围。
 - [变更记录](docs/ai_changes/)：按提交保留的修改目的与验证摘要。
 
 OSI 已移除 canonical 通信、插值搬运与接口平均写回回退。旧的

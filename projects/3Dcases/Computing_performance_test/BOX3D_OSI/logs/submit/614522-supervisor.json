@@ -1,0 +1,8 @@
+{
+  "job": 614522,
+  "state": "RUNNING",
+  "action": "terminate_after_exit",
+  "command_returncode": 0,
+  "message": "JOB_ID    \tMESSAGE   \t\n614522    \tsubmit terminate jobs successfully\t\n",
+  "final_state": "FAILED"
+}

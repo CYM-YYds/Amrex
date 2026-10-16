@@ -373,7 +373,7 @@ regrid 前完整 AverageDownValid
 
 DDF 初始化、ghost 填充和重构迁移统一使用自定义插值核；AMReX 插值器只提供
 DDF stencil/FPinfo 几何。宏观量与力场的 AMReX 插值不属于本次替换范围。
-公式和工作区范围见[DDF 填充文档](DDF粗细网格填充学习文档.md#13-当前三种插值模式)。
+数学公式见 [Kernels.H](../src/Kernels.H)，工作区范围见[粗细层传输说明](#11-静态-coarse-fine-传输)。
 
 宏观量路径也采用 `AverageDownValid() -> ComputeMacroLevel()`，
 其中 `AverageDownValid()` 内部完成当前态物理边界修复，因此输出和收敛检查读取的是
@@ -439,7 +439,7 @@ A-B 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`；锁步参考态采
 普通 ghost 插值缓存现要求父层 valid 并集与周期像提供完整模板，物理域外来源按
 边界延拓映射后检查；域内缺口在缓存建立时终止。该约束由
 `AmrCoreLBM_amr.cpp` 内部辅助函数执行，A-B 与 OSI 共用。详细规则、报错处理及
-检查范围见 [DDF 填充文档](DDF粗细网格填充学习文档.md#451-完整模板覆盖门禁)。
+检查范围见 [粗细层传输说明](#11-静态-coarse-fine-传输)。
 
 即使 BoxArray 不变，细层 ghost 填充和 fine-to-coarse restriction 也跨越两个具有不同
 phase 的 level。当前实现使用稀疏 canonical staging 隔离跨层数据布局：
