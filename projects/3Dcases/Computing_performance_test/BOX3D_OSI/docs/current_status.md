@@ -18,7 +18,9 @@
   实际目录为 `runs/20261015_171801_job613495/`。2026-10-16 手动回收退出挂起分配，
   调度终态 FAILED 不表示这 128000 步没有完成；不据此断言数值收敛或统计充分。
 - `614521` 复现应用和 MPI 启动器均退出 0、调度仍 RUNNING；去掉 tee 仍复现，
-  具体平台/退出收尾根因 pending。`614522/614523` 验证外部监督自动回收，
+  随后定位到 `.bash_profile` 的非交互式 LightRead 后台恢复；禁用后
+  `614533` 用原始脚本自行 SUCCEEDED（12 秒），详见退出收尾记录。
+  `614522/614523` 验证外部监督自动回收，
   终态 FAILED、运行任务数为 0，退出凭证与回收凭证均保留。
 - 现役保护默认：完成后内部退出宽限 60 秒、启动器退出后调度宽限 60 秒；
   运行时限 3 小时、调度硬时限 4 小时。长算例需同时提高两项时限。
@@ -28,7 +30,7 @@
   历史边界独立测试夹具仍引用 `BuildBoundaryWorkBoxes`，与现役
   `BuildBoundaryWorkCache` 不一致，保持 pending，不宣称该测试已适配。
 
-代码/运行证据为 verified-current，文档为 changed-and-verified；平台根因、
+代码/运行证据为 verified-current，文档为 changed-and-verified；原挂起作业进程归属取证、
 多 rank 新提交入口验收为 pending，其他算例及结构审查为 out-of-scope。
 日志、checkpoint、plot 和实验目录全部保留；本次不执行删除。
 

@@ -37,3 +37,27 @@ exit_status.json 的 launcher_returncode=0、elapsed_seconds=5.43，但调度状
 
 日志及退出凭证分别保存在 runs/*job614521、runs/*job614522、runs/*job614523 和
 logs/submit/<job>-supervisor.json。被监督器回收的 FAILED 不等同于数值失败。
+
+## 10:54 登录配置修正及原始入口验证
+
+管理员指出用户登录配置的后台进程。现场确认 `~/.bash_profile` 在非交互式
+登录条件下无条件后台启动 `lightread-connector resume`；仓库启动器的 MPI rank
+使用 `bash -lc`，会读取此文件。即使标准输入输出重定向到 /dev/null，后台进程
+也未必脱离批处理作业的进程归属。`.bashrc` 虽有非交互式 return，不能阻止
+`.bash_profile` 在其返回后再次启动后台连接。
+
+用户授权修改后，已移除 `.bash_profile` 中的非交互式恢复段；交互终端的
+`.bashrc` 恢复功能保留。对 `.cargo/env` 与 `.local/bin/env` 的读取增加可读性检查。
+配置备份：`/home/share/iosoeqkp/home/Liuzhaohui/shell-startup-backups/20261016_105414_no_batch_lightread/`，
+包含原 `.bash_profile`、`.bashrc`、`.bash_logout`；`.bash_logout` 未修改。
+`bash -n` 通过，新 `bash -lc` 正常返回且 djob/dsub 均能找到。
+
+作业 **614533** 使用 613417 原可执行文件和旧提交脚本（保留 tee），不启用
+新增 guard/提交节点监督，32³ 单层 OSI 运行 8 步；只设 120 秒调度时限作安全保护。
+10:54:21 开始、10:54:33 自行 SUCCEEDED，运行任务数为 0，未触发时限或人工回收。
+日志位于 `runs/20261016_105421_job614533/run.log`。
+
+这次验证强烈支持登录配置中的非交互式后台连接是故障原因，不支持仅归因于
+数值程序、MPI 或 tee。原挂起作业的残留进程未被捕获，不能补写为已直接观察到
+LightRead 留在原作业 cgroup。退出防护继续保留；当前验证覆盖单节点单 rank，
+不据此承诺所有平台故障都可由本次修改解决。
