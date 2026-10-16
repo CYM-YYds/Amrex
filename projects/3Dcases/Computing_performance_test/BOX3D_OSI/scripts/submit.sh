@@ -9,6 +9,7 @@
 #DSUB -o logs/submit/%J-out.log
 #DSUB -e logs/submit/%J-out.log
 #DSUB -l cuda122
+#DSUB -T 14400
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -81,8 +82,14 @@ printf '%s\n' "${AMREX_RUN_ARGS:-}" >> "${RUN_DIR}/command.txt"
 # 公共脚本仍按相对路径启动程序，因此在运行目录放置只读符号链接。
 ln -s "${APP_EXE}" "${RUN_DIR}/main3d.gnu.TPROF.MPI.CUDA.ex"
 cd "${RUN_DIR}"
+export AMREX_EXECUTABLE="${SCRIPT_DIR}/run_rank.sh"
 export AMREX_INPUT_FILE=inputs
 export AMREX_RUN_ARGS="${AMREX_RUN_ARGS:-}"
 
 echo "BOX3D_OSI run directory: ${RUN_DIR}"
-"${SHARED_DIR}/submit.sh" "$@" > >(tee run.log) 2>&1
+# 应用日志直接写入 run.log；启动器超过完成宽限期仍未退出则按失败回收。
+REPO_DIR="$(git -C "${CASE_DIR}" rev-parse --show-toplevel)"
+exec "${REPO_DIR}/.venv/bin/python" "${SCRIPT_DIR}/guard_run.py" \
+    --wall-seconds "${BOX3D_WALL_SECONDS:-10800}" \
+    --exit-grace-seconds "${BOX3D_EXIT_GRACE_SECONDS:-60}" \
+    -- bash "${SHARED_DIR}/submit.sh" "$@"
