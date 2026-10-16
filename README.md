@@ -123,6 +123,11 @@ dsub -s ./scripts/submit.sh
 3. 运行日志通常可在算例目录的 `*.log` 或 `logs/` 下查看。
 4. 结果数据通常输出到 `data/`。
 
+调用公共 `scripts/submit.sh` 的入口会显式加载 MPI、CUDA 和 GCC，并向 MPI rank
+传递计算环境。rank 的 GPU 绑定使用不读取个人启动文件的 Bash，且清除 `BASH_ENV`；
+计算所需设置应写入提交脚本，不应依赖 `~/.bash_profile` 或 `~/.bashrc`。
+独立维护的历史实验脚本以各自实现为准。
+
 ## 5. Python 后处理环境
 
 仓库根 `.venv/` 是所有算例共用的 Python 虚拟环境，供后处理、数据分析和绘图脚本
