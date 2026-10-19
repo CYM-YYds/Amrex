@@ -333,10 +333,9 @@ raw/canonical 混合数据路径，未改成 raw-to-raw `ParallelCopyOsi()`。
 已覆盖 2-rank/2-GPU、64 步 direct/fallback 动态 AMR，但单 GPU、重启、多节点、device-direct
 和更长时间窗口仍为 pending。
 
-`submit_osi_stage2_smoke.sh`、`submit_osi_stage3_single.sh`、
-`submit_osi_stage3_single_array.sh` 和 `submit_osi_stage7_restart.sh` 仍引用不存在的
-`config/inputs_osi`，当前不能作为可直接执行的验收入口；需要先补齐输入快照或改用
-`config/inputs` 后再运行，不能把这些脚本的存在写成已完成的单 GPU/重启验证。
+依赖缺失 `config/inputs_osi` 的四个历史 stage 提交入口已于 2026-10-19 删除，
+BOX3D_OSI_dev 中的对应副本同时退役。后续单 GPU/重启验收需明确输入快照、
+运行参数与对应阶段的检查；入口退役不改变上述验证证据及 pending 状态。
 
 ## 历史重构迁移记录（截至 2026-09-29）
 

@@ -130,9 +130,8 @@ MPI、CUDA、TinyProfiler，项目要求 C++20 和 GCC 11+。
 修改生产配置使用 [config/inputs](config/inputs)。专项测试可通过 `AMREX_RUN_ARGS`
 覆盖参数，主提交脚本会记录原始字符串。`scripts/submit_*.sh` 的行为需逐脚本查看：
 有些包装主提交脚本，有些自建实验目录和 app 快照，不能一概而论。
-`submit_osi_stage2_smoke.sh`、`submit_osi_stage3_single.sh`、
-`submit_osi_stage3_single_array.sh`、`submit_osi_stage7_restart.sh` 仍引用缺失的
-`config/inputs_osi`，属于历史入口，不能直接作为当前验收命令。
+依赖已缺失 `config/inputs_osi` 的四个历史 stage 提交入口已退役。
+专项验收需使用完整输入快照和明确的覆盖参数，不能直接套用历史命令。
 
 续跑时给主提交脚本设置 `RESTART_CHECKPOINT` 为 checkpoint 完整路径；
 脚本在新运行目录创建 `chk<step>` 源链接并设置 begin_step，后续 checkpoint 写在新目录。
