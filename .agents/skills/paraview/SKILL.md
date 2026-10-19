@@ -58,7 +58,8 @@ ParaView 使用应用自带 Python；其他分析只用仓库 `.venv`。应用�
 ```bash
 bash -n .agents/skills/paraview/scripts/run_paraview_batch.sh
 bash -n .agents/skills/paraview/scripts/install_paraview_batch.sh
+bash -n .agents/skills/paraview/scripts/run_paraview_server.sh
 .venv/bin/python -m unittest discover -s .agents/skills/paraview/scripts/tests -v
 ```
 
-模拟测试覆盖启动回执、生命周期和节点路由，不能代替 Windows 现场启动。数据路径变化还需在编译节点对真实 PlotFile 导出并核对 CSV。截图、动画及并行 pvbatch 尚未纳入已验证能力。
+模拟测试覆盖启动回执、生命周期和节点路由，不能代替 Windows 现场启动。数据路径变化还需在编译节点对真实 PlotFile 导出并核对 CSV。已验证编译节点 6.2.0 client/server 的单张离屏截图；动画、Windows GUI 截图及并行 pvbatch 尚未验证。

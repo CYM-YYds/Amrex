@@ -107,14 +107,21 @@ ParaView API 在 GUI 主线程执行，普通 SSH 轮询在后台。SSH 单次�
 
 ## 故障处理与验证边界
 
+- PS1 窗口立即关闭：从已打开的 PowerShell 运行 `pwsh -NoExit -File "D:\OneDrive\Desktop\connect_paraview.ps1"`（替换为本机真实路径），保留错误位置和完整文字。
+- Expected local ParaView 6.2.0; got: 空值：旧版 PS1 错将 GUI 的空版本输出视作不匹配；重新下载当前 PS1。当前版本优先读文件资源、缺失时使用 pvpython.exe，仍会拒绝真实版本不符。
 - PythonQt 缺失：确认加载的是新 Windows 客户端，且在 ParaView GUI 内执行，不能用 VS Code 普通 Python。
 - 只有 timer/registered 输出：不代表 GUI 回执成功，检查输出窗口、SSH stderr 和本次 launch 回执。
 - 超时、哈希/版本或 URI 不匹配：保留窗口及诊断文件，核对本机文件和配置后重新加载或启动；不自动关闭用户窗口。
 - SSH 指纹或认证错误：核验目标和认证，不通过关闭主机验证来绕过。
 
-2026-10-19 已有 Windows 现场及实际导出证据覆盖原生计时器、SSH 回传、管线查询、背景修改和中心线提取。
-仓库测试覆盖启动回执协议、跨上下文实例生命周期与批处理定义加载。
-6.2.0 升级后的 Windows PS1 整套启动仍待本机现场验证；单次 inspect 成功不能替代版本身份、节点和整套启动验收。
+2026-10-19 的证据分为：
+
+- 早期 5.11 Windows 现场覆盖原生计时器、SSH 回传、管线查询、背景修改和中心线提取。
+- 6.2.0 在编译节点的 pvpython → pvserver 实测覆盖连接、320×240 单张离屏 Sphere 截图和真实 PlotFile 的 1025 点中心线导出。导出 9 列数值与 batch 基线一致。无 X 显示的探测警告仍出现，但截图和导出成功；动画、Windows GUI 截图和 MPI 并行未验证。
+- 升级及版本预检修复后，新的在线会话已实际 inspect 成功；本次回执 ID、URI、四项能力及桥客户端源码 SHA256 均符合当前仓库。实际服务进程为编译节点独立环境的 pvserver，监听 11115，当前管线已有读取器和两个 Slice。
+- 仓库门禁覆盖启动协议、跨上下文生命周期、节点路由和 PowerShell 语法树。尚未直接获取用户 Windows 的最终 Bridge ready 控制台输出或 PE 版本资源值，不能把远端证据扩张为所有本机启动分支均已验收。
+
+现场状态快照和清理候选见 [知识收尾记录](../../../../docs/ai_changes/2026-10-19-paraview-knowledge-closeout.md)。
 
 ## 迁移兼容
 

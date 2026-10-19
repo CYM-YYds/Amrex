@@ -1,33 +1,34 @@
-# ParaView skill 知识收尾
+# ParaView 6.2.0 知识收尾
 
-## 范围与状态
+## 范围与当前状态
 
-本次按 neat-freak 核对 ParaView skill、现有入口和直接消费方，不扩大到求解器、其他算例或全局配置。
-仓库库存脚本已机械枚举 Markdown（434 篇）；只全文审阅规则、索引及与本次变更相关的文件。
+覆盖 ParaView skill、6.2.0 GUI 服务入口、Windows 版本检测修复及直接消费方。
+使用方式唯一入口为 [ParaView skill](../../.agents/skills/paraview/SKILL.md)，本记录只保存验证状态和保留现场。
+本轮未修改执行脚本、数值路径、全局配置或运行数据。
 
 | 事实面 | 状态 | 依据与边界 |
 |---|---|---|
-| 代码 | verified-current | 核心实现与调用路径一致；本次未修改执行脚本或数值路径 |
-| 运行态 | pending | 当前桥实际 inspect 成功，版本 2、四项能力、URI 正确，但注册源码哈希不同于仓库；完整 Windows 启动及 GUI 服务实际执行节点仍待核验 |
-| 文档 | changed-and-verified | 桥接说明移除重复的阶段叙事，合并为当前操作、状态所有者、故障与验证边界；根目录与旧目录说明指向 skill |
-| 规则 | verified-current | 根 AGENTS.md → CLAUDE.md、.claude/skills → .agents/skills 有效；没有新增重复规则或改全局配置 |
+| 代码 | verified-current | Windows 文件版本资源优先、pvpython 回退；远端 6.2.0；GUI 单进程、编译节点保护；9 项既有测试与 PowerShell 语法树检查通过 |
+| 运行态 | verified-current | 新桥实际 inspect 成功，本次回执 ID/URI/能力与源码 SHA256 符合仓库；服务进程在 whshare-agent-1，实际 EXE 为独立环境 pvserver、监听 11115；本机完整验收边界见下文 |
+| 文档 | changed-and-verified | 消除“截图完全未验证”的旧说法；区分 batch、Linux client/server 与 Windows GUI；补充 PS1 保留报错和空版本输出处理 |
+| 规则 | verified-current | 根 AGENTS.md → CLAUDE.md、.claude/skills → .agents/skills 及两个旧连接兼容软链有效；未增加重复规则 |
 | 记忆 | out-of-scope | generated-read-only；只读检索未命中 ParaView 条目，未写生成索引或 correction input |
-| 工作区 | pending | 只有一个 worktree，HEAD 为 detached；已有两张图片删除不属于本次修改，未恢复、删除或提交；清理候选仍保留 |
+| 工作区 | pending | 起始已跟踪文件无改动，只有一个 detached worktree；本轮仅提交文档。忽略的验证目录保留待用户确认，未清场 |
 
-## 修正与验证
+## 验证证据与限制
 
-- GUI PS1 直接在配置的 SSH 目标启动 pvserver，**没有** batch 包装脚本的主机校验。说明与 skill 已明确这一区别，不能用成功回执证明节点正确。
-- 手动加载说明改为先下载本机文件并设置 PV_BRIDGE_SCRIPT，使哈希来源与读取文件一致；移除仅 exec 远端源码却沿用旧本机文件哈希的升级示例。
-- 当前桥实际 inspect 返回正常，管线源为空、存在 RenderView。未改变背景、加载数据、停止服务或重启用户窗口。
-- 本次从超算端核验 GUI 配置的 SSH 目标时，主机密钥校验失败；未关闭主机验证或修改 known_hosts，因此该入口的主机归属保持 pending。
-- batch 包装入口经编译节点成功执行 --help；255 个已安装包的文件名及 SHA256 与显式锁完全一致。
-- skill validator、两份 Bash 语法、既有 7 项测试、本地 Markdown 链接、规则及兼容软链、Git 差异空白检查均通过。
-- 复核保留的迁移导出：1025 点全部有效，9 列数值逐点与迁移前 CSV 相同。本次没有重复启动数据提取，也不扩张为三维正确性证明。
+- 用户反馈的首个 6.2.0 Windows 启动错误定位到 GUI --version 空输出。修复提交 1644dfd 改用文件版本资源/同目录 pvpython；本轮实际核对当前实现和 PowerShell 语法树，没有重复修改启动逻辑。
+- 本轮实时 inspect 返回四项能力、cs://localhost:11115 和已加载的读取器及两个 Slice。新的注册哈希与仓库桥源码一致；回执属于同一启动编号。
+- 实际服务 EXE 来自 .tools/paraview-batch/env/bin/pvserver；现有 paraview-config.cmake 明确 PARAVIEW_USE_MPI=OFF，不能套用旧 32-rank 命令。
+- 保留的 6.2.0 client/server 实测证据包含 320×240 非空 Sphere PNG、成功导出日志、1025 个有效点；9 列数值与正式 batch CSV 完全一致。该临时测试服务日志以 Exiting 结束，不与用户当前现役服务混淆。
+- 门禁：PowerShell tree-sitter、三份 Bash 语法、9 项测试、skill validator、受影响 Markdown 链接、PS1 BOM/CRLF、兼容软链及差异空白检查。
+- pending：尚未直接读取用户 Windows PE 资源值或最终 Bridge ready 控制台输出；宿主重新发现后的技能列表展示未核实。现有在线证据不能推导这些检查的所有分支均通过。
+- warning：离屏渲染时仍有 DISPLAY 为空的 X 探测警告，输出图像和数据正常。没有 PowerShell/Windows 执行环境，语法树检查不能代替平台运行验证。
+- out-of-scope：动画、Windows GUI 截图、MPI 并行扩展、远端推送/PR、其他算例与全 workspace 内容审计。
 
-## 保留现场与未覆盖项
+## 清场预览与已完成动作
 
-- 原清理候选 `.tools/paraview-batch/skill-migration-check/`：2 个文件，共 107548 字节，属于重复验证 CSV 与元数据；已在完整汇报后获得用户确认，于 2026-10-19 删除并确认目录不存在。原始运行数据与正式批处理 CSV 保留。
-- `.tools/paraview-batch/env`、包锁、兼容软链、运行数据、既有日志均有现役或诊断用途，不列为清理候选。
-- 完整 Windows 启动、当前 GUI 源码身份及其执行节点仍 pending；下次实际启动须核对 Bridge ready、本次回执与节点。
-- 本会话的技能列表未展示新增 paraview 项；文件及元数据有效，宿主重新发现后的列表展示仍待确认。
-- 远端推送、PR/合并、截图与动画、其他算例及全 workspace 内容审计为 out-of-scope；没有发布或清场声明。
+- 当前候选仅 .tools/paraview-batch/gui-smoke/：client.py、client.log、server.log、sphere.png、centerline.csv，共 5 个文件，120683 字节。属于本次一次性测试与复核证据，仍保留；须完整汇报后再获用户确认才能删除。
+- .tools/paraview-batch/env、显式包锁、兼容软链、正式 CSV、运行目录、检查点及现役服务均有用途，不列为清理候选。
+- 此前用户已确认删除的 skill-migration-check/ 已不存在；8 个依赖缺失输入的 stage 提交入口已于 b39f4f9 删除。两张 PNG 的用户删除已单独提交于 0645467，不属于本轮修改。
+- 旧实现和阶段性验证结论保存在 Git 及对应 ai_changes 历史记录中，不再作为现役使用说明。
