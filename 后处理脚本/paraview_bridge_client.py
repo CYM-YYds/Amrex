@@ -153,10 +153,13 @@ class ParaViewBridge:
         self.outgoing.put(result)
 
     def execute(self, command):
-        # 白名单限定为读取管线、修改背景和恢复背景，不执行远端任意代码。
+        # 白名单只允许明确的数据导出和界面操作，不执行远端任意代码。
         action = command.get('action')
+        if action == 'export_centerline':
+            return self.export_centerline(command)
         if action == 'inspect':
-            return {'sources': [list(key) for key in pvs.GetSources()],
+            return {'capabilities': ['inspect', 'background', 'restore_background', 'export_centerline'],
+                    'sources': [list(key) for key in pvs.GetSources()],
                     'views': [v.GetXMLName() for v in pvs.GetViews()]}
         if action not in ('background', 'restore_background'):
             raise ValueError('Unsupported action: ' + str(action))
@@ -183,6 +186,61 @@ class ParaViewBridge:
             del self.backgrounds[key]
         pvs.Render(view)
         return {'view': key, 'background': list(view.Background)}
+
+    def export_centerline(self, command):
+        # 复用已有 AMReX 读取器与标准过滤器，不执行远端传入的 Python 代码。
+        import math
+        import posixpath
+        source = command.get('input', '')
+        output = command.get('output', '')
+        if not source.startswith('/') or not output.startswith('/') or not output.endswith('.csv'):
+            raise ValueError('input/output require absolute remote paths; output must end in .csv')
+        resolution = command.get('resolution', 1024)
+        level = command.get('max_level', 2)
+        if type(resolution) is not int or not 8 <= resolution <= 100000:
+            raise ValueError('resolution must be an integer in [8, 100000]')
+        if type(level) is not int or not 0 <= level <= 10:
+            raise ValueError('max_level must be an integer in [0, 10]')
+        previous = pvs.GetActiveSource()
+        created = []
+        try:
+            reader = pvs.AMReXBoxLibGridReader(
+                registrationName='bridge_' + posixpath.basename(source), FileNames=[source])
+            created.append(reader)
+            reader.Level = level
+            reader.CellArrayStatus = ['ux', 'uy', 'uz']
+            reader.UpdatePipeline()
+            info = reader.GetDataInformation()
+            bounds = list(info.GetBounds())
+            if len(bounds) != 6 or any(not math.isfinite(v) for v in bounds) or any(
+                    bounds[2*i] >= bounds[2*i+1] for i in range(3)):
+                raise ValueError('Reader returned invalid 3D bounds')
+            center = [(bounds[2*i]+bounds[2*i+1])/2 for i in range(3)]
+            blocks = pvs.ExtractBlock(registrationName='bridge_blocks', Input=reader)
+            created.append(blocks)
+            blocks.Selectors = ['/Root']
+            points = pvs.CellDatatoPointData(registrationName='bridge_point_velocity', Input=blocks)
+            created.append(points)
+            line = pvs.PlotOverLine(registrationName='bridge_centerline', Input=points)
+            created.append(line)
+            line.Point1 = [center[0], center[1], bounds[4]]
+            line.Point2 = [center[0], center[1], bounds[5]]
+            line.SamplingPattern = 'Sample Uniformly'
+            line.Resolution = resolution
+            line.UpdatePipeline()
+            pvs.SaveData(output, proxy=line, FieldAssociation='Point Data', Precision=17)
+            return {'input': source, 'output': output, 'bounds': bounds,
+                    'point1': list(line.Point1), 'point2': list(line.Point2),
+                    'resolution': resolution, 'requested_max_level': level,
+                    'samples': line.GetDataInformation().GetNumberOfPoints(),
+                    'method': 'AMReX reader -> ExtractBlock /Root -> CellDataToPointData -> PlotOverLine'}
+        except Exception:
+            # 失败时只回收本次新建的管线，保留用户已有对象和状态。
+            for proxy in reversed(created):
+                pvs.Delete(proxy)
+            raise
+        finally:
+            pvs.SetActiveSource(previous)
 
     def stop(self):
         # 停止接收命令；保留远端结果，便于诊断。背景须在停止前恢复。

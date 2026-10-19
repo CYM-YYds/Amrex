@@ -83,3 +83,25 @@ SSH 调用只在后台线程运行，超时为 45 秒；后台失败会打印 st
 ParaView 5.11.2 [启动处理源码](https://github.com/Kitware/ParaView/blob/v5.11.2/Qt/ApplicationComponents/pqCommandLineOptionsBehavior.cxx)
 先处理服务器连接，再执行 Python 脚本；定时器依据
 [Microsoft SetTimer 文档](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-settimer)。
+
+## 三维中心线导出
+
+新版桥提供 `export_centerline`，并在 `inspect` 返回 `capabilities`。
+它读取指定远端 AMReX PlotFile，按读取器三维 bounds 的几何中心沿 z 轴采样：
+`AMReXBoxLibGridReader -> ExtractBlock /Root -> CellDataToPointData -> PlotOverLine`。
+默认请求 level 2，均匀采样 1024 段，保存 17 位精度 CSV 到远端共享目录。
+输出目录须由调用方提前创建。成功后新管线保留在窗口中，原活动源恢复，不主动改变显示。
+失败时只删除此次创建的对象。CSV 的有效性掩码仍须由分析脚本检查。
+
+```bash
+.venv/bin/python 后处理脚本/paraview_bridge_send.py current export_centerline --input /absolute/plotfile --output /absolute/existing-directory/profile.csv --resolution 1024 --max-level 2 --timeout 180
+```
+
+已经运行的旧桥不会自行更新 Python 类。可以在当前 ParaView Python Shell 执行下面一行，
+直接通过现有 SSH 下载并加载新版桥，无需重开 ParaView 或重新连接数据服务：
+
+```python
+exec(compile(pv_bridge.remote('cat /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/后处理脚本/paraview_bridge_client.py'), 'paraview_bridge_client.py', 'exec'))
+```
+
+随后固定入口会自动指向新会话。下一次用启动脚本启动时会自动下载最新版，不必手动重复加载。

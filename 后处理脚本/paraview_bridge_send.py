@@ -27,7 +27,7 @@ def resolve_directory(directory):
     return path
 
 
-def send(directory, action, color=None, timeout=60):
+def send(directory, action, color=None, timeout=60, options=None):
     path = resolve_directory(directory)
     if not path.is_dir():
         raise ValueError('会话目录不存在；请确认 SSH 目标与当前主机共享 /tmp')
@@ -39,6 +39,10 @@ def send(directory, action, color=None, timeout=60):
         if not result_file.exists() or json.loads(result_file.read_text())['id'] != previous['id']:
             raise RuntimeError('上一条命令尚未返回，请先检查 result.json 和客户端')
     command = {'id': uuid.uuid4().hex, 'action': action}
+    if options:
+        if set(options) - {'input', 'output', 'resolution', 'max_level'}:
+            raise ValueError('未知导出参数')
+        command.update(options)
     if color is not None:
         command['color'] = color
     temporary = path / 'command.tmp'
@@ -57,9 +61,20 @@ def send(directory, action, color=None, timeout=60):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', nargs='?', default='current')
-    parser.add_argument('action', choices=['inspect', 'background', 'restore_background'])
+    parser.add_argument('action', choices=['inspect', 'background', 'restore_background', 'export_centerline'])
     parser.add_argument('--color', nargs=3, type=float)
+    parser.add_argument('--input')
+    parser.add_argument('--output')
+    parser.add_argument('--resolution', type=int, default=1024)
+    parser.add_argument('--max-level', type=int, default=2)
+    parser.add_argument('--timeout', type=float, default=60)
     args = parser.parse_args()
-    reply = send(args.directory, args.action, args.color)
+    options = None
+    if args.action == 'export_centerline':
+        if not args.input or not args.output:
+            parser.error('export_centerline requires --input and --output')
+        options = {'input': args.input, 'output': args.output,
+                   'resolution': args.resolution, 'max_level': args.max_level}
+    reply = send(args.directory, args.action, args.color, timeout=args.timeout, options=options)
     print(json.dumps(reply, ensure_ascii=False, indent=2))
     raise SystemExit(0 if reply['ok'] else 1)
