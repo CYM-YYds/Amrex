@@ -11,7 +11,8 @@
 
 需要本机 OpenSSH、已核验的主机指纹和免密认证。本机 ParaView 默认路径为
 `D:\Software\ParaView 6.2.0\bin\paraview.exe`。脚本检查客户端和服务端均为 **6.2.0**，
-版本不匹配时停止，不自动选用旧版。
+版本不匹配时停止，不自动选用旧版。本机从 EXE 版本资源读取版本；若资源缺失，
+使用同目录 pvpython.exe 的控制台版本输出。Windows GUI 的 paraview.exe --version 可能无管道输出，不能用空输出来判断版本不符。
 远端使用仓库 `.tools/paraview-batch/env/bin/pvserver`，不再加载系统 ParaView/MPI 模块。
 此构建的 `PARAVIEW_USE_MPI=OFF`，因此使用单进程；不能改成 mpirun -np 32。
 

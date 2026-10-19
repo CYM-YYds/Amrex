@@ -122,11 +122,33 @@ $resolvedParaViewPath = Find-ParaViewExecutable -ConfiguredPath $PARAVIEW_PATH
 if (-not $resolvedParaViewPath) {
     throw "ParaView executable not found: $PARAVIEW_PATH"
 }
-# 必须匹配本机与编译节点的版本，再建立新服务。
-$clientVersion = (& $resolvedParaViewPath --version 2>&1 | Out-String)
-if ($LASTEXITCODE -ne 0 -or $clientVersion -notmatch "(?<![0-9.])6\.2\.0(?![0-9.])") {
-    throw "Expected local ParaView $PARAVIEW_VERSION; got: $clientVersion"
+# Windows GUI 程序可能不向管道输出 --version；优先读取文件版本资源。
+$versionInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo($resolvedParaViewPath)
+$versionPattern = '(?<![0-9])([0-9]+\.[0-9]+\.[0-9]+)(?:\.[0-9]+)?(?![0-9])'
+$clientVersion = $null
+foreach ($candidate in @($versionInfo.ProductVersion, $versionInfo.FileVersion)) {
+    if ($candidate -match $versionPattern -and $Matches[1] -ne "0.0.0") {
+        $clientVersion = $Matches[1]
+        break
+    }
 }
+if (-not $clientVersion) {
+    # 无版本资源时使用同一安装目录的控制台程序，不再启动 GUI 做版本探测。
+    $localPvpython = Join-Path (Split-Path -Parent $resolvedParaViewPath) 'pvpython.exe'
+    if (Test-Path -LiteralPath $localPvpython) {
+        $consoleVersion = (& $localPvpython --version 2>&1 | Out-String)
+        if ($LASTEXITCODE -eq 0 -and $consoleVersion -match $versionPattern) {
+            $clientVersion = $Matches[1]
+        }
+    }
+}
+if (-not $clientVersion) {
+    throw "Cannot identify local ParaView version from file metadata or pvpython.exe: $resolvedParaViewPath"
+}
+if ($clientVersion -ne $PARAVIEW_VERSION) {
+    throw "Expected local ParaView $PARAVIEW_VERSION; got: $clientVersion ($resolvedParaViewPath)"
+}
+Write-Host "Local ParaView version: $clientVersion" -ForegroundColor Cyan
 # 外部入口可能已映射编译节点，此时使用回环隧道且不再 SSH 回连自身。
 $gatewayNode = (& ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" 'hostname -s' | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) { throw "Cannot identify SSH endpoint node." }
