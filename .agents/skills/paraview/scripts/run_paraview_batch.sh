@@ -2,7 +2,7 @@
 # 使用独立 ParaView 应用环境；不改 shell 启动文件或仓库 Python 环境。
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_DIR="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
 PVBATCH="${PARAVIEW_BATCH_EXECUTABLE:-${REPO_DIR}/.tools/paraview-batch/env/bin/pvbatch}"
 # ParaView 必须在指定编译节点执行；SSH 失败时停止，不回退到登录节点。
 BATCH_HOST="whshare-agent-1"
@@ -13,7 +13,7 @@ if [[ "$(hostname -s)" != "${BATCH_HOST%%.*}" ]]; then
         "${BATCH_HOST}" "${REMOTE_COMMAND}"
 fi
 if [[ ! -x "${PVBATCH}" ]]; then
-    echo "ERROR: pvbatch not found: ${PVBATCH}; run 后处理脚本/install_paraview_batch.sh first" >&2
+    echo "ERROR: pvbatch not found: ${PVBATCH}; run .agents/skills/paraview/scripts/install_paraview_batch.sh first" >&2
     exit 1
 fi
 exec env -u LD_LIBRARY_PATH -u PYTHONPATH -u PYTHONHOME -u DISPLAY \

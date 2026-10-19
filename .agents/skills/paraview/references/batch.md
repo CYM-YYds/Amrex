@@ -6,7 +6,7 @@
 ## 节点与运行环境
 
 **ParaView 固定在编译节点 `whshare-agent-1` 执行。**
-[运行入口](run_paraview_batch.sh) 和 [安装入口](install_paraview_batch.sh) 若在其他节点调用，
+[运行入口](../scripts/run_paraview_batch.sh) 和 [安装入口](../scripts/install_paraview_batch.sh) 若在其他节点调用，
 先通过 SSH 跳转到该节点；跳转失败即退出，不回退到登录节点执行。
 共享路径使登录节点只需发起命令、收集结果，不承载长期 ParaView 进程。
 
@@ -14,14 +14,14 @@
 无法直接提供这条路线。独立安装使用 conda-forge 的 Linux aarch64 ParaView **6.2.0**，
 应用前缀为仓库 `.tools/paraview-batch/env`，不替换系统模块，也不修改 shell 启动配置。
 应用自带 Python 3.12 供 pvbatch 使用，不是额外的通用后处理 Python 环境；
-统计和绘图不在此环境运行。下载约 502 MB；依赖由 [显式锁文件](paraview-batch-linux-aarch64.lock)
+统计和绘图不在此环境运行。下载约 502 MB；依赖由 [显式锁文件](../scripts/paraview-batch-linux-aarch64.lock)
 固定为 255 个带 SHA256 的包，使用 TUNA conda-forge 镜像。
 micromamba 2.9.0 的 SHA256 经上游包 API 核对并固定在安装脚本中。
 
 从仓库根安装或核对环境：
 
 ```bash
-bash 后处理脚本/install_paraview_batch.sh
+bash .agents/skills/paraview/scripts/install_paraview_batch.sh
 ```
 
 依赖来源：[conda-forge ParaView](https://anaconda.org/conda-forge/paraview)，
@@ -32,7 +32,7 @@ bash 后处理脚本/install_paraview_batch.sh
 先在共享目录创建自己的输出目录，然后从仓库根运行：
 
 ```bash
-bash 后处理脚本/run_paraview_batch.sh \
+bash .agents/skills/paraview/scripts/run_paraview_batch.sh \
   --input /absolute/path/to/plt_256000 \
   --output /absolute/existing-directory/centerline.csv \
   --metadata /absolute/existing-directory/paraview_export.json \
@@ -43,8 +43,8 @@ bash 后处理脚本/run_paraview_batch.sh \
 ParaView 版本、耗时、几何范围、采样端点与点数。
 运行入口会清除继承的 Python、动态库和显示相关配置，以免误用登录环境中的其他版本。
 
-[批处理入口](paraview_batch_export.py) 以“只加载定义”的方式复用
-[桥客户端](paraview_bridge_client.py) 中的同一个 `export_centerline` 函数：
+[批处理入口](../scripts/paraview_batch_export.py) 以“只加载定义”的方式复用
+[桥客户端](../scripts/paraview_bridge_client.py) 中的同一个 `export_centerline` 函数：
 AMReX reader → ExtractBlock /Root → CellDataToPointData → PlotOverLine。
 此模式不会启动 GUI 定时器、SSH 轮询或控制桥注册，也不控制用户当前窗口。
 CSV 用 17 位精度导出；样本有效性和数值比较由上层分析脚本检查。

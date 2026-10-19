@@ -206,5 +206,5 @@ A: 设置 `AUTO_FIND_FILES = False` 并修改 `COMPARE_FILES` 列表。
 
 ## ParaView 自动化入口
 
-- [本机连接与控制桥](paraview_bridge.md)
-- [超算独立批处理](paraview_batch.md)：自动跳转编译节点，无需本机 ParaView 在线。
+- [本机连接与控制桥](../.agents/skills/paraview/references/bridge.md)
+- [超算独立批处理](../.agents/skills/paraview/references/batch.md)：自动跳转编译节点，无需本机 ParaView 在线。

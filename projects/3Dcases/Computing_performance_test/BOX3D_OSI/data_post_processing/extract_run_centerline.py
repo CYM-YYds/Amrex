@@ -71,12 +71,12 @@ def main():
     output = HERE/f'{run.name}_step{step}_{suffix}'
     output.mkdir(exist_ok=True)
     csv_path=output/'centerline.csv'
-    command=[sys.executable,str(REPO/'后处理脚本/paraview_bridge_send.py'),'current','export_centerline',
+    command=[sys.executable,str(REPO/'.agents/skills/paraview/scripts/paraview_bridge_send.py'),'current','export_centerline',
              '--input',str(source),'--output',str(csv_path),'--resolution',str(args.resolution),
              '--max-level','2','--timeout','180']
     metadata=output/'paraview_export.json'
     if args.backend=='batch':
-        command=['bash',str(REPO/'后处理脚本/run_paraview_batch.sh'),
+        command=['bash',str(REPO/'.agents/skills/paraview/scripts/run_paraview_batch.sh'),
                  '--input',str(source),'--output',str(csv_path),'--metadata',str(metadata),
                  '--resolution',str(args.resolution),'--max-level','2']
     if args.reuse_export:

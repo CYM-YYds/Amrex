@@ -2,7 +2,7 @@
 # 独立安装 ARM64 ParaView 应用，不替换系统 ParaView，也不更改用户启动配置。
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_DIR="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
 APP_DIR="${REPO_DIR}/.tools/paraview-batch"
 # 安装和运行探测也通过编译节点执行，不在登录节点启动 ParaView。
 BATCH_HOST="whshare-agent-1"

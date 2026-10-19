@@ -2,7 +2,7 @@
 
 ## 日常启动
 
-首次将最新版 [connect_paraview.ps1](connect_paraview.ps1) 下载到本机，例如
+首次将最新版 [connect_paraview.ps1](../scripts/connect_paraview.ps1) 下载到本机，例如
 `D:/OneDrive/Desktop/connect_paraview.ps1`（以本机真实目录为准）。此后直接运行该启动脚本：
 
 ```powershell
@@ -26,7 +26,7 @@ SSH 用户、主机和端口统一在启动脚本配置区维护，再通过子�
 自动连接与旧版桥加载已在 Windows 现场验证；本次新增的启动自检需下一次启动验证。
 
 脚本建立连接和控制入口，不自动重建上次的数据管线。正常打开远端数据或加载状态后，
-Agent 可读取当前管线。当前命令只支持读取管线及背景切换/恢复，不代表已开放任意数据处理。
+Agent 可读取当前管线。当前白名单支持读取管线、背景切换/恢复和中心线导出；其他处理需先扩展命令实现。
 开启多个桥时，固定入口指向最后成功注册的会话；不自动退回旧会话。
 
 ## 固定连接位置
@@ -34,7 +34,7 @@ Agent 可读取当前管线。当前命令只支持读取管线及背景切换/�
 | 用途 | 固定位置 |
 |---|---|
 | 本机控制桥 | `connect_paraview.ps1` 同目录的 `paraview_bridge_client.py` |
-| 超算控制桥源码 | `/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/后处理脚本/paraview_bridge_client.py` |
+| 超算控制桥源码 | `/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py` |
 | 超算当前会话入口 | `/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge/current.json` |
 | 本机数据连接 | `localhost:11115`，远端端口从 11115 起自动选择 |
 
@@ -48,12 +48,12 @@ Agent 可读取当前管线。当前命令只支持读取管线及背景切换/�
 在仓库根目录使用固定入口，无需先 SSH 到 `whshare-agent-1`：
 
 ```bash
-.venv/bin/python 后处理脚本/paraview_bridge_send.py current inspect
-.venv/bin/python 后处理脚本/paraview_bridge_send.py current background --color 0.15 0.20 0.30
-.venv/bin/python 后处理脚本/paraview_bridge_send.py current restore_background
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current inspect
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current background --color 0.15 0.20 0.30
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current restore_background
 ```
 
-也可省略 `current`，例如 `.venv/bin/python 后处理脚本/paraview_bridge_send.py inspect`。
+也可省略 `current`，例如 `.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py inspect`。
 严格串行投递，工具供单个控制者使用。上条命令未回传时拒绝覆盖；等待超时不代表取消，
 先查看对应会话的 `result.json`，不能盲目重发。
 
@@ -95,7 +95,7 @@ ParaView 5.11.2 [启动处理源码](https://github.com/Kitware/ParaView/blob/v5
 失败时只删除此次创建的对象。CSV 的有效性掩码仍须由分析脚本检查。
 
 ```bash
-.venv/bin/python 后处理脚本/paraview_bridge_send.py current export_centerline --input /absolute/plotfile --output /absolute/existing-directory/profile.csv --resolution 1024 --max-level 2 --timeout 180
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current export_centerline --input /absolute/plotfile --output /absolute/existing-directory/profile.csv --resolution 1024 --max-level 2 --timeout 180
 ```
 
 已经运行的旧桥不会自行更新 Python 类。可以在当前 ParaView Python Shell 执行下面一行，
@@ -104,7 +104,7 @@ ParaView 5.11.2 [启动处理源码](https://github.com/Kitware/ParaView/blob/v5
 ```python
 import builtins
 pv_bridge = builtins._amrex_paraview_bridge_runtime.bridge
-exec(compile(pv_bridge.remote('cat /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/后处理脚本/paraview_bridge_client.py'), 'paraview_bridge_client.py', 'exec'))
+exec(compile(pv_bridge.remote('cat /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'), 'paraview_bridge_client.py', 'exec'))
 ```
 
 上述手动更新命令适用于已加载本次新版运行时的窗口；更早的旧桥没有 builtins 入口，应使用本机文件加载方式。
@@ -135,3 +135,9 @@ pv_bridge = builtins._amrex_paraview_bridge_runtime.bridge
 
 本次没有引入运行中自动更新功能：更新后的功能在下次 PS1 启动时自动加载。
 Windows 下一次启动需要验证最终 `Bridge ready` 输出；当前旧窗口不受仓库文件更新影响。
+
+## 迁移兼容
+
+核心脚本现位于本 skill 的 `scripts/`。仓库旧 `后处理脚本/connect_paraview.ps1` 和
+`后处理脚本/paraview_bridge_client.py` 保留软链，因此旧版已下载 PS1 的远端下载地址仍有效。
+软链只用于超算共享存储；下载到 Windows 后使用普通文件。其他入口请使用本文新路径。
