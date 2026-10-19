@@ -26,7 +26,7 @@
 
 ## 保留现场与未覆盖项
 
-- 清理候选仅 `.tools/paraview-batch/skill-migration-check/`：2 个文件，共 107548 字节，属于重复验证 CSV 与元数据；当前仍用于复核证据，未删除。
+- 原清理候选 `.tools/paraview-batch/skill-migration-check/`：2 个文件，共 107548 字节，属于重复验证 CSV 与元数据；已在完整汇报后获得用户确认，于 2026-10-19 删除并确认目录不存在。原始运行数据与正式批处理 CSV 保留。
 - `.tools/paraview-batch/env`、包锁、兼容软链、运行数据、既有日志均有现役或诊断用途，不列为清理候选。
 - 完整 Windows 启动、当前 GUI 源码身份及其执行节点仍 pending；下次实际启动须核对 Bridge ready、本次回执与节点。
 - 本会话的技能列表未展示新增 paraview 项；文件及元数据有效，宿主重新发现后的列表展示仍待确认。
