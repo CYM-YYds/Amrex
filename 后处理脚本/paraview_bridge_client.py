@@ -157,13 +157,15 @@ class ParaViewBridge:
                 raise ValueError('color requires three numbers in [0, 1]')
             if key not in self.backgrounds:
                 self.backgrounds[key] = (list(view.Background),
-                                        str(view.BackgroundColorMode))
+                                        view.GetProperty('BackgroundColorMode').SMProperty.GetElement(0))
             view.BackgroundColorMode = 'Single Color'
             view.Background = color
         elif key in self.backgrounds:
             color, mode = self.backgrounds[key]
             view.Background = color
-            view.BackgroundColorMode = mode
+            # 按底层枚举整数恢复，避免属性字符串表示带引号而无法赋回。
+            view.GetProperty('BackgroundColorMode').SMProperty.SetElement(0, mode)
+            view.UpdateVTKObjects()
             del self.backgrounds[key]
         pvs.Render(view)
         return {'view': key, 'background': list(view.Background)}
