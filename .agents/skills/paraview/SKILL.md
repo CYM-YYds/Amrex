@@ -13,6 +13,10 @@ description: 在本仓库使用 ParaView 处理 AMReX 三维数据，包括通�
 
 这是本仓库的项目 skill。命令均从仓库根执行，核心脚本唯一实现位于 `scripts/`。旧后处理目录仅保留两个 Windows 连接入口的兼容软链，不维护第二套实现。
 
+GUI 升级时须重新下载 [connect_paraview.ps1](scripts/connect_paraview.ps1) 覆盖本机文件；PS1 不会更新自身，只在启动时下载桥客户端。当前本机路径为 `D:\Software\ParaView 6.2.0\bin\paraview.exe`，两端按 6.2.0 核对。
+Windows 本机版本预检优先读取 EXE 版本资源，缺失时使用同目录 pvpython.exe；不要恢复为直接依赖 GUI 程序 `paraview.exe --version` 的管道输出。
+故障时用 `pwsh -NoExit -File "本机实际路径/connect_paraview.ps1"` 保留报错。在线 inspect、源码哈希和启动回执各有证明边界，不能代替本机最终 `Bridge ready` 验收；详见 [桥接说明](references/bridge.md)。
+
 ## 共同执行步骤
 
 1. 核对输入 PlotFile 的绝对路径及 Header，从运行快照确认 Re、步数、变量、AMR 层级和归一化参数。“最新”按数值步号选择，不按修改时间猜测。不把 job613495 的 Re=1000 当作 Re=3200。
