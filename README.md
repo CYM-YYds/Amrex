@@ -23,7 +23,8 @@ Amrex/
 ├── research/                  # 论文、学习笔记与参考实现（不参与构建）
 ├── scripts/                   # 仓库级编译、同步、提交、审计脚本
 ├── docs/ai_changes/           # 跨算例工具、仓库规则与根目录文档的变更记录
-├── 后处理脚本/               # 可视化与后处理脚本（Python/ParaView）
+├── 后处理脚本/               # 算例可视化脚本与 ParaView 连接兼容入口
+├── .agents/skills/            # 项目工作流，ParaView 自动化核心实现位于其中
 ├── .venv/                     # 全仓库共用的 Python 后处理环境
 ├── CLAUDE.md                  # AI 协作规则（AGENTS.md 为其软链）
 └── README.md
