@@ -7,10 +7,28 @@ import time
 import uuid
 
 
-def send(directory, action, color=None, timeout=30):
+BRIDGE_ROOT = Path('/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge')
+
+
+def resolve_directory(directory):
+    if directory == 'current':
+        registration = json.loads((BRIDGE_ROOT / 'current.json').read_text())
+        path = Path(registration['directory'])
+        if path.parent != BRIDGE_ROOT or not re.fullmatch(r'session-[0-9a-f]{32}', path.name):
+            raise ValueError('固定入口包含无效会话路径')
+        heartbeat = float((path / 'heartbeat').read_text())
+        if not -5 <= time.time() - heartbeat <= 90:
+            raise RuntimeError('当前控制桥心跳已过期，请检查 ParaView 是否仍打开')
+        return path
     path = Path(directory)
-    if not re.fullmatch(r'/tmp/paraview-bridge-[0-9a-f]{32}', str(path)):
-        raise ValueError('请使用客户端打印的完整会话目录')
+    shared = path.parent == BRIDGE_ROOT and re.fullmatch(r'session-[0-9a-f]{32}', path.name)
+    if not shared and not re.fullmatch(r'/tmp/paraview-bridge-[0-9a-f]{32}', str(path)):
+        raise ValueError('请使用 current 或客户端打印的完整会话目录')
+    return path
+
+
+def send(directory, action, color=None, timeout=60):
+    path = resolve_directory(directory)
     if not path.is_dir():
         raise ValueError('会话目录不存在；请确认 SSH 目标与当前主机共享 /tmp')
     # 单槽协议：上条命令未返回前拒绝覆盖，超时也不自动重发。
@@ -38,7 +56,7 @@ def send(directory, action, color=None, timeout=30):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('directory')
+    parser.add_argument('directory', nargs='?', default='current')
     parser.add_argument('action', choices=['inspect', 'background', 'restore_background'])
     parser.add_argument('--color', nargs=3, type=float)
     args = parser.parse_args()

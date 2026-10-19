@@ -1,6 +1,7 @@
 """在本机 ParaView Python Shell 加载；通过 SSH 接收有限的界面操作。"""
 import ctypes
 import json
+import os
 import sys
 import traceback
 import queue
@@ -63,9 +64,12 @@ class WindowsGuiTimer:
 
 class ParaViewBridge:
     def __init__(self):
-        self.directory = '/tmp/paraview-bridge-' + uuid.uuid4().hex
+        self.root = os.environ.get('PV_BRIDGE_ROOT',
+            '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge')
+        self.directory = self.root + '/session-' + uuid.uuid4().hex
         self.ssh = ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5',
-                    '-p', '6022', 'Liuzhaohui@27.18.114.25']
+                    '-p', os.environ.get('PV_BRIDGE_SSH_PORT', '6022'),
+                    os.environ.get('PV_BRIDGE_SSH_TARGET', 'Liuzhaohui@27.18.114.25')]
         self.incoming = queue.Queue()
         self.outgoing = queue.Queue()
         self.closed = threading.Event()
@@ -83,14 +87,23 @@ class ParaViewBridge:
 
     def remote(self, command, data=None):
         # 网络调用只在后台线程运行，不触碰 ParaView 对象。
-        return subprocess.run(self.ssh + [command], input=data, stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE, timeout=15, check=True,
-                              creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout
+        completed = subprocess.run(self.ssh + [command], input=data, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, timeout=45,
+                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        if completed.returncode:
+            raise RuntimeError(completed.stderr.decode('utf-8', errors='replace').strip())
+        return completed.stdout
 
     def poll(self):
         path = shlex.quote(self.directory)
         try:
-            self.remote('umask 077; mkdir -m 700 ' + path)
+            root = shlex.quote(self.root)
+            self.remote('umask 077; mkdir -p ' + root + ' && mkdir -m 700 ' + path
+                        + ' && date +%s > ' + path + '/heartbeat')
+            # 固定入口只由新会话启动时发布，旧会话心跳不会覆盖它。
+            self.remote('umask 077; cat > ' + path + '/registration.tmp && mv '
+                        + path + '/registration.tmp ' + root + '/current.json',
+                        json.dumps({'directory': self.directory, 'protocol': 1}).encode('utf-8'))
             print('ParaView bridge ready: ' + self.directory)
             previous = None
             pending = None
@@ -106,7 +119,8 @@ class ParaViewBridge:
                                     + path + '/result.tmp ' + path + '/result.json',
                                     json.dumps(pending).encode('utf-8'))
                         pending = None
-                    raw = self.remote('if test -f ' + path + '/command.json; then cat '
+                    raw = self.remote('date +%s > ' + path + '/heartbeat.tmp && mv '
+                                      + path + '/heartbeat.tmp ' + path + '/heartbeat; if test -f ' + path + '/command.json; then cat '
                                       + path + '/command.json; fi')
                     if raw:
                         command = json.loads(raw)
