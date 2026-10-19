@@ -386,7 +386,8 @@ BOX3D_OSI_dev 中的对应副本同时退役。后续单 GPU/重启验收需明�
 `604946` 的第 64、96、128 步逐层 uncovered 和重构后全 valid 均为零差。
 旧批次原始证据见
 `logs/submit/604902-osi-lockstep-alllevels-64.log`，专项脚本为
-`scripts/submit_osi_lockstep_alllevels_64.sh`。
+`scripts/submit_osi_lockstep_alllevels_64.sh`（历史入口；现由
+`./scripts/submit_osi_lockstep.sh 64` 承接预设，复现旧实验仍需原代码和输入快照）。
 
 ## 现役配置
 

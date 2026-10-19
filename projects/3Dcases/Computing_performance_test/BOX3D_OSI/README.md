@@ -159,8 +159,36 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 多个现役专项提交脚本共用 `scripts/osi_experiment_common.sh` 生成 hostfile 和
 启动 MPI；带独立运行目录的实验还可用它记录完整命令。入口仍明确选择环境、
 可执行文件、rank/GPU 数及覆盖参数。
-64/128/256 步锁步入口共用 `scripts/osi_lockstep_args.sh`，各自保留步数、
-失败策略和检查间隔。旧 direct 参数无需再写入新脚本；程序仍拒绝旧开关的 `=0` 请求。
+锁步入口通过 `scripts/osi_lockstep_args.sh` 生成预设参数，保留各组步数、失败策略和
+检查间隔。旧 direct 参数无需再写入新脚本；程序仍拒绝旧开关的 `=0` 请求。
+
+### 锁步与 Re=1000 实验入口
+
+在提交节点、算例目录中执行以下命令，入口会调用 `dsub` 提交自身，并选择对应的历史
+作业名与日志名；作业内根据传入的预设调用现有 `scripts/submit.sh`。
+
+| 命令 | 预设 |
+|---|---|
+| `./scripts/submit_osi_lockstep.sh 64` | 64 步，遇差异继续，逐步检查间隔 32 |
+| `./scripts/submit_osi_lockstep.sh 128` | 128 步，遇差异停止，逐步检查间隔 32 |
+| `./scripts/submit_osi_lockstep.sh 256` | 256 步，遇差异继续，逐步检查间隔 1 |
+| `./scripts/submit_re1000_128k.sh ab` | Re=1000，128000 步，A-B 模式 |
+| `./scripts/submit_re1000_128k.sh osi` | Re=1000，128000 步，OSI 模式 |
+
+不带参数时分别选择 `64` 和 `osi`，`--help` 只打印用法。也可通过
+`BOX3D_LOCKSTEP_STEPS` 或 `BOX3D_RE1000_MODE` 选择预设，位置参数优先。
+提交时显式传递所选环境变量；`CCS_JOB_ID` 非空表示已在作业内，入口直接执行预设，
+不再提交新作业。调度器资源声明与原入口一致：单节点、1 GPU、32 CPU、49152 MiB 内存。
+
+锁步作业名为 `box3d_osi_lockstep_alllevels_<步数>`，标准输出与错误日志均为
+`logs/submit/%J-osi-lockstep-alllevels-<步数>.log`；Re=1000 作业名为
+`box3d_re1000_128k_<模式>`，日志为 `logs/submit/%J-re1000-128k-<模式>.log`。
+主提交脚本继续在 `runs/<timestamp>_job<job-id>/` 保存实际输入、覆盖参数、命令和运行日志。
+
+锁步预设按原行为整体设置 `AMREX_RUN_ARGS`；Re=1000 预设保留用户附加参数在前、
+实验固定参数在后的覆盖顺序。需要复现历史实验时，仍须使用该实验的代码、可执行文件与
+输入快照；这些入口只统一预设，不把当前输入当成历史输入。
+五个旧入口的替换表和验证边界见[本次维护记录](docs/ai_changes/2026-10-19-merge-submit-presets.md)。
 
 ### 付费作业的退出保护
 
