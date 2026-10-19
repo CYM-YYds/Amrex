@@ -140,7 +140,7 @@ void compute_macro(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         rhot += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * AMREX_D_PICK(0, 0, e[q][2]);
+        uzt += ft * lattice_ez(q);
     }
 
     u(i, j, k, 0) = uxt / rhot;
@@ -265,7 +265,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
         OSI::PhaseShift3 const& phase_shift) noexcept {
     if constexpr (UseOsiAddress) {
         const auto raw = OSI::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], AMREX_D_PICK(0, 0, e[q][2])}, fab, phase_shift);
+            {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fab, phase_shift);
         return state(raw.x, raw.y, raw.z, q);
     } else {
         return state(i, j, k, q);
@@ -279,7 +279,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_ddf(int i, int j, int k, int q, a
                                                    OSI::PhaseShift3 const& phase_shift) noexcept {
     if constexpr (UseOsiAddress) {
         const auto raw = OSI::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], AMREX_D_PICK(0, 0, e[q][2])}, fab, phase_shift);
+            {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fab, phase_shift);
         state(raw.x, raw.y, raw.z, q) = value;
     } else {
         state(i, j, k, q) = value;
@@ -293,7 +293,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real load_ddf_cached(
     OSI::CellCoordinates const& coordinates) noexcept {
     if constexpr (UseOsiAddress) {
         const auto raw = OSI::osi_address(
-            coordinates, {e[q][0], e[q][1], AMREX_D_PICK(0, 0, e[q][2])});
+            coordinates, {e[q][0], e[q][1], lattice_ez(q)});
         return state(raw.x, raw.y, raw.z, q);
     } else {
         return state(i, j, k, q);
@@ -307,7 +307,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_ddf_cached(
     OSI::CellCoordinates const& coordinates) noexcept {
     if constexpr (UseOsiAddress) {
         const auto raw = OSI::osi_address(
-            coordinates, {e[q][0], e[q][1], AMREX_D_PICK(0, 0, e[q][2])});
+            coordinates, {e[q][0], e[q][1], lattice_ez(q)});
         state(raw.x, raw.y, raw.z, q) = value;
     } else {
         state(i, j, k, q) = value;
@@ -369,7 +369,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
         rho1 += fq;
         ux1 += fq * e[q][0];
         uy1 += fq * e[q][1];
-        uz1 += fq * AMREX_D_PICK(0, 0, e[q][2]);
+        uz1 += fq * lattice_ez(q);
     }
     const Real invrho = 1.0 / rho1;
     ux1 *= invrho;
@@ -436,7 +436,7 @@ void collide(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         rhot += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * AMREX_D_PICK(0, 0, e[q][2]);
+        uzt += ft * lattice_ez(q);
     }
 
     // Ftx = Ft(i, j, k, 0);
@@ -2234,7 +2234,7 @@ void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
     for (int q = 0; q < Q; q++) {
         int xm = i - e[q][0];
         int ym = j - e[q][1];
-        int zm = k - AMREX_D_PICK(0, 0, e[q][2]);
+        int zm = k - lattice_ez(q);
 
         // if(is_finest)
         // {
@@ -2273,7 +2273,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
         rho += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * AMREX_D_PICK(0, 0, e[q][2]);
+        uzt += ft * lattice_ez(q);
     }
 
     const Real inv_rho = 1.0 / rho;
@@ -2286,7 +2286,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
 
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
-        const Real eu = e[q][0] * ux + e[q][1] * uy + AMREX_D_PICK(0, 0, e[q][2]) * uz;
+        const Real eu = e[q][0] * ux + e[q][1] * uy + lattice_ez(q) * uz;
         const Real feq = w[q] * rho *
                          (equilibrium_common + 3.0 * eu + 4.5 * eu * eu);
         const Real value = keep * fq[q] + omega * feq;
@@ -2330,12 +2330,12 @@ void compute_macro_osi(
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
         const auto raw = OSI::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], AMREX_D_PICK(0, 0, e[q][2])}, fab, phase_shift);
+            {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fab, phase_shift);
         const Real ft = state(raw.x, raw.y, raw.z, q);
         rhot += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * AMREX_D_PICK(0, 0, e[q][2]);
+        uzt += ft * lattice_ez(q);
     }
 
     const Real inv_rho = 1.0 / rhot;
@@ -2355,7 +2355,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_interpolated_ddf(
     OSI::PhaseShift3 fine_shift) noexcept {
     if constexpr (UseOsiAddress) {
         const auto dst = OSI::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], AMREX_D_PICK(0, 0, e[q][2])}, fine_fab, fine_shift);
+            {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fine_fab, fine_shift);
         fine(dst.x, dst.y, dst.z, q) = value;
     } else {
         fine(i, j, k, q) = value;
@@ -2589,7 +2589,7 @@ void average_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         rhot += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * AMREX_D_PICK(0, 0, e[q][2]);
+        uzt += ft * lattice_ez(q);
     }
 
     uxt = uxt / rhot;
@@ -2654,13 +2654,13 @@ void average_down_osi_to_canonical(
 
                 for (int q = 0; q < Q; ++q) {
                     const auto src = OSI::osi_address(
-                        {ii, jj, kk}, {e[q][0], e[q][1], AMREX_D_PICK(0, 0, e[q][2])},
+                        {ii, jj, kk}, {e[q][0], e[q][1], lattice_ez(q)},
                         fine_fab, fine_shift);
                     fq[q] = fine(src.x, src.y, src.z, q);
                     rho += fq[q];
                     ux += fq[q] * e[q][0];
                     uy += fq[q] * e[q][1];
-                    uz += fq[q] * AMREX_D_PICK(0, 0, e[q][2]);
+                    uz += fq[q] * lattice_ez(q);
                 }
 
                 if (apply_scale) {
@@ -2718,7 +2718,7 @@ void average_down_lbm_scaled(int i, int j, int k,
                     rho += fq;
                     ux += fq * e[q][0];
                     uy += fq * e[q][1];
-                    uz += fq * AMREX_D_PICK(0, 0, e[q][2]);
+                    uz += fq * lattice_ez(q);
                 }
 
                 ux /= rho;
@@ -2773,7 +2773,7 @@ void average_down_osi_to_canonical_warp(
                 if (q < Q) {
                     const auto src = OSI::osi_address(
                         {fi + ir, fj + jr, fk + kr},
-                        {e[q][0], e[q][1], AMREX_D_PICK(0, 0, e[q][2])}, fine_fab,
+                        {e[q][0], e[q][1], lattice_ez(q)}, fine_fab,
                         fine_shift);
                     fq = fine(src.x, src.y, src.z, q);
                 }
@@ -2782,7 +2782,7 @@ void average_down_osi_to_canonical_warp(
                     const Real rho = warp_sum_32(fq);
                     const Real ux = warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0)) / rho;
                     const Real uy = warp_sum_32(q < Q ? fq * e[q][1] : Real(0.0)) / rho;
-                    const Real uz = warp_sum_32(q < Q ? fq * AMREX_D_PICK(0, 0, e[q][2]) : Real(0.0)) / rho;
+                    const Real uz = warp_sum_32(q < Q ? fq * lattice_ez(q) : Real(0.0)) / rho;
                     if (q < Q) {
                         const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
                         restricted += feq + (fq - feq) * scale;
@@ -2822,7 +2822,7 @@ void average_down_lbm_scaled_warp(int i, int j, int k, int q,
                 const Real rho = warp_sum_32(fq);
                 const Real ux = warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0)) / rho;
                 const Real uy = warp_sum_32(q < Q ? fq * e[q][1] : Real(0.0)) / rho;
-                const Real uz = warp_sum_32(q < Q ? fq * AMREX_D_PICK(0, 0, e[q][2]) : Real(0.0)) / rho;
+                const Real uz = warp_sum_32(q < Q ? fq * lattice_ez(q) : Real(0.0)) / rho;
 
                 if (q < Q) {
                     const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);

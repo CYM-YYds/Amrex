@@ -36,7 +36,11 @@ Real polynomial(Real x, Real y, Real z, bool quadratic) {
 int main() {
     // 格子矩独立于推进布局，检查模型表本身而不只比较两条推进路径。
     Real total=0, first[AMREX_SPACEDIM]={}, second[AMREX_SPACEDIM][AMREX_SPACEDIM]={};
+    static_assert(lattice_ez_host(0) == 0);
     for(int q=0;q<Q;++q) {
+        // 每个有效方向都核对 host/device 入口，二维地址检查器同时约束第三分量访问。
+        near(lattice_ez_host(q), AMREX_D_PICK(0,0,e_host[q][2]), "host z direction");
+        near(lattice_ez(q), lattice_ez_host(q), "device z direction");
         total+=w[q];
         for(int d=0;d<AMREX_SPACEDIM;++d) {
             first[d]+=w[q]*e[q][d];

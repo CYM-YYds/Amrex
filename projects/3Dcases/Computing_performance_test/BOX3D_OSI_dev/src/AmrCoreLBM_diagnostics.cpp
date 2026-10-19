@@ -179,7 +179,7 @@ void AmrCoreLBM::ProbeAverageInterfaceLevel(int lev, const char* stage) {
                         IntVect address(AMREX_D_DECL(i, j, k));
                         if (streamMode() == 1) {
                             const auto raw = OSI::osi_address(
-                                {i, j, k}, {e_host[q][0], e_host[q][1], AMREX_D_PICK(0, 0, e_host[q][2])}, fab, shift);
+                                {i, j, k}, {e_host[q][0], e_host[q][1], lattice_ez_host(q)}, fab, shift);
                             address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
                         }
                         values.push_back(data(address[0], address[1], AMREX_D_PICK(0, 0, address[2]), q));
@@ -240,7 +240,7 @@ void AmrCoreLBM::ProbeFillGhostLevel(int lev) {
                         IntVect address(AMREX_D_DECL(i, j, k));
                         if (streamMode() == 1) {
                             const auto raw = OSI::osi_address(
-                                {i, j, k}, {e_host[q][0], e_host[q][1], AMREX_D_PICK(0, 0, e_host[q][2])}, fab, shift);
+                                {i, j, k}, {e_host[q][0], e_host[q][1], lattice_ez_host(q)}, fab, shift);
                             address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
                         }
                         values.push_back(data(address[0], address[1],
@@ -508,7 +508,7 @@ void AmrCoreLBM::CheckOsiReferenceLevel0(int step, const char* stage) {
                 for (int j = bx.smallEnd(1); j <= bx.bigEnd(1); ++j) {
                     for (int i = bx.smallEnd(0); i <= bx.bigEnd(0); ++i) {
                         const auto raw = OSI::osi_address(
-                            {i, j, k}, {e_host[q][0], e_host[q][1], AMREX_D_PICK(0, 0, e_host[q][2])}, fab, shift);
+                            {i, j, k}, {e_host[q][0], e_host[q][1], lattice_ez_host(q)}, fab, shift);
                         const Real a = ab(i, j, k, q);
                         const Real b = osi(raw.x, raw.y, raw.z, q);
                         const bool covered = has_fine &&
@@ -669,7 +669,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
                     return;
                 }
                 const auto raw = OSI::osi_address(
-                    {i, j, k}, {e[q][0], e[q][1], AMREX_D_PICK(0, 0, e[q][2])}, fab,
+                    {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fab,
                     phase_shift);
                 diff(i, j, k, q) =
                     ab(i, j, k, q) - osi(raw.x, raw.y, raw.z, q);
@@ -734,7 +734,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
                             }
                             const auto raw = OSI::osi_address(
                                 {i, j, k},
-                                {e_host[q][0], e_host[q][1], AMREX_D_PICK(0, 0, e_host[q][2])}, fab,
+                                {e_host[q][0], e_host[q][1], lattice_ez_host(q)}, fab,
                                 phase_shift);
                             const Real ab_value = ab(i, j, k, q);
                             const Real osi_value =
@@ -789,11 +789,11 @@ void AmrCoreLBM::CompareOsiReferenceStage(
                    << " logical=" << local_max_iv
                    << " q=" << local_max_q
                    << " velocity=(" << e_host[local_max_q][0] << ','
-                   << e_host[local_max_q][1] << ',' << AMREX_D_PICK(0, 0, e_host[local_max_q][2]) << ')'
+                   << e_host[local_max_q][1] << ',' << lattice_ez_host(local_max_q) << ')'
                    << " raw=" << local_max_raw
                    << " source_logical="
                    << (local_max_iv - IntVect(AMREX_D_DECL(
-                                          e_host[local_max_q][0], e_host[local_max_q][1], AMREX_D_PICK(0, 0, e_host[local_max_q][2]))))
+                                          e_host[local_max_q][0], e_host[local_max_q][1], lattice_ez_host(local_max_q))))
                    << " physical_boundary="
                    << ((!Geom(lev).isPeriodic(0) &&
                         (local_max_iv[0] == Geom(lev).Domain().smallEnd(0) ||
@@ -897,7 +897,7 @@ void AmrCoreLBM::CompareOsiStreamSources(int lev, const char* stage) {
                     for (int q = 0; q < Q; ++q) {
                         const IntVect target(AMREX_D_DECL(i, j, k));
                         const IntVect source(AMREX_D_DECL(
-                            i - e_host[q][0], j - e_host[q][1], k - AMREX_D_PICK(0, 0, e_host[q][2])));
+                            i - e_host[q][0], j - e_host[q][1], k - lattice_ez_host(q)));
                         if (!ring.contains(source)) {
                             continue;
                         }
@@ -924,7 +924,7 @@ void AmrCoreLBM::CompareOsiStreamSources(int lev, const char* stage) {
                         source_interface_count += source_interface;
                         const auto raw = OSI::osi_address(
                             {source[0], source[1], AMREX_D_PICK(0, 0, source[2])},
-                            {e_host[q][0], e_host[q][1], AMREX_D_PICK(0, 0, e_host[q][2])}, fab, phase_shift);
+                            {e_host[q][0], e_host[q][1], lattice_ez_host(q)}, fab, phase_shift);
                         const Real error =
                             std::abs(ab(source[0], source[1], AMREX_D_PICK(0, 0, source[2]), q) -
                                      osi(raw.x, raw.y, raw.z, q));
@@ -1303,7 +1303,7 @@ void AmrCoreLBM::ProbeBoundarySample(int lev, DdfLayout layout) {
             const auto [fab, shift] =
                 OSI::MakeOsiFabContext(ring, osi_phase.at(lev));
             const auto raw = OSI::osi_address(
-                {sample[0], sample[1], AMREX_D_PICK(0, 0, sample[2])}, {e_host[sample_q][0], e_host[sample_q][1], AMREX_D_PICK(0, 0, e_host[sample_q][2])}, fab, shift);
+                {sample[0], sample[1], AMREX_D_PICK(0, 0, sample[2])}, {e_host[sample_q][0], e_host[sample_q][1], lattice_ez_host(sample_q)}, fab, shift);
             address = IntVect(AMREX_D_DECL(raw.x, raw.y, raw.z));
         }
         // 没有更细层时 covered_mask 未分配，采样点按未覆盖处理。
@@ -1575,7 +1575,7 @@ void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
                         bad_physical[q] += phys;
                         bad_fab_edge[q] += edge;
                         const IntVect src_iv = iv -
-                                               IntVect(AMREX_D_DECL(e_host[q][0], e_host[q][1], AMREX_D_PICK(0, 0, e_host[q][2])));
+                                               IntVect(AMREX_D_DECL(e_host[q][0], e_host[q][1], lattice_ez_host(q)));
                         const bool src_in_valid = bx.contains(src_iv);
                         const bool src_in_fab = source_box.contains(src_iv);
                         source_ghost[q] += !src_in_valid;
@@ -1586,7 +1586,7 @@ void AmrCoreLBM::DiagnoseStreamResult(int lev, int n) {
                         if (!first_has[q]) {
                             first_has[q] = 1;
                             first_iv[q] = iv;
-                            first_src[q] = iv - IntVect(AMREX_D_DECL(e_host[q][0], e_host[q][1], AMREX_D_PICK(0, 0, e_host[q][2])));
+                            first_src[q] = iv - IntVect(AMREX_D_DECL(e_host[q][0], e_host[q][1], lattice_ez_host(q)));
                         }
                     }
                 }

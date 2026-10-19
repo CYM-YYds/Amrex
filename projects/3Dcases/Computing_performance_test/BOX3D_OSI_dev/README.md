@@ -58,6 +58,9 @@ Checkpoint 保存 canonical DDF，并写独立 `Lattice` 元数据。重启和�
 [src/LbmLattice.H](src/LbmLattice.H)、[src/Kernels.H](src/Kernels.H) 和
 [src/OsiIndex.H](src/OsiIndex.H)，AMR、推进、OSI 和诊断按实现文件拆分。
 历史专项提交脚本保留三维用途；不能仅设置 DIM 就将其作为二维入口。
+第三速度分量由格子定义层的 `lattice_ez(q)`（device）与 `lattice_ez_host(q)`（host）
+统一访问原表；二维返回零。访问器重构的生成代码与逐值验证见
+[维度兼容收敛记录](docs/ai_changes/2026-10-19-dimension-accessors.md)。
 
 ## 静态粒子容器
 

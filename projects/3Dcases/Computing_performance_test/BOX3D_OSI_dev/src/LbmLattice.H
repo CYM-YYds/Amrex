@@ -204,6 +204,17 @@ IntVect e[Q] = {
     LBM_DIRECTIONS(LBM_DIRECTION)};
 #undef LBM_DIRECTION
 
+// 第三速度分量统一从原方向表读取；二维返回零，不访问不存在的分量。
+// GPU 与主机入口分开，避免跨地址空间访问；不新增方向表或派生状态。
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+int lattice_ez(int q) noexcept {
+    return AMREX_D_PICK(0, 0, e[q][2]);
+}
+
+constexpr int lattice_ez_host(int q) noexcept {
+    return AMREX_D_PICK(0, 0, e_host[q][2]);
+}
+
 #define LBM_WEIGHT(x, y, z, weight) Real(weight),
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
 Real w[Q] = {
@@ -222,7 +233,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     amrex::Real eu, uv, feqt;
 
 #if LBM_DIM == 3
-    eu = e[i][0] * u[0] + e[i][1] * u[1] + AMREX_D_PICK(0, 0, e[i][2]) * u[2];
+    // 保留三维原有的显式表达式与运算顺序，便于逐值回归。
+    eu = e[i][0] * u[0] + e[i][1] * u[1] + lattice_ez(i) * u[2];
 
     uv = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
 #else
@@ -246,7 +258,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     amrex::Real eu, uv, feqt;
 
 #if LBM_DIM == 3
-    eu = e[i][0] * u[0] + e[i][1] * u[1] + AMREX_D_PICK(0, 0, e[i][2]) * u[2];
+    // 保留三维原有的显式表达式与运算顺序，便于逐值回归。
+    eu = e[i][0] * u[0] + e[i][1] * u[1] + lattice_ez(i) * u[2];
 
     uv = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
 #else
@@ -270,11 +283,11 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     amrex::Real m, n, nf;
 
 #if LBM_DIM == 3
-    m = ((e[i][0] - u[0]) * Ft[0] + (e[i][1] - u[1]) * Ft[1] + (AMREX_D_PICK(0, 0, e[i][2]) - u[2]) * Ft[2]) / cs2;
+    m = ((e[i][0] - u[0]) * Ft[0] + (e[i][1] - u[1]) * Ft[1] + (lattice_ez(i) - u[2]) * Ft[2]) / cs2;
 
-    n = (e[i][0] * u[0] + e[i][1] * u[1] + AMREX_D_PICK(0, 0, e[i][2]) * u[2]) / cs2;
+    n = (e[i][0] * u[0] + e[i][1] * u[1] + lattice_ez(i) * u[2]) / cs2;
 
-    nf = (e[i][0] * Ft[0] + e[i][1] * Ft[1] + AMREX_D_PICK(0, 0, e[i][2]) * Ft[2]) / cs2;
+    nf = (e[i][0] * Ft[0] + e[i][1] * Ft[1] + lattice_ez(i) * Ft[2]) / cs2;
 
 #else
     // 先累加内积再除以声速平方，保持原公式的运算结构。
