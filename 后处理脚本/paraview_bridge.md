@@ -17,13 +17,13 @@
 3. 启动 SSH 隧道及远端 32 进程 pvserver，保留可查看错误的服务窗口。
 4. 等待远端监听端口就绪，再用 `--url=cs://localhost:11115` 自动连接，
    并用 `--script=本机脚本路径` 自动加载控制桥。
-5. 控制桥发布固定的共享目录入口；无需手动执行 Python Shell，也无需复制随机会话路径。
+5. 控制桥发布固定入口，在 GUI 主线程执行启动查询并回传本次专属回执。PS1 核对启动编号、版本、脚本 SHA256、必需命令和实际连接地址，全部匹配后才显示 `Bridge ready`。无需手动执行 Python Shell 或复制随机会话路径。
 
 需要 Windows OpenSSH 的 ssh/scp 可用，已确认主机指纹并配置密钥免密登录。
 本机 ParaView 默认路径是 `D:\Software\ParaView 5.11.2\bin\paraview.exe`，
 找不到时仍按原逻辑搜索安装目录。服务器使用现有模块 ParaView 5.11.1。
 SSH 用户、主机和端口统一在启动脚本配置区维护，再通过子进程环境传给控制桥。
-首次更新启动流程后仍需 Windows 现场验证自动连接与加载。
+自动连接与旧版桥加载已在 Windows 现场验证；本次新增的启动自检需下一次启动验证。
 
 脚本建立连接和控制入口，不自动重建上次的数据管线。正常打开远端数据或加载状态后，
 Agent 可读取当前管线。当前命令只支持读取管线及背景切换/恢复，不代表已开放任意数据处理。
@@ -73,6 +73,7 @@ SSH 调用只在后台线程运行，超时为 45 秒；后台失败会打印 st
 重新加载前先恢复背景，再执行 `pv_bridge.stop()`，以免丢失旧备份。
 停止不会断开原有 pvserver；后台已发出的 SSH 最长需 45 秒退出，最后心跳会随后过期。
 关闭旧 SSH 服务窗口后再启动新连接，固定本机端口不允许并行使用。
+本次新增版本号为 2；本机脚本文件 SHA256 在桥初始化时读取，与 PS1 下载后的哈希核对。
 
 ## 验证边界与依据
 
@@ -101,7 +102,36 @@ ParaView 5.11.2 [启动处理源码](https://github.com/Kitware/ParaView/blob/v5
 直接通过现有 SSH 下载并加载新版桥，无需重开 ParaView 或重新连接数据服务：
 
 ```python
+import builtins
+pv_bridge = builtins._amrex_paraview_bridge_runtime.bridge
 exec(compile(pv_bridge.remote('cat /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/后处理脚本/paraview_bridge_client.py'), 'paraview_bridge_client.py', 'exec'))
 ```
 
+上述手动更新命令适用于已加载本次新版运行时的窗口；更早的旧桥没有 builtins 入口，应使用本机文件加载方式。
 随后固定入口会自动指向新会话。下一次用启动脚本启动时会自动下载最新版，不必手动重复加载。
+
+
+## 启动自检与执行上下文
+
+PS1 每次生成独立 `PV_BRIDGE_LAUNCH_ID`，通过环境传入桥；当前会话注册保存版本和启动编号。
+只有 GUI 主线程执行 inspect 后，后台才发布 `launch-<启动编号>.json`。旧会话的心跳、
+旧回执和仅启动了的 ParaView 进程均不能让本次自检通过。默认等待 180 秒；超时、
+GUI 错误、哈希/版本不一致、缺少命令、连接落到 builtin 或其他地址时明确报错，
+保留窗口和文件用于诊断，不自动关闭用户窗口，也不静默回退到手动连接。
+回执是启动时的一次检查，后续健康状态仍以心跳和实际命令回传为准。
+
+启动脚本的 Python 全局上下文和交互 Python Shell 并不相同。新版桥实例和原生回调
+统一保存在应用级 builtins 中，手动查看或停止时先执行：
+
+```python
+import builtins
+pv_bridge = builtins._amrex_paraview_bridge_runtime.bridge
+```
+
+然后可使用 `pv_bridge.stop()`。重新加载会先停止已知旧实例，等待其 SSH 工作线程退出，
+再创建新实例；如果旧线程未退出则报错，不继续创建第二个所有者。不同执行上下文
+不再分别拥有独立桥实例。旧版本迁移时兼容并停止可定位的 __main__/Shell 实例。
+回调引用保留在同一运行时，避免重新加载后被垃圾回收而留下原生悬空回调。
+
+本次没有引入运行中自动更新功能：更新后的功能在下次 PS1 启动时自动加载。
+Windows 下一次启动需要验证最终 `Bridge ready` 输出；当前旧窗口不受仓库文件更新影响。

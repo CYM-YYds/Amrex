@@ -1,5 +1,7 @@
 """在本机 ParaView Python Shell 加载；通过 SSH 接收有限的界面操作。"""
+import builtins
 import ctypes
+import hashlib
 import json
 import os
 import sys
@@ -9,13 +11,19 @@ import shlex
 import subprocess
 import threading
 import uuid
+from types import SimpleNamespace
 
 from paraview import simple as pvs
 
 
-# 保留原生回调引用，包括停止后的回调，避免队列中残留消息引用已释放地址。
-if '_pv_timer_callbacks' not in globals():
-    _pv_timer_callbacks = []
+BRIDGE_VERSION = '2'
+CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline']
+
+# 跨启动脚本和交互 Shell 共用唯一实例，也保留停止后可能被系统消息引用的回调。
+if not hasattr(builtins, '_amrex_paraview_bridge_runtime'):
+    builtins._amrex_paraview_bridge_runtime = SimpleNamespace(bridge=None, timer_callbacks=[])
+_runtime = builtins._amrex_paraview_bridge_runtime
+_pv_timer_callbacks = _runtime.timer_callbacks
 
 
 class WindowsGuiTimer:
@@ -67,6 +75,15 @@ class ParaViewBridge:
         self.root = os.environ.get('PV_BRIDGE_ROOT',
             '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge')
         self.directory = self.root + '/session-' + uuid.uuid4().hex
+        self.launch_id = os.environ.get('PV_BRIDGE_LAUNCH_ID') or uuid.uuid4().hex
+        if len(self.launch_id) != 32 or any(c not in '0123456789abcdef' for c in self.launch_id):
+            raise ValueError('PV_BRIDGE_LAUNCH_ID must be a lowercase UUID hex string')
+        self.source_sha256 = None
+        script_path = os.environ.get('PV_BRIDGE_SCRIPT')
+        if script_path:
+            with open(script_path, 'rb') as stream:
+                self.source_sha256 = hashlib.sha256(stream.read()).hexdigest()
+        self.startup_id = 'startup-' + self.launch_id
         self.ssh = ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5',
                     '-p', os.environ.get('PV_BRIDGE_SSH_PORT', '6022'),
                     os.environ.get('PV_BRIDGE_SSH_TARGET', 'Liuzhaohui@27.18.114.25')]
@@ -82,6 +99,7 @@ class ParaViewBridge:
             self.timer = QtCore.QTimer()
             self.timer.connect('timeout()', self.tick)
             self.timer.start(200)
+        self.incoming.put({'id': self.startup_id, 'action': 'inspect'})
         self.worker = threading.Thread(target=self.poll, daemon=True)
         self.worker.start()
 
@@ -100,11 +118,14 @@ class ParaViewBridge:
             root = shlex.quote(self.root)
             self.remote('umask 077; mkdir -p ' + root + ' && mkdir -m 700 ' + path
                         + ' && date +%s > ' + path + '/heartbeat')
+            if self.closed.is_set():
+                return
             # 固定入口只由新会话启动时发布，旧会话心跳不会覆盖它。
             self.remote('umask 077; cat > ' + path + '/registration.tmp && mv '
                         + path + '/registration.tmp ' + root + '/current.json',
-                        json.dumps({'directory': self.directory, 'protocol': 1}).encode('utf-8'))
-            print('ParaView bridge ready: ' + self.directory)
+                        json.dumps({'directory': self.directory, 'protocol': 1, 'launch_id': self.launch_id,
+                                    'version': BRIDGE_VERSION, 'source_sha256': self.source_sha256}).encode('utf-8'))
+            print('ParaView bridge registered (GUI check pending): ' + self.directory)
             previous = None
             pending = None
             while not self.closed.is_set():
@@ -115,6 +136,15 @@ class ParaViewBridge:
                         except queue.Empty:
                             pass
                     if pending is not None:
+                        if pending['id'] == self.startup_id:
+                            # 只有 GUI 主线程执行 inspect 后，才发布本次启动专属的回执。
+                            receipt = dict(pending, launch_id=self.launch_id, directory=self.directory,
+                                           version=BRIDGE_VERSION, source_sha256=self.source_sha256)
+                            target = root + '/launch-' + self.launch_id + '.json'
+                            self.remote('umask 077; cat > ' + path + '/startup.tmp && mv '
+                                        + path + '/startup.tmp ' + target,
+                                        json.dumps(receipt).encode('utf-8'))
+                            print('ParaView bridge GUI check returned: ' + self.directory)
                         self.remote('umask 077; cat > ' + path + '/result.tmp && mv '
                                     + path + '/result.tmp ' + path + '/result.json',
                                     json.dumps(pending).encode('utf-8'))
@@ -158,7 +188,11 @@ class ParaViewBridge:
         if action == 'export_centerline':
             return self.export_centerline(command)
         if action == 'inspect':
-            return {'capabilities': ['inspect', 'background', 'restore_background', 'export_centerline'],
+            from paraview import servermanager
+            connection = servermanager.ActiveConnection
+            uri = connection.Session.GetURI() if connection is not None else None
+            return {'capabilities': CAPABILITIES, 'version': BRIDGE_VERSION,
+                    'connection_uri': uri,
                     'sources': [list(key) for key in pvs.GetSources()],
                     'views': [v.GetXMLName() for v in pvs.GetViews()]}
         if action not in ('background', 'restore_background'):
@@ -246,9 +280,20 @@ class ParaViewBridge:
         # 停止接收命令；保留远端结果，便于诊断。背景须在停止前恢复。
         self.closed.set()
         self.timer.stop()
+        if threading.current_thread() is not self.worker:
+            self.worker.join(timeout=50)
+            if self.worker.is_alive():
+                raise RuntimeError('Old bridge worker has not stopped; retry after its SSH call returns')
         print('ParaView bridge stopped')
 
 
-if 'pv_bridge' in globals():
-    pv_bridge.stop()
+# 首次迁移时兼容旧版 __main__ 或交互上下文中的实例；后续统一从 builtins 定位。
+_previous_bridges = [_runtime.bridge, globals().get('pv_bridge'),
+                     getattr(sys.modules.get('__main__'), 'pv_bridge', None)]
+_stopped_ids = set()
+for _previous_bridge in _previous_bridges:
+    if _previous_bridge is not None and id(_previous_bridge) not in _stopped_ids:
+        _previous_bridge.stop()
+        _stopped_ids.add(id(_previous_bridge))
 pv_bridge = ParaViewBridge()
+_runtime.bridge = pv_bridge

@@ -15,6 +15,11 @@ $REMOTE_HOST = "27.18.114.25"
 $SSH_PORT = 6022
 $REMOTE_BRIDGE_SCRIPT = "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/后处理脚本/paraview_bridge_client.py"
 $REMOTE_BRIDGE_ROOT = "/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge"
+# 每次启动使用独立编号，自检不会把旧会话当作本次启动成功。
+$BRIDGE_LAUNCH_ID = [Guid]::NewGuid().ToString("N")
+$BRIDGE_STARTUP_SECONDS = 180
+$BRIDGE_EXPECTED_VERSION = "2"
+$BRIDGE_REQUIRED_CAPABILITIES = @("inspect", "background", "restore_background", "export_centerline")
 
 # Check whether remote port is available
 function Test-RemotePort {
@@ -123,6 +128,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Bridge download failed. Check SSH key authentication; existing bridge was retained."
 }
 Move-Item -LiteralPath $bridgeDownload -Destination $BRIDGE_SCRIPT -Force
+$bridgeHash = (Get-FileHash -LiteralPath $BRIDGE_SCRIPT -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host "Bridge script: $BRIDGE_SCRIPT" -ForegroundColor Cyan
 Write-Host "Remote bridge entry: $REMOTE_BRIDGE_ROOT/current.json" -ForegroundColor Cyan
 
@@ -208,6 +214,8 @@ if ($resolvedParaViewPath) {
     # 原生参数需要保留脚本路径两侧引号，兼容含空格的 Windows 路径。
     $bridgeEnvironment = @{
         PV_BRIDGE_ROOT = $REMOTE_BRIDGE_ROOT
+        PV_BRIDGE_SCRIPT = $BRIDGE_SCRIPT
+        PV_BRIDGE_LAUNCH_ID = $BRIDGE_LAUNCH_ID
         PV_BRIDGE_SSH_PORT = "$SSH_PORT"
         PV_BRIDGE_SSH_TARGET = "${REMOTE_USERNAME}@${REMOTE_HOST}"
     }
@@ -217,7 +225,7 @@ if ($resolvedParaViewPath) {
             $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
             [Environment]::SetEnvironmentVariable($name, $bridgeEnvironment[$name], "Process")
         }
-        Start-Process -FilePath $resolvedParaViewPath -ArgumentList @("--url=cs://localhost:${LOCAL_PORT}", "--script=`"$BRIDGE_SCRIPT`"")
+        $paraViewProcess = Start-Process -PassThru -FilePath $resolvedParaViewPath -ArgumentList @("--url=cs://localhost:${LOCAL_PORT}", "--script=`"$BRIDGE_SCRIPT`"")
     } finally {
         foreach ($name in $savedEnvironment.Keys) {
             [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")
@@ -229,6 +237,42 @@ if ($resolvedParaViewPath) {
     Write-Host "Configured path: $PARAVIEW_PATH" -ForegroundColor Red
     Write-Host "Please set PARAVIEW_PATH to your local installation." -ForegroundColor Yellow
 }
+
+# 等待 GUI 主线程真实执行查询并经 SSH 回传，不能只凭进程启动或旧 current.json 判成功。
+Write-Host "Checking bridge GUI response (up to $BRIDGE_STARTUP_SECONDS seconds)..." -ForegroundColor Cyan
+$receiptPath = "$REMOTE_BRIDGE_ROOT/launch-$BRIDGE_LAUNCH_ID.json"
+$checkAttempts = (1..$BRIDGE_STARTUP_SECONDS) -join ' '
+$checkCommand = "for i in $checkAttempts; do if test -s '$receiptPath'; then cat '$receiptPath'; exit 0; fi; sleep 1; done; exit 1"
+$receiptOutput = & ssh -T -o BatchMode=yes -o ConnectTimeout=5 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $checkCommand
+if ($LASTEXITCODE -ne 0) {
+    throw "Bridge GUI check timed out. ParaView may be connected but the bridge is not ready. Check ParaView Output Messages and $BRIDGE_SCRIPT. Server window is retained."
+}
+try {
+    $receipt = ($receiptOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop
+} catch {
+    throw "Bridge returned invalid JSON. Check remote shell output. Receipt: $receiptPath"
+}
+if ($receipt.launch_id -ne $BRIDGE_LAUNCH_ID -or $receipt.id -ne "startup-$BRIDGE_LAUNCH_ID" -or -not $receipt.ok) {
+    throw "Bridge GUI check failed or launch ID does not match: $($receipt.error)"
+}
+if ($receipt.version -ne $BRIDGE_EXPECTED_VERSION -or $receipt.source_sha256 -ne $bridgeHash) {
+    throw "Bridge version or source hash mismatch. The running bridge does not match the downloaded script."
+}
+foreach ($capability in $BRIDGE_REQUIRED_CAPABILITIES) {
+    if ($receipt.value.capabilities -notcontains $capability) {
+        throw "Bridge is missing required capability: $capability"
+    }
+}
+$expectedUri = "cs://localhost:${LOCAL_PORT}"
+if (-not $receipt.value.connection_uri -or $receipt.value.connection_uri.TrimEnd('/') -ne $expectedUri) {
+    throw "Bridge is running but ParaView is not connected to $expectedUri (actual: $($receipt.value.connection_uri))."
+}
+$paraViewProcess.Refresh()
+if ($paraViewProcess.HasExited) {
+    throw "ParaView exited during bridge startup."
+}
+Write-Host "Bridge ready: version $($receipt.version), GUI response OK, source hash verified." -ForegroundColor Green
+Write-Host "Session: $($receipt.directory)" -ForegroundColor Cyan
 
 # Show connection info
 Write-Host "`n=== Connection Settings ===" -ForegroundColor Yellow
