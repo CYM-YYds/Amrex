@@ -100,14 +100,16 @@ bash tests/run_osi_index_test.sh
 # 静态粒子容器检查：先构建两个维度，并准备脚本指定的修改前三维基线。
 # 可用 PARTICLE_BASELINE_EXE 环境变量指定经过核对的基线程序。
 dsub -s tests/submit_particle_geometry_validation.sh
-# 必须先分别编译二维和三维；基线程序默认取本次修改前保存的快照。
+# 最近访问器与结构整理的回归：先构建两个维度，基线目录需含两个维度的修改前程序。
+# DIM_REFACTOR_BASELINE 默认 runs/accessor_refactor_20261019/baseline。
+dsub -s tests/submit_dimension_refactor_validation.sh
+# 初次维度迁移的完整矩阵；DIMENSION_BASELINE_EXE 指定经核对的旧三维基线。
 dsub -s tests/submit_dimension_validation.sh
-# 可通过 DIMENSION_BASELINE_EXE 显式提供其他经核对的三维基线。
 ```
 
 局部检查直接调用生产内核，验证格子矩、三个插值模式、平均、OSI 地址双射、
 碰撞、顶盖角点和涡量，并启用地址及未定义行为检查器。
-GPU 回归覆盖最高层编号 0/1/2/3、三个插值模式、1/2 rank、方腔和周期边界；
+2026-10-15 的二维 GPU 矩阵覆盖最高层编号 0/1/2/3、三个插值模式、1/2 rank、方腔和周期边界；
 另检查独立 A-B/OSI 生产模式、连续/重启一致性、旧三维基线和错误模型拒绝。
 容差为 active DDF 最大绝对误差不超过 1e-12，同时检查有限值。
 
@@ -119,5 +121,21 @@ GPU 回归覆盖最高层编号 0/1/2/3、三个插值模式、1/2 rank、方腔
 
 回归在 `runs/dimensions_<job-id>/` 保存可执行文件、源码、配置、命令、SHA256、日志、
 `status.tsv` 和 `summary.json`。跨版本 checkpoint 对照固定 rank 和布局；跨布局比较
-需空间重映射。具体本次结果见 [变更记录](docs/ai_changes/2026-10-15-dimension-port.md)。
+需空间重映射。初次迁移的历史结果见 [维度迁移记录](docs/ai_changes/2026-10-15-dimension-port.md)。
+
+2026-10-19 的最新复核见 [访问器与结构整理记录](docs/ai_changes/2026-10-19-dimension-accessors.md)：
+生成代码 18 项一致；作业 615091 的 42 个主场景和 615092 的 12 个旧程序控制完成分范围复核，
+阶段与最终 active DDF 对照最大误差为零。该轮二维最高层为 2、三维为 1，
+阶段运行 64 步、生产回归 192 步；不能外推为新的三维四层或长期验收。
+最终结构整理后的粒子作业 615156 有 69 项检查通过。
+现有两个可执行文件的 SHA256 与该作业冻结程序一致。
+
+**保留的警告**：方腔通信后、物理边界处理前的 physical ghost 源诊断仍存在差异，
+最大绝对值为 0.02019539653，旧程序控制复现相同指标。valid、internal ghost、
+interface 和 covered 源的差异计数为零；这不代表全部 ghost 等价。
+源码对 `max_level > 1` 仍输出历史保守警告，须结合维度、阶段和上述记录判断验证范围。
+615091 的调度器状态为 FAILED，原因是首版汇总混合了诊断范围；原失败报告保留，
+修正检查器后对既有数据重新汇总通过，不能将其描述成调度器成功。
+最新整合作业脚本已包含旧程序控制，其合并为单作业的入口尚未重新整套提交；
+已有证据来自上述两个作业。
 长期二维方腔收敛、文献曲线对比和性能优化不属于本次短程验收。
