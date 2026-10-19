@@ -1,11 +1,11 @@
 ﻿# ParaView remote connection launcher
 
 # Configuration
-$PARAVIEW_PATH = "D:\Software\ParaView 5.11.2\bin\paraview.exe"
-# $PARAVIEW_PATH = "D:\Software\ParaView-5.11.1-Windows-Python3.9-msvc2017-AMD64\bin\paraview.exe"
+$PARAVIEW_PATH = "D:\Software\ParaView 6.2.0\bin\paraview.exe"
 $LOCAL_PORT = "11115"        # Local port
 $REMOTE_PORT = "11115"       # Remote start port
-$MPI_PROCESSES = "32"        # MPI process count
+$SERVER_HOST = "whshare-agent-1" # 编译节点；新版构建无 MPI，单进程运行
+$PARAVIEW_VERSION = "6.2.0"
 $MAX_PORT_ATTEMPTS = 10      # Max port attempts
 $REMOTE_USERNAME = "Liuzhaohui" # Remote SSH account
 # 本机控制桥固定放在启动脚本旁，每次启动从仓库同步最新版。
@@ -14,12 +14,20 @@ $BRIDGE_SCRIPT = Join-Path $scriptRoot "paraview_bridge_client.py"
 $REMOTE_HOST = "27.18.114.25"
 $SSH_PORT = 6022
 $REMOTE_BRIDGE_SCRIPT = "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py"
+$REMOTE_SERVER_SCRIPT = "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/run_paraview_server.sh"
 $REMOTE_BRIDGE_ROOT = "/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge"
 # 每次启动使用独立编号，自检不会把旧会话当作本次启动成功。
 $BRIDGE_LAUNCH_ID = [Guid]::NewGuid().ToString("N")
 $BRIDGE_STARTUP_SECONDS = 180
 $BRIDGE_EXPECTED_VERSION = "2"
 $BRIDGE_REQUIRED_CAPABILITIES = @("inspect", "background", "restore_background", "export_centerline")
+
+# 所有服务命令通过已有 SSH 入口转到编译节点；编码避免双层 Shell 引号歧义。
+function Get-ServerCommand {
+    param([string]$Command)
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Command))
+    return "if hostname -s | grep -Fxq '$SERVER_HOST'; then echo $encoded | base64 -d | bash; else ssh -T -o BatchMode=yes -o ConnectTimeout=10 ${SERVER_HOST} 'echo $encoded | base64 -d | bash'; fi"
+}
 
 # Check whether remote port is available
 function Test-RemotePort {
@@ -33,10 +41,11 @@ function Test-RemotePort {
     Write-Host "Checking remote port $RemotePort..." -ForegroundColor Yellow
     
     # Test remote port and return quickly
-    $testCommand = "ssh -o ConnectTimeout=5 -o BatchMode=yes -p $Port ${Username}@${RemoteHost} `"netstat -ln | grep :${RemotePort} || echo 'PORT_AVAILABLE'`""
+    $probe = "if netstat -lnt >/dev/null 2>&1; then if netstat -lnt | grep -Eq '[:.]${RemotePort}[[:space:]]'; then echo PORT_BUSY; else echo PORT_AVAILABLE; fi; else echo 'netstat unavailable' >&2; exit 1; fi"
+    $testCommand = Get-ServerCommand $probe
     
     try {
-        $result = Invoke-Expression $testCommand 2>$null
+        $result = & ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $Port "${Username}@${RemoteHost}" $testCommand
         
         # If occupied, netstat returns listener info; otherwise PORT_AVAILABLE.
         if ($LASTEXITCODE -ne 0) {
@@ -91,9 +100,9 @@ function Find-ParaViewExecutable {
     }
 
     $searchPatterns = @(
-        "D:\Software\ParaView*\bin\paraview.exe",
-        "$env:ProgramFiles\ParaView*\bin\paraview.exe",
-        "$env:ProgramFiles(x86)\ParaView*\bin\paraview.exe"
+        "D:\Software\ParaView $PARAVIEW_VERSION\bin\paraview.exe",
+        "$env:ProgramFiles\ParaView $PARAVIEW_VERSION*\bin\paraview.exe",
+        "${env:ProgramFiles(x86)}\ParaView $PARAVIEW_VERSION*\bin\paraview.exe"
     )
 
     $candidates = @()
@@ -112,6 +121,20 @@ function Find-ParaViewExecutable {
 $resolvedParaViewPath = Find-ParaViewExecutable -ConfiguredPath $PARAVIEW_PATH
 if (-not $resolvedParaViewPath) {
     throw "ParaView executable not found: $PARAVIEW_PATH"
+}
+# 必须匹配本机与编译节点的版本，再建立新服务。
+$clientVersion = (& $resolvedParaViewPath --version 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0 -or $clientVersion -notmatch "(?<![0-9.])6\.2\.0(?![0-9.])") {
+    throw "Expected local ParaView $PARAVIEW_VERSION; got: $clientVersion"
+}
+# 外部入口可能已映射编译节点，此时使用回环隧道且不再 SSH 回连自身。
+$gatewayNode = (& ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" 'hostname -s' | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) { throw "Cannot identify SSH endpoint node." }
+$TUNNEL_TARGET = if ($gatewayNode -eq $SERVER_HOST) { "localhost" } else { $SERVER_HOST }
+$versionCommand = Get-ServerCommand "bash '$REMOTE_SERVER_SCRIPT' --version"
+$serverVersion = (& ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $versionCommand | Out-String)
+if ($LASTEXITCODE -ne 0 -or $serverVersion -notmatch "(?<![0-9.])6\.2\.0(?![0-9.])") {
+    throw "Expected pvserver $PARAVIEW_VERSION on $SERVER_HOST; got: $serverVersion"
 }
 # 固定本机端口已被占用时停止，不连接到旧窗口对应的远端服务。
 $localListener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, [int]$LOCAL_PORT)
@@ -133,7 +156,7 @@ Write-Host "Bridge script: $BRIDGE_SCRIPT" -ForegroundColor Cyan
 Write-Host "Remote bridge entry: $REMOTE_BRIDGE_ROOT/current.json" -ForegroundColor Cyan
 
 Write-Host "=== ParaView Remote HPC Launcher ===" -ForegroundColor Green
-Write-Host "MPI processes: $MPI_PROCESSES" -ForegroundColor Yellow
+Write-Host "ParaView $PARAVIEW_VERSION; server: $SERVER_HOST; processes: 1 (non-MPI build)" -ForegroundColor Yellow
 
 # Find available remote port
 $availablePort = Find-AvailablePort -StartPort $REMOTE_PORT -MaxAttempts $MAX_PORT_ATTEMPTS
@@ -141,27 +164,17 @@ $availablePort = Find-AvailablePort -StartPort $REMOTE_PORT -MaxAttempts $MAX_PO
 if ($availablePort -eq $null) {
     Write-Host "ERR: No available remote port found. Connection aborted." -ForegroundColor Red
     Write-Host "Retry later or check server status with admin." -ForegroundColor Yellow
-    pause
-    exit 1
+    throw "No available remote port on $SERVER_HOST"
 }
 
 # Update remote port
 $REMOTE_PORT = $availablePort
 Write-Host "Using remote port: $REMOTE_PORT" -ForegroundColor Green
 
-# Build SSH command
-#$sshCommand = "ssh -o ExitOnForwardFailure=yes -CL 127.0.0.1:${LOCAL_PORT}:localhost:${REMOTE_PORT} ${REMOTE_USERNAME}@${REMOTE_HOST} -p${SSH_PORT} -t `"bash -l -c 'module use /home/HPCBase/modulefiles && module purge && module load tools/Paraview/5.11.1 && module load mpi/openmpi/4.1.2_gcc9.3.0 && mpirun -np ${MPI_PROCESSES} -mca btl vader,self --bind-to core --oversubscribe pvserver --force-offscreen-rendering --disable-xdisplay-test --multi-clients --server-port=${REMOTE_PORT}'`""
-
-# Disable NVIDIA index related plugins
-$sshCommand = "ssh -o ExitOnForwardFailure=yes -CL 127.0.0.1:${LOCAL_PORT}:localhost:${REMOTE_PORT} ${REMOTE_USERNAME}@${REMOTE_HOST} -p${SSH_PORT} -t `"bash -l -c 'module use /home/HPCBase/modulefiles && module purge && module load tools/Paraview/5.11.1 && module load mpi/openmpi/4.1.2_gcc9.3.0 && export PV_DISABLE_NVIDIA_INDEX=1 && export NVIDIA_INDEX_DISABLE=1 && mkdir -p /tmp/pv-no-plugins && export PV_PLUGIN_PATH=/tmp/pv-no-plugins && mpirun -np ${MPI_PROCESSES} pvserver --force-offscreen-rendering --disable-xdisplay-test --server-port=${REMOTE_PORT}'`""
-
-Write-Host "`n=== SSH Debug Info ===" -ForegroundColor Cyan
-Write-Host "REMOTE_PORT=$REMOTE_PORT" -ForegroundColor Yellow
-Write-Host "Full SSH command:" -ForegroundColor Yellow
-Write-Host $sshCommand -ForegroundColor Gray
-
-# 精简版的命令
-#$sshCommand = "ssh -o ExitOnForwardFailure=yes -CL 127.0.0.1:${LOCAL_PORT}:localhost:${REMOTE_PORT} ${REMOTE_USERNAME}@${REMOTE_HOST} -p${SSH_PORT} -t `"bash -l -c 'module use /home/HPCBase/modulefiles && module purge && module load tools/Paraview/5.11.1 && module load mpi/openmpi/4.1.2_gcc9.3.0 && mpirun -np ${MPI_PROCESSES} pvserver --force-offscreen-rendering --disable-xdisplay-test --server-port=${REMOTE_PORT}'`""
+# 隧道目的地与实际服务节点一致；不在 SSH 登录节点启动 pvserver。
+$serverCommand = Get-ServerCommand "bash '$REMOTE_SERVER_SCRIPT' --server-port=$REMOTE_PORT"
+$sshCommand = "ssh -o ExitOnForwardFailure=yes -o BatchMode=yes -o ServerAliveInterval=30 -CL 127.0.0.1:${LOCAL_PORT}:${TUNNEL_TARGET}:${REMOTE_PORT} ${REMOTE_USERNAME}@${REMOTE_HOST} -p${SSH_PORT} -T `"$serverCommand`""
+Write-Host "Server node: $SERVER_HOST, remote port: $REMOTE_PORT" -ForegroundColor Cyan
 
 # Create server startup window
 $logDir = Join-Path $scriptRoot "paraview_logs"
@@ -173,10 +186,10 @@ $batchFile = Join-Path $logDir "pvserver_start_port${REMOTE_PORT}.cmd"
 $batchLines = @(
     '@echo off'
     'chcp 65001 >nul'
-    "title ParaView-${MPI_PROCESSES}proc-port${REMOTE_PORT}"
+    "title ParaView-${PARAVIEW_VERSION}-port${REMOTE_PORT}"
     'cd /d "%~dp0"'
     'echo ================================================'
-    "echo ParaView server start ($MPI_PROCESSES CPU cores)"
+    "echo ParaView $PARAVIEW_VERSION server on $SERVER_HOST (single process)"
     "echo Remote port: ${REMOTE_PORT}"
     'echo If successful, output should include "Waiting for client..."'
     'echo Keep this window open.'
@@ -202,7 +215,7 @@ Write-Host "Server startup script: $batchFile" -ForegroundColor Cyan
 # 检查监听状态，不建立 TCP 探测连接，避免消耗 pvserver 的客户端连接。
 Write-Host "Waiting for remote pvserver listener..." -ForegroundColor Cyan
 $attempts = (1..30) -join ' '
-$readyCommand = "for i in $attempts; do if netstat -lnt 2>/dev/null | grep -Eq '[:.]${REMOTE_PORT}[[:space:]]'; then exit 0; fi; sleep 1; done; exit 1"
+$readyCommand = Get-ServerCommand "for i in $attempts; do if netstat -lnt 2>/dev/null | grep -Eq '[:.]${REMOTE_PORT}[[:space:]]'; then exit 0; fi; sleep 1; done; exit 1"
 & ssh -T -o BatchMode=yes -o ConnectTimeout=5 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $readyCommand
 if ($LASTEXITCODE -ne 0) {
     throw "pvserver listener did not become ready. Read the server startup window; it is kept open."

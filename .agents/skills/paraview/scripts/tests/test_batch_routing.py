@@ -1,10 +1,12 @@
 """验证批处理节点路由、参数引用和环境隔离，不启动 ParaView。"""
 import json
+import base64
 import os
 import sys
 from pathlib import Path
 import subprocess
 import tempfile
+import re
 import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -16,6 +18,40 @@ class RoutingTests(unittest.TestCase):
         path.write_text('#!/bin/bash\n'+body+'\n')
         path.chmod(0o755)
         return path
+
+    def test_gui_server_refuses_login_node_even_for_version_probe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            self.make_command(directory, 'hostname', 'echo whshare-ccs-cli-test')
+            environment = dict(os.environ, PATH=str(directory)+':'+os.environ['PATH'])
+            result = subprocess.run(['bash', str(SCRIPTS/'run_paraview_server.sh'), '--version'],
+                                    env=environment, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('refusing this node', result.stderr)
+
+    def test_gui_command_routes_without_ssh_to_itself(self):
+        source = (SCRIPTS/'connect_paraview.ps1').read_text(encoding='utf-8-sig')
+        template = re.search(r'return "(if hostname .*?)"', source).group(1)
+        payload = 'printf "%s" "payload with spaces" > "$CAPTURE"'
+        command = template.replace('${SERVER_HOST}', 'whshare-agent-1').replace(
+            '$SERVER_HOST', 'whshare-agent-1').replace(
+            '$encoded', base64.b64encode(payload.encode()).decode())
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            self.make_command(directory, 'ssh', 'exit 19')
+            capture = directory/'result'
+            environment = dict(os.environ, PATH=str(directory)+':'+os.environ['PATH'],
+                               CAPTURE=str(capture))
+            self.make_command(directory, 'hostname', 'echo whshare-agent-1')
+            result = subprocess.run(['bash', '-c', command], env=environment)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(capture.read_text(), 'payload with spaces')
+            capture.unlink()
+            # 登录节点必须转发；模拟转发失败时不得本地执行载荷。
+            self.make_command(directory, 'hostname', 'echo whshare-ccs-cli-test')
+            result = subprocess.run(['bash', '-c', command], env=environment)
+            self.assertEqual(result.returncode, 19)
+            self.assertFalse(capture.exists())
 
     def test_failed_ssh_never_falls_back_to_local_execution(self):
         with tempfile.TemporaryDirectory() as tmp:
