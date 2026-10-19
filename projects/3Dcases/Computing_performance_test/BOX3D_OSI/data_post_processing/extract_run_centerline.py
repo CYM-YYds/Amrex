@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""通过当前 ParaView 控制桥提取 Re=1000 最新三维中心线并与 Fig.18(a) 对比。"""
+"""通过 ParaView 提取最新三维中心线，与对应 Re 的 Fig.18(a/b) 对比。"""
 import argparse
 import csv
 import hashlib
@@ -65,8 +65,10 @@ def main():
     for item in (run/'overrides.txt').read_text().split():
         if '=' in item:
             key,value=item.split('=',1);params[key]=value
-    if float(params['lbm.reynolds_number']) != 1000:
-        raise ValueError('本流程固定使用 Re=1000 Fig.18(a)，禁止套用其他 Re')
+    reynolds = float(params['lbm.reynolds_number'])
+    if reynolds not in (1000, 3200):
+        raise ValueError('仅支持 Re=1000 Fig.18(a) 或 Re=3200 Fig.18(b)')
+    panel = 'a' if reynolds == 1000 else 'b'
     suffix = 'paraview' if args.backend=='bridge' else 'paraview_batch'
     output = HERE/f'{run.name}_step{step}_{suffix}'
     output.mkdir(exist_ok=True)
@@ -100,14 +102,14 @@ def main():
     if not np.allclose(bounds,expected,rtol=0,atol=1e-12):
         raise ValueError(f'ParaView 范围与输入几何不符: {bounds} vs {expected}')
     simulation=np.column_stack(((profile[:,0]-bounds[4])/height,profile[:,1]/lid))
-    reference=HERE/'fig18a_velocity_profiles.csv';references=defaultdict(list)
+    reference=HERE/f'fig18{panel}_velocity_profiles.csv';references=defaultdict(list)
     with reference.open(newline='') as stream:
         for row in csv.DictReader(stream):
             references[row['series']].append((float(row['z']),float(row['u_over_ulid'])))
     fig,ax=plt.subplots(figsize=(9.4,7.5))
-    ax.plot(simulation[:,1],simulation[:,0],color='#2ca02c',lw=2,label=f'job613495 step {step}')
+    ax.plot(simulation[:,1],simulation[:,0],color='#2ca02c',lw=2,label=f'{run.name.split("_")[-1]} step {step}')
     metrics=[]
-    for (name,points),color,marker in zip(references.items(),['#d62728','#1f77b4'],['^','o']):
+    for (name,points),color,marker in zip(references.items(),['#d62728','#1f77b4','#222222'],['^','o','^']):
         points=np.array(sorted(points))
         mask=(points[:,0]>=simulation[0,0])&(points[:,0]<=simulation[-1,0])
         if not mask.any():raise ValueError('参考数据与采样范围没有交集')
@@ -115,24 +117,31 @@ def main():
         metrics.append({'reference':name,'n_used':int(mask.sum()),'n_excluded':int((~mask).sum()),
                         'mae':float(np.mean(abs(delta))),'rmse':float(np.sqrt(np.mean(delta**2))),
                         'max_abs_error':float(max(abs(delta)))})
-        ax.plot(points[:,1],points[:,0],'-'+marker,color=color,lw=1.4,ms=5,
-                fillstyle='none',label=('Fig.18(a) AMR' if name=='AMR_triangle' else 'Cortes & Miller')+f' ({len(points)} pts)')
-    old=defaultdict(list)
-    with (HERE/'160000_3D.csv').open(newline='') as stream:
-        for row in csv.DictReader(stream):old[float(row['Points_2'])/128].append(float(row['ux'])/.05)
-    baseline=np.array([(key,np.mean(value)) for key,value in sorted(old.items())])
-    ax.plot(baseline[:,1],baseline[:,0],'--',color='#9467bd',lw=1.3,
-            label='Historical step 160000\n(provenance incomplete)')
+        label = (f'Fig.18({panel}) AMR' if name.startswith('AMR') else
+                 'Experiment' if name.startswith('Experimental') else 'Cortes & Miller')
+        ax.plot(points[:,1],points[:,0],'-'+marker,color=color,lw=1.4,ms=6.5,
+                fillstyle='full' if name.startswith('Experimental') else 'none',
+                label=label+f' ({len(points)} pts)')
+    if reynolds == 1000:
+        old=defaultdict(list)
+        with (HERE/'160000_3D.csv').open(newline='') as stream:
+            for row in csv.DictReader(stream):old[float(row['Points_2'])/128].append(float(row['ux'])/.05)
+        baseline=np.array([(key,np.mean(value)) for key,value in sorted(old.items())])
+        ax.plot(baseline[:,1],baseline[:,0],'--',color='#9467bd',lw=1.3,
+                label='Historical step 160000\n(provenance incomplete)')
     ax.set(xlabel=r'$u_x/U_{lid}$',ylabel=r'$z/H$',xlim=(-.4,1.05),ylim=(0,1),
-           title=f'3D cavity Re=1000: step {step} vs Jaber Fig.18(a)')
+           title=f'3D cavity Re={reynolds:g}: step {step} vs Jaber Fig.18({panel})')
     ax.grid(alpha=.3);ax.legend(fontsize=8,loc='upper left',bbox_to_anchor=(1.02,1))
     fig.text(.5,.025,f'Input: {run.name}/plt_{step}; centerline x/L=y/L=0.5\n'
-             f'Normalization: H={height:g}, U_lid=0.05; reference: local digitized fig18a CSV',
+             f'Normalization: H={height:g}, U_lid=0.05; reference: fig18{panel}_velocity_profiles.csv',
              ha='center',fontsize=8)
-    fig.tight_layout(rect=(0,.065,1,1));fig.savefig(output/'comparison.png',dpi=220);plt.close(fig)
+    fig.tight_layout(rect=(0,.065,1,1));fig.savefig(output/'comparison.png',dpi=220)
+    if reynolds == 3200:
+        fig.savefig(output/f'Re3200_3D_overlap_{step}_fig18b.png',dpi=220)
+    plt.close(fig)
     with (output/'reference_errors.csv').open('w',newline='') as stream:
         writer=csv.DictWriter(stream,fieldnames=list(metrics[0]));writer.writeheader();writer.writerows(metrics)
-    report={'input':str(source),'step':step,'Re':1000,'backend':args.backend,'export':export['value'],
+    report={'input':str(source),'step':step,'Re':reynolds,'backend':args.backend,'export':export['value'],
             'normalization':{'H':height,'U_lid':lid,'z_origin':bounds[4]},
             'input_hashes':{name:hashlib.sha256((run/name).read_bytes()).hexdigest()
                             for name in ('inputs','overrides.txt','manifest.txt')},
