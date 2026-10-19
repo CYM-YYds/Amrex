@@ -220,9 +220,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     void WriteVelocityFile(const int step, const amrex::Real time);
     void WriteDensityFile(const int step, const amrex::Real time);
     void WriteParticleFile(const int step, const amrex::Real time);
-#if AMREX_SPACEDIM == 3
-    void WriteMultiParticleFile(const int step, const amrex::Real time);
-#endif
     void WriteVorticityFile(const int step, const amrex::Real time);
     void WriteVelocityFile(const int step, const amrex::Real time, const int lev);
 #if AMREX_SPACEDIM == 3
@@ -368,7 +365,10 @@ class AmrCoreLBM : public amrex::AmrCore {
     //********************************************************************//
     void InitParticle(int lev);
     void InitCpPoint(int lev);
+    void PrintParticleParm();
+    void RedistributeParticle();
 #if AMREX_SPACEDIM == 3
+    void WriteMultiParticleFile(const int step, const amrex::Real time);
     void InterpForce(int lev);
     void SumForce(int lev);
     void ComputeParticle(int lev);
@@ -376,10 +376,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     void SaveParticleVelocity(int lev, int step);
     void SaveParticlePosition(int lev, int step);
     void SaveParticleDistance(int lev, int step);
-#endif
-    void PrintParticleParm();
-    void RedistributeParticle();
-#if AMREX_SPACEDIM == 3
     void ComputeCp(int lev, int step);
     void MoveParticle(int lev, amrex::Real cur_time);
     void LubForceParticle(int lev, amrex::Real cur_time);

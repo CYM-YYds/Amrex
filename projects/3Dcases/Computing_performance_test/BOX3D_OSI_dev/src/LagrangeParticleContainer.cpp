@@ -10,8 +10,7 @@ void LagrangeParticleContainer::PrintParticleParm()
     amrex::Print() << "Particle geometry: disk radius=" << radius * grid_.dx_min
                    << " mass_per_depth=" << particle_mass_
                    << " inertia_per_depth=" << particle_inertia_ << "\n";
-    return;
-#endif
+#else
     amrex::Print() << "╔══════════════════════════════════════════════════════╗" << std::endl;
     amrex::Print() << "║                      IBM PARAMETERS                  ║" << std::endl;
     amrex::Print() << "╚══════════════════════════════════════════════════════╝" << std::endl;
@@ -33,6 +32,7 @@ void LagrangeParticleContainer::PrintParticleParm()
 
     amrex::Print() << "╚══════════════════════════════════════════════════════╝" << std::endl;
     amrex::Print() << std::endl;
+#endif
 }
 
 void LagrangeParticleContainer::InitParticle(int lev)

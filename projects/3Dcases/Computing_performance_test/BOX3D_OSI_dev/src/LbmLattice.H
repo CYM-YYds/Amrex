@@ -49,14 +49,16 @@ const Real R = D / 2.0;
 
 #define rhof (rho0)
 #define rhop (1.14 * rho0)
-const Real rb = pow(((pow(rate * R, 3) + pow(rate * R - 1, 3)) / 2.0), (1.0 / 3.0)); // 修正的半径
-
 const Real ds0 = 1.0;
+const Real LP_dr = 1.0;
+
+// 球面几何仅供三维使用；二维圆盘不采用球体半径修正。
+#if AMREX_SPACEDIM == 3
+const Real rb = pow(((pow(rate * R, 3) + pow(rate * R - 1, 3)) / 2.0), (1.0 / 3.0)); // 修正的半径
 const int ns = PI * rb / ds0 + 1;  // 表面分带数
 const int nt1 = 2 * PI * rb / ds0; // 赤道上point数量
-
-const Real LP_dr = 1.0;
 const Real LP_area = 4 * PI * rb * rb;
+#endif
 
 // 多颗粒相关的参数
 const Real safe = 0.025 * R;
