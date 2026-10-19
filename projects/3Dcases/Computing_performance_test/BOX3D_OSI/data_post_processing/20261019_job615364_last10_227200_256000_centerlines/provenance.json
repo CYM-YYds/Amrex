@@ -1,0 +1,30 @@
+{
+  "run": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/20261019_124153_job615364",
+  "Re": 3200,
+  "steps": [
+    227200,
+    230400,
+    233600,
+    236800,
+    240000,
+    243200,
+    246400,
+    249600,
+    252800,
+    256000
+  ],
+  "resolution": 1024,
+  "max_level": 2,
+  "normalization": {
+    "H": 1,
+    "U_lid": 0.05,
+    "z_origin": 0
+  },
+  "reference": "none; temporal self-comparison",
+  "input_hashes": {
+    "inputs": "5d7c474d81eb3871cd092b98fb7fce0c43cacf469b1f2547b91c989dc5be2d15",
+    "overrides.txt": "414385356ae7ccf4dd37473cf545bd7c79d9ec166e3d45105c31099ea8a358f3",
+    "manifest.txt": "3fbb4cec1f92ab20865d4720d5f6588ccc5b3a2b094f8dec67a33bb96a2abce9"
+  },
+  "source_commit": "d68d27c3770e5a05e1b18f924c20711c8f73676f"
+}

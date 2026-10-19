@@ -1,0 +1,328 @@
+{
+  "run": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/20261019_124153_job615364",
+  "Re": 3200,
+  "steps": [
+    227200,
+    230400,
+    233600,
+    236800,
+    240000,
+    243200,
+    246400,
+    249600,
+    252800,
+    256000
+  ],
+  "t_star": [
+    88.75,
+    90.0,
+    91.25,
+    92.5,
+    93.75,
+    95.0,
+    96.25,
+    97.5,
+    98.75,
+    100.0
+  ],
+  "validations": [
+    {
+      "step": 227200,
+      "valid_unique_z": 1025,
+      "invalid_samples": 0,
+      "csv_sha256": "c129dcf6d498215d5b53ce1988ae6a5299a95c72e9ea7206004b67457e15787b",
+      "header_sha256": "9d808c98de327a1de20b7b5b5c5eaa814632cb157ce2eb0ce6b3ca5ef65de674"
+    },
+    {
+      "step": 230400,
+      "valid_unique_z": 1025,
+      "invalid_samples": 0,
+      "csv_sha256": "c03a810ec84b40950d702024a2ff235e0b0cab09e0d38ed1a62061e5033aa8a4",
+      "header_sha256": "5b8c7bcbab2c7610baecaf0cb74a10d7fa1ff145e8cbb993bdc96e41734d21b3"
+    },
+    {
+      "step": 233600,
+      "valid_unique_z": 1025,
+      "invalid_samples": 0,
+      "csv_sha256": "eed1b25499cd9fc2edc3c53006ebefae4bad4b55158d6356b03062f8d1fa990a",
+      "header_sha256": "fcde2723cdd66295aca8949d4fa98367e514234579f9943369d54e96d742f7d8"
+    },
+    {
+      "step": 236800,
+      "valid_unique_z": 1025,
+      "invalid_samples": 0,
+      "csv_sha256": "ee8a786121d06d2e489bae8f4664d8de451bfa6230623245ddc7f248ce55998a",
+      "header_sha256": "fdcabe533fe5d873a2f18fe730893cdf793aea6a345b48558e274d01c50c2222"
+    },
+    {
+      "step": 240000,
+      "valid_unique_z": 1025,
+      "invalid_samples": 0,
+      "csv_sha256": "c956cacec22df838171010ab55cc4912b756e8a9e9c7d7e7b7bb7d0aeb4c548c",
+      "header_sha256": "69c4156b16e33f3838104756c45e59307145d370d4c77b3f90b6db61ff274e15"
+    },
+    {
+      "step": 243200,
+      "valid_unique_z": 1025,
+      "invalid_samples": 0,
+      "csv_sha256": "af43acbf48325ced256c013177a0ceb0398f99d9ac8e98c9b60c42b40bd967a5",
+      "header_sha256": "5ad96d9823eac5406e1396d562dd4dcf3307daf6c0e18d607b633ba545ed7bbc"
+    },
+    {
+      "step": 246400,
+      "valid_unique_z": 1025,
+      "invalid_samples": 0,
+      "csv_sha256": "8c06428c34219c5fb3ad38b68a24c1e7e681918e9136f0c5290357552e51ea6b",
+      "header_sha256": "e18c6c8fecaf3d7ed1604885f77e05bd4bf2295d17b88cf81ab7122f5ddcf30f"
+    },
+    {
+      "step": 249600,
+      "valid_unique_z": 1025,
+      "invalid_samples": 0,
+      "csv_sha256": "d5fd0eadc2a0b5453e2742b011884e8bce7928a852f06169b9f373bc4c5ca211",
+      "header_sha256": "9cfb1385540ae4c9a983b955b37eada2f53e3047e4d9c3130caf09222ec936b7"
+    },
+    {
+      "step": 252800,
+      "valid_unique_z": 1025,
+      "invalid_samples": 0,
+      "csv_sha256": "4f84fd33d061db0a712489b2a2df52c23fd6ffb9df8ddfb808ff2da185b9ec84",
+      "header_sha256": "914be861123f772c1edea2b83d578c4d6b4e140394e8c3e65da57a87fac83b9c"
+    },
+    {
+      "step": 256000,
+      "valid_unique_z": 1025,
+      "invalid_samples": 0,
+      "csv_sha256": "6a8139ff605b814e173991df77ef9c4a69396a7f16136d8946f18d7d2ed499c0",
+      "header_sha256": "a21fa53c76dfd379a0be4a7efb86405f9ff62b65a1e1fa4eaa82b39582e017d5"
+    }
+  ],
+  "normalization": {
+    "H": 1,
+    "U_lid": 0.05,
+    "z_origin": 0
+  },
+  "distance_definition": "sqrt(trapezoid integral((u_i/U-u_j/U)^2) / integral(mean_t(u/U)^2)) along z/H",
+  "adjacent_relative_l2": [
+    0.0274799209121926,
+    0.022878725249307622,
+    0.024209013728127428,
+    0.026887323031836583,
+    0.030251089895906424,
+    0.02692418067731516,
+    0.018321577762997754,
+    0.0315938686822837,
+    0.03848802108285297
+  ],
+  "first_last_relative_l2": 0.05792951620855755,
+  "max_temporal_peak_to_peak_u_over_U": 0.04224911894539243,
+  "z_of_max_peak_to_peak": 0.109375,
+  "pc_variance_fractions": [
+    0.4614719287125559,
+    0.271253769407338,
+    0.19097941084160833,
+    0.06086638033570954,
+    0.00991731105794744,
+    0.0027887305541123724,
+    0.001984093938134914,
+    0.0005919378127734148,
+    0.00014643733982026011,
+    1.0259227833856606e-29
+  ],
+  "linear_trend_fraction_of_fluctuation_energy": 0.31060539724525604,
+  "lag_distances": [
+    {
+      "lag_outputs": 1,
+      "lag_steps": 3200,
+      "lag_t_star": 1.25,
+      "pairs": 9,
+      "mean_relative_l2": 0.027448191224757803,
+      "median_relative_l2": 0.02692418067731516,
+      "min_relative_l2": 0.018321577762997754,
+      "max_relative_l2": 0.03848802108285297
+    },
+    {
+      "lag_outputs": 2,
+      "lag_steps": 6400,
+      "lag_t_star": 2.5,
+      "pairs": 8,
+      "mean_relative_l2": 0.04561996084590159,
+      "median_relative_l2": 0.04519592389377236,
+      "min_relative_l2": 0.03016344463004138,
+      "max_relative_l2": 0.06778889476007821
+    },
+    {
+      "lag_outputs": 3,
+      "lag_steps": 9600,
+      "lag_t_star": 3.75,
+      "pairs": 7,
+      "mean_relative_l2": 0.05270732373979854,
+      "median_relative_l2": 0.050283505630946815,
+      "min_relative_l2": 0.042922118731052616,
+      "max_relative_l2": 0.0718847839881173
+    },
+    {
+      "lag_outputs": 4,
+      "lag_steps": 12800,
+      "lag_t_star": 5.0,
+      "pairs": 6,
+      "mean_relative_l2": 0.054434159324355545,
+      "median_relative_l2": 0.05035196302791904,
+      "min_relative_l2": 0.04340099457969553,
+      "max_relative_l2": 0.07119407506079184
+    },
+    {
+      "lag_outputs": 5,
+      "lag_steps": 16000,
+      "lag_t_star": 6.25,
+      "pairs": 5,
+      "mean_relative_l2": 0.0532062330634002,
+      "median_relative_l2": 0.06108958443882437,
+      "min_relative_l2": 0.0349530071744305,
+      "max_relative_l2": 0.06873192317075807
+    },
+    {
+      "lag_outputs": 6,
+      "lag_steps": 19200,
+      "lag_t_star": 7.5,
+      "pairs": 4,
+      "mean_relative_l2": 0.05531742371924815,
+      "median_relative_l2": 0.054344676645787696,
+      "min_relative_l2": 0.03958959532223398,
+      "max_relative_l2": 0.07299074626318325
+    },
+    {
+      "lag_outputs": 7,
+      "lag_steps": 22400,
+      "lag_t_star": 8.75,
+      "pairs": 3,
+      "mean_relative_l2": 0.06130758668239053,
+      "median_relative_l2": 0.06340384656744827,
+      "min_relative_l2": 0.050273033115370805,
+      "max_relative_l2": 0.07024588036435252
+    },
+    {
+      "lag_outputs": 8,
+      "lag_steps": 25600,
+      "lag_t_star": 10.0,
+      "pairs": 2,
+      "mean_relative_l2": 0.0610324028548177,
+      "median_relative_l2": 0.0610324028548177,
+      "min_relative_l2": 0.057957472393873485,
+      "max_relative_l2": 0.06410733331576192
+    },
+    {
+      "lag_outputs": 9,
+      "lag_steps": 28800,
+      "lag_t_star": 11.25,
+      "pairs": 1,
+      "mean_relative_l2": 0.05792951620855755,
+      "median_relative_l2": 0.05792951620855755,
+      "min_relative_l2": 0.05792951620855755,
+      "max_relative_l2": 0.05792951620855755
+    }
+  ],
+  "probe_heights": [
+    0.05,
+    0.1,
+    0.25,
+    0.5,
+    0.75,
+    0.9,
+    0.95
+  ],
+  "probe_values": [
+    [
+      -0.2858207493740369,
+      -0.2555140509118051,
+      -0.04727401827116826,
+      -0.0008937550993070591,
+      0.05103949801233643,
+      0.1366042061695797,
+      0.17386443798899545
+    ],
+    [
+      -0.28879262271781264,
+      -0.2414603524354615,
+      -0.049876333386321865,
+      -0.00028263692385279614,
+      0.05302459164562305,
+      0.13142157719256822,
+      0.16936712758800643
+    ],
+    [
+      -0.27993034629454305,
+      -0.23154963923033528,
+      -0.05147466994696368,
+      0.0005078764406034898,
+      0.05538578557299532,
+      0.12636069520278947,
+      0.16859886197943752
+    ],
+    [
+      -0.27941867117727326,
+      -0.2366356700198038,
+      -0.052797000677446054,
+      0.0015107100180436618,
+      0.059088199140366164,
+      0.12443773714848376,
+      0.17438623878493315
+    ],
+    [
+      -0.28458103231742754,
+      -0.23913284883935806,
+      -0.05568281052543369,
+      0.0017367682381053096,
+      0.06429803963474104,
+      0.12730310379232396,
+      0.18123560575532546
+    ],
+    [
+      -0.2761927557601609,
+      -0.23289095303574195,
+      -0.057217846407122026,
+      0.0008664741755204799,
+      0.06660011907277115,
+      0.13345136825484,
+      0.1887518122490732
+    ],
+    [
+      -0.26797931323284624,
+      -0.2253573324443169,
+      -0.057988335700370805,
+      -0.00044628036182267394,
+      0.0642196340670304,
+      0.13472515995313175,
+      0.17769922227352217
+    ],
+    [
+      -0.2647843250685907,
+      -0.22337914609072057,
+      -0.0567564855327655,
+      -0.0010197717536592258,
+      0.060129622535320094,
+      0.13619554712945986,
+      0.1726310895805645
+    ],
+    [
+      -0.2596151362954461,
+      -0.2376438066803335,
+      -0.05521681992727319,
+      -0.000951674456115067,
+      0.05762178758789066,
+      0.13092430490389265,
+      0.17264394388122387
+    ],
+    [
+      -0.2525365455446666,
+      -0.2625779559942776,
+      -0.05294479941743221,
+      0.0006339503576632201,
+      0.056194760195035755,
+      0.12554162494311802,
+      0.17272467568446234
+    ]
+  ],
+  "convergence_verdict": "Not assessed; finite temporal variation is not a convergence test",
+  "periodicity_verdict": "Temporal oscillatory variation is present, but no clear repeated whole-profile recurrence is observed at sampled lags; stable periodicity is not established by these 10 snapshots."
+}

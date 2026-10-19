@@ -1,0 +1,34 @@
+{
+  "ok": true,
+  "backend": "pvbatch",
+  "paraview_version": "(6, 2)",
+  "execution_host": "whshare-agent-1",
+  "executable": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.tools/paraview-batch/env/bin/pvbatch",
+  "elapsed_seconds": 12.219886690378189,
+  "value": {
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/20261019_124153_job615364/plt_236800",
+    "output": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/20261019_job615364_last10_227200_256000_centerlines/centerline_236800.csv",
+    "bounds": [
+      0.0,
+      1.0,
+      0.0,
+      1.0,
+      0.0,
+      1.0
+    ],
+    "point1": [
+      0.5,
+      0.5,
+      0.0
+    ],
+    "point2": [
+      0.5,
+      0.5,
+      1.0
+    ],
+    "resolution": 1024,
+    "requested_max_level": 2,
+    "samples": 1025,
+    "method": "AMReX reader -> ExtractBlock /Root -> CellDataToPointData -> PlotOverLine"
+  }
+}
