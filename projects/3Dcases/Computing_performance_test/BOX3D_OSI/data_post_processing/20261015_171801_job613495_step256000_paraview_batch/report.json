@@ -1,0 +1,74 @@
+{
+  "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/20261015_171801_job613495/plt_256000",
+  "step": 256000,
+  "Re": 1000,
+  "backend": "batch",
+  "export": {
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/20261015_171801_job613495/plt_256000",
+    "output": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/20261015_171801_job613495_step256000_paraview_batch/centerline.csv",
+    "bounds": [
+      0.0,
+      1.0,
+      0.0,
+      1.0,
+      0.0,
+      1.0
+    ],
+    "point1": [
+      0.5,
+      0.5,
+      0.0
+    ],
+    "point2": [
+      0.5,
+      0.5,
+      1.0
+    ],
+    "resolution": 1024,
+    "requested_max_level": 2,
+    "samples": 1025,
+    "method": "AMReX reader -> ExtractBlock /Root -> CellDataToPointData -> PlotOverLine"
+  },
+  "normalization": {
+    "H": 1.0,
+    "U_lid": 0.05,
+    "z_origin": 0.0
+  },
+  "input_hashes": {
+    "inputs": "a23a8f9750899ac6e1f28332c8f060a05423f970128413f920e414a39ffcf84a",
+    "overrides.txt": "841582ed4d70941525545b61157c4a702c368b523bc70609e7a666f81cda884a",
+    "manifest.txt": "825fd75edc8406f4b05f3402289875a19bd35fb2396ef20eb8a995fbdc989c2c"
+  },
+  "plot_header_sha256": "d537fd046b048ba498427670365ce7805b6534a1cae398cac0e5c9cf134f51fd",
+  "valid_unique_z": 1025,
+  "invalid_samples": 0,
+  "z_over_H_range": [
+    0.0,
+    1.0
+  ],
+  "ux_over_ulid_range": [
+    -0.2693060956780955,
+    1.0000000000000002
+  ],
+  "csv_sha256": "514a837c3195295866882e9774f273dc32a829b908dfbdea0246cdfda8ee4592",
+  "reference_sha256": "6b202219e9c72ee6c67b9d5802c555efa25ecad03737b34822bccc3fd2551ed7",
+  "errors": [
+    {
+      "reference": "AMR_triangle",
+      "n_used": 20,
+      "n_excluded": 0,
+      "mae": 0.0060251176807031275,
+      "rmse": 0.00998684528727746,
+      "max_abs_error": 0.03189391466747217
+    },
+    {
+      "reference": "Cortes_and_Miller_circle",
+      "n_used": 44,
+      "n_excluded": 0,
+      "mae": 0.013242818537167437,
+      "rmse": 0.020263798602826177,
+      "max_abs_error": 0.07665933647545653
+    }
+  ],
+  "convergence_verdict": "Not assessed; reference agreement is not convergence"
+}

@@ -102,6 +102,19 @@ class StartupTests(unittest.TestCase):
             self.assertEqual(created.stops, 1)
             self.assertIsNot(runtime.bridge, created)
 
+    def test_batch_definition_loading_does_not_start_or_replace_bridge(self):
+        import runpy
+        owner = object()
+        runtime = types.SimpleNamespace(bridge=owner, timer_callbacks=[])
+        modules = {'paraview': types.SimpleNamespace(simple=object())}
+        with patch.dict(sys.modules, modules), patch.object(
+                builtins, '_amrex_paraview_bridge_runtime', runtime, create=True):
+            definitions = runpy.run_path(str(CLIENT),
+                init_globals={'_PV_BRIDGE_DEFINITIONS_ONLY': True})
+            self.assertIs(runtime.bridge, owner)
+            self.assertTrue(callable(definitions['export_centerline']))
+            self.assertNotIn('pv_bridge', definitions)
+
     def test_gui_failure_receipt(self):
         source = CLIENT.read_text().split('# 首次迁移时兼容')[0]
         def broken_sources(): raise RuntimeError('GUI failed')

@@ -1,0 +1,60 @@
+{
+  "bridge_csv": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/20261015_171801_job613495_step256000_paraview/centerline.csv",
+  "batch_csv": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/20261015_171801_job613495_step256000_paraview_batch/centerline.csv",
+  "points": 1025,
+  "atol": 1e-12,
+  "rtol": 0,
+  "execution_host": "whshare-agent-1",
+  "paraview_version": "(6, 2)",
+  "batch_seconds": 14.780437964946032,
+  "columns": {
+    "Points:0": {
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "within_atol_1e_12": true
+    },
+    "Points:1": {
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "within_atol_1e_12": true
+    },
+    "Points:2": {
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "within_atol_1e_12": true
+    },
+    "ux": {
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "within_atol_1e_12": true
+    },
+    "uy": {
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "within_atol_1e_12": true
+    },
+    "uz": {
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "within_atol_1e_12": true
+    },
+    "vtkValidPointMask": {
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "within_atol_1e_12": true
+    },
+    "arc_length": {
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "within_atol_1e_12": true
+    },
+    "vtkGhostType": {
+      "max_abs": 0.0,
+      "rmse": 0.0,
+      "within_atol_1e_12": true
+    }
+  },
+  "pass": true,
+  "bridge_sha256": "3150e652a559a549a864cc5fe00ec7d0e8e9e53c2e4ef22ea57ee88b639a14ff",
+  "batch_sha256": "514a837c3195295866882e9774f273dc32a829b908dfbdea0246cdfda8ee4592"
+}

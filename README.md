@@ -134,6 +134,10 @@ dsub -s ./scripts/submit.sh
 使用。算例目录不需要各自维护 `.venv`，也不应依赖系统 Python 的包集合；缺依赖时只在
 该环境中补齐。
 
+ParaView 独立批处理使用应用自带的 `pvbatch` 解释器读取数据；后续 CSV 分析和绘图仍使用
+本节的 `.venv`。入口见 [超算 ParaView 批处理](后处理脚本/paraview_batch.md)，
+会自动跳转编译节点 `whshare-agent-1`，不在登录节点运行 ParaView。
+
 从仓库根调用：
 
 ```bash

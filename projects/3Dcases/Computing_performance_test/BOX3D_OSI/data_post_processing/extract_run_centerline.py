@@ -49,6 +49,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('run', type=Path)
     parser.add_argument('--resolution', type=int, default=1024)
+    parser.add_argument('--backend', choices=['bridge','batch'], default='bridge')
     parser.add_argument('--reuse-export', action='store_true', help='校验并复用已保存的 ParaView CSV，仅重绘和计算指标')
     args = parser.parse_args()
     run = args.run.resolve()
@@ -66,13 +67,18 @@ def main():
             key,value=item.split('=',1);params[key]=value
     if float(params['lbm.reynolds_number']) != 1000:
         raise ValueError('本流程固定使用 Re=1000 Fig.18(a)，禁止套用其他 Re')
-    output = HERE/f'{run.name}_step{step}_paraview'
+    suffix = 'paraview' if args.backend=='bridge' else 'paraview_batch'
+    output = HERE/f'{run.name}_step{step}_{suffix}'
     output.mkdir(exist_ok=True)
     csv_path=output/'centerline.csv'
     command=[sys.executable,str(REPO/'后处理脚本/paraview_bridge_send.py'),'current','export_centerline',
              '--input',str(source),'--output',str(csv_path),'--resolution',str(args.resolution),
              '--max-level','2','--timeout','180']
     metadata=output/'paraview_export.json'
+    if args.backend=='batch':
+        command=['bash',str(REPO/'后处理脚本/run_paraview_batch.sh'),
+                 '--input',str(source),'--output',str(csv_path),'--metadata',str(metadata),
+                 '--resolution',str(args.resolution),'--max-level','2']
     if args.reuse_export:
         export=json.loads(metadata.read_text())
         if (export['value']['input']!=str(source) or
@@ -80,9 +86,10 @@ def main():
             raise ValueError('已有导出的来源或采样段数不匹配')
     else:
         reply=subprocess.run(command,capture_output=True,text=True,timeout=200)
+        (output/'export.log').write_text(reply.stdout+'\n'+reply.stderr)
         if reply.returncode:
             raise RuntimeError(reply.stdout+'\n'+reply.stderr)
-        export=json.loads(reply.stdout)
+        export=json.loads(reply.stdout) if args.backend=='bridge' else json.loads(metadata.read_text())
         if not export['ok'] or not csv_path.is_file():
             raise ValueError('ParaView 未成功导出远端 CSV')
         metadata.write_text(json.dumps(export,indent=2)+'\n')
@@ -125,7 +132,7 @@ def main():
     fig.tight_layout(rect=(0,.065,1,1));fig.savefig(output/'comparison.png',dpi=220);plt.close(fig)
     with (output/'reference_errors.csv').open('w',newline='') as stream:
         writer=csv.DictWriter(stream,fieldnames=list(metrics[0]));writer.writeheader();writer.writerows(metrics)
-    report={'input':str(source),'step':step,'Re':1000,'export':export['value'],
+    report={'input':str(source),'step':step,'Re':1000,'backend':args.backend,'export':export['value'],
             'normalization':{'H':height,'U_lid':lid,'z_origin':bounds[4]},
             'input_hashes':{name:hashlib.sha256((run/name).read_bytes()).hexdigest()
                             for name in ('inputs','overrides.txt','manifest.txt')},
