@@ -1,0 +1,30 @@
+{
+  "id": "1af24c47c2654882a0b17828b0502cc2",
+  "ok": true,
+  "value": {
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/20261015_171801_job613495/plt_256000",
+    "output": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/20261015_171801_job613495_step256000_paraview/centerline.csv",
+    "bounds": [
+      0.0,
+      1.0,
+      0.0,
+      1.0,
+      0.0,
+      1.0
+    ],
+    "point1": [
+      0.5,
+      0.5,
+      0.0
+    ],
+    "point2": [
+      0.5,
+      0.5,
+      1.0
+    ],
+    "resolution": 1024,
+    "requested_max_level": 2,
+    "samples": 1025,
+    "method": "AMReX reader -> ExtractBlock /Root -> CellDataToPointData -> PlotOverLine"
+  }
+}
