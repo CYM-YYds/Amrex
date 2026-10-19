@@ -3,7 +3,7 @@
 import csv
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parents[1]
 source = HERE / "192000_3D.csv"
 paper_out = HERE / "paper_fig18a.csv"
 sim_out = HERE / "simulation_192000.csv"

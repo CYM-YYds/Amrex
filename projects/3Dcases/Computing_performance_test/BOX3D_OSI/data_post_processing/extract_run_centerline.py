@@ -4,45 +4,17 @@ import argparse
 import csv
 import hashlib
 import json
-from collections import defaultdict
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import numpy as np
+
+from plot_centerline import normalize_profile, plot_profiles, read_profile, read_references, reference_errors
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[4]
-
-
-def read_profile(path):
-    """读取 ParaView 点数据并严格检查采样有效性，不把无效填充值当成速度。"""
-    groups = defaultdict(list)
-    invalid = 0
-    invalid_z = []
-    with path.open(newline='') as stream:
-        reader = csv.DictReader(stream)
-        names = reader.fieldnames or []
-        zkey = next((key for key in ('Points:2', 'Points_2', 'Points_Z') if key in names), None)
-        if zkey is None or 'ux' not in names or 'vtkValidPointMask' not in names:
-            raise ValueError(f'CSV 缺少坐标或 ux: {names}')
-        for row in reader:
-            if 'vtkValidPointMask' in names and float(row['vtkValidPointMask']) != 1:
-                invalid += 1
-                invalid_z.append(float(row[zkey]))
-                continue
-            z, ux = float(row[zkey]), float(row['ux'])
-            if not np.isfinite([z, ux]).all():
-                raise ValueError('CSV 含非有限采样值')
-            groups[z].append(ux)
-    if len(groups) < 2:
-        raise ValueError('有效采样点不足')
-    if any(min(groups) < z < max(groups) for z in invalid_z):
-        raise ValueError('中心线内部存在无效采样，拒绝跨越缺口插值')
-    return np.array([(z, np.mean(values)) for z, values in sorted(groups.items())]), invalid
 
 
 def main():
@@ -101,44 +73,26 @@ def main():
               float(params['geometry.prob_hi'].split()[i//2]) for i in range(6)]
     if not np.allclose(bounds,expected,rtol=0,atol=1e-12):
         raise ValueError(f'ParaView 范围与输入几何不符: {bounds} vs {expected}')
-    simulation=np.column_stack(((profile[:,0]-bounds[4])/height,profile[:,1]/lid))
-    reference=HERE/f'fig18{panel}_velocity_profiles.csv';references=defaultdict(list)
-    with reference.open(newline='') as stream:
-        for row in csv.DictReader(stream):
-            references[row['series']].append((float(row['z']),float(row['u_over_ulid'])))
-    fig,ax=plt.subplots(figsize=(9.4,7.5))
-    ax.plot(simulation[:,1],simulation[:,0],color='#2ca02c',lw=2,label=f'{run.name.split("_")[-1]} step {step}')
-    metrics=[]
-    for (name,points),color,marker in zip(references.items(),['#d62728','#1f77b4','#222222'],['^','o','^']):
-        points=np.array(sorted(points))
-        mask=(points[:,0]>=simulation[0,0])&(points[:,0]<=simulation[-1,0])
-        if not mask.any():raise ValueError('参考数据与采样范围没有交集')
-        delta=np.interp(points[mask,0],simulation[:,0],simulation[:,1])-points[mask,1]
-        metrics.append({'reference':name,'n_used':int(mask.sum()),'n_excluded':int((~mask).sum()),
-                        'mae':float(np.mean(abs(delta))),'rmse':float(np.sqrt(np.mean(delta**2))),
-                        'max_abs_error':float(max(abs(delta)))})
-        label = (f'Fig.18({panel}) AMR' if name.startswith('AMR') else
-                 'Experiment' if name.startswith('Experimental') else 'Cortes & Miller')
-        ax.plot(points[:,1],points[:,0],'-'+marker,color=color,lw=1.4,ms=6.5,
-                fillstyle='full' if name.startswith('Experimental') else 'none',
-                label=label+f' ({len(points)} pts)')
+    simulation=normalize_profile(profile,height,lid,bounds[4])
+    reference=HERE/f'fig18{panel}_velocity_profiles.csv'
+    references=read_references(reference)
+    profiles=[{'label':run.name.split('_')[-1],'step':step,'points':simulation,'source':str(source),
+               'normalization':{'H':height,'U_lid':lid,'z_origin':bounds[4]}}]
+    metrics=[{'reference':name,**reference_errors(simulation,points,outside='exclude')}
+             for name,points in references.items()]
+    reference_labels={name:(f'Fig.18({panel}) AMR' if name.startswith('AMR') else
+                           'Experiment' if name.startswith('Experimental') else 'Cortes & Miller')
+                      for name in references}
     if reynolds == 1000:
-        old=defaultdict(list)
-        with (HERE/'160000_3D.csv').open(newline='') as stream:
-            for row in csv.DictReader(stream):old[float(row['Points_2'])/128].append(float(row['ux'])/.05)
-        baseline=np.array([(key,np.mean(value)) for key,value in sorted(old.items())])
-        ax.plot(baseline[:,1],baseline[:,0],'--',color='#9467bd',lw=1.3,
-                label='Historical step 160000\n(provenance incomplete)')
-    ax.set(xlabel=r'$u_x/U_{lid}$',ylabel=r'$z/H$',xlim=(-.4,1.05),ylim=(0,1),
-           title=f'3D cavity Re={reynolds:g}: step {step} vs Jaber Fig.18({panel})')
-    ax.grid(alpha=.3);ax.legend(fontsize=8,loc='upper left',bbox_to_anchor=(1.02,1))
-    fig.text(.5,.025,f'Input: {run.name}/plt_{step}; centerline x/L=y/L=0.5\n'
-             f'Normalization: H={height:g}, U_lid=0.05; reference: fig18{panel}_velocity_profiles.csv',
-             ha='center',fontsize=8)
-    fig.tight_layout(rect=(0,.065,1,1));fig.savefig(output/'comparison.png',dpi=220)
+        old,_=read_profile(HERE/'160000_3D.csv',require_mask=False)
+        profiles.append({'label':'Historical (provenance incomplete)','step':160000,
+                         'points':normalize_profile(old,128,.05),'source':str(HERE/'160000_3D.csv'),
+                         'normalization':{'H':128,'U_lid':.05,'z_origin':0},'linestyle':'--','color':'#9467bd'})
+    plot_profiles(profiles,references,output/'comparison.png',
+                  title=f'3D cavity Re={reynolds:g}: step {step} vs Jaber Fig.18({panel})',
+                  reference_source=str(reference),reference_labels=reference_labels)
     if reynolds == 3200:
-        fig.savefig(output/f'Re3200_3D_overlap_{step}_fig18b.png',dpi=220)
-    plt.close(fig)
+        shutil.copyfile(output/'comparison.png',output/f'Re3200_3D_overlap_{step}_fig18b.png')
     with (output/'reference_errors.csv').open('w',newline='') as stream:
         writer=csv.DictWriter(stream,fieldnames=list(metrics[0]));writer.writeheader();writer.writerows(metrics)
     report={'input':str(source),'step':step,'Re':reynolds,'backend':args.backend,'export':export['value'],

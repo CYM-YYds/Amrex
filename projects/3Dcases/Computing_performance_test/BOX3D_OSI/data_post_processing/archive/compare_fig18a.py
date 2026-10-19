@@ -4,7 +4,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parents[1]
 
 def read_manual():
     with (HERE / "paper_fig18a.csv").open(newline="") as f:

@@ -144,7 +144,9 @@ OSI checkpoint 保存 canonical DDF，读取后 phase 从 0 开始。当前 chec
 Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运行：
 
 ```bash
-.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/plot_586660_convergence.py
+.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/plot_convergence.py \
+  --csv projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/596154_Re3200_convergence.csv \
+  --tolerance 1e-4 --output /tmp/BOX3D_OSI_convergence.png
 ```
 
 `performance.osi_detail_timing=1` 默认保留 OSI 细分计时；设为 0 可关闭通信与缓存搬运的
@@ -153,11 +155,11 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 细分计时会增加同步，算法性能对比应保持开关一致；
 [开关配对实验](docs/ai_changes/2026-10-15-osi-optional-detail-timing.md)未证明关闭后有一致的整体加速。
 
-该示例处理历史作业，输入路径以脚本为准；图表应注明数据、步数、归一化和参考来源。
-两个收敛绘图入口都可重复传入 `--log <path>` 并用 `--output <path>`
-指定新图位置；`plot_596154_convergence.py` 另有 `--csv-output <path>`。
-省略这些选项时仍使用原有历史作业和默认图表布局。日志按绝对 step 去重，
-后传入的日志覆盖同一步；缺少必需采样字段会报错。
+中心线、收敛和性能图已分别收敛为参数化入口，作业号、步数、归一化、参考数据和输出路径
+不再固化在独立实验脚本中。完整用法见[后处理入口索引](data_post_processing/README.md)。
+收敛入口支持日志、已有CSV、受限格式PlotFile；日志仍按绝对step去重，后传入文件覆盖同一步，
+缺少必需采样字段会报错。CSV/PlotFile没有正式状态时不推断已收敛，阈值必须显式给定。
+该示例使用保留的历史CSV，不依赖已缺失的完整历史提交日志。
 
 多个现役专项提交脚本共用 `scripts/osi_experiment_common.sh` 生成 hostfile 和
 启动 MPI；带独立运行目录的实验还可用它记录完整命令。入口仍明确选择环境、
