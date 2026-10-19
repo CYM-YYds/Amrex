@@ -16,7 +16,8 @@ post_dir="$case_dir/data_post_processing"
 | [convergence_logs.py](convergence_logs.py) | 内部日志解析模块，供收敛入口调用 |
 
 作业号、步数、Re 标题、路径和图例改参数，不再为每次实验复制脚本。
-所有输出使用明确的 `--output`；以下示例使用独立 `results/` 路径，不覆盖历史结果。
+三个绘图入口使用明确的 `--output`；以下示例使用独立 `results/` 路径。
+重复使用同一输出路径会覆盖已有文件，运行时应选新名称。
 
 ## 中心线：多步叠加
 
@@ -102,5 +103,15 @@ Level-0、128³、三分量双精度的现有布局，并核对数据与 Cell_H 
 586660/586864 和 596154/596532 的默认提交日志当前未保留，596888 最后一段日志仍存在；
 本次不宣称完整历史日志重新验收。已有 CSV、图像和报告全部保留；仿真曲线来源不完整时仍须标注。
 两个专用数据准备/参考比较脚本及硬编码饼图见[归档说明](archive/README.md)。
-ParaView 的导出协议、校验和报告保留；已有 CSV 可通过 `extract_run_centerline.py --reuse-export` 重用，
-其掩码检查仍默认严格，范围外参考点继续按原逻辑排除并记录，不套用普通 CSV 的无掩码选项。
+ParaView 的导出协议、校验和报告保留；提取入口按以下方式调用：
+
+```bash
+.venv/bin/python "$post_dir/extract_run_centerline.py" <运行目录> \
+  --backend batch --resolution 1024 --reuse-export
+```
+
+它选择该运行目录中有 Header 的最大步数 PlotFile，仅支持 Re=1000/3200，U_lid固定0.05；
+输出固定为本目录的 `<run-name>_step<step>_paraview[_batch]/`，不接受 `--output`。
+`--reuse-export` 校验并复用该目录已有 CSV/元数据，仍会重写图片、误差及报告；
+省略它会调用对应 ParaView 后端重新导出。此入口的掩码检查仍默认严格，
+范围外参考点继续按原逻辑排除并记录，不套用普通 CSV 的无掩码选项。
