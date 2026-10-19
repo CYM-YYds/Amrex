@@ -17,7 +17,7 @@ module load mpi/hmpi/1.2.0_bs2.4.0_sp1
 module load compilers/cuda/12.1.0
 module load compilers/gcc/11.3.0
 
-case_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+case_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${case_dir}"
 
 hostfile=/tmp/box3d-interp-scale-hostfile.$$

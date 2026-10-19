@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CASE_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_HOST="${BUILD_HOST:-whshare-agent-1}"
 MPI_ROOT=/home/HPCBase/mpi/openmpi/4.1.5_cuda11.6
 GCC_ROOT=/home/HPCBase/compilers/gcc/11.3.0

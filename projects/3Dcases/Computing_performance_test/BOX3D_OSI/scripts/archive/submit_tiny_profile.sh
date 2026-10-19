@@ -19,7 +19,7 @@ module load compilers/cuda/12.1.0
 module load compilers/gcc/10.3.1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CASE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${CASE_DIR}"
 
 APP_EXE="./main3d.gnu.TPROF.MPI.CUDA.ex"

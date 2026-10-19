@@ -32,8 +32,8 @@ module load compilers/cuda/12.8.0
 module load compilers/gcc/11.3.0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/osi_experiment_common.sh"
-CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+source "${SCRIPT_DIR}/../osi_experiment_common.sh"
+CASE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 APP_EXE="${CASE_DIR}/main3d.gnu.TPROF.MPI.CUDA.ex"
 INPUTS="${CASE_DIR}/config/inputs"
 

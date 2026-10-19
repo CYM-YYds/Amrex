@@ -26,8 +26,8 @@ UCX_ROOT=/home/HPCBase/apps/ucx_1.12.1_cuda11.8
 export LD_LIBRARY_PATH="${UCX_ROOT}/lib:${UCX_ROOT}/lib/ucx:${LD_LIBRARY_PATH:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/osi_experiment_common.sh"
-CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+source "${SCRIPT_DIR}/../../osi_experiment_common.sh"
+CASE_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 APP_EXE="${CASE_DIR}/main3d_cuda_aware3d.gnu.TPROF.MPI.CUDA.ex"
 HOSTFILE="$(mktemp /tmp/box3d_osi_device_correctness.XXXXXX)"
 trap 'rm -f "${HOSTFILE}"' EXIT

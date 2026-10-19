@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot corrected BOX3D JaberCycle, Interp, and Average cost pies."""
+"""重绘内嵌历史计时饼图；原始日志与步数尚未定位，不能用于当前性能结论。"""
 
 import os
 from pathlib import Path
@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 
 
-OUTPUT_PATH = Path(__file__).resolve().parents[1] / "docs" / "transfer_cost_pies.png"
+OUTPUT_PATH = Path(__file__).resolve().parents[2] / "docs" / "transfer_cost_pies.png"
 CJK_FONT_PATH = Path("/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc")
 CJK_FONT = FontProperties(fname=str(CJK_FONT_PATH)) if CJK_FONT_PATH.exists() else FontProperties()
 
@@ -85,6 +85,13 @@ def main() -> None:
     plt.rcParams["axes.unicode_minus"] = False
 
     figure, axes = plt.subplots(1, 3, figsize=(18, 7.4), constrained_layout=True)
+    figure.text(
+        0.5, 0.002,
+        "Input: embedded historical timing constants (64 windows); steps: unknown. "
+        "Normalization: share of each timing subtotal; original log/reference unavailable.",
+        ha="center", fontsize=8,
+    )
+    figure.get_layout_engine().set(rect=(0, 0.03, 1, 0.97))
     draw_pie(
         axes[0],
         "JaberCycle 总体耗时",

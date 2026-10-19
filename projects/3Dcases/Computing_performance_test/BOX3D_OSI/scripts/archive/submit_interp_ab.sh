@@ -18,8 +18,8 @@ module load compilers/cuda/12.8.0
 module load compilers/gcc/12.2.0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/osi_experiment_common.sh"
-case_dir="$(cd "${SCRIPT_DIR}/.." && pwd)"
+source "${SCRIPT_DIR}/../osi_experiment_common.sh"
+case_dir="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${case_dir}"
 
 hostfile="$(mktemp /tmp/box3d-interp-ab.XXXXXX)"

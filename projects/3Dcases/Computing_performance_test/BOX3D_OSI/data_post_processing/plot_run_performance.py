@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a timing overview from a complete BOX3D submit log."""
+"""从含旧版完整 perf/perf_detail 字段的日志生成性能概览，默认每窗 1000 步。"""
 
 from __future__ import annotations
 
@@ -128,7 +128,7 @@ def correlation(x: list[float], y: list[float]) -> float:
     return numerator / (x_norm * y_norm) if x_norm and y_norm else math.nan
 
 
-def plot(windows: list[Window], log_path: Path, output_path: Path) -> None:
+def plot(windows: list[Window], log_path: Path, output_path: Path, window_steps: int = 1000) -> None:
     steps = [window.step for window in windows]
     phase_values = {name: [window.phase[name] for window in windows] for name in PHASES}
     details = {name: sum(window.detail[name] for window in windows) for name in DETAILS}
@@ -145,7 +145,7 @@ def plot(windows: list[Window], log_path: Path, output_path: Path) -> None:
     plt.rcParams["axes.unicode_minus"] = False
     figure, axes = plt.subplots(3, 2, figsize=(16, 16), constrained_layout=True)
     figure.suptitle(
-        f"BOX3D Performance Overview: {log_path.name} ({len(windows)} x 1000-step windows)",
+        f"BOX3D Performance Overview: {log_path.name} ({len(windows)} x {window_steps}-step windows)",
         fontsize=16,
         fontweight="bold",
     )
@@ -160,7 +160,7 @@ def plot(windows: list[Window], log_path: Path, output_path: Path) -> None:
     )
     ax.set_title("阶段耗时构成", fontproperties=CJK_FONT)
     ax.set_xlabel("Step")
-    ax.set_ylabel("s / 1000 steps")
+    ax.set_ylabel(f"s / {window_steps} steps")
     ax.legend(loc="upper left", ncol=2, fontsize=8)
 
     ax = axes[0, 1]
@@ -168,11 +168,11 @@ def plot(windows: list[Window], log_path: Path, output_path: Path) -> None:
     ax.plot(steps, compute, color="#F58518", label="Compute total")
     ax.set_title("每窗口总耗时", fontproperties=CJK_FONT)
     ax.set_xlabel("Step")
-    ax.set_ylabel("s / 1000 steps")
+    ax.set_ylabel(f"s / {window_steps} steps")
     ax.legend(loc="upper left")
     regrid_ax = ax.twinx()
     regrid_ax.plot(steps, regrid, color="#54A24B", linestyle="--", label="Regrid")
-    regrid_ax.set_ylabel("Regrid s / 1000 steps", color="#54A24B")
+    regrid_ax.set_ylabel(f"Regrid s / {window_steps} steps", color="#54A24B")
     regrid_ax.tick_params(axis="y", labelcolor="#54A24B")
 
     ax = axes[1, 0]
@@ -185,14 +185,14 @@ def plot(windows: list[Window], log_path: Path, output_path: Path) -> None:
     ax.grid(alpha=0.25)
 
     ax = axes[1, 1]
-    ax.bar(steps, average_cells, width=700, color="#72B7B2", alpha=0.8, label="average_scale_cells")
+    ax.bar(steps, average_cells, width=0.7 * window_steps, color="#72B7B2", alpha=0.8, label="average_scale_cells")
     ax.set_title(f"AMR 工作量与 Stream (Pearson r={corr:.4f})", fontproperties=CJK_FONT)
     ax.set_xlabel("Step")
     ax.set_ylabel("Average scale cells / 1e9", color="#3B7C85")
     ax.tick_params(axis="y", labelcolor="#3B7C85")
     stream_ax = ax.twinx()
     stream_ax.plot(steps, stream, color="#E45756", linewidth=1.8, label="Stream")
-    stream_ax.set_ylabel("Stream s / 1000 steps", color="#C43C4E")
+    stream_ax.set_ylabel(f"Stream s / {window_steps} steps", color="#C43C4E")
     stream_ax.tick_params(axis="y", labelcolor="#C43C4E")
 
     ax = axes[2, 0]
@@ -219,6 +219,14 @@ def plot(windows: list[Window], log_path: Path, output_path: Path) -> None:
         ax.spines[["top", "right"]].set_visible(False)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.text(
+        0.5, 0.002,
+        f"Input: {log_path}; steps {steps[0]}--{steps[-1]}; {window_steps} steps/window.\n"
+        "Timing: seconds/window, no cell normalization; reference: input log fields. "
+        "Missing legacy detail fields are plotted as 0, not measured zero cost.",
+        ha="center", fontsize=7,
+    )
+    figure.get_layout_engine().set(rect=(0, 0.025, 1, 0.975))
     figure.savefig(output_path, dpi=200, facecolor="white")
     print(output_path)
 
@@ -227,10 +235,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path, help="BOX3D submit log containing perf(s) windows")
     parser.add_argument("--output", type=Path, help="PNG output path")
+    parser.add_argument("--window-steps", type=int, default=1000,
+                        help="日志每个统计窗口的步数，默认 1000；须与实际运行配置一致")
     args = parser.parse_args()
-
+    if args.window_steps <= 0:
+        parser.error("--window-steps 必须为正数")
+    windows = parse_log(args.log)
+    if any(right.step - left.step != args.window_steps for left, right in zip(windows, windows[1:])):
+        parser.error("日志存在缺失、变长窗口，或 --window-steps 与相邻记录步数不一致")
     output = args.output or args.log.with_name(f"{args.log.stem}_performance_overview.png")
-    plot(parse_log(args.log), args.log, output)
+    plot(windows, args.log, output, args.window_steps)
 
 
 if __name__ == "__main__":

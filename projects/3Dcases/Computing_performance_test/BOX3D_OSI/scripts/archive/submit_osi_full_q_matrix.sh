@@ -19,8 +19,8 @@ module load compilers/cuda/12.8.0
 module load compilers/gcc/11.3.0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/osi_experiment_common.sh"
-CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+source "${SCRIPT_DIR}/../osi_experiment_common.sh"
+CASE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 RUN_DIR="${CASE_DIR}/runs/full_q_matrix_${CCS_JOB_ID:?}"
 mkdir "${RUN_DIR}"
 # 冻结可执行文件、输入和工作区源码差异，使每组测试可复现。

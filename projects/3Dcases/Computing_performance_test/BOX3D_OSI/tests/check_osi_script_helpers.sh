@@ -115,3 +115,55 @@ for entry in submit_osi_lockstep.sh submit_re1000_128k.sh; do
     fi
 done
 echo 'PASS unified preset submission, job re-entry, naming, invalid input and failure propagation'
+
+# 固定网格检查仅在夹具副本中跳过平台模块初始化，MPI 和应用均为替身。
+mkdir -p "${work_dir}/case/tests"
+cp "${SCRIPT_DIR}/osi_experiment_common.sh" "${work_dir}/case/scripts/"
+sed '/^source \/home\/HPCBase/d; /^module /d' \
+    "${SCRIPT_DIR}/../tests/submit_osi_fixed_grid_check.sh" \
+    > "${work_dir}/case/tests/submit_osi_fixed_grid_check.sh"
+printf '#!/bin/bash\nexit 0\n' > "${work_dir}/case/main3d.gnu.TPROF.MPI.CUDA.ex"
+chmod +x "${work_dir}/case/main3d.gnu.TPROF.MPI.CUDA.ex"
+cat > "${work_dir}/bin/mpirun" <<'MOCK_MPI'
+#!/bin/bash
+printf '%s\n' "$@" > "${MOCK_ENTRY_DIR}/fixed_argv"
+pwd > "${MOCK_ENTRY_DIR}/fixed_cwd"
+exit "${MOCK_EXIT:-0}"
+MOCK_MPI
+chmod +x "${work_dir}/bin/mpirun"
+export CCS_ALLOC_FILE="${work_dir}/allocation"
+for boundary in periodic nonperiodic; do
+    bash "${work_dir}/case/tests/submit_osi_fixed_grid_check.sh" "${boundary}"
+    mapfile -t fixed_args < "${work_dir}/fixed_argv"
+    [[ " ${fixed_args[*]} " == *' -n 2 -npernode 2 '* ]]
+    [[ " ${fixed_args[*]} " == *' max_step=64 performance.report_int=64 '* ]]
+    [[ " ${fixed_args[*]} " == *' verification.osi_ab_check=true '* ]]
+    if [[ ${boundary} == periodic ]]; then
+        expected_name=box3d_osi_stage3_mpi; expected_log=osi-stage3-mpi
+        [[ " ${fixed_args[*]} " == *' geometry.is_periodic=1 1 1 '* ]]
+        [[ " ${fixed_args[*]} " == *' lbm.osi_mpi_direct=1 '* ]]
+    else
+        expected_name=box3d_osi_plan_nonperiodic; expected_log=osi-plan-nonperiodic
+        [[ " ${fixed_args[*]} " == *' geometry.is_periodic=0 0 0 '* ]]
+        [[ " ${fixed_args[*]} " != *' lbm.osi_mpi_direct='* ]]
+    fi
+    grep -Fxq "${expected_name}" "${work_dir}/dsub_args"
+    [[ $(grep -Fxc "logs/submit/%J-${expected_log}.log" "${work_dir}/dsub_args") == 2 ]]
+    [[ $(cat "${work_dir}/fixed_cwd") == "${work_dir}/case" ]]
+done
+for spec in 'MOCK_EXIT=37' 'MOCK_DSUB_EXIT=19'; do
+    if env "${spec}" bash "${work_dir}/case/tests/submit_osi_fixed_grid_check.sh" nonperiodic; then
+        echo 'ERROR: 固定网格入口失败码未传递' >&2; exit 1
+    else
+        [[ $? -eq ${spec#*=} ]]
+    fi
+done
+rm -f "${work_dir}/dsub_args"
+bash "${work_dir}/case/tests/submit_osi_fixed_grid_check.sh" --help > /dev/null
+[[ ! -e "${work_dir}/dsub_args" ]]
+if bash "${work_dir}/case/tests/submit_osi_fixed_grid_check.sh" invalid > /dev/null 2>&1; then
+    echo 'ERROR: 固定网格非法预设未被拒绝' >&2; exit 1
+else
+    [[ $? -eq 2 && ! -e "${work_dir}/dsub_args" ]]
+fi
+echo 'PASS fixed-grid periodic/nonperiodic presets, names, cwd, errors and failure propagation'

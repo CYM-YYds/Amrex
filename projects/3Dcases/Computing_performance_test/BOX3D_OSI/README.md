@@ -5,7 +5,7 @@
 相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
 [当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
 
-更新时间：2026-10-16。
+更新时间：2026-10-19。
 
 ## 目录与构建关系
 
@@ -34,7 +34,9 @@ BOX3D_OSI/
 │   ├── LagrangeParticleContainer.H/.cpp # 粒子存储、插值和受力计算
 │   ├── AuxiliaryPointContainer.H/.cpp  # 辅助测点容器
 │   └── InitParticles.H         # 粒子初始化辅助函数
-├── scripts/                    # 编译、生产提交和专项实验入口
+├── scripts/                    # 5 个用户入口与 5 个内部依赖
+│   ├── archive/                # 12 个历史专项驱动及复现说明
+│   └── experiments/cuda_aware/ # 独立 CUDA-aware MPI 三件套，未验收
 ├── tests/                      # 独立地址/覆盖测试及实验日志检查
 ├── docs/                       # 算法、状态、历史性能与 ai_changes 变更记录
 ├── data_post_processing/       # Python 后处理及历史图片
@@ -128,8 +130,9 @@ MPI、CUDA、TinyProfiler，项目要求 C++20 和 GCC 11+。
 描述为冻结了独立可执行副本或完整源码快照。严格版本对比应另存 app 与源码证据。
 
 修改生产配置使用 [config/inputs](config/inputs)。专项测试可通过 `AMREX_RUN_ARGS`
-覆盖参数，主提交脚本会记录原始字符串。`scripts/submit_*.sh` 的行为需逐脚本查看：
-有些包装主提交脚本，有些自建实验目录和 app 快照，不能一概而论。
+覆盖参数，主提交脚本会记录原始字符串。顶层保留日常入口和内部依赖；历史专项实验见
+[归档索引](scripts/archive/README.md)，未验收的独立 MPI 流程见
+[CUDA-aware 实验索引](scripts/experiments/cuda_aware/README.md)。它们有不同的快照和运行目录机制，不能一概而论。
 依赖已缺失 `config/inputs_osi` 的四个历史 stage 提交入口已退役。
 专项验收需使用完整输入快照和明确的覆盖参数，不能直接套用历史命令。
 
@@ -189,6 +192,51 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 实验固定参数在后的覆盖顺序。需要复现历史实验时，仍须使用该实验的代码、可执行文件与
 输入快照；这些入口只统一预设，不把当前输入当成历史输入。
 五个旧入口的替换表和验证边界见[本次维护记录](docs/ai_changes/2026-10-19-merge-submit-presets.md)。
+
+### 脚本入口索引
+
+顶层 `scripts/` 保留以下 5 个用户入口；不要把内部支持脚本当作独立实验命令。
+
+| 用户入口 | 输入与输出职责 |
+|---|---|
+| [compile.sh](scripts/compile.sh) | 使用算例构建配置，编译日志写入 `logs/compile/` |
+| [submit_guarded.sh](scripts/submit_guarded.sh) | 推荐生产提交入口；启动主提交和提交节点监督，保存 `logs/submit/` 监督凭证 |
+| [submit.sh](scripts/submit.sh) | 底层调度入口；冻结输入和覆盖参数，创建独立 `runs/` 目录，支持 checkpoint 续跑 |
+| [submit_osi_lockstep.sh](scripts/submit_osi_lockstep.sh) | 选择 64/128/256 步锁步预设，输出同主提交 |
+| [submit_re1000_128k.sh](scripts/submit_re1000_128k.sh) | 选择 Re=1000 的 A-B/OSI 128000 步预设，输出同主提交 |
+
+内部依赖为 `guard_run.py`（作业内监督）、`watch_job.py`（调度监督）、`run_rank.sh`
+（应用退出凭证）、`osi_experiment_common.sh`（MPI/hostfile/命令记录）与
+`osi_lockstep_args.sh`（锁步参数）。它们保持原位置，仍由对应入口或测试调用。
+算例级 `clean.sh` 转发入口已移除；本次没有执行清理程序或删除运行数据。
+
+固定网格检查合并到 [tests/submit_osi_fixed_grid_check.sh](tests/submit_osi_fixed_grid_check.sh)：
+
+```bash
+./tests/submit_osi_fixed_grid_check.sh periodic
+./tests/submit_osi_fixed_grid_check.sh nonperiodic
+```
+
+以上命令在提交节点执行，申请同原专项脚本的 2 GPU、2 rank，运行 64 步、level 0 的 seeded
+OSI/A-B 检查。默认 `periodic`；也可设置 `BOX3D_FIXED_GRID_BOUNDARY`，位置参数优先。
+保留原 `osi-stage3-mpi` / `osi-plan-nonperiodic` 作业与日志标识，附加 `AMREX_RUN_ARGS`
+仍在固定参数之后。该入口的模拟参数检查通过，不代表当前硬件环境重新完成数值验收。
+
+性能图入口移至 [data_post_processing/plot_run_performance.py](data_post_processing/plot_run_performance.py)，
+从仓库根调用：
+
+```bash
+.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/plot_run_performance.py \
+  <日志路径> --window-steps 1000 --output <图片路径>
+```
+
+它读取旧版完整 `perf(s)` / `perf_detail(s)` 记录；每窗步数默认 1000，须与运行配置一致，
+相邻记录不连续或间隔不同会拒绝绘图。单条记录不能自动核实实际窗口长度。
+输出标注来源、步数、每窗秒数及日志字段参照；缺失旧细分字段仍按兼容逻辑绘为 0，
+不能解释为测得零成本，也未增加跨 rank 聚合机制。原解析和指标计算保持不变。
+硬编码历史饼图见[后处理归档说明](data_post_processing/archive/README.md)，不作为当前性能工具。
+
+完整逐文件处置和验证范围见[整体维护记录](docs/ai_changes/2026-10-19-script-directory-lifecycle.md)。
 
 ### 付费作业的退出保护
 

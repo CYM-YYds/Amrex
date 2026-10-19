@@ -4,7 +4,7 @@ set -euo pipefail
 
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAKEFILE="${CASE_DIR}/config/GNUmakefile"
-SUBMIT_SCRIPT="${CASE_DIR}/scripts/submit_tiny_profile.sh"
+SUBMIT_SCRIPT="${CASE_DIR}/scripts/archive/submit_tiny_profile.sh"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -14,7 +14,7 @@ fail() {
 rg -q '^TINY_PROFILE[[:space:]]*=[[:space:]]*TRUE$' "${MAKEFILE}" ||
     fail "TinyProfiler is not enabled in config/GNUmakefile"
 
-[[ -f "${SUBMIT_SCRIPT}" ]] || fail "scripts/submit_tiny_profile.sh is missing"
+[[ -f "${SUBMIT_SCRIPT}" ]] || fail "scripts/archive/submit_tiny_profile.sh is missing"
 bash -n "${SUBMIT_SCRIPT}" || fail "submit_tiny_profile.sh has invalid shell syntax"
 
 rg -q '^#DSUB -R cpu=32;mem=49152;gpu=1$' "${SUBMIT_SCRIPT}" ||

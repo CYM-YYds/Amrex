@@ -17,7 +17,7 @@ module load mpi/hmpi/1.2.0_bs2.4.0_sp1
 module load compilers/cuda/12.8.0
 module load compilers/gcc/11.3.0
 
-CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "${CASE_DIR}/scripts/osi_experiment_common.sh"
 APP_EXE="${CASE_DIR}/main3d.gnu.TPROF.MPI.CUDA.ex"
 INPUTS="${CASE_DIR}/config/inputs"
