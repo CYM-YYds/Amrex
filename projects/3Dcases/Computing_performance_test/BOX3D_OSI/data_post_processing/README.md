@@ -12,7 +12,7 @@ post_dir="$case_dir/data_post_processing"
 | [plot_centerline.py](plot_centerline.py) | 一条/多条中心线与可选参考曲线；图片、无量纲点列 `.csv`、误差 `.errors.csv`、来源与指标 `.json` |
 | [plot_convergence.py](plot_convergence.py) | 日志/CSV/受限 PlotFile 收敛趋势；图片与统一六列 CSV |
 | [plot_run_performance.py](plot_run_performance.py) | 已有性能日志概览；每窗步数通过 `--window-steps` 指定 |
-| [extract_run_centerline.py](extract_run_centerline.py) | 保留 ParaView bridge/batch 导出、来源校验、CSV 复用和报告，调用共用中心线绘图函数 |
+| [extract_run_centerline.py](extract_run_centerline.py) | 只负责 ParaView bridge/batch 导出、来源校验及提取报告；不绘图、不选择参考数据 |
 | [convergence_logs.py](convergence_logs.py) | 内部日志解析模块，供收敛入口调用 |
 
 作业号、步数、Re 标题、路径和图例改参数，不再为每次实验复制脚本。
@@ -103,15 +103,43 @@ Level-0、128³、三分量双精度的现有布局，并核对数据与 Cell_H 
 586660/586864 和 596154/596532 的默认提交日志当前未保留，596888 最后一段日志仍存在；
 本次不宣称完整历史日志重新验收。已有 CSV、图像和报告全部保留；仿真曲线来源不完整时仍须标注。
 两个专用数据准备/参考比较脚本及硬编码饼图见[归档说明](archive/README.md)。
-ParaView 的导出协议、校验和报告保留；提取入口按以下方式调用：
+## 提取一次，独立绘图
+
+提取与绘图是两个独立入口。已存在 `centerline.csv` 时直接绘图，无需重新提取或连接 ParaView。
 
 ```bash
+# 第一步：只提取和校验，运行目录请替换成实际路径。
 .venv/bin/python "$post_dir/extract_run_centerline.py" <运行目录> \
-  --backend batch --resolution 1024 --reuse-export
+  --backend batch --resolution 1024 --output-dir /absolute/path/my_export
+
+# 第二步：按需要修改CSV来源、参考数据、坐标范围和样式。
+.venv/bin/python "$post_dir/plot_centerline.py" \
+  --profile /absolute/path/my_export/centerline.csv MyRun 256000 \
+  --height 1 --lid-velocity 0.05 --origin 0 \
+  --reference "$post_dir/fig18b_velocity_profiles.csv" \
+  --reference-source 'Jaber Fig.18(b), existing digitized CSV' \
+  --xlim -0.4 1.05 --ylim 0 1 \
+  --xlabel 'ux / U_lid' --ylabel 'z / H' \
+  --figsize 9.4 7.5 --linewidth 1.8 --markersize 6.5 --dpi 220 \
+  --title 'My centerline comparison' --output /absolute/path/my_plot.png
 ```
 
-它选择该运行目录中有 Header 的最大步数 PlotFile，仅支持 Re=1000/3200，U_lid固定0.05；
-输出固定为本目录的 `<run-name>_step<step>_paraview[_batch]/`，不接受 `--output`。
-`--reuse-export` 校验并复用该目录已有 CSV/元数据，仍会重写图片、误差及报告；
-省略它会调用对应 ParaView 后端重新导出。此入口的掩码检查仍默认严格，
-范围外参考点继续按原逻辑排除并记录，不套用普通 CSV 的无掩码选项。
+绘图示例的step、H、U和原点须与实际提取报告一致，参考数据按实验选择；省略 `--reference`
+只画仿真。`--profile` 可重复，更换CSV或参考来源不需要改提取代码。
+图的横轴默认是速度 `ux/U_lid`，纵轴是高度 `(z-origin)/H`；改标签不会改变数据定义。
+`--xlim/--ylim` 只改变显示范围，不裁剪导出数据或改变参考误差计算范围。
+可在 `plot_centerline.py` 的 `main()` 中编辑各参数的 `default=` 改长期默认样式，
+或在 `plot_profiles()` 中编辑颜色、图例等；数据路径通过 `--profile/--reference` 传入。
+样式参数与来源、误差一同记录在图片旁的JSON中。
+
+提取入口选择运行目录中有Header的最大步数PlotFile，读取运行快照的Re与几何；
+不再限制Re=1000/3200，不再自动加载Fig18参考或160000步历史曲线。
+默认输出目录仍为 `<run-name>_step<step>_paraview[_batch]/`，可用 `--output-dir` 指定。
+提取输出为 `centerline.csv`、`paraview_export.json`、`extraction_report.json`，
+新导出还写 `export.log`。报告包含来源哈希、步数、掩码检查、采样范围与归一化，
+`--lid-velocity` 默认0.05；提取报告中的H/U/原点用于第二步绘图。
+
+`--reuse-export` 只校验输出目录已有CSV/元数据并更新提取报告，不导出、不绘图；
+不带该选项会调用选定的ParaView后端。掩码检查仍严格，内部缺口拒绝跨越插值。
+原有 `report.json`、`comparison.png`、`reference_errors.csv` 作为历史结果保留，
+提取入口不再生成或更新它们。需要新的参考比较时使用绘图入口的新输出路径。

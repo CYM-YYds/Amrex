@@ -6,6 +6,14 @@
 冻结版本成立。遇到旧 fallback、已删除函数或“重启待验收”的说法时，以顶部
 及[架构文档](osi_algorithm_and_architecture.md)中的现役调用链为准。
 
+## 2026-10-19 中心线提取与绘图分离
+
+`extract_run_centerline.py` 现在只提取、校验并生成 `extraction_report.json`，不自动绘图或选择
+Fig18参考；`plot_centerline.py` 独立读取CSV，支持横纵范围、坐标标签、图幅和线点大小。
+旧图片与比较报告保留。两步用法见[后处理索引](../data_post_processing/README.md#提取一次独立绘图)，
+接口变化及验证见[记录](ai_changes/2026-10-19-separate-centerline-extraction-plotting.md)。
+下方此前“保留完整报告契约”的记录为当时行为，当前以本段为准。
+
 ## 2026-10-19 参数化后处理整合
 
 `data_post_processing/` 顶层 Python 脚本由11个收敛为5个：中心线、收敛和性能三个

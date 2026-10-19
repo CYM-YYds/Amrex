@@ -1,6 +1,7 @@
 """参数化后处理的数据契约回归，不调用 ParaView 或求解器。"""
 
 import csv
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -124,6 +125,59 @@ class PostProcessingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertEqual(path.read_bytes(), before)
         self.assertFalse(path.with_suffix(".png").exists())
+
+
+    def test_extraction_only_reuses_csv_without_plotting_or_reference(self):
+        run = self.root / "run"
+        source = run / "plt_3200"
+        source.mkdir(parents=True)
+        (source / "Header").write_text("fixture header")
+        (run / "inputs").write_text("lbm.reynolds_number = 1234\ngeometry.prob_lo = 0 0 0\ngeometry.prob_hi = 1 1 1\n")
+        (run / "overrides.txt").write_text("")
+        (run / "manifest.txt").write_text("fixture provenance")
+        output = self.root / "extracted"
+        output.mkdir()
+        csv_path = output / "centerline.csv"
+        csv_path.write_text("Points:2,ux,vtkValidPointMask\n0,0,1\n0.5,0.025,1\n1,0.05,1\n")
+        metadata = {"ok": True, "value": {"input": str(source), "output": str(csv_path),
+                    "resolution": 2, "bounds": [0, 1, 0, 1, 0, 1]}}
+        (output / "paraview_export.json").write_text(json.dumps(metadata))
+        (output / "report.json").write_text("historical comparison report")
+        before = csv_path.read_bytes()
+        result = subprocess.run([sys.executable, str(POST / "extract_run_centerline.py"), str(run),
+                                 "--reuse-export", "--resolution", "2", "--output-dir", str(output)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads((output / "extraction_report.json").read_text())
+        self.assertEqual(report["valid_unique_z"], 3)
+        self.assertEqual(report["ux_over_ulid_range"], [0, 1])
+        self.assertEqual(report["Re"], 1234)
+        self.assertNotIn("errors", report)
+        self.assertEqual(csv_path.read_bytes(), before)
+        self.assertEqual((output / "report.json").read_text(), "historical comparison report")
+        self.assertFalse(list(output.glob("*.png")))
+        self.assertFalse((output / "reference_errors.csv").exists())
+
+    def test_plot_options_do_not_change_data_or_metrics(self):
+        profile = self.write_csv("raw.csv", ["Points_Z", "ux", "vtkValidPointMask"],
+                                 [(0, 0, 1), (0.5, 0.025, 1), (1, 0.05, 1)])
+        reference = self.write_csv("reference.csv", ["z", "u_over_ulid"], [(0, 0), (0.5, 0.4), (1, 1)])
+        reports = []
+        for index, extra in enumerate([[], ["--xlim", "-0.2", "1.2", "--ylim", "0.2", "0.8",
+                                           "--xlabel", "Velocity", "--ylabel", "Height", "--figsize", "7", "5",
+                                           "--linewidth", "2.5", "--markersize", "8"]]):
+            output = self.root / f"plot{index}.png"
+            result = subprocess.run([sys.executable, str(POST / "plot_centerline.py"),
+                                     "--profile", str(profile), "sample", "3200", "--reference", str(reference),
+                                     "--height", "1", "--lid-velocity", "0.05", "--output", str(output), *extra],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output.is_file())
+            reports.append(json.loads(output.with_suffix(".json").read_text()))
+        self.assertEqual(reports[0]["errors"], reports[1]["errors"])
+        self.assertEqual(reports[1]["plot"]["ylim"], [0.2, 0.8])
+        self.assertEqual(reports[1]["plot"]["xlabel"], "Velocity")
+        self.assertEqual((self.root / "plot0.csv").read_bytes(), (self.root / "plot1.csv").read_bytes())
 
 
 if __name__ == "__main__":

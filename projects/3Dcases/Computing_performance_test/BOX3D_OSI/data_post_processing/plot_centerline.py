@@ -9,9 +9,6 @@ import textwrap
 from collections import defaultdict
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -87,22 +84,29 @@ def reference_errors(simulation, reference, *, outside="error"):
 
 
 def plot_profiles(profiles, references, output, *, title="Centerline velocity comparison",
-                  reference_source="none", reference_labels=None, xlim=(-0.4, 1.05), dpi=220):
+                  reference_source="none", reference_labels=None, xlim=(-0.4, 1.05), ylim=(0, 1),
+                  xlabel=r"$u_x/U_{lid}$", ylabel=r"$z/H$", figsize=(9.4, 7.5),
+                  linewidth=1.8, markersize=6.5, dpi=220):
     """共用绘图实现；曲线、来源、步数和各自标度由调用方传入，不绑定作业号或 Re。"""
-    fig, ax = plt.subplots(figsize=(9.4, 7.5))
+    # 延迟加载绘图库，使提取入口复用数据校验时不依赖绘图环境。
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=figsize)
     colors = ["#2ca02c", "#1f77b4", "#9467bd", "#d62728"]
     for index, profile in enumerate(profiles):
         points = profile["points"]
         ax.plot(points[:, 1], points[:, 0], linestyle=profile.get("linestyle", "-"),
-                color=profile.get("color", colors[index % len(colors)]), lw=1.8,
+                color=profile.get("color", colors[index % len(colors)]), lw=linewidth,
                 label=f'{profile["label"]} (step {profile["step"]}, {len(points)} pts)')
     for index, (name, points) in enumerate(references.items()):
         label = (reference_labels or {}).get(name, name)
         experimental = name.startswith("Experimental")
         ax.plot(points[:, 1], points[:, 0], "-" + ("o" if name.startswith("Cortes") else "^"),
-                color=["#d62728", "#1f77b4", "#222222"][index % 3], lw=1.4, ms=6.5,
+                color=["#d62728", "#1f77b4", "#222222"][index % 3], lw=linewidth, ms=markersize,
                 fillstyle="full" if experimental else "none", label=f"{label} ({len(points)} pts)")
-    ax.set(xlabel=r"$u_x/U_{lid}$", ylabel=r"$z/H$", xlim=xlim, ylim=(0, 1), title=title)
+    ax.set(xlabel=xlabel, ylabel=ylabel, xlim=xlim, ylim=ylim, title=title)
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.02, 1))
     sources = "; ".join(f'{p["label"]}: {p["source"]}, step {p["step"]}, {p["normalization"]}' for p in profiles)
@@ -131,13 +135,21 @@ def main():
     parser.add_argument("--outside-reference", choices=["error", "exclude"], default="error")
     parser.add_argument("--title", default="Centerline velocity comparison")
     parser.add_argument("--xlim", nargs=2, type=float, default=(-0.4, 1.05))
+    parser.add_argument("--ylim", nargs=2, type=float, default=(0, 1))
+    parser.add_argument("--xlabel", default=r"$u_x/U_{lid}$")
+    parser.add_argument("--ylabel", default=r"$z/H$")
+    parser.add_argument("--figsize", nargs=2, type=float, default=(9.4, 7.5), metavar=("WIDTH", "HEIGHT"))
+    parser.add_argument("--linewidth", type=float, default=1.8)
+    parser.add_argument("--markersize", type=float, default=6.5)
     parser.add_argument("--dpi", type=int, default=220)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.round_z is not None and args.round_z < 0:
         parser.error("--round-z 必须非负")
-    if args.dpi <= 0 or not np.isfinite(args.xlim).all() or args.xlim[0] >= args.xlim[1]:
-        parser.error("DPI 必须为正数，xlim 必须为递增有限区间")
+    if (args.dpi <= 0 or not np.isfinite([*args.xlim, *args.ylim, *args.figsize, args.linewidth, args.markersize]).all()
+            or args.xlim[0] >= args.xlim[1] or args.ylim[0] >= args.ylim[1]
+            or min(*args.figsize, args.linewidth, args.markersize) <= 0):
+        parser.error("坐标范围必须为递增有限区间；图幅、线宽、点大小和DPI必须为正数")
     sources = [Path(spec[0]) for spec in args.profile] + ([args.reference] if args.reference else [])
     outputs = [args.output, args.output.with_suffix(".csv"), args.output.with_suffix(".errors.csv"), args.output.with_suffix(".json")]
     if any(output.resolve() in {p.resolve() for p in sources} for output in outputs):
@@ -163,7 +175,8 @@ def main():
     if args.reference_source:
         reference_source += f" ({args.reference_source})"
     plot_profiles(profiles, references, args.output, title=args.title, reference_source=reference_source,
-                  xlim=args.xlim, dpi=args.dpi)
+                  xlim=args.xlim, ylim=args.ylim, xlabel=args.xlabel, ylabel=args.ylabel, figsize=args.figsize,
+                  linewidth=args.linewidth, markersize=args.markersize, dpi=args.dpi)
     with args.output.with_suffix(".csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
         writer.writerow(["profile", "step", "z_over_H", "u_over_ulid"])
@@ -175,6 +188,8 @@ def main():
             writer.writeheader()
             writer.writerows(metrics)
     report = {"profiles": [{key: value for key, value in p.items() if key != "points"} for p in profiles],
+              "plot": {"xlim": args.xlim, "ylim": args.ylim, "xlabel": args.xlabel, "ylabel": args.ylabel,
+                       "figsize": args.figsize, "linewidth": args.linewidth, "markersize": args.markersize, "dpi": args.dpi},
               "reference": reference_source, "errors": metrics, "outside_reference": args.outside_reference,
               "allow_unmasked": args.allow_unmasked, "round_z": args.round_z,
               "input_hashes": {str(p.resolve()): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},
