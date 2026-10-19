@@ -1,13 +1,64 @@
 """在本机 ParaView Python Shell 加载；通过 SSH 接收有限的界面操作。"""
+import ctypes
 import json
+import sys
+import traceback
 import queue
 import shlex
 import subprocess
 import threading
 import uuid
 
-from PythonQt import QtCore
 from paraview import simple as pvs
+
+
+# 保留原生回调引用，包括停止后的回调，避免队列中残留消息引用已释放地址。
+if '_pv_timer_callbacks' not in globals():
+    _pv_timer_callbacks = []
+
+
+class WindowsGuiTimer:
+    """封装原生定时器的回调引用、重入保护和停止生命周期。"""
+    def __init__(self, tick):
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError('Load this script in the ParaView GUI Python Shell')
+        from ctypes import wintypes
+        self.active = True
+        self.busy = False
+        self.owner = threading.get_ident()
+        self.user32 = ctypes.WinDLL('user32', use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(None, wintypes.HWND, wintypes.UINT,
+                                          ctypes.c_size_t, wintypes.DWORD)
+        self.user32.SetTimer.argtypes = [wintypes.HWND, ctypes.c_size_t,
+                                        wintypes.UINT, callback_type]
+        self.user32.SetTimer.restype = ctypes.c_size_t
+        self.user32.KillTimer.argtypes = [wintypes.HWND, ctypes.c_size_t]
+        self.user32.KillTimer.restype = wintypes.BOOL
+
+        def dispatch(hwnd, message, timer_id, timestamp):
+            if not self.active or self.busy:
+                return
+            self.busy = True
+            try:
+                if threading.get_ident() != self.owner:
+                    raise RuntimeError('Timer callback arrived on another thread')
+                tick()
+            except BaseException:
+                traceback.print_exc()
+                self.stop()
+            finally:
+                self.busy = False
+
+        self.callback = callback_type(dispatch)
+        self.timer_id = self.user32.SetTimer(None, 0, 200, self.callback)
+        if not self.timer_id:
+            raise ctypes.WinError(ctypes.get_last_error())
+        _pv_timer_callbacks.append(self.callback)
+
+    def stop(self):
+        if self.active:
+            self.active = False
+            self.user32.KillTimer(None, self.timer_id)
 
 
 class ParaViewBridge:
@@ -19,16 +70,22 @@ class ParaViewBridge:
         self.outgoing = queue.Queue()
         self.closed = threading.Event()
         self.backgrounds = {}
-        self.timer = QtCore.QTimer()
-        self.timer.connect('timeout()', self.tick)
-        self.timer.start(200)
+        if sys.platform == 'win32':
+            self.timer = WindowsGuiTimer(self.tick)
+            print('ParaView bridge timer: Windows SetTimer')
+        else:
+            from PythonQt import QtCore
+            self.timer = QtCore.QTimer()
+            self.timer.connect('timeout()', self.tick)
+            self.timer.start(200)
         self.worker = threading.Thread(target=self.poll, daemon=True)
         self.worker.start()
 
     def remote(self, command, data=None):
         # 网络调用只在后台线程运行，不触碰 ParaView 对象。
         return subprocess.run(self.ssh + [command], input=data, stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE, timeout=15, check=True).stdout
+                              stderr=subprocess.PIPE, timeout=15, check=True,
+                              creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout
 
     def poll(self):
         path = shlex.quote(self.directory)

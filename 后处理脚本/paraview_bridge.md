@@ -24,8 +24,8 @@
    该目录位于 SSH 目标主机；`/tmp` 通常不跨节点共享。若 Agent 不在该主机，
    需在该 SSH 主机执行投递器，不能将当前节点的同名目录视为同一会话。
 
-如果报 `No module named PythonQt`，请回传错误；该客户端依赖 ParaView 构建提供
-PythonQt，尚未在用户 Windows 安装中验证，不要向 ParaView 随意安装另一个 Qt 绑定。
+Windows 客户端使用标准库 ctypes 调用 SetTimer，不依赖 PythonQt，也不需要 pip 安装。
+非 Windows 客户端仍要求 ParaView 提供 PythonQt。请勿用 VS Code 的普通 Python 启动。
 加载失败时继续使用原有 ParaView 连接即可。
 
 ## 超算端投递
@@ -61,5 +61,7 @@ pv_bridge.stop()
 ## 验证边界
 
 已做 Python 语法、模拟 ParaView/Qt 下的命令执行与恢复、错误路径、文件投递/回传验证。
-Windows OpenSSH、PythonQt 定时器及当前 ParaView 5.11.2 GUI 联调须用户加载后验证。
+Windows 原生定时器与当前 ParaView 5.11.2 GUI 联调须用户重新加载后验证。
+SetTimer 回调依赖 GUI 消息循环，执行长任务时会延迟；回调带主线程检查和重入保护。
+依据 [Microsoft SetTimer 文档](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-settimer)。
 ParaView 客户端脚本入口见 [官方 5.11 教程](https://docs.paraview.org/en/v5.11.0/Tutorials/ClassroomTutorials/pythonAndBatchParaViewAndPython.html)。
