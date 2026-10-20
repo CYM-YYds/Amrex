@@ -175,6 +175,12 @@ MPI、CUDA、TinyProfiler，项目要求 C++20 和 GCC 11+。
 依赖已缺失 `config/inputs_osi` 的四个历史 stage 提交入口已退役。
 专项验收需使用完整输入快照和明确的覆盖参数，不能直接套用历史命令。
 
+短程加密诊断可设置 `verification.refinement_diagnostics=true`（默认关闭）：
+每次 ErrorEst 输出实际读取的 valid 涡量范围、均值、非有限值和固定阈值超限比例，
+并在 regrid 后复用 `REGRID_DIAG` / `CF_MASK_DIAG` 输出打标数及网格覆盖信息。
+统计包含 covered 粗单元、排除 ghost，与实际打标遍历一致；不修改 tag，
+也不启用 A-B 双数组验证。诊断含额外 GPU 归约和 MPI 同步，不用于性能比较。
+
 续跑时给主提交脚本设置 `RESTART_CHECKPOINT` 为 checkpoint 完整路径；
 脚本在新运行目录创建 `chk<step>` 源链接并设置 begin_step，后续 checkpoint 写在新目录。
 OSI checkpoint 保存 canonical DDF，读取后 phase 从 0 开始。当前 checkpoint 写出与同布局新层初始化共用 `DecodeOsiValid`，

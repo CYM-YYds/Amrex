@@ -337,6 +337,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void PrintInterpolationDiagnostics(const char* stage, int lev);
     // 输出最新一次 regrid 后的 level、Box 和标记单元数。
     void PrintRegridDiagnostics() const;
+    // 统计 ErrorEst 实际读取的 valid 涡量及固定阈值超限比例，不修改 tag。
+    void PrintRefinementCriteriaDiagnostics(int lev, amrex::Real time) const;
     // 必须在 Stream(lev, n) 之后、Boundary(lev) 之前调用，检查 f_new
     // 的非有限值、pull 源位置、ghost/Fab 边缘和粗细网格属性。
     void DiagnoseStreamResult(int lev, int n);

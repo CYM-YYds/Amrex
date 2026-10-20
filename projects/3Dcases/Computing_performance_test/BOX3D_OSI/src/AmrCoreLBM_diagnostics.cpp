@@ -1194,6 +1194,69 @@ void AmrCoreLBM::PrintInterpolationDiagnostics(const char* stage, int lev) {
     amrex::Print() << '\n';
 }
 
+void AmrCoreLBM::PrintRefinementCriteriaDiagnostics(int lev, Real time) const {
+    // 与 ErrorEst 使用同一份 valid 涡量；包含 covered 单元，不混入 ghost。
+    const MultiFab& vort = vorticity.at(lev);
+    ReduceOps<ReduceOpMin, ReduceOpMax, ReduceOpSum, ReduceOpSum,
+              ReduceOpSum> ops;
+    ReduceData<Real, Real, Real, Long, Long> data(ops);
+    using Tuple = decltype(data)::Type;
+    const Real limit = std::numeric_limits<Real>::max();
+    for (MFIter mfi(vort, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        const auto values = vort.const_array(mfi);
+        ops.eval(mfi.tilebox(), data,
+                 [=] AMREX_GPU_DEVICE(int i, int j, int k) -> Tuple {
+                     const Real value = values(i, j, k, 1);
+                     const bool finite = std::isfinite(value);
+                     return {finite ? value : limit,
+                             finite ? value : -limit,
+                             finite ? value : Real(0),
+                             Long(!finite), Long(finite && value < 0)};
+                 });
+    }
+    const auto result = data.value();
+    Real minimum = amrex::get<0>(result);
+    Real maximum = amrex::get<1>(result);
+    Real sum = amrex::get<2>(result);
+    Long nonfinite = amrex::get<3>(result);
+    Long negative = amrex::get<4>(result);
+    ParallelDescriptor::ReduceRealMin(minimum);
+    ParallelDescriptor::ReduceRealMax(maximum);
+    ParallelDescriptor::ReduceRealSum(sum);
+    ParallelDescriptor::ReduceLongSum(nonfinite);
+    ParallelDescriptor::ReduceLongSum(negative);
+    const Long cells = vort.boxArray().numPts();
+    amrex::Print() << "REFINEMENT_VORT time=" << time << " lev=" << lev
+                   << " valid_cells=" << cells
+                   << " domain_cells=" << Geom(lev).Domain().numPts()
+                   << " tag_cells=" << regrid_tag_counts.at(lev)
+                   << " tag_fraction=" << Real(regrid_tag_counts.at(lev)) / cells
+                   << " nonfinite=" << nonfinite << " negative=" << negative
+                   << " min=" << minimum << " max=" << maximum
+                   << " finite_mean=" << sum / std::max(Long(1), cells - nonfinite)
+                   << '\n';
+    // 固定阈值的累积分布只作观测，不作为新的加密路径。
+    for (Real threshold : {Real(0.03125), Real(0.0625), Real(0.125),
+                           Real(0.25), Real(0.5), Real(1)}) {
+        ReduceOps<ReduceOpSum> count_ops;
+        ReduceData<Long> count_data(count_ops);
+        using CountTuple = decltype(count_data)::Type;
+        for (MFIter mfi(vort, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const auto values = vort.const_array(mfi);
+            count_ops.eval(mfi.tilebox(), count_data,
+                           [=] AMREX_GPU_DEVICE(int i, int j, int k) -> CountTuple {
+                               const Real value = values(i, j, k, 1);
+                               return {Long(std::isfinite(value) && value >= threshold)};
+                           });
+        }
+        Long count = amrex::get<0>(count_data.value());
+        ParallelDescriptor::ReduceLongSum(count);
+        amrex::Print() << "REFINEMENT_CDF time=" << time << " lev=" << lev
+                       << " threshold=" << threshold << " ge_cells=" << count
+                       << " ge_fraction=" << Real(count) / cells << '\n';
+    }
+}
+
 void AmrCoreLBM::PrintRegridDiagnostics() const {
     if (!ParallelDescriptor::IOProcessor()) {
         return;

@@ -477,6 +477,12 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
         interp_direct_cache_ready.end(), 0);
     regrid(0, cur_time);
     RebuildCoarseFineCaches();
+    bool refinement_diagnostics = false;
+    ParmParse("verification").query("refinement_diagnostics", refinement_diagnostics);
+    if (refinement_diagnostics) {
+        amrex::Print() << "REFINEMENT_REGRID time=" << cur_time << '\n';
+        PrintRegridDiagnostics();
+    }
     bool regrid_valid_check = false;
     ParmParse("verification").query("regrid_valid_check", regrid_valid_check);
     if (streamMode() == 1 && (osiReferenceEnabled() || regrid_valid_check)) {
@@ -1225,4 +1231,9 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
     amrex::Long tag_count = amrex::get<0>(reduce_data.value());
     ParallelDescriptor::ReduceLongSum(tag_count);
     regrid_tag_counts[lev] = tag_count;
+    bool refinement_diagnostics = false;
+    ParmParse("verification").query("refinement_diagnostics", refinement_diagnostics);
+    if (refinement_diagnostics) {
+        PrintRefinementCriteriaDiagnostics(lev, time);
+    }
 }
