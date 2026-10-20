@@ -3,8 +3,9 @@
 目的：在用户当前ParaView窗口中计算速度旋度并新增显示视图，保留已有管线。
 范围：paraview Skill的桥客户端、投递器、Windows启动版本门禁、文档与回归测试；不改求解器。
 
-实现：新增白名单操作 `add_vorticity_view`，按完整注册名称选择三维源，复用AMReX
-ExtractBlock和点速度重建，再用Calculator组成速度向量，Gradient计算curl(u)，最后切片。
+实现：新增白名单操作 `add_vorticity_view`，按完整注册名称选择三维源，复用点速度重建，
+再用Calculator组成速度向量，Gradient计算curl(u)，最后切片。
+当前AMReXGridReader直接承接；兼容旧AMReXBoxLibGridReader代理时先ExtractBlock。
 新布局保留原有视图、相机和管线，沿用原活动视图时间。支持切片法向、物理位置与旋度分量，
 回传来源、时间、旋度范围和新增对象ID；失败只回收本次创建对象并恢复活动源/视图。
 该操作不支持任意表达式或代码执行。inspect增加读取器类型与输入文件信息。
@@ -23,5 +24,11 @@ ExtractBlock和点速度重建，再用Calculator组成速度向量，Gradient�
 - 三个Shell入口语法检查、修改Python语法、文档链接及diff检查通过。
   PS1仅更新版本/能力列表并保持CRLF；本环境没有pwsh，未重新执行PowerShell语法树验证。
 
-在线GUI仍为版本2时只执行inspect；用户重载后添加视图的现场验收另以对应命令回执为准。
+用户在GUI通过单行exec包装的更新命令成功重载。新会话inspect确认版本3、五项能力，
+本机源码SHA256为e2dca54d4fee1c89464de1408352a5ea85498133eafb49e7a59b5cda6310fb6f，
+与仓库客户端一致；读取器为job615364时间序列。
+现场命令b72bb6ca90f64d2f8536f442c2837754回传成功：time=2000（256000步），
+y中心切片原点(0.5,0.5,0.5)，旋度模范围[0,13.125149908576711]，
+Gradient/Slice/View ID分别14558/14570/14609，Render已返回。
+后续inspect再确认新增管线与第二个RenderView；没有以独立测试代替用户窗口执行证据。
 没有删除用户数据或重启其窗口，没有修改现有ParaView后台服务。

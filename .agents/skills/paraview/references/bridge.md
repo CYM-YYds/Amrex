@@ -91,8 +91,9 @@ launch-UUID.json 仅在 GUI 执行本次启动查询后发布。停止桥不删�
 `--component Magnitude/X/Y/Z`选择旋度模或分量。当前时间沿用原活动视图，不跳转到别的输出。
 结果回传输入、时间、几何、旋度范围和新增对象ID；显示范围在GUI颜色图编辑器中调整。
 
-管线为三维输入 →（AMReX时ExtractBlock /Root）→ 必要的CellDataToPointData →
+管线为三维输入 → 必要的CellDataToPointData →
 Calculator组合`ux*iHat + uy*jHat + uz*kHat` → Gradient计算`Vorticity=curl(u)` → Slice。
+兼容旧AMReXBoxLibGridReader代理时会先ExtractBlock /Root；当前AMReXGridReader可直接承接。
 `Vorticity_3D`保留三分量结果，可以在GUI中继续添加其他切片或显示方式。
 涡量是物理坐标下的有量纲旋度，未乘H/U；AMR界面处的点重建和分块导数属于可视化近似，
 不能直接当作求解器离散涡量、守恒指标或严格数值验证。
