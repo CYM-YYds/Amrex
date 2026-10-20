@@ -61,7 +61,7 @@ ParaView 使用应用自带 Python；其他分析只用仓库 `.venv`。应用�
 - `run_paraview_server.sh`：限定编译节点、隔离旧模块环境，启动6.2.0的MPI服务，验证进程数、构建信息与配套启动器。
 - `paraview_bridge_client.py`：GUI 主线程执行白名单命令，后台线程只处理 SSH；builtins 持有唯一桥实例及原生回调。已有窗口不会随仓库源码自动更新。
 - `paraview_bridge_send.py`：通过共享注册和心跳发现会话，单槽投递并等待对应 ID 回传。
-- `add_vorticity_view`：复用读取器、点速度重建、Calculator与Gradient，计算三维旋度并在新布局显示切片。
+- `add_vorticity_view`：优先在原生单元速度数据上用 Calculator 与 Gradient 计算三维旋度；输入只有点速度时使用点数据路径，再在新布局显示切片。保留原视图，回执注明数据关联、数值范围和对象 ID。
 - `paraview_batch_export.py`：只加载桥模块定义，复用 export_centerline，不启动定时器或桥注册。
 - `run_paraview_batch.sh`、`install_paraview_batch.sh` 和显式包锁：节点路由、应用环境隔离和安装。安装状态来自 conda-meta，不另设缓存标记。
 
@@ -75,5 +75,8 @@ bash -n .agents/skills/paraview/scripts/install_paraview_batch.sh
 bash -n .agents/skills/paraview/scripts/run_paraview_server.sh
 .venv/bin/python -m unittest discover -s .agents/skills/paraview/scripts/tests -v
 ```
+
+修改涡量管线时，除解析旋转场回归外，还应使用真实 AMReX PlotFile 检查 Gradient 输出、
+数据关联和有限数值；真实文件验证未覆盖的 AMR 层级或 GUI/MPI 组合须明确说明。
 
 模拟测试覆盖启动回执、生命周期和节点路由，不能代替 Windows 现场启动。数据路径变化还需在编译节点对真实 PlotFile 导出并核对 CSV。已验证编译节点 6.2.0 client/server 的单张离屏截图；动画、Windows GUI 截图及并行 pvbatch 尚未验证。
