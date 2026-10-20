@@ -50,6 +50,8 @@ InputConfig ReadInputConfig() {
     ParmParse pp_amr("amr");
     pp_amr.get("max_level", config.max_level);
     config.n_cell.resize(AMREX_SPACEDIM);
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(pp_amr.countval("n_cell") == AMREX_SPACEDIM,
+        "amr.n_cell must have exactly DIM entries; select the matching inputs file");
     pp_amr.getarr("n_cell", config.n_cell);
     const auto n_amr_levels = static_cast<std::size_t>(config.max_level + 1);
     config.max_grid_size.resize(n_amr_levels);
@@ -59,12 +61,21 @@ InputConfig ReadInputConfig() {
     pp_amr.getarr("max_grid_size", config.max_grid_size);
     pp_amr.getarr("blocking_factor_x", config.blocking_factor_x);
     pp_amr.getarr("blocking_factor_y", config.blocking_factor_y);
+#if AMREX_SPACEDIM == 3
     pp_amr.getarr("blocking_factor_z", config.blocking_factor_z);
+#else
+    config.blocking_factor_z.assign(n_amr_levels, 1);
+#endif
 
     ParmParse pp_geometry("geometry");
     config.prob_lo.resize(AMREX_SPACEDIM);
     config.prob_hi.resize(AMREX_SPACEDIM);
     config.is_periodic.resize(AMREX_SPACEDIM);
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        pp_geometry.countval("prob_lo") == AMREX_SPACEDIM &&
+        pp_geometry.countval("prob_hi") == AMREX_SPACEDIM &&
+        pp_geometry.countval("is_periodic") == AMREX_SPACEDIM,
+        "geometry arrays must have exactly DIM entries");
     pp_geometry.getarr("prob_lo", config.prob_lo);
     pp_geometry.getarr("prob_hi", config.prob_hi);
     pp_geometry.getarr("is_periodic", config.is_periodic);
@@ -101,7 +112,7 @@ InputConfig ReadInputConfig() {
     }
     const Real dx_x = (config.prob_hi[0] - config.prob_lo[0]) / config.n_cell[0];
     const Real dx_y = (config.prob_hi[1] - config.prob_lo[1]) / config.n_cell[1];
-    const Real dx_z = (config.prob_hi[2] - config.prob_lo[2]) / config.n_cell[2];
+    const Real dx_z = AMREX_D_PICK(dx_x, dx_x, (config.prob_hi[2] - config.prob_lo[2]) / config.n_cell[2]);
     const Real spacing_scale = std::max({Real(1.0), std::abs(dx_x),
                                          std::abs(dx_y), std::abs(dx_z)});
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
@@ -141,10 +152,10 @@ int main(int argc, char* argv[]) {
         const IntVect n_cell(AMREX_D_DECL(input.n_cell[0], input.n_cell[1], input.n_cell[2]));
         const Real x_length = prob_hi[0] - prob_lo[0];
         const Real y_length = prob_hi[1] - prob_lo[1];
-        const Real z_length = prob_hi[2] - prob_lo[2];
+        const Real z_length = AMREX_D_PICK(Real(0), Real(0), prob_hi[2] - prob_lo[2]);
         const Real dx = x_length / input.n_cell[0];
         const LbmGridParams grid{
-            input.n_cell[0], input.n_cell[1], input.n_cell[2],
+            input.n_cell[0], input.n_cell[1], AMREX_D_PICK(1, 1, input.n_cell[2]),
             x_length, y_length, z_length, dx, dx, dx / rate, dx / rate,
             U0 * x_length / input.reynolds_number};
         const std::array<int, AMREX_SPACEDIM> is_periodic{
@@ -163,8 +174,8 @@ int main(int argc, char* argv[]) {
         amrex::Vector<amrex::IntVect> max_grid_size(n_amr_levels);
         for (std::size_t lev = 0; lev < n_amr_levels; ++lev) {
             blocking_factor[lev] = amrex::IntVect(
-                input.blocking_factor_x[lev], input.blocking_factor_y[lev],
-                input.blocking_factor_z[lev]);
+                AMREX_D_DECL(input.blocking_factor_x[lev], input.blocking_factor_y[lev],
+                input.blocking_factor_z[lev]));
             max_grid_size[lev] = amrex::IntVect(input.max_grid_size[lev]);
         }
         amrex::AmrInfo info{1, runtime_max_level, ref_ratio,
@@ -192,10 +203,11 @@ int main(int argc, char* argv[]) {
             lid.PrintMeshInfo();
             lid.PrintLbmParm();
             if (lid.params().write_particles) {
-                lid.InitParticle(max_ref_level);
-                lid.InitCpPoint(max_ref_level);
+                lid.InitParticle(lid.finestLevel());
+                lid.InitCpPoint(lid.finestLevel());
                 lid.PrintParticleParm();
             }
+
         }
 
         lid.ValidateConfiguration(); // 配置、层级、OSI 数组和模式是否允许计算
@@ -237,6 +249,7 @@ int main(int argc, char* argv[]) {
                 if (lid.streamMode() == 0 && lid.params().write_particles) {
                     lid.FindCentre();
                 }
+
                 lid.RefineMesh(cur_time);
                 if (verification_enabled) {
                     verification.AfterRefineMesh(lid, step);
@@ -244,6 +257,7 @@ int main(int argc, char* argv[]) {
                 if (lid.params().write_particles) {
                     lid.RedistributeParticle();
                 }
+
             }
 
             auto end_time_regrid_time = std::chrono::high_resolution_clock::now();
@@ -388,7 +402,9 @@ int main(int argc, char* argv[]) {
                 // lid.ComputeCp(max_ref_level, step);
                 // lid.WriteMultiParticleFile(step, cur_time);
                 // lid.WriteVelocityFile(step, cur_time, max_ref_level);
-                // lid.WriteParticleFile(step, cur_time);
+                if (lid.params().write_particles) {
+                    lid.WriteParticleFile(step, cur_time);
+                }
                 // lid.WriteVorticityFile(step, cur_time);
                 // lid.WriteVelocityFileWithParticle(step, cur_time);
             }
@@ -400,6 +416,13 @@ int main(int argc, char* argv[]) {
                 amrex::Print() << "CONVERGED step=" << step << '\n';
                 break;
             }
+        }
+
+        bool final_state_check = false;
+        amrex::ParmParse("verification").query("final_state_check", final_state_check);
+        if (final_state_check) {
+            lid.ComputeMacro();
+            lid.ValidateInitializedState("FinalState");
         }
 
         if (!ddf_reference_checkpoint.empty()) {
@@ -418,6 +441,7 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
+#if AMREX_SPACEDIM == 3
 /*---------------用于计算静止圆球绕流----------------------------------*/
 void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
@@ -527,6 +551,8 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     }
 }
 
+#endif
+
 void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid,
             OsiAbVerification& verification) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
@@ -559,6 +585,7 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid,
     }
 }
 
+#if AMREX_SPACEDIM == 3
 /*---------------用于计算多颗粒自由运动----------------------------------*/
 void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
@@ -675,3 +702,5 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
         lid.AverageDownInterfaceLevel(lev + 1, 1);
     }
 }
+
+#endif

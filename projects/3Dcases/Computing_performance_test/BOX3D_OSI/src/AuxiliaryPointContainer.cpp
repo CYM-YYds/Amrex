@@ -1,5 +1,5 @@
 #include "AuxiliaryPointContainer.H"
-#include "D3Q19.H"
+#include "LbmLattice.H"
 #include "Kernels.H"
 using namespace amrex;
 
@@ -10,21 +10,26 @@ void AuxiliaryPointContainer::InitCpPoint(int lev)
     std::array<ParticleReal, PIdx2::nattribs> attribs;
     const Real* delta = Geom(0).CellSize();
 
-    int nump = 181;
+    int nump = AMREX_D_PICK(0, 180, 181);
 
     Real rt = radius + 0.0;
-    Real alpha = 2 * PI / (nump-1);
+    Real alpha = 2 * PI / AMREX_D_PICK(1, nump, (nump-1));
 
     if(ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) 
     {
         for(int j = 0; j < nump; j++)
         {
-            p.id()  = j; //ParticleType::NextID();
+            p.id()  = AMREX_D_PICK(0, ParticleType::NextID(), j); //ParticleType::NextID();
             p.cpu() = ParallelDescriptor::MyProc();
 
+#if AMREX_SPACEDIM == 2
+            p.pos(0) = Geom(0).ProbLo(0) + centre[0] * delta[0] - rt * cos(j * alpha) * grid_.dx_min;
+            p.pos(1) = Geom(0).ProbLo(1) + centre[1] * delta[1] + rt * sin(j * alpha) * grid_.dx_min;
+#else
             p.pos(0) = (centre[0]) * delta[0] - rt * cos(j * alpha) * grid_.dx_min;
             p.pos(1) = (centre[1]) * delta[0];
             p.pos(2) = (centre[2]) * delta[0] + rt * sin(j * alpha) * grid_.dx_min;
+#endif
 
             attribs[PIdx2::cp] = 0.0;
 
@@ -39,6 +44,7 @@ void AuxiliaryPointContainer::InitCpPoint(int lev)
 }
 
 
+#if AMREX_SPACEDIM == 3
 void AuxiliaryPointContainer::InterpCp(int lev, amrex::MultiFab& rho_lev)
 {
     const Real delta = Geom(lev).CellSize()[0];
@@ -60,6 +66,7 @@ void AuxiliaryPointContainer::InterpCp(int lev, amrex::MultiFab& rho_lev)
         });
     }
 }
+#endif
 
 void AuxiliaryPointContainer::WriteCp(int step)
 {

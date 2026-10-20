@@ -7,6 +7,20 @@
 > 通信/平均的历史实现描述见相应日期；现役函数行为和最新逐点诊断以
 > [当前交接状态](current_status.md) 为准。
 
+## 2026-10-20 维度兼容契约
+
+统一实现以 `AMREX_SPACEDIM` 为唯一维度来源，`LbmLattice.H` 提供 D2Q9 或
+D3Q27/order=0 速度集。OSI 仍用三坐标内部表示；二维 z 坐标和偏移为 0、
+z 环长度为 1，不分配额外 z 单元。phase 推进、canonicalize/rebuild/reset 和
+host-staging 同步契约不变。二维平均四个子单元，三维八个。
+
+checkpoint 的 canonical DDF 之外新增独立 `Lattice` 元数据；读取维度相关场和
+参考 DDF 前校验维度、Q 与排列。没有该元数据的旧 checkpoint 仅允许三维
+D3Q27/order=0。二维静态圆盘另校验粒子 Geometry；不表示二维 IBM 已启用。
+合并、构建入口及当前逐值验证范围见 [README](../README.md#二维与三维统一入口) 和
+[合并记录](ai_changes/2026-10-20-merge-dimension-support.md)。下文历史作业的结论
+仍限定于各自冻结版本。
+
 ## 1. 状态与边界
 
 截至 2026-09-12：

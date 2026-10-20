@@ -16,8 +16,13 @@ CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SHARED_DIR="/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/scripts"
 
 # 每次作业在独立目录中运行，使输入快照、输出和日志始终一一对应。
-SOURCE_INPUTS="${CASE_DIR}/config/inputs"
-APP_EXE="${CASE_DIR}/main3d.gnu.TPROF.MPI.CUDA.ex"
+DIM="${DIM:-3}"
+[[ "$DIM" == 2 || "$DIM" == 3 ]] || { echo "错误: DIM 必须为 2 或 3" >&2; exit 1; }
+INPUT_NAME=inputs
+if [[ "$DIM" == 2 ]]; then INPUT_NAME=inputs.2d; fi
+export BOX3D_DIM="$DIM"
+SOURCE_INPUTS="${CASE_DIR}/config/${INPUT_NAME}"
+APP_EXE="${CASE_DIR}/main${DIM}d.gnu.TPROF.MPI.CUDA.ex"
 if [[ ! -f "${SOURCE_INPUTS}" ]]; then
     echo "ERROR: inputs not found: ${SOURCE_INPUTS}" >&2
     exit 1
@@ -63,6 +68,7 @@ printf '%q ' "${APP_EXE}" inputs > "${RUN_DIR}/command.txt"
 printf '%s\n' "${AMREX_RUN_ARGS:-}" >> "${RUN_DIR}/command.txt"
 
 {
+    echo "dimension=${DIM}"
     echo "run_id=${RUN_ID}"
     echo "job_id=${CCS_JOB_ID:-manual}"
     echo "created_at=$(date --iso-8601=seconds)"
@@ -79,9 +85,12 @@ printf '%s\n' "${AMREX_RUN_ARGS:-}" >> "${RUN_DIR}/command.txt"
 } > "${RUN_DIR}/manifest.txt"
 
 # 公共脚本仍按相对路径启动程序，因此在运行目录放置只读符号链接。
-ln -s "${APP_EXE}" "${RUN_DIR}/main3d.gnu.TPROF.MPI.CUDA.ex"
+ln -s "${APP_EXE}" "${RUN_DIR}/main${DIM}d.gnu.TPROF.MPI.CUDA.ex"
 cd "${RUN_DIR}"
-export AMREX_EXECUTABLE="${SCRIPT_DIR}/run_rank.sh"
+export AMREX_EXECUTABLE="${RUN_DIR}/run_rank.sh"
+# 运行目录冻结维度，rank 包装器通过本地程序名选择应用。
+sed "s/BOX3D_DIM:-3/BOX3D_DIM:-${DIM}/" "${SCRIPT_DIR}/run_rank.sh" > "${RUN_DIR}/run_rank.sh"
+chmod +x "${RUN_DIR}/run_rank.sh"
 export AMREX_INPUT_FILE=inputs
 export AMREX_RUN_ARGS="${AMREX_RUN_ARGS:-}"
 

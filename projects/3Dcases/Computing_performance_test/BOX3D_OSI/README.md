@@ -1,11 +1,50 @@
 # BOX3D_OSI
 
-基于 AMReX 26.06、C++20、CUDA 和 MPI 的三维 D3Q27 LBM 动态 AMR 算例。
+基于 AMReX 26.06、C++20、CUDA 和 MPI 的二维 D2Q9 / 三维 D3Q27 LBM 动态 AMR 算例。
+BOX3D_OSI_dev 的维度兼容实现已合入本目录，后续统一在此维护。
 本目录支持 canonical 双数组 A-B 基准和 one-step index（OSI）单数组推进；
 相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
 [当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
 
-更新时间：2026-10-19。
+更新时间：2026-10-20。
+
+
+## 二维与三维统一入口
+
+默认三维，现有 `config/inputs`（Re=3200）、三维 `state_error_6` 加密判据、
+监护脚本和历史运行均保留。二维使用 dev 已验证的 `state_error_3` 判据与
+[config/inputs.2d](config/inputs.2d)（Re=1000）。维度由构建宏唯一决定：
+
+```bash
+./scripts/compile.sh
+DIM=2 ./scripts/compile.sh
+dsub -x 'all;DIM=2;' -s ./scripts/submit.sh
+```
+
+三维提交仍为 `dsub -s ./scripts/submit.sh`。两个维度均保留独立运行目录、
+输入快照、程序 SHA256、rank 退出记录和 `BOX3D_WALL_SECONDS` 监护。
+编译数据库只包含当前构建维度；切换维度后重启 clangd。
+
+二维顶盖在 y 高端，三维在 z 高端，沿 x 方向运动；二维平均四个子单元，
+OSI 内部 z=0、z 环长=1。二维支持流体和静态圆盘，IBM、运动、SGS 与 cumulant
+仍限三维。checkpoint 新增格子元数据检查；无元数据的旧 checkpoint 仅允许三维 D3Q27/order=0。
+
+验证工具沿用 dev 的生产内核与逐值诊断：
+
+```bash
+bash tests/run_dimension_kernels_test.sh
+bash tests/run_osi_index_test.sh
+DIM_REFACTOR_BASELINE=/绝对路径/含app2d.ex和app3d.ex及git_head.txt的基线目录 \
+  dsub -x 'all;' -s tests/submit_dimension_refactor_validation.sh
+```
+
+完整迁移矩阵、静态圆盘检查、生成代码比较分别使用
+`tests/submit_dimension_validation.sh`、`tests/submit_particle_geometry_validation.sh`、
+`tests/compare_dimension_codegen.py`；沿用各工具的显式基线参数，历史基线和报告仍在
+[dev 历史目录](../BOX3D_OSI_dev/README.md)，不应假设已复制到本目录的 runs。
+历史已验证范围及已知 physical ghost 差异见
+[dev 维度验证记录](../BOX3D_OSI_dev/docs/ai_changes/2026-10-19-dimension-accessors.md)。
+本次合并的验证另见 [合并记录](docs/ai_changes/2026-10-20-merge-dimension-support.md)。
 
 ## 目录与构建关系
 
@@ -29,7 +68,7 @@ BOX3D_OSI/
 │   ├── OsiIndex.H              # Fab-local 地址映射和几何/相位上下文
 │   ├── OsiCommunication.H      # 通信 tag、MPI staging 和交换执行骨架
 │   ├── Kernels.H               # 单元级碰撞、迁移、边界及宏观量 kernel
-│   ├── D3Q19.H                 # 历史文件名；当前实际为 D3Q27，Q=27
+│   ├── LbmLattice.H                 # 统一速度集：DIM=2 为 D2Q9，DIM=3 为 D3Q27
 │   ├── LbmGridParams.H         # 可传给 host/GPU 的运行时网格与物理参数
 │   ├── LagrangeParticleContainer.H/.cpp # 粒子存储、插值和受力计算
 │   ├── AuxiliaryPointContainer.H/.cpp  # 辅助测点容器
@@ -69,7 +108,7 @@ BOX3D_OSI/
 | [OsiIndex.H](src/OsiIndex.H) | `FabGeometry`、`PhaseShift3`、`MakeOsiFabContext(ring, phase)` 和 `osi_address`；只计算索引，不拥有 level 状态 |
 | [OsiCommunication.H](src/OsiCommunication.H) | local/remote copy、pack/unpack tag 和 MPI 交换公共骨架；具体区域与布局选择由 `_osi.cpp` 决定 |
 | [Kernels.H](src/Kernels.H) | 单元级数值计算；由驱动层传入 Array4、几何、相位和物理参数并发射 kernel |
-| [D3Q19.H](src/D3Q19.H) / [LbmGridParams.H](src/LbmGridParams.H) | 前者给出速度集、权重、Q、最大编译层级等模型常量；后者传递运行时尺寸、dx/dt 与黏度 |
+| [LbmLattice.H](src/LbmLattice.H) / [LbmGridParams.H](src/LbmGridParams.H) | 前者给出速度集、权重、Q、最大编译层级等模型常量；后者传递运行时尺寸、dx/dt 与黏度 |
 
 A-B 状态是每层 `f_old/f_new`；OSI 生产状态是每层 `osi_state` 和 `osi_phase`。
 开启 `verification.osi_ab_check` 时额外分配 A-B 状态用于锁步对照。

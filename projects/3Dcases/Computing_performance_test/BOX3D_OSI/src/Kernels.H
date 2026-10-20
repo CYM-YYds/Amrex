@@ -6,7 +6,7 @@
 #include <AMReX_Geometry.H>
 #include <AMReX_PhysBCFunct.H>
 
-#include "D3Q19.H"
+#include "LbmLattice.H"
 #include "LbmGridParams.H"
 #include "OsiIndex.H"
 #define KERNEL_ABS std::abs
@@ -123,7 +123,7 @@ AMREX_FORCE_INLINE
 void init_fluid(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
                 amrex::Array4<amrex::Real> const& fnew) {
     for (int q = 0; q < Q; q++) {
-        fold(i, j, k, q) = feqQian(rho0, {0.0, 0.0, 0.0}, q);
+        fold(i, j, k, q) = feqQian(rho0, {AMREX_D_DECL(0.0, 0.0, 0.0)}, q);
         fnew(i, j, k, q) = fold(i, j, k, q);
     }
 }
@@ -140,12 +140,14 @@ void compute_macro(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         rhot += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * e[q][2];
+        uzt += ft * lattice_ez(q);
     }
 
     u(i, j, k, 0) = uxt / rhot;
     u(i, j, k, 1) = uyt / rhot;
+#if AMREX_SPACEDIM == 3
     u(i, j, k, 2) = uzt / rhot;
+#endif
     rho(i, j, k, 0) = rhot;
 }
 
@@ -155,13 +157,13 @@ void compute_vorticity(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
                        amrex::Array4<amrex::Real> const& vort, amrex::Real dt) {
     Real u_x = (u(i + 1, j, k, 0) - u(i - 1, j, k, 0)) / (2 * dt);
     Real u_y = (u(i, j + 1, k, 0) - u(i, j - 1, k, 0)) / (2 * dt);
-    Real u_z = (u(i, j, k + 1, 0) - u(i, j, k - 1, 0)) / (2 * dt);
+    Real u_z = AMREX_D_PICK(Real(0), Real(0), (u(i, j, k + 1, 0) - u(i, j, k - 1, 0)) / (2 * dt));
     Real v_x = (u(i + 1, j, k, 1) - u(i - 1, j, k, 1)) / (2 * dt);
     Real v_y = (u(i, j + 1, k, 1) - u(i, j - 1, k, 1)) / (2 * dt);
-    Real v_z = (u(i, j, k + 1, 1) - u(i, j, k - 1, 1)) / (2 * dt);
-    Real w_x = (u(i + 1, j, k, 2) - u(i - 1, j, k, 2)) / (2 * dt);
-    Real w_y = (u(i, j + 1, k, 2) - u(i, j - 1, k, 2)) / (2 * dt);
-    Real w_z = (u(i, j, k + 1, 2) - u(i, j, k - 1, 2)) / (2 * dt);
+    Real v_z = AMREX_D_PICK(Real(0), Real(0), (u(i, j, k + 1, 1) - u(i, j, k - 1, 1)) / (2 * dt));
+    Real w_x = AMREX_D_PICK(Real(0), Real(0), (u(i + 1, j, k, 2) - u(i - 1, j, k, 2)) / (2 * dt));
+    Real w_y = AMREX_D_PICK(Real(0), Real(0), (u(i, j + 1, k, 2) - u(i, j - 1, k, 2)) / (2 * dt));
+    Real w_z = AMREX_D_PICK(Real(0), Real(0), (u(i, j, k + 1, 2) - u(i, j, k - 1, 2)) / (2 * dt));
 
     Real WX = w_y - v_z;
     Real WY = u_z - w_x;
@@ -175,6 +177,7 @@ void compute_vorticity(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
     vort(i, j, k, 1) = Vorticity;
 }
 
+#if AMREX_SPACEDIM == 3
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void compute_shear(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
@@ -250,6 +253,8 @@ void compute_shear2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
         0.01 * dt * dt * Smag; // 不知道这样直接从三维改到二维对不对
 }
 
+#endif
+
 template <bool UseOsiAddress>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     amrex::Real
@@ -260,7 +265,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
         OSI::PhaseShift3 const& phase_shift) noexcept {
     if constexpr (UseOsiAddress) {
         const auto raw = OSI::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab, phase_shift);
+            {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fab, phase_shift);
         return state(raw.x, raw.y, raw.z, q);
     } else {
         return state(i, j, k, q);
@@ -274,7 +279,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_ddf(int i, int j, int k, int q, a
                                                    OSI::PhaseShift3 const& phase_shift) noexcept {
     if constexpr (UseOsiAddress) {
         const auto raw = OSI::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab, phase_shift);
+            {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fab, phase_shift);
         state(raw.x, raw.y, raw.z, q) = value;
     } else {
         state(i, j, k, q) = value;
@@ -288,7 +293,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE amrex::Real load_ddf_cached(
     OSI::CellCoordinates const& coordinates) noexcept {
     if constexpr (UseOsiAddress) {
         const auto raw = OSI::osi_address(
-            coordinates, {e[q][0], e[q][1], e[q][2]});
+            coordinates, {e[q][0], e[q][1], lattice_ez(q)});
         return state(raw.x, raw.y, raw.z, q);
     } else {
         return state(i, j, k, q);
@@ -302,7 +307,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_ddf_cached(
     OSI::CellCoordinates const& coordinates) noexcept {
     if constexpr (UseOsiAddress) {
         const auto raw = OSI::osi_address(
-            coordinates, {e[q][0], e[q][1], e[q][2]});
+            coordinates, {e[q][0], e[q][1], lattice_ez(q)});
         state(raw.x, raw.y, raw.z, q) = value;
     } else {
         state(i, j, k, q) = value;
@@ -335,6 +340,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
         y1 = j - 1;
         boundary = true;
     }
+#if AMREX_SPACEDIM == 3
     if (!is_periodic[2] && k == 0) {
         z1 = k + 1;
         boundary = true;
@@ -343,6 +349,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
         z1 = k - 1;
         boundary = true;
     }
+#endif
     if (!boundary)
         return;
 
@@ -362,7 +369,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
         rho1 += fq;
         ux1 += fq * e[q][0];
         uy1 += fq * e[q][1];
-        uz1 += fq * e[q][2];
+        uz1 += fq * lattice_ez(q);
     }
     const Real invrho = 1.0 / rho1;
     ux1 *= invrho;
@@ -371,15 +378,19 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
 
     Real ux = 0.0, uy = 0.0, uz = 0.0;
 
+#if AMREX_SPACEDIM == 3
     if (!is_periodic[2] && k == hi[2])
+#else
+    if (!is_periodic[1] && j == hi[1])
+#endif
         ux = U0;
 
     for (int q = 0; q < Q; ++q) {
         const Real value =
-            feqQian(rho1, {ux, uy, uz}, q) +
+            feqQian(rho1, {AMREX_D_DECL(ux, uy, uz)}, q) +
             load_ddf_cached<UseOsiAddress>(
                 x1, y1, z1, q, state, source_coordinates) -
-            feqQian(rho1, {ux1, uy1, uz1}, q);
+            feqQian(rho1, {AMREX_D_DECL(ux1, uy1, uz1)}, q);
         store_ddf_cached<UseOsiAddress>(
             i, j, k, q, value, state, destination_coordinates);
     }
@@ -425,7 +436,7 @@ void collide(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         rhot += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * e[q][2];
+        uzt += ft * lattice_ez(q);
     }
 
     // Ftx = Ft(i, j, k, 0);
@@ -448,13 +459,14 @@ void collide(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
     // {
     for (int q = 0; q < Q; q++) {
         Real forceEx = (1 - 0.5 * omega) * dt *
-                       forceGuo({uxt, uyt, uzt}, {Ftx, Fty, Ftz}, q); // * cs2;
+                       forceGuo({AMREX_D_DECL(uxt, uyt, uzt)}, {AMREX_D_DECL(Ftx, Fty, Ftz)}, q); // * cs2;
         fold(i, j, k, q) = (1 - omega) * fold(i, j, k, q) +
-                           omega * feqQian(rhot, {uxt, uyt, uzt}, q) + forceEx;
+                           omega * feqQian(rhot, {AMREX_D_DECL(uxt, uyt, uzt)}, q) + forceEx;
     }
     // }
 }
 
+#if AMREX_SPACEDIM == 3
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void collide_cumulant(int i, int j, int k,
@@ -2213,6 +2225,8 @@ void collide_cumulant_opt2(int i, int j, int k,
     fold(i, j, k, 26) = fMMM;
 }
 
+#endif
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
@@ -2220,7 +2234,7 @@ void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
     for (int q = 0; q < Q; q++) {
         int xm = i - e[q][0];
         int ym = j - e[q][1];
-        int zm = k - e[q][2];
+        int zm = k - lattice_ez(q);
 
         // if(is_finest)
         // {
@@ -2259,7 +2273,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
         rho += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * e[q][2];
+        uzt += ft * lattice_ez(q);
     }
 
     const Real inv_rho = 1.0 / rho;
@@ -2272,7 +2286,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
 
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
-        const Real eu = e[q][0] * ux + e[q][1] * uy + e[q][2] * uz;
+        const Real eu = e[q][0] * ux + e[q][1] * uy + lattice_ez(q) * uz;
         const Real feq = w[q] * rho *
                          (equilibrium_common + 3.0 * eu + 4.5 * eu * eu);
         const Real value = keep * fq[q] + omega * feq;
@@ -2316,30 +2330,32 @@ void compute_macro_osi(
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
         const auto raw = OSI::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab, phase_shift);
+            {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fab, phase_shift);
         const Real ft = state(raw.x, raw.y, raw.z, q);
         rhot += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * e[q][2];
+        uzt += ft * lattice_ez(q);
     }
 
     const Real inv_rho = 1.0 / rhot;
     u(i, j, k, 0) = uxt * inv_rho;
     u(i, j, k, 1) = uyt * inv_rho;
+#if AMREX_SPACEDIM == 3
     u(i, j, k, 2) = uzt * inv_rho;
+#endif
     rho(i, j, k, 0) = rhot;
 }
 
 template <bool UseOsiAddress>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_interpolated_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_interpolated_ddf(
     int i, int j, int k, int q, amrex::Real value,
     amrex::Array4<amrex::Real> const& fine,
     OSI::FabGeometry fine_fab,
     OSI::PhaseShift3 fine_shift) noexcept {
     if constexpr (UseOsiAddress) {
         const auto dst = OSI::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fine_fab, fine_shift);
+            {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fine_fab, fine_shift);
         fine(dst.x, dst.y, dst.z, q) = value;
     } else {
         fine(i, j, k, q) = value;
@@ -2347,7 +2363,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void store_interpolated_d3q(
 }
 
 template <bool UseOsiAddress>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q_impl(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_ddf_impl(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     OSI::FabGeometry fine_fab,
@@ -2364,6 +2380,12 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q_impl(
     constexpr Real w111 = Real(1.0 / 64.0);
 
     for (int q = 0; q < Q; ++q) {
+#if AMREX_SPACEDIM == 2
+        const Real value = coarse(ic, jc, 0, q) * Real(9.0 / 16.0) +
+            coarse(ic + sx, jc, 0, q) * Real(3.0 / 16.0) +
+            coarse(ic, jc + sy, 0, q) * Real(3.0 / 16.0) +
+            coarse(ic + sx, jc + sy, 0, q) * Real(1.0 / 16.0);
+#else
         const Real value =
             coarse(ic, jc, kc, q) * w000 +
             coarse(ic + sx, jc, kc, q) * w100 +
@@ -2373,23 +2395,24 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q_impl(
             coarse(ic + sx, jc, kc + sz, q) * w110 +
             coarse(ic, jc + sy, kc + sz, q) * w110 +
             coarse(ic + sx, jc + sy, kc + sz, q) * w111;
-        store_interpolated_d3q<UseOsiAddress>(
+#endif
+        store_interpolated_ddf<UseOsiAddress>(
             i, j, k, q, value, fine, fine_fab, fine_shift);
     }
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_ddf(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse) noexcept {
-    interp_bilinear_d3q_impl<false>(i, j, k, fine, coarse, {}, {});
+    interp_bilinear_ddf_impl<false>(i, j, k, fine, coarse, {}, {});
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_ddf(
     int i, int j, int k, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     OSI::FabGeometry fine_fab,
     OSI::PhaseShift3 fine_shift) noexcept {
-    interp_bilinear_d3q_impl<true>(
+    interp_bilinear_ddf_impl<true>(
         i, j, k, fine, coarse, fine_fab, fine_shift);
 }
 
@@ -2397,7 +2420,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_d3q(
 // 完整八个子单元的平均值等于父单元；该限幅规则不等同于 AMReX 的
 // 多分量限幅，也不据此宣称多维情况下满足所有邻居取值的最大值原理。
 template <bool UseOsiAddress>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q_impl(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_ddf_impl(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,
@@ -2409,20 +2432,20 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q_im
         const Real dxm = center - coarse(ic - 1, jc, kc, q);
         const Real dyp = coarse(ic, jc + 1, kc, q) - center;
         const Real dym = center - coarse(ic, jc - 1, kc, q);
-        const Real dzp = coarse(ic, jc, kc + 1, q) - center;
-        const Real dzm = center - coarse(ic, jc, kc - 1, q);
+        const Real dzp = AMREX_D_PICK(Real(0), Real(0), coarse(ic, jc, kc + 1, q) - center);
+        const Real dzm = AMREX_D_PICK(Real(0), Real(0), center - coarse(ic, jc, kc - 1, q));
         const Real sx = (dxp * dxm > Real(0))
                             ? std::copysign(amrex::min(std::abs(dxp), std::abs(dxm)), dxp)
                             : Real(0);
         const Real sy = (dyp * dym > Real(0))
                             ? std::copysign(amrex::min(std::abs(dyp), std::abs(dym)), dyp)
                             : Real(0);
-        const Real sz = (dzp * dzm > Real(0))
+        const Real sz = AMREX_D_PICK(Real(0), Real(0), (dzp * dzm > Real(0))
                             ? std::copysign(amrex::min(std::abs(dzp), std::abs(dzm)), dzp)
-                            : Real(0);
+                            : Real(0));
 
 #pragma unroll
-        for (int koff = 0; koff < 2; ++koff) {
+        for (int koff = 0; koff < AMREX_D_PICK(1, 1, 2); ++koff) {
 #pragma unroll
             for (int joff = 0; joff < 2; ++joff) {
 #pragma unroll
@@ -2438,7 +2461,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q_im
                         const Real oz =
                             koff == 0 ? Real(-0.25) : Real(0.25);
                         const Real value = center + ox * sx + oy * sy + oz * sz;
-                        store_interpolated_d3q<UseOsiAddress>(
+                        store_interpolated_ddf<UseOsiAddress>(
                             i, j, k, q, value, fine, fine_fab, fine_shift);
                     }
                 }
@@ -2447,21 +2470,21 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q_im
     }
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_ddf(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box) noexcept {
-    interp_cell_cons_linear_children_d3q_impl<false>(
+    interp_cell_cons_linear_children_ddf_impl<false>(
         ic, jc, kc, fine, coarse, fine_work_box, {}, {});
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_ddf(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,
     OSI::FabGeometry fine_fab,
     OSI::PhaseShift3 fine_shift) noexcept {
-    interp_cell_cons_linear_children_d3q_impl<true>(
+    interp_cell_cons_linear_children_ddf_impl<true>(
         ic, jc, kc, fine, coarse, fine_work_box, fine_fab, fine_shift);
 }
 
@@ -2469,7 +2492,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_d3q(
 // 每个 coarse cell 只计算一次一阶、纯二阶和混合斜率，
 // 随后直接写入 fine_work_box 内的最多八个子单元。
 template <bool UseOsiAddress>
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q_impl(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_ddf_impl(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,
@@ -2484,32 +2507,32 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q_impl
                         (coarse(ic + 1, jc, kc, q) - coarse(ic - 1, jc, kc, q));
         const Real sy = half *
                         (coarse(ic, jc + 1, kc, q) - coarse(ic, jc - 1, kc, q));
-        const Real sz = half *
-                        (coarse(ic, jc, kc + 1, q) - coarse(ic, jc, kc - 1, q));
+        const Real sz = AMREX_D_PICK(Real(0), Real(0), half *
+                        (coarse(ic, jc, kc + 1, q) - coarse(ic, jc, kc - 1, q)));
         const Real sxx = coarse(ic - 1, jc, kc, q) - Real(2) * center +
                          coarse(ic + 1, jc, kc, q);
         const Real syy = coarse(ic, jc - 1, kc, q) - Real(2) * center +
                          coarse(ic, jc + 1, kc, q);
-        const Real szz = coarse(ic, jc, kc - 1, q) - Real(2) * center +
-                         coarse(ic, jc, kc + 1, q);
+        const Real szz = AMREX_D_PICK(Real(0), Real(0), coarse(ic, jc, kc - 1, q) - Real(2) * center +
+                         coarse(ic, jc, kc + 1, q));
         const Real sxy = quarter *
                          (coarse(ic - 1, jc - 1, kc, q) -
                           coarse(ic + 1, jc - 1, kc, q) -
                           coarse(ic - 1, jc + 1, kc, q) +
                           coarse(ic + 1, jc + 1, kc, q));
-        const Real sxz = quarter *
+        const Real sxz = AMREX_D_PICK(Real(0), Real(0), quarter *
                          (coarse(ic - 1, jc, kc - 1, q) -
                           coarse(ic + 1, jc, kc - 1, q) -
                           coarse(ic - 1, jc, kc + 1, q) +
-                          coarse(ic + 1, jc, kc + 1, q));
-        const Real syz = quarter *
+                          coarse(ic + 1, jc, kc + 1, q)));
+        const Real syz = AMREX_D_PICK(Real(0), Real(0), quarter *
                          (coarse(ic, jc - 1, kc - 1, q) -
                           coarse(ic, jc - 1, kc + 1, q) -
                           coarse(ic, jc + 1, kc - 1, q) +
-                          coarse(ic, jc + 1, kc + 1, q));
+                          coarse(ic, jc + 1, kc + 1, q)));
 
 #pragma unroll
-        for (int koff = 0; koff < 2; ++koff) {
+        for (int koff = 0; koff < AMREX_D_PICK(1, 1, 2); ++koff) {
 #pragma unroll
             for (int joff = 0; joff < 2; ++joff) {
 #pragma unroll
@@ -2527,7 +2550,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q_impl
                             half * oy * oy * syy +
                             half * oz * oz * szz +
                             ox * oy * sxy + ox * oz * sxz + oy * oz * syz;
-                        store_interpolated_d3q<UseOsiAddress>(
+                        store_interpolated_ddf<UseOsiAddress>(
                             i, j, k, q, value, fine, fine_fab, fine_shift);
                     }
                 }
@@ -2536,21 +2559,21 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q_impl
     }
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_ddf(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box) noexcept {
-    interp_cell_quadratic_children_d3q_impl<false>(
+    interp_cell_quadratic_children_ddf_impl<false>(
         ic, jc, kc, fine, coarse, fine_work_box, {}, {});
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_d3q(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_ddf(
     int ic, int jc, int kc, amrex::Array4<amrex::Real> const& fine,
     amrex::Array4<amrex::Real const> const& coarse,
     amrex::Box const& fine_work_box,
     OSI::FabGeometry fine_fab,
     OSI::PhaseShift3 fine_shift) noexcept {
-    interp_cell_quadratic_children_d3q_impl<true>(
+    interp_cell_quadratic_children_ddf_impl<true>(
         ic, jc, kc, fine, coarse, fine_work_box, fine_fab, fine_shift);
 }
 
@@ -2566,7 +2589,7 @@ void average_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
         rhot += ft;
         uxt += ft * e[q][0];
         uyt += ft * e[q][1];
-        uzt += ft * e[q][2];
+        uzt += ft * lattice_ez(q);
     }
 
     uxt = uxt / rhot;
@@ -2574,7 +2597,7 @@ void average_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
     uzt = uzt / rhot;
 
     for (int q = 0; q < Q; q++) {
-        res = feqQian(rhot, {uxt, uyt, uzt}, q);
+        res = feqQian(rhot, {AMREX_D_DECL(uxt, uyt, uzt)}, q);
         fold(i, j, k, q) = res + (fold(i, j, k, q) - res) * scale;
     }
 }
@@ -2586,12 +2609,12 @@ void average_down_lbm(int i, int j, int k, amrex::Array4<amrex::Real> const& crs
                       amrex::IntVect const& ratio) noexcept {
     const int fi = i * ratio[0];
     const int fj = j * ratio[1];
-    const int fk = k * ratio[2];
-    const Real inv_children = Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
+    const int fk = k * AMREX_D_PICK(1, 1, ratio[2]);
+    const Real inv_children = Real(1.0) / Real(ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]));
 
     for (int q = 0; q < Q; ++q) {
         Real sum = 0.0;
-        for (int kr = 0; kr < ratio[2]; ++kr) {
+        for (int kr = 0; kr < AMREX_D_PICK(1, 1, ratio[2]); ++kr) {
             for (int jr = 0; jr < ratio[1]; ++jr) {
                 for (int ir = 0; ir < ratio[0]; ++ir) {
                     sum += fine(fi + ir, fj + jr, fk + kr, q);
@@ -2615,9 +2638,9 @@ void average_down_osi_to_canonical(
     Real restricted[Q]{};
     const int fi = i * ratio[0];
     const int fj = j * ratio[1];
-    const int fk = k * ratio[2];
+    const int fk = k * AMREX_D_PICK(1, 1, ratio[2]);
 
-    for (int kr = 0; kr < ratio[2]; ++kr) {
+    for (int kr = 0; kr < AMREX_D_PICK(1, 1, ratio[2]); ++kr) {
         for (int jr = 0; jr < ratio[1]; ++jr) {
             for (int ir = 0; ir < ratio[0]; ++ir) {
                 const int ii = fi + ir;
@@ -2631,13 +2654,13 @@ void average_down_osi_to_canonical(
 
                 for (int q = 0; q < Q; ++q) {
                     const auto src = OSI::osi_address(
-                        {ii, jj, kk}, {e[q][0], e[q][1], e[q][2]},
+                        {ii, jj, kk}, {e[q][0], e[q][1], lattice_ez(q)},
                         fine_fab, fine_shift);
                     fq[q] = fine(src.x, src.y, src.z, q);
                     rho += fq[q];
                     ux += fq[q] * e[q][0];
                     uy += fq[q] * e[q][1];
-                    uz += fq[q] * e[q][2];
+                    uz += fq[q] * lattice_ez(q);
                 }
 
                 if (apply_scale) {
@@ -2647,7 +2670,7 @@ void average_down_osi_to_canonical(
                 }
                 for (int q = 0; q < Q; ++q) {
                     if (apply_scale) {
-                        const Real feq = feqQian(rho, {ux, uy, uz}, q);
+                        const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
                         restricted[q] += feq + (fq[q] - feq) * scale;
                     } else {
                         restricted[q] += fq[q];
@@ -2658,7 +2681,7 @@ void average_down_osi_to_canonical(
     }
 
     const Real inv_children =
-        Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
+        Real(1.0) / Real(ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]));
     for (int q = 0; q < Q; ++q) {
         coarse(i, j, k, q) = restricted[q] * inv_children;
     }
@@ -2677,9 +2700,9 @@ void average_down_lbm_scaled(int i, int j, int k,
 
     const int fi = i * ratio[0];
     const int fj = j * ratio[1];
-    const int fk = k * ratio[2];
+    const int fk = k * AMREX_D_PICK(1, 1, ratio[2]);
 
-    for (int kr = 0; kr < ratio[2]; ++kr) {
+    for (int kr = 0; kr < AMREX_D_PICK(1, 1, ratio[2]); ++kr) {
         for (int jr = 0; jr < ratio[1]; ++jr) {
             for (int ir = 0; ir < ratio[0]; ++ir) {
                 const int ii = fi + ir;
@@ -2695,14 +2718,14 @@ void average_down_lbm_scaled(int i, int j, int k,
                     rho += fq;
                     ux += fq * e[q][0];
                     uy += fq * e[q][1];
-                    uz += fq * e[q][2];
+                    uz += fq * lattice_ez(q);
                 }
 
                 ux /= rho;
                 uy /= rho;
                 uz /= rho;
                 for (int q = 0; q < Q; ++q) {
-                    const Real feq = feqQian(rho, {ux, uy, uz}, q);
+                    const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
                     const Real fq = fine(ii, jj, kk, q);
                     restricted[q] += feq + (fq - feq) * scale;
                 }
@@ -2710,7 +2733,7 @@ void average_down_lbm_scaled(int i, int j, int k,
         }
     }
 
-    const Real inv_children = Real(1.0) / Real(ratio[0] * ratio[1] * ratio[2]);
+    const Real inv_children = Real(1.0) / Real(ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]));
     for (int q = 0; q < Q; ++q) {
         crse(i, j, k, q) = restricted[q] * inv_children;
     }
@@ -2738,19 +2761,19 @@ void average_down_osi_to_canonical_warp(
     bool apply_scale) noexcept {
     const int fi = i * ratio[0];
     const int fj = j * ratio[1];
-    const int fk = k * ratio[2];
-    const int nchildren = ratio[0] * ratio[1] * ratio[2];
+    const int fk = k * AMREX_D_PICK(1, 1, ratio[2]);
+    const int nchildren = ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]);
     const Real inv_children = Real(1.0) / Real(nchildren);
     Real restricted = 0.0;
 
-    for (int kr = 0; kr < ratio[2]; ++kr) {
+    for (int kr = 0; kr < AMREX_D_PICK(1, 1, ratio[2]); ++kr) {
         for (int jr = 0; jr < ratio[1]; ++jr) {
             for (int ir = 0; ir < ratio[0]; ++ir) {
                 Real fq = 0.0;
                 if (q < Q) {
                     const auto src = OSI::osi_address(
                         {fi + ir, fj + jr, fk + kr},
-                        {e[q][0], e[q][1], e[q][2]}, fine_fab,
+                        {e[q][0], e[q][1], lattice_ez(q)}, fine_fab,
                         fine_shift);
                     fq = fine(src.x, src.y, src.z, q);
                 }
@@ -2759,9 +2782,9 @@ void average_down_osi_to_canonical_warp(
                     const Real rho = warp_sum_32(fq);
                     const Real ux = warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0)) / rho;
                     const Real uy = warp_sum_32(q < Q ? fq * e[q][1] : Real(0.0)) / rho;
-                    const Real uz = warp_sum_32(q < Q ? fq * e[q][2] : Real(0.0)) / rho;
+                    const Real uz = warp_sum_32(q < Q ? fq * lattice_ez(q) : Real(0.0)) / rho;
                     if (q < Q) {
-                        const Real feq = feqQian(rho, {ux, uy, uz}, q);
+                        const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
                         restricted += feq + (fq - feq) * scale;
                     }
                 } else if (q < Q) {
@@ -2784,12 +2807,12 @@ void average_down_lbm_scaled_warp(int i, int j, int k, int q,
                                   amrex::IntVect const& ratio, amrex::Real scale) noexcept {
     const int fi = i * ratio[0];
     const int fj = j * ratio[1];
-    const int fk = k * ratio[2];
-    const int nchildren = ratio[0] * ratio[1] * ratio[2];
+    const int fk = k * AMREX_D_PICK(1, 1, ratio[2]);
+    const int nchildren = ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]);
     Real restricted = 0.0;
     const Real inv_children = Real(1.0) / Real(nchildren);
 
-    for (int kr = 0; kr < ratio[2]; ++kr) {
+    for (int kr = 0; kr < AMREX_D_PICK(1, 1, ratio[2]); ++kr) {
         for (int jr = 0; jr < ratio[1]; ++jr) {
             for (int ir = 0; ir < ratio[0]; ++ir) {
                 const int ii = fi + ir;
@@ -2799,10 +2822,10 @@ void average_down_lbm_scaled_warp(int i, int j, int k, int q,
                 const Real rho = warp_sum_32(fq);
                 const Real ux = warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0)) / rho;
                 const Real uy = warp_sum_32(q < Q ? fq * e[q][1] : Real(0.0)) / rho;
-                const Real uz = warp_sum_32(q < Q ? fq * e[q][2] : Real(0.0)) / rho;
+                const Real uz = warp_sum_32(q < Q ? fq * lattice_ez(q) : Real(0.0)) / rho;
 
                 if (q < Q) {
-                    const Real feq = feqQian(rho, {ux, uy, uz}, q);
+                    const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
                     restricted += feq + (fq - feq) * scale;
                 }
             }
@@ -2827,6 +2850,7 @@ struct AmrCoreFill {
     }
 };
 
+#if AMREX_SPACEDIM == 3
 AMREX_GPU_HOST_DEVICE // 自适应加密
     AMREX_FORCE_INLINE void
     state_error(int i, int j, int k, amrex::Array4<char> const& tag,
@@ -2904,6 +2928,8 @@ AMREX_GPU_HOST_DEVICE // 自适应加密
     // }
 }
 
+#endif
+
 AMREX_GPU_HOST_DEVICE // 用于方腔流的近壁和高涡量区域加密
     AMREX_FORCE_INLINE void
     state_error_3(int i, int j, int k, amrex::Array4<char> const& tag,
@@ -2977,6 +3003,7 @@ AMREX_GPU_HOST_DEVICE // 论文风格: 目标层级映射到 refine tag
     }
 }
 
+#if AMREX_SPACEDIM == 3
 AMREX_GPU_HOST_DEVICE // 用于多复杂结构体固定区域加密
     AMREX_FORCE_INLINE void
     state_error_4(int i, int j, int k, amrex::Array4<char> const& tag,
@@ -3385,5 +3412,7 @@ pressure_interp(P const& p, amrex::Real& cp,
     amrex::Real m = 0.5 * rho0 * U0 * U0;
     cp = (rhotp - p0) / m;
 }
+
+#endif
 
 #endif

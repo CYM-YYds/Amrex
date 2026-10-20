@@ -1,6 +1,6 @@
 CEXE_headers += AmrCoreLBM.H
 CEXE_headers += OsiCommunication.H
-CEXE_headers += D3Q19.H
+CEXE_headers += LbmLattice.H
 CEXE_headers += LagrangeParticleContainer.H
 CEXE_headers += AuxiliaryPointContainer.H
 CEXE_headers += InitParticles.H

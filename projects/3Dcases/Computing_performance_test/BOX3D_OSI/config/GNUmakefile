@@ -7,7 +7,7 @@ DEBUG	= FALSE
 
 TINY_PROFILE = TRUE
 
-DIM	= 3
+DIM ?= 3
 
 COMP    = gcc
 BL_NO_FORT = TRUE

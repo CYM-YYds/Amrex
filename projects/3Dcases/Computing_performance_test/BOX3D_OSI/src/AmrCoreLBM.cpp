@@ -12,7 +12,9 @@
 #include <cmath>
 #include <algorithm>
 #include <vector>
+#if AMREX_SPACEDIM == 3
 #include "InitParticles.H"
+#endif
 #include "Kernels.H"
 
 using namespace amrex;
@@ -126,8 +128,8 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     points.resize(particle_num);
     // generateSpheres(particle_num, R, NX, NY, NZ, points);
     // generateSpheres(D, NX, NY, NZ, points);
-    points[0] = {0.5 * grid_.nx_cells, 0.5 * grid_.ny_cells,
-                 0.5 * grid_.nz_cells};
+    points[0] = {AMREX_D_DECL(0.5 * grid_.nx_cells, 0.5 * grid_.ny_cells,
+                 0.5 * grid_.nz_cells)};
     // points[1] = {X + 2.0*D, Y, Z};
     // points[0] = {X + 0.03*D, Y + 0.03*D, 21.00*D};
     // points[1] = {X - 0.03*D, Y - 0.03*D, 18.96*D};
@@ -527,6 +529,7 @@ void AmrCoreLBM::ReadParameters() {
 
     {
         ParmParse pp_verify("verification");
+        pp_verify.query("regrid_fixture", probe_.regrid_fixture);
         pp_verify.query("osi_seed_pattern", osi_verification_pattern);
         pp_verify.query("osi_ab_check", requested_osi_ab_check);
         pp_verify.query("particle_checksum", particle_checksum);
@@ -536,8 +539,8 @@ void AmrCoreLBM::ReadParameters() {
         std::vector<int> sample;
         if (pp_verify.queryarr("boundary_probe_sample", sample)) {
             AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-                sample.size() == 3,
-                "verification.boundary_probe_sample requires 3 integers");
+                sample.size() == AMREX_SPACEDIM,
+                "verification.boundary_probe_sample requires DIM integers");
             std::copy(sample.begin(), sample.end(), probe_.boundary_sample);
         }
         pp_verify.query("boundary_probe_q", probe_.boundary_sample_q);
@@ -572,6 +575,11 @@ void AmrCoreLBM::ReadParameters() {
         pp_ckpt.query("chk_prefix", params_.chk_prefix);
         pp_ckpt.query("keep_latest_only", params_.keep_latest_only);
         pp_ckpt.query("write_particles", params_.write_particles);
+        std::string shape = AMREX_D_PICK("", "disk", "sphere");
+        ParmParse pp_particles("particles");
+        pp_particles.query("shape", shape);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(shape == AMREX_D_PICK("", "disk", "sphere"),
+            "particles.shape must be disk in DIM=2 and sphere in DIM=3");
 
         if (amrex::ParallelDescriptor::IOProcessor()) {
             amrex::Print() << "[Params] checkpoint:\n"
@@ -602,7 +610,7 @@ void AmrCoreLBM::WriteVelocityFile(const int step, const amrex::Real time) {
         mf.push_back(&velocity[i]);
     }
 
-    amrex::Vector<std::string> varnames = {"ux", "uy", "uz"};
+    amrex::Vector<std::string> varnames = {AMREX_D_DECL("ux", "uy", "uz")};
 
     amrex::WriteMultiLevelPlotfile(plotfilename, finest_level + 1, mf, varnames,
                                    Geom(), time, Vector<int>(finest_level + 1, step), refRatio());
@@ -631,7 +639,7 @@ void AmrCoreLBM::WriteVelocityFile(const int step, const amrex::Real time, const
 
     mf.push_back(&velocity[lev]);
 
-    amrex::Vector<std::string> varnames = {"ux", "uy", "uz"};
+    amrex::Vector<std::string> varnames = {AMREX_D_DECL("ux", "uy", "uz")};
 
     amrex::WriteMultiLevelPlotfile(plotfilename, 1, mf, varnames,
                                    Geom(), time, Vector<int>(1, step), refRatio());
@@ -656,9 +664,44 @@ void AmrCoreLBM::WriteVorticityFile(const int step, const amrex::Real time) {
 void AmrCoreLBM::WriteParticleFile(const int step, const amrex::Real time) {
     for (int i = 0; i < particle_num; i++) {
         particles[i]->WriteParticle(step);
+#if AMREX_SPACEDIM == 2
+        if (particlesCp[i]) { particlesCp[i]->WriteCp(step); }
+#endif
     }
 }
 
+void AmrCoreLBM::InitParticle(int lev) {
+    for (int i = 0; i < particle_num; i++) {
+        particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i, grid_);
+        particles[i]->InitParticle(lev);
+        // particles[i] ->InitParticleFromFile(lev, "../../../object/sphere128");
+        // particles[i] ->InitParticleFromFile(lev, "../../../object/car_fine");
+    }
+}
+
+void AmrCoreLBM::InitCpPoint(int lev) {
+    for (int i = 0; i < particle_num; i++) {
+        particlesCp[i] = std::make_unique<AuxiliaryPointContainer>(
+            this, points[i], i, grid_);
+        particlesCp[i]->InitCpPoint(lev);
+    }
+}
+
+void AmrCoreLBM::PrintParticleParm() {
+    particles[0]->PrintParticleParm();
+}
+
+void AmrCoreLBM::RedistributeParticle() {
+    for (int i = 0; i < particle_num; i++) {
+        particles[i]->Redistribute();
+#if AMREX_SPACEDIM == 2
+        if (particlesCp[i]) { particlesCp[i]->Redistribute(); }
+#endif
+    }
+}
+
+// 三维专属的 IBM、运动和近接模型；二维静态几何管理保留在上方。
+#if AMREX_SPACEDIM == 3
 void AmrCoreLBM::WriteMultiParticleFile(const int step, const amrex::Real time) {
     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
         std::string filename = amrex::Concatenate("particle_data", step, 6) + ".dat";
@@ -683,15 +726,6 @@ void AmrCoreLBM::WriteMultiParticleFile(const int step, const amrex::Real time) 
         }
 
         file.close();
-    }
-}
-
-void AmrCoreLBM::InitParticle(int lev) {
-    for (int i = 0; i < particle_num; i++) {
-        particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i, grid_);
-        particles[i]->InitParticle(lev);
-        // particles[i] ->InitParticleFromFile(lev, "../../../object/sphere128");
-        // particles[i] ->InitParticleFromFile(lev, "../../../object/car_fine");
     }
 }
 
@@ -759,24 +793,6 @@ void AmrCoreLBM::SaveParticleDistance(int lev, int step) {
     }
 }
 
-void AmrCoreLBM::PrintParticleParm() {
-    particles[0]->PrintParticleParm();
-}
-
-void AmrCoreLBM::RedistributeParticle() {
-    for (int i = 0; i < particle_num; i++) {
-        particles[i]->Redistribute();
-    }
-}
-
-void AmrCoreLBM::InitCpPoint(int lev) {
-    for (int i = 0; i < particle_num; i++) {
-        particlesCp[i] = std::make_unique<AuxiliaryPointContainer>(
-            this, points[i], i, grid_);
-        particlesCp[i]->InitCpPoint(lev);
-    }
-}
-
 void AmrCoreLBM::ComputeCp(int lev, int step) {
     CommunicateLevel(lev);
     ComputeMacroLevel(lev);
@@ -808,6 +824,7 @@ void AmrCoreLBM::MoveParticle(int lev, amrex::Real cur_time) {
         particles[i]->Redistribute();
     }
 }
+#endif
 
 void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
     const std::string level_prefix = "Level_";
@@ -856,6 +873,10 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             DistributionMap(lev).writeOn(header);
             header << '\n';
         }
+        std::ofstream model(out_chkname + "/Lattice");
+        model << "LBMLatticeV1 " << AMREX_SPACEDIM << ' ' << Q << ' ' << LBM_ORDER << '\n';
+        model.flush();
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(model.good(), "Cannot write checkpoint lattice metadata");
         header.flush(); // 将 C++ 输出缓冲区中的数据立即刷新到文件中
     }
 
@@ -887,6 +908,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             }
         }
     }
+
     ParallelDescriptor::Barrier();
 
     if (params_.keep_latest_only && isIOP) {
@@ -930,6 +952,28 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
     }
 }
 
+void AmrCoreLBM::ValidateCheckpointLattice(const std::string& checkpoint_path) const {
+    // 在解析维度相关的 BoxArray 之前核对模型，旧格式只接受既有三维模型。
+    const std::string model_file = checkpoint_path + "/Lattice";
+    if (amrex::FileExists(model_file)) {
+        amrex::Vector<char> chars;
+        ParallelDescriptor::ReadAndBcastFile(model_file, chars);
+        std::istringstream model(std::string(chars.dataPtr()));
+        std::string label;
+        int dimension = 0, directions = 0, order = -1;
+        model >> label >> dimension >> directions >> order;
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            model && label == "LBMLatticeV1" && dimension == AMREX_SPACEDIM &&
+                directions == Q && order == LBM_ORDER,
+            "[Checkpoint] Lattice mismatch: dimension, Q or ordering differs from executable");
+    } else {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            AMREX_SPACEDIM == 3 && Q == 27 && LBM_ORDER == 0,
+            "[Checkpoint] Legacy checkpoint without Lattice metadata requires DIM=3 D3Q27 order=0");
+    }
+
+}
+
 void AmrCoreLBM::ReadCheckpoint() {
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params_.begin_step > 0,
                                      "checkpoint.begin_step must be > 0 when restarting.");
@@ -944,6 +988,8 @@ void AmrCoreLBM::ReadCheckpoint() {
         amrex::Print() << "[Checkpoint] Restart directory resolved to '" << chkname
                        << "' (begin_step=" << params_.begin_step << ")" << std::endl;
     }
+
+    ValidateCheckpointLattice(chkname);
 
     amrex::Vector<char> header_chars;
     ParallelDescriptor::ReadAndBcastFile(header_file, header_chars);
@@ -1070,8 +1116,15 @@ void AmrCoreLBM::ReadCheckpoint() {
             particles[i].reset();
             particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i, grid_);
             particles[i]->Restart(chkname, pname);
+            points[i] = particles[i]->ReturnCentre();
         }
+#if AMREX_SPACEDIM == 2
+        // 辅助点只保存静态几何，重启时重新生成，cp 保持未采样的零值。
+        InitCpPoint(finest_level);
+#endif
     }
+
+
 
     RebuildCoarseFineCaches();
 }

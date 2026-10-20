@@ -174,7 +174,7 @@ void AmrCoreLBM::ApplyPhysicalBoundaryToInterpolationStage(
                                       ? j
                                       : amrex::max(coarse_lo.y,
                                                    amrex::min(j, coarse_hi.y));
-                const int src_k = coarse_periodic[2]
+                const int src_k = AMREX_D_PICK(0, 0, coarse_periodic[2])
                                       ? k
                                       : amrex::max(coarse_lo.z,
                                                    amrex::min(k, coarse_hi.z));
@@ -246,7 +246,7 @@ void AmrCoreLBM::InterpolateDdfStageToFine(
             if (interp_mode == 0) {
                 amrex::ParallelFor(
                     fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        interp_bilinear_d3q(
+                        interp_bilinear_ddf(
                             i, j, k, fine, coarse_const, fine_fab, fine_shift);
                     });
             } else {
@@ -255,7 +255,7 @@ void AmrCoreLBM::InterpolateDdfStageToFine(
                     amrex::ParallelFor(
                         coarse_parent_box,
                         [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                            interp_cell_cons_linear_children_d3q(
+                            interp_cell_cons_linear_children_ddf(
                                 ic, jc, kc, fine, coarse_const, fine_box,
                                 fine_fab, fine_shift);
                         });
@@ -263,7 +263,7 @@ void AmrCoreLBM::InterpolateDdfStageToFine(
                     amrex::ParallelFor(
                         coarse_parent_box,
                         [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                            interp_cell_quadratic_children_d3q(
+                            interp_cell_quadratic_children_ddf(
                                 ic, jc, kc, fine, coarse_const, fine_box,
                                 fine_fab, fine_shift);
                         });
@@ -274,14 +274,14 @@ void AmrCoreLBM::InterpolateDdfStageToFine(
         if (interp_mode == 0) {
             amrex::ParallelFor(
                 fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    interp_bilinear_d3q(i, j, k, fine, coarse);
+                    interp_bilinear_ddf(i, j, k, fine, coarse);
                 });
         } else if (interp_mode == 1) {
             const Box coarse_parent_box = amrex::coarsen(fine_box, 2);
             amrex::ParallelFor(
                 coarse_parent_box,
                 [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                    interp_cell_cons_linear_children_d3q(
+                    interp_cell_cons_linear_children_ddf(
                         ic, jc, kc, fine, coarse, fine_box);
                 });
         } else {
@@ -289,7 +289,7 @@ void AmrCoreLBM::InterpolateDdfStageToFine(
             amrex::ParallelFor(
                 coarse_parent_box,
                 [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                    interp_cell_quadratic_children_d3q(
+                    interp_cell_quadratic_children_ddf(
                         ic, jc, kc, fine, coarse, fine_box);
                 });
         }
@@ -375,14 +375,14 @@ void AmrCoreLBM::RemakeDdfState(
                 if (interp_mode_local == 0) {
                     amrex::ParallelFor(
                         bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                            interp_bilinear_d3q(i, j, k, fine, coarse);
+                            interp_bilinear_ddf(i, j, k, fine, coarse);
                         });
                 } else if (interp_mode_local == 1) {
                     const Box coarse_parent_box = amrex::coarsen(bx, 2);
                     amrex::ParallelFor(
                         coarse_parent_box,
                         [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                            interp_cell_cons_linear_children_d3q(
+                            interp_cell_cons_linear_children_ddf(
                                 ic, jc, kc, fine, coarse, bx);
                         });
                 } else {
@@ -390,7 +390,7 @@ void AmrCoreLBM::RemakeDdfState(
                     amrex::ParallelFor(
                         coarse_parent_box,
                         [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                            interp_cell_quadratic_children_d3q(
+                            interp_cell_quadratic_children_ddf(
                                 ic, jc, kc, fine, coarse, bx);
                         });
                 }
@@ -590,7 +590,7 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
                     return;
                 }
 
-                for (int dk = -1; dk <= 1; ++dk) {
+                for (int dk = AMREX_D_PICK(0, 0, -1); dk <= AMREX_D_PICK(0, 0, 1); ++dk) {
                     for (int dj = -1; dj <= 1; ++dj) {
                         for (int di = -1; di <= 1; ++di) {
                             const int ni = i + di;
@@ -784,6 +784,8 @@ void AmrCoreLBM::FindCentre() {
 
 void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::BoxArray& ba,
                                         const amrex::DistributionMapping& dm) {
+    if (probe_.regrid_fixture) { amrex::Print() << "AMR_LIFECYCLE MakeNewLevelFromCoarse level=" << lev << '\n'; }
+
     // 给新建的细网格层 lev 分配数据，并从紧邻的粗层插值出初始 DDF 状态, 只在 regrid() 新增一个此前不存在的细层时调用，RefineMesh() 会调用。
     if (lev == 0) {
         amrex::Abort("Cannot construct level 0 from a coarser level.");
@@ -830,7 +832,9 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
 }
 
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
-                             const amrex::DistributionMapping& dm) { // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用
+                             const amrex::DistributionMapping& dm) {
+    if (probe_.regrid_fixture) { amrex::Print() << "AMR_LIFECYCLE RemakeLevel level=" << lev << '\n'; }
+ // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用
     amrex::MultiFab u_new(ba, dm, AMREX_SPACEDIM, nghost);           // 按新 ba/dm 重建派生宏观场；density/velocity 后续由 DDF 重新计算。
     amrex::MultiFab rho_new(ba, dm, 1, nghost);
     amrex::MultiFab vort_new(ba, dm, 2, nghost);
@@ -901,6 +905,15 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
                     osi_phase.at(lev - 1), new_osi_state,
                     work_boxes, fine_indices);
             }
+        }
+
+        if (osiReferenceEnabled()) {
+            // 锁步参考态也必须迁移到新布局，不能用旧 Array4 比较重构后的 OSI。
+            // 复用独立 canonical 重构路径，保留其作为数值对照的意义。
+            MultiFab reference(ba, dm, Q, nghost);
+            RemakeDdfState(lev, time, reference);
+            std::swap(reference, f_old.at(lev));
+            f_new.at(lev).define(ba, dm, Q, nghost);
         }
 
         force_new.setVal(0.0, nghost);
@@ -1004,6 +1017,8 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
 }
 
 void AmrCoreLBM::ClearLevel(int lev) {
+    if (probe_.regrid_fixture) { amrex::Print() << "AMR_LIFECYCLE ClearLevel level=" << lev << '\n'; }
+
     ClearOsiTransferCaches();
     boundary_work_cache[lev].clear();
     osi_fillboundary_cache[lev].clear();
@@ -1094,7 +1109,7 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
 
             amrex::ParallelFor(
                 bx, Q, [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                    Real value = feqQian(rho0, {0.0, 0.0, 0.0}, q);
+                    Real value = feqQian(rho0, {AMREX_D_DECL(0.0, 0.0, 0.0)}, q);
                     if (seed_pattern) {
                         const int code = (13 * i + 7 * j + 3 * k + 5 * q) % 97;
                         const Real perturbation = Real(1.0e-4) * Real(code - 48);
@@ -1115,6 +1130,35 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
 }
 
 void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow) {
+    // 受控回归专用：依次新建、平移、清除加密区，确保实际走过布局生命周期。
+    // 默认关闭；不参与物理算例的加密判据，也不保存独立时间状态。
+    if (probe_.regrid_fixture) {
+        const int coarse_step = static_cast<int>(std::llround(time / grid_.dt));
+        const int epoch = (coarse_step + 1) / 32;
+        const bool refine = epoch > 0 && epoch != 5;
+        const Box domain = Geom(lev).Domain();
+        const auto lower = amrex::lbound(domain);
+        const auto size = amrex::length(domain);
+        const Real shift = (epoch == 4 || epoch >= 7) ? Real(0.0625) : Real(0);
+        const Real inset = Real(0.25) + Real(0.05) * lev;
+        for (MFIter mfi(tags); mfi.isValid(); ++mfi) {
+            const auto tag = tags.array(mfi);
+            amrex::ParallelFor(mfi.validbox(),
+                [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                    const Real x = Real(i - lower.x) / size.x;
+                    const Real y = Real(j - lower.y) / size.y;
+                    bool inside = refine && x >= inset + shift && x < Real(1) - inset + shift &&
+                        y >= inset && y < Real(1) - inset;
+#if AMREX_SPACEDIM == 3
+                    const Real z = Real(k - lower.z) / size.z;
+                    inside = inside && z >= inset && z < Real(1) - inset;
+#endif
+                    tag(i, j, k) = inside ? TagBox::SET : TagBox::CLEAR;
+                });
+        }
+        return;
+    }
+
 
     if (lev >= err.size()) {
         return;
@@ -1156,10 +1200,14 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
             // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
-            // state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+#if AMREX_SPACEDIM == 3
+            state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+#else
+            state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+#endif
             // state_error_4(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
             // state_error_5(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
-            state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+            // state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
         });
     }
 

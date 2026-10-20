@@ -59,7 +59,7 @@ void AmrCoreLBM::AverageDownOsiValidLevel(int lev, bool is_scale) {
                 write_box, Q,
                 [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
                     const auto raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                        {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)},
                         coarse_fab, coarse_shift);
                     dst(raw.x, raw.y, raw.z, q) = src(i, j, k, q);
                 });
@@ -232,15 +232,15 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
                 const auto source = OSI::source_cell(tag, i, j, k);
                 const int si = source[0];
                 const int sj = source[1];
-                const int sk = source[2];
+                const int sk = AMREX_D_PICK(0, 0, source[2]);
                 const auto src_shift = phase_shifts[tag.src_phase_index];
                 const auto dst_shift = phase_shifts[tag.dst_phase_index];
                 for (int q = 0; q < Q; ++q) {
                     const auto src_raw = OSI::osi_address(
-                        {si, sj, sk}, {e[q][0], e[q][1], e[q][2]},
+                        {si, sj, sk}, {e[q][0], e[q][1], lattice_ez(q)},
                         tag.src_fab, src_shift);
                     const auto dst_raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                        {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)},
                         tag.dst_fab, dst_shift);
                     tag.dst(dst_raw.x, dst_raw.y, dst_raw.z, q) =
                         tag.src(src_raw.x, src_raw.y, src_raw.z, q);
@@ -284,7 +284,7 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
                     const std::size_t cell = OSI::buffer_cell_index(tag.region, i, j, k);
                     const auto phase_shift = phase_shifts[tag.phase_index];
                     const auto raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                        {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab,
                         phase_shift);
                     buffer[tag.offset + cell * Q + q] =
                         tag.src(raw.x, raw.y, raw.z, q);
@@ -438,7 +438,7 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
                     const std::size_t cell = OSI::buffer_cell_index(tag.region, i, j, k);
                     const auto phase_shift = phase_shifts[tag.phase_index];
                     const auto raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                        {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab,
                         phase_shift);
                     tag.dst(raw.x, raw.y, raw.z, q) =
                         buffer[tag.offset + cell * Q + q];
@@ -466,16 +466,16 @@ void AmrCoreLBM::ParallelCopyOsi(
             const auto source = OSI::source_cell(tag, i, j, k);
             if constexpr (SourceRaw) {
                 const auto raw = OSI::osi_address(
-                    {source[0], source[1], source[2]},
-                    {e[q][0], e[q][1], e[q][2]}, tag.src_fab,
+                    {source[0], source[1], AMREX_D_PICK(0, 0, source[2])},
+                    {e[q][0], e[q][1], lattice_ez(q)}, tag.src_fab,
                     phase_shifts[tag.src_phase_index]);
                 tag.dst(i, j, k, q) = tag.src(raw.x, raw.y, raw.z, q);
             } else {
                 const auto raw = OSI::osi_address(
-                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.dst_fab,
+                    {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.dst_fab,
                     phase_shifts[tag.dst_phase_index]);
                 tag.dst(raw.x, raw.y, raw.z, q) =
-                    tag.src(source[0], source[1], source[2], q);
+                    tag.src(source[0], source[1], AMREX_D_PICK(0, 0, source[2]), q);
             }
         });
     const int nprocs = ParallelDescriptor::NProcs();
@@ -496,7 +496,7 @@ void AmrCoreLBM::ParallelCopyOsi(
             const std::size_t cell = OSI::buffer_cell_index(tag.region, i, j, k);
             if constexpr (SourceRaw) {
                 const auto raw = OSI::osi_address(
-                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                    {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab,
                     phase_shifts[tag.phase_index]);
                 buffer[tag.offset + cell * Q + q] = tag.src(raw.x, raw.y, raw.z, q);
             } else {
@@ -510,7 +510,7 @@ void AmrCoreLBM::ParallelCopyOsi(
                 tag.dst(i, j, k, q) = buffer[tag.offset + cell * Q + q];
             } else {
                 const auto raw = OSI::osi_address(
-                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab,
+                    {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab,
                     phase_shifts[tag.phase_index]);
                 tag.dst(raw.x, raw.y, raw.z, q) = buffer[tag.offset + cell * Q + q];
             }
@@ -539,12 +539,12 @@ void AmrCoreLBM::ParallelCopyOsi(
                               destination.array(tag.dstIndex),
                               tag.sbox,
                               tag.dbox,
-                              {{source_lo[0], source_lo[1], source_lo[2]},
+                              {{source_lo[0], source_lo[1], AMREX_D_PICK(0, 0, source_lo[2])},
                                {source_ring.length(0), source_ring.length(1),
-                                source_ring.length(2)}},
-                              {{destination_lo[0], destination_lo[1], destination_lo[2]},
+                                AMREX_D_PICK(1, 1, source_ring.length(2))}},
+                              {{destination_lo[0], destination_lo[1], AMREX_D_PICK(0, 0, destination_lo[2])},
                                {destination_ring.length(0), destination_ring.length(1),
-                                destination_ring.length(2)}}});
+                                AMREX_D_PICK(1, 1, destination_ring.length(2))}}});
     }
 
     TagVector<OSI::LocalCopyTag> local_tv(local_tags);
@@ -556,12 +556,12 @@ void AmrCoreLBM::ParallelCopyOsi(
             const auto source_shift =
                 OSI::osi_phase_shift(source_phase, tag.src_fab);
             const auto source_raw = OSI::osi_address(
-                {source[0], source[1], source[2]},
-                {e[q][0], e[q][1], e[q][2]}, tag.src_fab, source_shift);
+                {source[0], source[1], AMREX_D_PICK(0, 0, source[2])},
+                {e[q][0], e[q][1], lattice_ez(q)}, tag.src_fab, source_shift);
             const auto destination_shift =
                 OSI::osi_phase_shift(destination_phase, tag.dst_fab);
             const auto destination_raw = OSI::osi_address(
-                {i, j, k}, {e[q][0], e[q][1], e[q][2]},
+                {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)},
                 tag.dst_fab, destination_shift);
             tag.dst(destination_raw.x, destination_raw.y,
                     destination_raw.z, q) =
@@ -586,7 +586,7 @@ void AmrCoreLBM::ParallelCopyOsi(
             const Box source_ring = amrex::grow(
                 source.boxArray()[tag.srcIndex], source.nGrowVect());
             const auto source_lo = source_ring.smallEnd();
-            pack_tags.push_back({source.const_array(tag.srcIndex), tag.sbox, {{source_lo[0], source_lo[1], source_lo[2]}, {source_ring.length(0), source_ring.length(1), source_ring.length(2)}}, send_cursor[peer]});
+            pack_tags.push_back({source.const_array(tag.srcIndex), tag.sbox, {{source_lo[0], source_lo[1], AMREX_D_PICK(0, 0, source_lo[2])}, {source_ring.length(0), source_ring.length(1), AMREX_D_PICK(1, 1, source_ring.length(2))}}, send_cursor[peer]});
             send_cursor[peer] +=
                 static_cast<std::size_t>(tag.sbox.numPts()) * Q;
         }
@@ -597,7 +597,7 @@ void AmrCoreLBM::ParallelCopyOsi(
             const Box destination_ring = amrex::grow(
                 destination.boxArray()[tag.dstIndex], destination.nGrowVect());
             const auto destination_lo = destination_ring.smallEnd();
-            unpack_tags.push_back({destination.array(tag.dstIndex), tag.dbox, {{destination_lo[0], destination_lo[1], destination_lo[2]}, {destination_ring.length(0), destination_ring.length(1), destination_ring.length(2)}}, recv_cursor[peer]});
+            unpack_tags.push_back({destination.array(tag.dstIndex), tag.dbox, {{destination_lo[0], destination_lo[1], AMREX_D_PICK(0, 0, destination_lo[2])}, {destination_ring.length(0), destination_ring.length(1), AMREX_D_PICK(1, 1, destination_ring.length(2))}}, recv_cursor[peer]});
             recv_cursor[peer] +=
                 static_cast<std::size_t>(tag.dbox.numPts()) * Q;
         }
@@ -614,10 +614,10 @@ void AmrCoreLBM::ParallelCopyOsi(
             const int nx = tag.region.length(0);
             const int ny = tag.region.length(1);
             const std::size_t cell = static_cast<std::size_t>(
-                ((k - lo[2]) * ny + (j - lo[1])) * nx + (i - lo[0]));
+                ((k - AMREX_D_PICK(0, 0, lo[2])) * ny + (j - lo[1])) * nx + (i - lo[0]));
             const auto shift = OSI::osi_phase_shift(source_phase, tag.fab);
             const auto raw = OSI::osi_address(
-                {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab, shift);
+                {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab, shift);
             send_buffer[tag.offset + cell * Q + q] =
                 tag.src(raw.x, raw.y, raw.z, q);
         },
@@ -628,11 +628,11 @@ void AmrCoreLBM::ParallelCopyOsi(
             const int nx = tag.region.length(0);
             const int ny = tag.region.length(1);
             const std::size_t cell = static_cast<std::size_t>(
-                ((k - lo[2]) * ny + (j - lo[1])) * nx + (i - lo[0]));
+                ((k - AMREX_D_PICK(0, 0, lo[2])) * ny + (j - lo[1])) * nx + (i - lo[0]));
             const auto shift =
                 OSI::osi_phase_shift(destination_phase, tag.fab);
             const auto raw = OSI::osi_address(
-                {i, j, k}, {e[q][0], e[q][1], e[q][2]}, tag.fab, shift);
+                {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab, shift);
             tag.dst(raw.x, raw.y, raw.z, q) =
                 receive_buffer[tag.offset + cell * Q + q];
         });
@@ -654,7 +654,7 @@ void AmrCoreLBM::DecodeOsiValid(
             bx, Q,
             [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) noexcept {
                 const auto raw = OSI::osi_address(
-                    {i, j, k}, {e[q][0], e[q][1], e[q][2]}, fab,
+                    {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fab,
                     phase_shift);
                 dst(i, j, k, q) = src(raw.x, raw.y, raw.z, q);
             });
