@@ -13,8 +13,35 @@
 `D:\Software\ParaView 6.2.0\bin\paraview.exe`。脚本检查客户端和服务端均为 **6.2.0**，
 版本不匹配时停止，不自动选用旧版。本机从 EXE 版本资源读取版本；若资源缺失，
 使用同目录 pvpython.exe 的控制台版本输出。Windows GUI 的 paraview.exe --version 可能无管道输出，不能用空输出来判断版本不符。
-远端使用仓库 `.tools/paraview-batch/env/bin/pvserver`，不再加载系统 ParaView/MPI 模块。
-此构建的 `PARAVIEW_USE_MPI=OFF`，因此使用单进程；不能改成 mpirun -np 32。
+默认远端使用仓库 `.tools/paraview-batch/env/bin/pvserver`，不加载系统ParaView/MPI模块。
+该已安装构建的PARAVIEW_USE_MPI=OFF，默认保留单进程；并行需另外准备同版本MPI构建，
+通过参数选择其安装前缀，不把默认串行包直接套上mpiexec。
+
+### 配置服务端进程数
+
+```powershell
+& 'D:\OneDrive\Desktop\connect_paraview.ps1' -ServerProcesses 4 -RemoteParaViewPrefix '/absolute/path/to/paraview-mpi'
+```
+
+`ServerProcesses`范围1–256，默认1是对现有串行安装的兼容，并非固定限制；
+可编辑param中的默认值。`RemoteParaViewPrefix`为远端绝对安装前缀，省略时沿用默认环境。
+目前PS1参数只接受不含空格及Shell元字符的远端前缀。
+前缀必须包含同版本pvserver、匹配的bin/mpiexec及所需Python/AMReX读取能力。
+多rank预检检查安装的PARAVIEW_USE_MPI；没有CMake配置时用该安装的pvpython确认MPI控制器。
+串行构建、缺少配套启动器或无法验证时，在建立新服务前报错，不退回单进程。
+
+远端包装脚本接受相同参数：
+
+```bash
+bash .agents/skills/paraview/scripts/run_paraview_server.sh \
+  --prefix /absolute/path/to/paraview-mpi --processes 4 --version
+```
+
+通过预检后实际启动使用该前缀的`mpiexec -n 4 pvserver`；不混用环境中的HMPI/OpenMPI。
+版本探测本身不启动多个rank。已有数据连接无法通过客户端热更新改变rank数，
+切换服务进程数需要用户保存场景后新建服务连接；脚本不关闭现有窗口或服务。
+多进程性能取决于读取器分发、过滤器、文件系统和进程数，应以实际数据测量，不能只按核数推断提速。
+当前尚未安装/验收对应MPI6.2.0环境，多rank能力仍待真实服务验收。
 
 SSH 用户、外部入口和端口在 PS1 配置区维护，并通过环境变量传给桥客户端。
 服务命令限定 **whshare-agent-1**：外部 SSH 入口已在该节点时直接运行并使用回环隧道；
@@ -30,8 +57,8 @@ SSH 用户、外部入口和端口在 PS1 配置区维护，并通过环境变�
 启动过程为：
 
 1. 检查本机固定端口 11115；被占用即停止，避免误连旧服务。
-2. SCP 下载仓库最新桥客户端到 PS1 同目录；失败停止，保留旧文件。
-3. 在编译节点选择 11115 起的空闲端口，建立指向该节点的 SSH 隧道并启动单进程 pvserver；保留服务输出窗口。
+2. 按ServerProcesses和RemoteParaViewPrefix检查同一服务配置，SCP下载仓库最新桥客户端到PS1同目录；失败停止，保留旧文件。
+3. 在编译节点选择11115起的空闲端口，建立指向该节点的SSH隧道，按配置启动单进程或MPI pvserver；保留服务输出窗口。
 4. 等待远端监听后，启动 GUI，传入 `--url=cs://localhost:11115` 与 `--script`。
 5. GUI 主线程执行启动 inspect，后台发布本次启动专属回执。PS1 核对启动编号、桥版本、
    本机文件 SHA256、所需能力和实际连接 URI；全部匹配且 GUI 未退出才显示 `Bridge ready`。

@@ -19,6 +19,73 @@ class RoutingTests(unittest.TestCase):
         path.chmod(0o755)
         return path
 
+    def server_environment(self, directory, mpi=True):
+        self.make_command(directory, 'hostname', 'echo whshare-agent-1')
+        prefix = directory/'paraview install'
+        binaries = prefix/'bin'
+        binaries.mkdir(parents=True)
+        config = prefix/'lib/cmake/paraview-6.2'
+        config.mkdir(parents=True)
+        (config/'paraview-config.cmake').write_text('set(PARAVIEW_USE_MPI "' + ('ON' if mpi else 'OFF') + '")\n')
+        self.make_command(binaries, 'pvserver',
+                          'printf "%s\\n" "$@" > "$CAPTURE"\n'
+                          'test -z "${LD_LIBRARY_PATH:-}" && test -z "${PYTHONPATH:-}" && '
+                          'test -z "${DISPLAY:-}" && test "$QT_QPA_PLATFORM" = offscreen')
+        self.make_command(binaries, 'mpiexec',
+                          'printf "%s\\n" "$@" > "$MPI_CAPTURE"\nshift 2\nexec "$@"')
+        env = dict(os.environ, PATH=str(directory)+':'+os.environ['PATH'],
+                   CAPTURE=str(directory/'server-args'), MPI_CAPTURE=str(directory/'mpi-args'),
+                   LD_LIBRARY_PATH='/invalid/libs', PYTHONPATH='/invalid/python', DISPLAY=':invalid')
+        return prefix, env
+
+    def test_parallel_server_uses_matching_launcher_and_preserves_arguments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            prefix, env = self.server_environment(directory)
+            result = subprocess.run(['bash', str(SCRIPTS/'run_paraview_server.sh'), '--prefix', str(prefix),
+                                     '--processes', '4', '--server-port=12345', 'argument with spaces'],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((directory/'mpi-args').read_text().splitlines(),
+                             ['-n', '4', str(prefix/'bin/pvserver'), '--force-offscreen-rendering',
+                              '--server-port=12345', 'argument with spaces'])
+            self.assertEqual((directory/'server-args').read_text().splitlines()[-1], 'argument with spaces')
+
+    def test_serial_build_rejects_parallel_launch_before_starting_server(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            prefix, env = self.server_environment(directory, mpi=False)
+            result = subprocess.run(['bash', str(SCRIPTS/'run_paraview_server.sh'), '--prefix', str(prefix),
+                                     '--processes', '4', '--version'], env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('built without MPI', result.stderr)
+            self.assertFalse((directory/'mpi-args').exists())
+            self.assertFalse((directory/'server-args').exists())
+
+    def test_parallel_preflight_does_not_launch_multiple_version_probes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            prefix, env = self.server_environment(directory)
+            result = subprocess.run(['bash', str(SCRIPTS/'run_paraview_server.sh'), '--prefix', str(prefix),
+                                     '--processes', '4', '--version'], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((directory/'mpi-args').exists())
+            self.assertEqual((directory/'server-args').read_text().strip(), '--version')
+
+    def test_single_process_retains_serial_compatibility_and_rejects_bad_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            prefix, env = self.server_environment(directory, mpi=False)
+            (prefix/'bin/mpiexec').unlink()
+            base = ['bash', str(SCRIPTS/'run_paraview_server.sh'), '--prefix', str(prefix)]
+            result = subprocess.run([*base, '--processes', '1', '--version'], env=env, capture_output=True)
+            self.assertEqual(result.returncode, 0)
+            (directory/'server-args').unlink()
+            for value in ['0', '-2', '1.5', '257', '4;echo injected']:
+                result = subprocess.run([*base, '--processes', value], env=env, capture_output=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertFalse((directory/'server-args').exists())
+
     def test_gui_server_refuses_login_node_even_for_version_probe(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)

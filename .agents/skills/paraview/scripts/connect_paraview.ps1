@@ -1,13 +1,18 @@
 ﻿# ParaView remote connection launcher
 
 # 已连接窗口可只检查状态或更新客户端，不创建新隧道、服务或GUI。
-param([switch]$BridgeStatus, [switch]$UpdateBridge)
+param(
+    [switch]$BridgeStatus,
+    [switch]$UpdateBridge,
+    [ValidateRange(1,256)][int]$ServerProcesses = 1,
+    [ValidatePattern('^(/[A-Za-z0-9_./-]+)?$')][string]$RemoteParaViewPrefix = ""
+)
 
 # Configuration
 $PARAVIEW_PATH = "D:\Software\ParaView 6.2.0\bin\paraview.exe"
 $LOCAL_PORT = "11115"        # Local port
 $REMOTE_PORT = "11115"       # Remote start port
-$SERVER_HOST = "whshare-agent-1" # 编译节点；新版构建无 MPI，单进程运行
+$SERVER_HOST = "whshare-agent-1" # 服务固定在编译节点，进程数由ServerProcesses指定
 $PARAVIEW_VERSION = "6.2.0"
 $MAX_PORT_ATTEMPTS = 10      # Max port attempts
 $REMOTE_USERNAME = "Liuzhaohui" # Remote SSH account
@@ -184,10 +189,13 @@ Write-Host "Local ParaView version: $clientVersion" -ForegroundColor Cyan
 $gatewayNode = (& ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" 'hostname -s' | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) { throw "Cannot identify SSH endpoint node." }
 $TUNNEL_TARGET = if ($gatewayNode -eq $SERVER_HOST) { "localhost" } else { $SERVER_HOST }
-$versionCommand = Get-ServerCommand "bash '$REMOTE_SERVER_SCRIPT' --version"
+# 同一组参数同时用于预检和实际启动，避免检查串行环境却启动另一套服务。
+$serverOptions = "--processes $ServerProcesses"
+if ($RemoteParaViewPrefix) { $serverOptions += " --prefix '$RemoteParaViewPrefix'" }
+$versionCommand = Get-ServerCommand "bash '$REMOTE_SERVER_SCRIPT' $serverOptions --version"
 $serverVersion = (& ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $versionCommand | Out-String)
 if ($LASTEXITCODE -ne 0 -or $serverVersion -notmatch "(?<![0-9.])6\.2\.0(?![0-9.])") {
-    throw "Expected pvserver $PARAVIEW_VERSION on $SERVER_HOST; got: $serverVersion"
+    throw "ParaView server preflight failed: need version $PARAVIEW_VERSION and MPI support for $ServerProcesses processes. Check the selected prefix and the preceding error. Got: $serverVersion"
 }
 # 固定本机端口已被占用时停止，不连接到旧窗口对应的远端服务。
 $localListener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, [int]$LOCAL_PORT)
@@ -219,7 +227,7 @@ Write-Host "Bridge script: $BRIDGE_SCRIPT" -ForegroundColor Cyan
 Write-Host "Remote bridge entry: $REMOTE_BRIDGE_ROOT/current.json" -ForegroundColor Cyan
 
 Write-Host "=== ParaView Remote HPC Launcher ===" -ForegroundColor Green
-Write-Host "ParaView $PARAVIEW_VERSION; server: $SERVER_HOST; processes: 1 (non-MPI build)" -ForegroundColor Yellow
+Write-Host "ParaView $PARAVIEW_VERSION; server: $SERVER_HOST; processes: $ServerProcesses" -ForegroundColor Yellow
 
 # Find available remote port
 $availablePort = Find-AvailablePort -StartPort $REMOTE_PORT -MaxAttempts $MAX_PORT_ATTEMPTS
@@ -235,7 +243,7 @@ $REMOTE_PORT = $availablePort
 Write-Host "Using remote port: $REMOTE_PORT" -ForegroundColor Green
 
 # 隧道目的地与实际服务节点一致；不在 SSH 登录节点启动 pvserver。
-$serverCommand = Get-ServerCommand "bash '$REMOTE_SERVER_SCRIPT' --server-port=$REMOTE_PORT"
+$serverCommand = Get-ServerCommand "bash '$REMOTE_SERVER_SCRIPT' $serverOptions --server-port=$REMOTE_PORT"
 $sshCommand = "ssh -o ExitOnForwardFailure=yes -o BatchMode=yes -o ServerAliveInterval=30 -CL 127.0.0.1:${LOCAL_PORT}:${TUNNEL_TARGET}:${REMOTE_PORT} ${REMOTE_USERNAME}@${REMOTE_HOST} -p${SSH_PORT} -T `"$serverCommand`""
 Write-Host "Server node: $SERVER_HOST, remote port: $REMOTE_PORT" -ForegroundColor Cyan
 
@@ -252,7 +260,7 @@ $batchLines = @(
     "title ParaView-${PARAVIEW_VERSION}-port${REMOTE_PORT}"
     'cd /d "%~dp0"'
     'echo ================================================'
-    "echo ParaView $PARAVIEW_VERSION server on $SERVER_HOST (single process)"
+    "echo ParaView $PARAVIEW_VERSION server on $SERVER_HOST ($ServerProcesses processes)"
     "echo Remote port: ${REMOTE_PORT}"
     'echo If successful, output should include "Waiting for client..."'
     'echo Keep this window open.'
