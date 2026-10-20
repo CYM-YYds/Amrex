@@ -1,5 +1,8 @@
 ﻿# ParaView remote connection launcher
 
+# 已连接窗口可只检查状态或更新客户端，不创建新隧道、服务或GUI。
+param([switch]$BridgeStatus, [switch]$UpdateBridge)
+
 # Configuration
 $PARAVIEW_PATH = "D:\Software\ParaView 6.2.0\bin\paraview.exe"
 $LOCAL_PORT = "11115"        # Local port
@@ -19,8 +22,36 @@ $REMOTE_BRIDGE_ROOT = "/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-brid
 # 每次启动使用独立编号，自检不会把旧会话当作本次启动成功。
 $BRIDGE_LAUNCH_ID = [Guid]::NewGuid().ToString("N")
 $BRIDGE_STARTUP_SECONDS = 180
-$BRIDGE_EXPECTED_VERSION = "3"
-$BRIDGE_REQUIRED_CAPABILITIES = @("inspect", "background", "restore_background", "export_centerline", "add_vorticity_view")
+$REMOTE_REPO_ROOT = "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex"
+$REMOTE_PYTHON = "$REMOTE_REPO_ROOT/.venv/bin/python"
+$REMOTE_SENDER = "$REMOTE_REPO_ROOT/.agents/skills/paraview/scripts/paraview_bridge_send.py"
+
+if ($BridgeStatus -and $UpdateBridge) { throw "Choose either -BridgeStatus or -UpdateBridge." }
+if ($BridgeStatus -or $UpdateBridge) {
+    $action = if ($UpdateBridge) { "reload_client" } else { "client_status" }
+    $replyOutput = & ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" "'$REMOTE_PYTHON' '$REMOTE_SENDER' current $action --timeout 180"
+    $replyExit = $LASTEXITCODE
+    try { $reply = ($replyOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "Bridge status/update failed. Check SSH and the existing ParaView window; no new connection was started." }
+    $status = if ($reply.verification) { $reply.verification } else { $reply }
+    Write-Host "Bridge state: $($status.status)" -ForegroundColor Cyan
+    Write-Host "Connection: $($status.connection_uri)" -ForegroundColor Cyan
+    if ($status.current) {
+        Write-Host "Client version: $($status.current.version); repository: $($status.expected.version)"
+        Write-Host "Client source SHA256: $($status.current.source_sha256)"
+    }
+    if ($replyExit -ne 0) { throw "Bridge operation failed: $($reply.error). Existing window and server were retained." }
+    if ($status.status -eq "client_update_required") {
+        if ($status.can_hot_update) {
+            Write-Host "Connection is live; update the client with -UpdateBridge." -ForegroundColor Yellow
+        } else {
+            Write-Host "Connection is live; this legacy client needs one local reload, or use this launcher at the next normal startup." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "Client is current; no data reconnection was performed." -ForegroundColor Green
+    }
+    return
+}
 
 # 所有服务命令通过已有 SSH 入口转到编译节点；编码避免双层 Shell 引号歧义。
 function Get-ServerCommand {
@@ -167,13 +198,23 @@ try {
 } finally {
     $localListener.Stop()
 }
+# 从同一仓库源码提取版本/能力，不在PS1内复制一套需要手动维护的版本号。
+$manifestOutput = & ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" "'$REMOTE_PYTHON' '$REMOTE_SENDER' current client_manifest"
+if ($LASTEXITCODE -ne 0) { throw "Cannot read repository client manifest; existing bridge was retained." }
+$bridgeManifest = ($manifestOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop
+$BRIDGE_EXPECTED_VERSION = $bridgeManifest.version
+$BRIDGE_REQUIRED_CAPABILITIES = @($bridgeManifest.capabilities)
 $bridgeDownload = "$BRIDGE_SCRIPT.download"
 & scp -B -o ConnectTimeout=5 -P $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}:${REMOTE_BRIDGE_SCRIPT}" $bridgeDownload
 if ($LASTEXITCODE -ne 0) {
     throw "Bridge download failed. Check SSH key authentication; existing bridge was retained."
 }
+$bridgeHash = (Get-FileHash -LiteralPath $bridgeDownload -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($bridgeHash -ne $bridgeManifest.source_sha256) {
+    Remove-Item -LiteralPath $bridgeDownload -ErrorAction SilentlyContinue
+    throw "Downloaded client does not match repository manifest; existing bridge was retained. Retry after checking repository changes."
+}
 Move-Item -LiteralPath $bridgeDownload -Destination $BRIDGE_SCRIPT -Force
-$bridgeHash = (Get-FileHash -LiteralPath $BRIDGE_SCRIPT -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host "Bridge script: $BRIDGE_SCRIPT" -ForegroundColor Cyan
 Write-Host "Remote bridge entry: $REMOTE_BRIDGE_ROOT/current.json" -ForegroundColor Cyan
 
@@ -322,6 +363,7 @@ Write-Host "OK: Server window should show 'Waiting for client...'" -ForegroundCo
 Write-Host "OK: ParaView connects automatically; File -> Connect is a fallback." -ForegroundColor White
 Write-Host "OK: Bridge loads automatically; no Python Shell command is needed." -ForegroundColor White
 Write-Host "OK: Agent discovers the latest session from the fixed remote entry." -ForegroundColor White
+Write-Host "OK: Use -BridgeStatus or -UpdateBridge for an existing window; these modes do not reconnect data." -ForegroundColor White
 Write-Host "OK: Keep server window open, closing it will disconnect" -ForegroundColor White
 Write-Host "OK: Auto-selected remote port is $REMOTE_PORT" -ForegroundColor Cyan
 

@@ -16,9 +16,11 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '3'
+BRIDGE_VERSION = '4'
+RUNTIME_UPDATE_PROTOCOL = 1
+REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
-                'add_vorticity_view']
+                'add_vorticity_view', 'reload_client']
 
 # 跨启动脚本和交互 Shell 共用唯一实例，也保留停止后可能被系统消息引用的回调。
 if not hasattr(builtins, '_amrex_paraview_bridge_runtime'):
@@ -236,6 +238,65 @@ def add_vorticity_view(command):
 
 
 class ParaViewBridge:
+    def prepare_reload(self, command):
+        """后台只读取固定仓库文件；SHA256必须与投递端期望一致。"""
+        import ast
+        expected = command.get('expected_sha256', '')
+        if not isinstance(expected, str) or len(expected) != 64 or any(
+                c not in '0123456789abcdef' for c in expected):
+            raise ValueError('reload_client requires a lowercase SHA256')
+        source = self.remote('cat ' + shlex.quote(REMOTE_CLIENT_SOURCE))
+        if hashlib.sha256(source).hexdigest() != expected:
+            raise ValueError('Repository client changed or download is incomplete; refresh status before retrying')
+        tree = ast.parse(source)
+        protocol = next((ast.literal_eval(node.value) for node in tree.body
+                         if isinstance(node, ast.Assign) and any(
+                             isinstance(t, ast.Name) and t.id == 'RUNTIME_UPDATE_PROTOCOL'
+                             for t in node.targets)), None)
+        if protocol != RUNTIME_UPDATE_PROTOCOL:
+            raise ValueError('Runtime protocol changed; restart with the current launcher instead of hot update')
+        compile(source, REMOTE_CLIENT_SOURCE, 'exec')
+        return source
+
+    def reload_client(self, command):
+        """在GUI主线程替换命令实现，保持同一传输线程、计时器与状态所有者。"""
+        from pathlib import Path
+        source = command.get('_client_source')
+        expected = command.get('expected_sha256')
+        if not isinstance(source, bytes) or hashlib.sha256(source).hexdigest() != expected:
+            raise ValueError('Client source must be prepared by the transport worker')
+        script = os.environ.get('PV_BRIDGE_SCRIPT')
+        if not script:
+            raise ValueError('PV_BRIDGE_SCRIPT is missing; reload from the local launcher first')
+        before = self.execute({'action': 'inspect'})
+        if expected == self.source_sha256:
+            return {'updated': False, 'version': before['version'], 'source_sha256': expected,
+                    'connection_uri': before['connection_uri'], 'session': self.directory}
+        namespace = {'__name__': '_updated_paraview_bridge', '__file__': script,
+                     '_PV_BRIDGE_DEFINITIONS_ONLY': True}
+        exec(compile(source, script, 'exec'), namespace)
+        if namespace.get('RUNTIME_UPDATE_PROTOCOL') != RUNTIME_UPDATE_PROTOCOL:
+            raise ValueError('Incompatible runtime protocol')
+        candidate = namespace['ParaViewBridge']
+        after = candidate.execute(self, {'action': 'inspect'})
+        if any(before[key] != after[key] for key in ('connection_uri', 'sources', 'views')):
+            raise ValueError('Update changed the existing connection or pipeline; not activating it')
+        original_class = self.__class__
+        temporary = Path(script).with_suffix('.py.update')
+        try:
+            temporary.write_bytes(source)
+            self.__class__ = candidate
+            os.replace(temporary, script)
+        except Exception:
+            self.__class__ = original_class
+            temporary.unlink(missing_ok=True)
+            raise
+        self.source_sha256 = expected
+        return {'updated': True, 'version': after['version'], 'source_sha256': expected,
+                'capabilities': after['capabilities'], 'connection_uri': after['connection_uri'],
+                'session': self.directory, 'preserved_sources': after['sources'],
+                'preserved_views': after['views']}
+
     def __init__(self):
         self.root = os.environ.get('PV_BRIDGE_ROOT',
             '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge')
@@ -324,6 +385,14 @@ class ParaViewBridge:
                         if command['id'] != previous:
                             # 同一会话中每个命令只执行一次；回传失败只重试回传。
                             previous = command['id']
+                            # 内部源码只能由后台从固定路径下载，忽略文件协议传入的同名字段。
+                            command.pop('_client_source', None)
+                            if command.get('action') == 'reload_client':
+                                try:
+                                    command['_client_source'] = self.prepare_reload(command)
+                                except Exception as exc:
+                                    self.outgoing.put({'id': command['id'], 'ok': False, 'error': str(exc)})
+                                    continue
                             self.incoming.put(command)
                 except Exception as exc:
                     print('ParaView bridge transport: ' + str(exc))
@@ -350,6 +419,8 @@ class ParaViewBridge:
     def execute(self, command):
         # 白名单只允许明确的数据导出和界面操作，不执行远端任意代码。
         action = command.get('action')
+        if action == 'reload_client':
+            return self.reload_client(command)
         if action == 'export_centerline':
             return export_centerline(command)
         if action == 'add_vorticity_view':
@@ -359,6 +430,7 @@ class ParaViewBridge:
             connection = servermanager.ActiveConnection
             uri = connection.Session.GetURI() if connection is not None else None
             return {'capabilities': CAPABILITIES, 'version': BRIDGE_VERSION,
+                    'source_sha256': getattr(self, 'source_sha256', None),
                     'connection_uri': uri,
                     'sources': [list(key) for key in pvs.GetSources()],
                     'source_details': [

@@ -1,5 +1,7 @@
 """超算端命令投递器；用仓库 .venv/bin/python 运行。"""
 import argparse
+import ast
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -8,6 +10,34 @@ import uuid
 
 
 BRIDGE_ROOT = Path('/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge')
+
+
+def client_manifest():
+    """只解析固定客户端的常量，不启动ParaView或执行客户端代码。"""
+    source = Path(__file__).with_name('paraview_bridge_client.py').read_bytes()
+    values = {}
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in ('BRIDGE_VERSION', 'CAPABILITIES'):
+                    values[target.id] = ast.literal_eval(node.value)
+    return {'version': values['BRIDGE_VERSION'], 'capabilities': values['CAPABILITIES'],
+            'source_sha256': hashlib.sha256(source).hexdigest()}
+
+
+def client_status(reply, expected):
+    """连接状态与源码版本分开报告，不能把旧客户端误报为连接断开。"""
+    if not reply.get('ok'):
+        return {'ok': False, 'status': 'bridge_error', 'reply': reply}
+    live = reply['value']
+    connected = bool(live.get('connection_uri'))
+    current = (live.get('version') == expected['version'] and
+               live.get('source_sha256') == expected['source_sha256'] and
+               set(expected['capabilities']).issubset(live.get('capabilities', [])))
+    return {'ok': connected, 'status': 'disconnected' if not connected else
+            'ready' if current else 'client_update_required',
+            'connection_uri': live.get('connection_uri'), 'current': live,
+            'expected': expected, 'can_hot_update': 'reload_client' in live.get('capabilities', [])}
 
 
 def resolve_directory(directory):
@@ -41,7 +71,7 @@ def send(directory, action, color=None, timeout=60, options=None):
     command = {'id': uuid.uuid4().hex, 'action': action}
     if options:
         if set(options) - {'input', 'output', 'resolution', 'max_level', 'source',
-                           'slice_axis', 'slice_position', 'component'}:
+                           'slice_axis', 'slice_position', 'component', 'expected_sha256'}:
             raise ValueError('未知桥接参数')
         command.update(options)
     if color is not None:
@@ -63,7 +93,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', nargs='?', default='current')
     parser.add_argument('action', choices=['inspect', 'background', 'restore_background', 'export_centerline',
-                                         'add_vorticity_view'])
+                                         'add_vorticity_view', 'client_manifest', 'client_status', 'reload_client'])
     parser.add_argument('--color', nargs=3, type=float)
     parser.add_argument('--input')
     parser.add_argument('--output')
@@ -75,6 +105,31 @@ if __name__ == '__main__':
     parser.add_argument('--component', choices=['Magnitude', 'X', 'Y', 'Z'], default='Magnitude')
     parser.add_argument('--timeout', type=float, default=60)
     args = parser.parse_args()
+    if args.action == 'client_manifest':
+        print(json.dumps(client_manifest(), indent=2))
+        raise SystemExit(0)
+    if args.action in ('client_status', 'reload_client'):
+        expected = client_manifest()
+        try:
+            status = client_status(send(args.directory, 'inspect', timeout=args.timeout), expected)
+        except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+            print(json.dumps({'ok': False, 'status': 'bridge_unreachable', 'error': str(exc),
+                              'expected': expected}, ensure_ascii=False, indent=2))
+            raise SystemExit(1)
+        if args.action == 'client_status' or not status['ok'] or status['status'] == 'ready':
+            print(json.dumps(status, ensure_ascii=False, indent=2))
+            raise SystemExit(0 if status['ok'] else 1)
+        if not status['can_hot_update']:
+            print(json.dumps(dict(status, ok=False, error='This older client needs one local reload or a normal launcher restart; the data connection is still live.'), ensure_ascii=False, indent=2))
+            raise SystemExit(1)
+        reply = send(args.directory, 'reload_client', timeout=args.timeout,
+                     options={'expected_sha256': expected['source_sha256']})
+        if reply['ok']:
+            verification = client_status(send(args.directory, 'inspect', timeout=args.timeout), expected)
+            reply['verification'] = verification
+            reply['ok'] = verification['ok'] and verification['status'] == 'ready'
+        print(json.dumps(reply, ensure_ascii=False, indent=2))
+        raise SystemExit(0 if reply['ok'] else 1)
     options = None
     if args.action == 'export_centerline':
         if not args.input or not args.output:

@@ -14,6 +14,10 @@ description: 在本仓库使用 ParaView 处理 AMReX 三维数据，包括通�
 这是本仓库的项目 skill。命令均从仓库根执行，核心脚本唯一实现位于 `scripts/`。旧后处理目录仅保留两个 Windows 连接入口的兼容软链，不维护第二套实现。
 
 GUI 升级时须重新下载 [connect_paraview.ps1](scripts/connect_paraview.ps1) 覆盖本机文件；PS1 不会更新自身，只在启动时下载桥客户端。当前本机路径为 `D:\Software\ParaView 6.2.0\bin\paraview.exe`，两端按 6.2.0 核对。
+已有窗口先用投递器 `current client_status` 区分连接故障与客户端过旧；支持 `reload_client`
+时可由Agent执行固定来源热更新，无需用户重连或粘贴代码。启动脚本提供 `-BridgeStatus`、
+`-UpdateBridge` 两个独立模式，均不创建服务、隧道或GUI。版本3及更旧客户端首次启用该机制
+仍需一次本机加载或下次正常启动；不要对在线旧会话反复要求重新桥接。
 Windows 本机版本预检优先读取 EXE 版本资源，缺失时使用同目录 pvpython.exe；不要恢复为直接依赖 GUI 程序 `paraview.exe --version` 的管道输出。
 故障时用 `pwsh -NoExit -File "本机实际路径/connect_paraview.ps1"` 保留报错。在线 inspect、源码哈希和启动回执各有证明边界，不能代替本机最终 `Bridge ready` 验收；详见 [桥接说明](references/bridge.md)。
 
@@ -35,8 +39,8 @@ Windows 本机版本预检优先读取 EXE 版本资源，缺失时使用同目�
 
 当前窗口添加涡量视图时，先从 inspect 确认完整三维读取器名称与输入来源，再执行白名单
 `add_vorticity_view --source '<完整名称>' --slice-axis y --component Magnitude --timeout 180`。
-先在三维上求旋度再切片；新布局保留原视图。旧会话须重载桥客户端，不能通过文件协议执行
-任意Python来绕过能力限制。重载与显示选项见[桥接说明](references/bridge.md#涡量视图)。
+先在三维上求旋度再切片；新布局保留原视图。缺少能力先检查client_status并按支持情况更新，
+不能通过文件协议执行任意Python来绕过能力限制。更新与显示选项见[桥接说明](references/bridge.md)。
 
 独立批处理先核对/安装锁定环境，再执行导出（输出目录须存在）：
 

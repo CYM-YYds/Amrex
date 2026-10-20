@@ -23,8 +23,9 @@ SSH 用户、外部入口和端口在 PS1 配置区维护，并通过环境变�
 外部入口到编译节点的 SSH 须具备已核验的指纹和免密认证；否则启动预检失败，不回退登录节点。
 桥的文件轮询仍走外部 SSH 入口，共享注册目录保持不变。
 
-升级时把新版 PS1 重新下载到本机；旧本机 PS1 不会自动替换自身。先保存现有工作，关闭占用
-11115 的旧隧道后运行新版；脚本不会自动终止旧窗口或服务。客户端仍会在每次启动时下载。
+启动脚本本身变化时须把新版PS1下载到本机；它不自动替换自身。
+已有窗口只查询或更新桥客户端时，用下述独立模式，不关闭窗口或隧道。
+只有主动建立新会话时才先保存工作、关闭占用11115的旧隧道，再正常启动。
 
 启动过程为：
 
@@ -36,8 +37,40 @@ SSH 用户、外部入口和端口在 PS1 配置区维护，并通过环境变�
    本机文件 SHA256、所需能力和实际连接 URI；全部匹配且 GUI 未退出才显示 `Bridge ready`。
 
 启动回执证明该次检查成功；后续可用性仍以对应命令回传为准。它不重建上次管线，
-也不自动加载数据。桥版本3的白名单为 inspect、background、restore_background、export_centerline、add_vorticity_view。
-既有窗口不会随仓库更新自动升级；不要手动另建工作线程或清除 closed 事件来“重启”旧实例。
+也不自动加载数据。桥版本4的白名单为inspect、background、restore_background、export_centerline、
+add_vorticity_view、reload_client。启动预检从同一源码的manifest读取版本和能力，并校验下载SHA256，
+不在PS1内维护另一套版本常量。既有窗口按请求更新，不定时自动执行新代码；不要手动另建工作线程
+或清除closed事件来“重启”旧实例。
+
+## 已连接窗口的状态与更新
+
+Windows端新版启动脚本可单独执行：
+
+```powershell
+& 'D:\OneDrive\Desktop\connect_paraview.ps1' -BridgeStatus
+& 'D:\OneDrive\Desktop\connect_paraview.ps1' -UpdateBridge
+```
+
+两种模式只通过SSH投递命令，不启动pvserver、建立隧道、打开GUI或要求端口空闲。
+Agent也可直接执行：
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current client_status
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current reload_client --timeout 180
+```
+
+状态ready表示连接与客户端源码均匹配；client_update_required表示连接仍正常、源码待更新；
+disconnected表示桥可响应但没有数据连接；bridge_unreachable表示心跳、SSH或命令回传不可用。
+先诊断对应层，不把客户端过旧当作需要重连。版本3及更旧没有reload_client，只能首次本机加载
+或下次正常启动；旧窗口可继续使用现有功能，不因增加能力而强制立即重启。
+
+热更新只由后台读取固定仓库客户端文件，投递器提供该源码的SHA256，摘要或运行时协议不符则拒绝。
+GUI主线程只加载定义，替换现有对象的命令实现，不执行构造/停止流程、不创建新线程和计时器，
+保留连接、管线、视图及背景备份。源码在本机原路径原子替换，失败恢复原类并保留旧文件。
+更新后再次inspect核对实际版本、摘要与能力。没有路径或任意代码参数。
+传输、计时器或状态结构不兼容的修改必须提高RUNTIME_UPDATE_PROTOCOL并要求正常启动，
+不能把此入口当作任意运行时升级器。current.json及launch回执记录启动时版本，热更新后的状态
+以实时inspect为准；不重写旧启动回执。超时不自动重试，先按命令ID核对回传。
 
 ## 固定位置与状态所有者
 
@@ -98,7 +131,8 @@ Calculator组合`ux*iHat + uy*jHat + uz*kHat` → Gradient计算`Vorticity=curl(
 涡量是物理坐标下的有量纲旋度，未乘H/U；AMR界面处的点重建和分块导数属于可视化近似，
 不能直接当作求解器离散涡量、守恒指标或严格数值验证。
 
-旧窗口inspect若缺少add_vorticity_view，不会随仓库文件更新自动获得此功能。
+旧窗口inspect若缺少add_vorticity_view，先用client_status判断能否热更新。
+以下手动流程仅用于没有reload_client能力的旧版客户端首次迁移，不作为日常步骤。
 可在GUI Python Shell中更新当前本机客户端并重载，无需关闭数据连接：
 
 ```python
@@ -111,8 +145,8 @@ exec(compile(bridge_script.read_text(encoding='utf-8'), str(bridge_script), 'exe
 
 这要求当前窗口已按PS1流程加载桥且PV_BRIDGE_SCRIPT有效。若此前桥修改过背景，先恢复背景再重载。
 代码写回实际本机文件，启动回执哈希对应真实执行源码；不是通过桥命令执行任意代码。
-重载后等待新会话inspect确认版本3和新增能力，再投递涡量命令；不要盲目向旧会话重试。
-以后重新启动时，本机PS1也需下载新版，其启动预检要求版本3与五项能力。
+重载后等待新会话inspect确认当前版本和所需能力，再投递涡量命令；不要盲目向旧会话重试。
+以后重新启动时，本机PS1也需下载新版，其启动预检随仓库manifest选择版本和能力。
 
 ## 已有窗口手动加载、升级与停止
 
