@@ -33,6 +33,11 @@ Windows 本机版本预检优先读取 EXE 版本资源，缺失时使用同目�
 .venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current inspect
 ```
 
+当前窗口添加涡量视图时，先从 inspect 确认完整三维读取器名称与输入来源，再执行白名单
+`add_vorticity_view --source '<完整名称>' --slice-axis y --component Magnitude --timeout 180`。
+先在三维上求旋度再切片；新布局保留原视图。旧会话须重载桥客户端，不能通过文件协议执行
+任意Python来绕过能力限制。重载与显示选项见[桥接说明](references/bridge.md#涡量视图)。
+
 独立批处理先核对/安装锁定环境，再执行导出（输出目录须存在）：
 
 ```bash
@@ -52,6 +57,7 @@ ParaView 使用应用自带 Python；其他分析只用仓库 `.venv`。应用�
 - `run_paraview_server.sh`：限定编译节点、隔离旧模块环境，启动无 MPI 的单进程 6.2.0 pvserver。
 - `paraview_bridge_client.py`：GUI 主线程执行白名单命令，后台线程只处理 SSH；builtins 持有唯一桥实例及原生回调。已有窗口不会随仓库源码自动更新。
 - `paraview_bridge_send.py`：通过共享注册和心跳发现会话，单槽投递并等待对应 ID 回传。
+- `add_vorticity_view`：复用读取器、点速度重建、Calculator与Gradient，计算三维旋度并在新布局显示切片。
 - `paraview_batch_export.py`：只加载桥模块定义，复用 export_centerline，不启动定时器或桥注册。
 - `run_paraview_batch.sh`、`install_paraview_batch.sh` 和显式包锁：节点路由、应用环境隔离和安装。安装状态来自 conda-meta，不另设缓存标记。
 

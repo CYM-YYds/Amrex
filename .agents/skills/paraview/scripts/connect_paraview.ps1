@@ -19,8 +19,8 @@ $REMOTE_BRIDGE_ROOT = "/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-brid
 # 每次启动使用独立编号，自检不会把旧会话当作本次启动成功。
 $BRIDGE_LAUNCH_ID = [Guid]::NewGuid().ToString("N")
 $BRIDGE_STARTUP_SECONDS = 180
-$BRIDGE_EXPECTED_VERSION = "2"
-$BRIDGE_REQUIRED_CAPABILITIES = @("inspect", "background", "restore_background", "export_centerline")
+$BRIDGE_EXPECTED_VERSION = "3"
+$BRIDGE_REQUIRED_CAPABILITIES = @("inspect", "background", "restore_background", "export_centerline", "add_vorticity_view")
 
 # 所有服务命令通过已有 SSH 入口转到编译节点；编码避免双层 Shell 引号歧义。
 function Get-ServerCommand {

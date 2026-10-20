@@ -16,8 +16,9 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '2'
-CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline']
+BRIDGE_VERSION = '3'
+CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
+                'add_vorticity_view']
 
 # 跨启动脚本和交互 Shell 共用唯一实例，也保留停止后可能被系统消息引用的回调。
 if not hasattr(builtins, '_amrex_paraview_bridge_runtime'):
@@ -124,6 +125,114 @@ def export_centerline(command):
         raise
     finally:
         pvs.SetActiveSource(previous)
+
+
+def add_vorticity_view(command):
+    """先对三维速度求旋度，再切片显示；新布局不改用户原有视图。"""
+    import math
+    source_name = command.get('source')
+    axis = command.get('slice_axis', 'y')
+    component = command.get('component', 'Magnitude')
+    if axis not in ('x', 'y', 'z') or component not in ('Magnitude', 'X', 'Y', 'Z'):
+        raise ValueError('slice_axis must be x/y/z; component must be Magnitude/X/Y/Z')
+    matches = [source for (name, _), source in pvs.GetSources().items() if name == source_name]
+    if len(matches) != 1:
+        raise ValueError('source must identify exactly one registered pipeline source')
+    source = matches[0]
+    previous_source, previous_view = pvs.GetActiveSource(), pvs.GetActiveView()
+    current_time = previous_view.ViewTime if previous_view is not None else pvs.GetAnimationScene().AnimationTime
+    created = []
+    try:
+        source.UpdatePipeline(time=current_time)
+        bounds = list(source.GetDataInformation().GetBounds())
+        if len(bounds) != 6 or any(not math.isfinite(v) for v in bounds) or any(
+                bounds[2*i] >= bounds[2*i+1] for i in range(3)):
+            raise ValueError('Vorticity requires a nonempty three-dimensional source')
+        center = [(bounds[2*i] + bounds[2*i+1])/2 for i in range(3)]
+        position = command.get('slice_position', center['xyz'.index(axis)])
+        if type(position) not in (int, float) or not math.isfinite(position) or not (
+                bounds[2*'xyz'.index(axis)] <= position <= bounds[2*'xyz'.index(axis)+1]):
+            raise ValueError('slice_position must be inside source bounds')
+        velocity_source = source
+        if source.GetXMLName() == 'AMReXBoxLibGridReader':
+            velocity_source = pvs.ExtractBlock(registrationName='vorticity_blocks', Input=source)
+            created.append(velocity_source)
+            velocity_source.Selectors = ['/Root']
+            velocity_source.UpdatePipeline(time=current_time)
+        names = {'ux', 'uy', 'uz'}
+        if not names.issubset(velocity_source.PointData.keys()):
+            if not names.issubset(velocity_source.CellData.keys()):
+                raise ValueError('Enable all three velocity arrays ux, uy, uz on the input reader first')
+            velocity_source = pvs.CellDatatoPointData(
+                registrationName='vorticity_point_velocity', Input=velocity_source)
+            created.append(velocity_source)
+        vector = pvs.Calculator(registrationName='vorticity_velocity_vector', Input=velocity_source)
+        created.append(vector)
+        vector.AttributeType = 'Point Data'
+        vector.ResultArrayName = 'VelocityForVorticity'
+        vector.Function = 'ux*iHat + uy*jHat + uz*kHat'
+        gradient = pvs.Gradient(registrationName='Vorticity_3D', Input=vector)
+        created.append(gradient)
+        gradient.ScalarArray = ['POINTS', 'VelocityForVorticity']
+        gradient.ComputeGradient = 0
+        gradient.ComputeDivergence = 0
+        gradient.ComputeVorticity = 1
+        gradient.VorticityArrayName = 'Vorticity'
+        gradient.ComputeQCriterion = 0
+        gradient.UpdatePipeline(time=current_time)
+        arrays = gradient.PointData
+        if 'Vorticity' not in arrays.keys() or arrays['Vorticity'].GetNumberOfComponents() != 3:
+            raise ValueError('Gradient did not generate a three-component Vorticity array')
+        data_range = list(arrays['Vorticity'].GetRange(-1 if component == 'Magnitude' else 'XYZ'.index(component)))
+        if not all(math.isfinite(v) for v in data_range):
+            raise ValueError('Vorticity range is nonfinite')
+        section = pvs.Slice(registrationName='Vorticity_slice_' + axis, Input=gradient)
+        created.append(section)
+        section.SliceType = 'Plane'
+        origin = center[:]
+        origin['xyz'.index(axis)] = position
+        normal = [0.0, 0.0, 0.0]
+        normal['xyz'.index(axis)] = 1.0
+        section.SliceType.Origin = origin
+        section.SliceType.Normal = normal
+        section.UpdatePipeline(time=current_time)
+        if section.GetDataInformation().GetNumberOfPoints() == 0:
+            raise ValueError('The selected slice is empty')
+        layout = pvs.CreateLayout(name='Vorticity')
+        created.append(layout)
+        view = pvs.CreateView('RenderView')
+        created.append(view)
+        pvs.AssignViewToLayout(view=view, layout=layout, hint=0)
+        view.ViewTime = current_time
+        display = pvs.Show(section, view)
+        created.append(display)
+        pvs.ColorBy(display, ('POINTS', 'Vorticity', component))
+        display.RescaleTransferFunctionToDataRange(True, False)
+        display.SetScalarBarVisibility(view, True)
+        scalar_bar = pvs.GetScalarBar(display.LookupTable, view)
+        scalar_bar.Title = 'Vorticity = curl(u)'
+        scalar_bar.ComponentTitle = component
+        distance = 2*max(bounds[2*i+1] - bounds[2*i] for i in range(3))
+        view.CameraFocalPoint = center
+        view.CameraPosition = [center[i] - distance*normal[i] for i in range(3)]
+        view.CameraViewUp = [0, 1, 0] if axis == 'z' else [0, 0, 1]
+        view.CameraParallelProjection = 1
+        pvs.ResetCamera(view)
+        pvs.SetActiveView(view)
+        pvs.SetActiveSource(section)
+        pvs.Render(view)
+        return {'source': source_name, 'source_id': source.GetGlobalIDAsString(), 'time': current_time,
+                'bounds': bounds, 'slice_axis': axis, 'slice_origin': origin, 'component': component,
+                'vorticity_range': data_range, 'gradient': gradient.GetGlobalIDAsString(),
+                'slice': section.GetGlobalIDAsString(), 'view': view.GetGlobalIDAsString(),
+                'definition': 'curl(ux,uy,uz), physical coordinates; three-dimensional gradient before slicing',
+                'limitations': 'Point reconstruction and block-local derivatives near AMR interfaces are visualization approximations'}
+    except Exception:
+        for proxy in reversed(created):
+            pvs.Delete(proxy)
+        pvs.SetActiveSource(previous_source)
+        pvs.SetActiveView(previous_view)
+        raise
 
 
 class ParaViewBridge:
@@ -243,6 +352,8 @@ class ParaViewBridge:
         action = command.get('action')
         if action == 'export_centerline':
             return export_centerline(command)
+        if action == 'add_vorticity_view':
+            return add_vorticity_view(command)
         if action == 'inspect':
             from paraview import servermanager
             connection = servermanager.ActiveConnection
@@ -250,6 +361,10 @@ class ParaViewBridge:
             return {'capabilities': CAPABILITIES, 'version': BRIDGE_VERSION,
                     'connection_uri': uri,
                     'sources': [list(key) for key in pvs.GetSources()],
+                    'source_details': [
+                        {'name': name, 'id': key, 'type': source.GetXMLName(),
+                         'files': list(source.FileNames) if source.GetProperty('FileNames') else []}
+                        for (name, key), source in pvs.GetSources().items() if source is not None],
                     'views': [v.GetXMLName() for v in pvs.GetViews()]}
         if action not in ('background', 'restore_background'):
             raise ValueError('Unsupported action: ' + str(action))

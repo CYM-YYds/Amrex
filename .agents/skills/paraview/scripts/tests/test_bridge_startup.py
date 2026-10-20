@@ -72,6 +72,7 @@ class StartupTests(unittest.TestCase):
                 self.assertEqual(receipt['version'], namespace['BRIDGE_VERSION'])
                 self.assertEqual(receipt['value']['connection_uri'], uri)
                 self.assertIn('export_centerline', receipt['value']['capabilities'])
+                self.assertIn('add_vorticity_view', receipt['value']['capabilities'])
                 # 另一次启动编号不能复用这个回执。
                 self.assertFalse((root / ('launch-' + 'b' * 32 + '.json')).exists())
                 # 模拟不同执行上下文，仍须取到同一个运行时，不创建第二份所有者。

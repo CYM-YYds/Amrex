@@ -36,7 +36,7 @@ SSH 用户、外部入口和端口在 PS1 配置区维护，并通过环境变�
    本机文件 SHA256、所需能力和实际连接 URI；全部匹配且 GUI 未退出才显示 `Bridge ready`。
 
 启动回执证明该次检查成功；后续可用性仍以对应命令回传为准。它不重建上次管线，
-也不自动加载数据。当前白名单为 inspect、background、restore_background、export_centerline。
+也不自动加载数据。桥版本3的白名单为 inspect、background、restore_background、export_centerline、add_vorticity_view。
 既有窗口不会随仓库更新自动升级；不要手动另建工作线程或清除 closed 事件来“重启”旧实例。
 
 ## 固定位置与状态所有者
@@ -74,6 +74,44 @@ launch-UUID.json 仅在 GUI 执行本次启动查询后发布。停止桥不删�
 按三维 bounds 几何中心沿 z 采样 ux、uy、uz，默认请求 level 2、1024 段、17 位 CSV 精度。
 输出父目录须已存在。成功时保留新管线、恢复原活动源，不主动改变显示；失败只回收本次创建的对象。
 分析端须检查有效掩码和有限值，不能把默认请求层级当作输入实际层级的证明。
+
+## 涡量视图
+
+先inspect核对读取器名称；`--source`按完整注册名称精确匹配，不展开通配符。
+应选择原始三维速度读取器，不能在已有二维Slice上计算三维旋度。
+命令保留现有管线、相机和布局，在新建的Vorticity布局中显示切片：
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current add_vorticity_view \
+  --source 'plt_003200*' --slice-axis y --component Magnitude --timeout 180
+```
+
+上述读取器名称只是例子，必须使用当前inspect查到的名称及输入路径。
+`--slice-axis x/y/z`选择法向，`--slice-position`指定物理位置（默认几何中心），
+`--component Magnitude/X/Y/Z`选择旋度模或分量。当前时间沿用原活动视图，不跳转到别的输出。
+结果回传输入、时间、几何、旋度范围和新增对象ID；显示范围在GUI颜色图编辑器中调整。
+
+管线为三维输入 →（AMReX时ExtractBlock /Root）→ 必要的CellDataToPointData →
+Calculator组合`ux*iHat + uy*jHat + uz*kHat` → Gradient计算`Vorticity=curl(u)` → Slice。
+`Vorticity_3D`保留三分量结果，可以在GUI中继续添加其他切片或显示方式。
+涡量是物理坐标下的有量纲旋度，未乘H/U；AMR界面处的点重建和分块导数属于可视化近似，
+不能直接当作求解器离散涡量、守恒指标或严格数值验证。
+
+旧窗口inspect若缺少add_vorticity_view，不会随仓库文件更新自动获得此功能。
+可在GUI Python Shell中更新当前本机客户端并重载，无需关闭数据连接：
+
+```python
+import builtins, os
+from pathlib import Path
+bridge_script = Path(os.environ['PV_BRIDGE_SCRIPT'])
+bridge_script.write_bytes(builtins._amrex_paraview_bridge_runtime.bridge.remote('cat /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'))
+exec(compile(bridge_script.read_text(encoding='utf-8'), str(bridge_script), 'exec'))
+```
+
+这要求当前窗口已按PS1流程加载桥且PV_BRIDGE_SCRIPT有效。若此前桥修改过背景，先恢复背景再重载。
+代码写回实际本机文件，启动回执哈希对应真实执行源码；不是通过桥命令执行任意代码。
+重载后等待新会话inspect确认版本3和新增能力，再投递涡量命令；不要盲目向旧会话重试。
+以后重新启动时，本机PS1也需下载新版，其启动预检要求版本3与五项能力。
 
 ## 已有窗口手动加载、升级与停止
 
