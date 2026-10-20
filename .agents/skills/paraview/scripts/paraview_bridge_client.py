@@ -135,6 +135,7 @@ def add_vorticity_view(command):
     source_name = command.get('source')
     axis = command.get('slice_axis', 'y')
     component = command.get('component', 'Magnitude')
+    color_range = command.get('color_range')
     if axis not in ('x', 'y', 'z') or component not in ('Magnitude', 'X', 'Y', 'Z'):
         raise ValueError('slice_axis must be x/y/z; component must be Magnitude/X/Y/Z')
     matches = [source for (name, _), source in pvs.GetSources().items() if name == source_name]
@@ -162,32 +163,44 @@ def add_vorticity_view(command):
             velocity_source.Selectors = ['/Root']
             velocity_source.UpdatePipeline(time=current_time)
         names = {'ux', 'uy', 'uz'}
-        if not names.issubset(velocity_source.PointData.keys()):
-            if not names.issubset(velocity_source.CellData.keys()):
-                raise ValueError('Enable all three velocity arrays ux, uy, uz on the input reader first')
-            velocity_source = pvs.CellDatatoPointData(
-                registrationName='vorticity_point_velocity', Input=velocity_source)
-            created.append(velocity_source)
+        if names.issubset(velocity_source.CellData.keys()):
+            association, attribute_type = 'CELLS', 'Cell Data'
+        elif names.issubset(velocity_source.PointData.keys()):
+            association, attribute_type = 'POINTS', 'Point Data'
+        else:
+            raise ValueError('Enable ux, uy, uz together as cell or point arrays on the input reader')
         vector = pvs.Calculator(registrationName='vorticity_velocity_vector', Input=velocity_source)
         created.append(vector)
-        vector.AttributeType = 'Point Data'
+        vector.AttributeType = attribute_type
         vector.ResultArrayName = 'VelocityForVorticity'
         vector.Function = 'ux*iHat + uy*jHat + uz*kHat'
         gradient = pvs.Gradient(registrationName='Vorticity_3D', Input=vector)
         created.append(gradient)
-        gradient.ScalarArray = ['POINTS', 'VelocityForVorticity']
+        gradient.ScalarArray = [association, 'VelocityForVorticity']
         gradient.ComputeGradient = 0
         gradient.ComputeDivergence = 0
         gradient.ComputeVorticity = 1
         gradient.VorticityArrayName = 'Vorticity'
         gradient.ComputeQCriterion = 0
         gradient.UpdatePipeline(time=current_time)
-        arrays = gradient.PointData
+        arrays = gradient.PointData if association == 'POINTS' else gradient.CellData
         if 'Vorticity' not in arrays.keys() or arrays['Vorticity'].GetNumberOfComponents() != 3:
             raise ValueError('Gradient did not generate a three-component Vorticity array')
         data_range = list(arrays['Vorticity'].GetRange(-1 if component == 'Magnitude' else 'XYZ'.index(component)))
         if not all(math.isfinite(v) for v in data_range):
             raise ValueError('Vorticity range is nonfinite')
+        if color_range is not None:
+            if (not isinstance(color_range, (list, tuple)) or len(color_range) != 2 or
+                    any(type(v) not in (int, float) or not math.isfinite(v) for v in color_range) or
+                    color_range[0] >= color_range[1]):
+                raise ValueError('color_range must contain two finite increasing values')
+            color_range = [float(v) for v in color_range]
+            if color_range[0] == color_range[1]:
+                padding = max(abs(color_range[0])*0.05, 1.0e-12)
+                color_range = [color_range[0] - padding, color_range[1] + padding]
+        elif data_range[0] == data_range[1]:
+            padding = max(abs(data_range[0])*0.05, 1.0e-12)
+            color_range = [data_range[0] - padding, data_range[1] + padding]
         section = pvs.Slice(registrationName='Vorticity_slice_' + axis, Input=gradient)
         created.append(section)
         section.SliceType = 'Plane'
@@ -208,27 +221,44 @@ def add_vorticity_view(command):
         view.ViewTime = current_time
         display = pvs.Show(section, view)
         created.append(display)
-        pvs.ColorBy(display, ('POINTS', 'Vorticity', component))
-        display.RescaleTransferFunctionToDataRange(True, False)
+        pvs.ColorBy(display, (association, 'Vorticity', component))
+        lut = display.LookupTable
+        lut.ApplyPreset('Cool to Warm (Extended)', True)
+        lut.RescaleTransferFunction(*(color_range if color_range is not None else data_range))
         display.SetScalarBarVisibility(view, True)
         scalar_bar = pvs.GetScalarBar(display.LookupTable, view)
         scalar_bar.Title = 'Vorticity = curl(u)'
         scalar_bar.ComponentTitle = component
-        distance = 2*max(bounds[2*i+1] - bounds[2*i] for i in range(3))
+        scalar_bar.Orientation = 'Horizontal'
+        scalar_bar.WindowLocation = 'Lower Center'
+        scalar_bar.TitleFontSize = 14
+        scalar_bar.LabelFontSize = 12
+        scalar_bar.ScalarBarLength = 0.72
+        scalar_bar.Visibility = 1
+        block_colors = pvs.GetColorTransferFunction('vtkBlockColors')
+        block_bar = pvs.GetScalarBar(block_colors, view)
+        block_bar.Visibility = 0
+        plane_axes = [i for i in range(3) if i != 'xyz'.index(axis)]
+        slice_width = bounds[2*plane_axes[0]+1] - bounds[2*plane_axes[0]]
+        slice_height = bounds[2*plane_axes[1]+1] - bounds[2*plane_axes[1]]
+        distance = 1.25*max(slice_width, slice_height)
         view.CameraFocalPoint = center
         view.CameraPosition = [center[i] - distance*normal[i] for i in range(3)]
         view.CameraViewUp = [0, 1, 0] if axis == 'z' else [0, 0, 1]
         view.CameraParallelProjection = 1
-        pvs.ResetCamera(view)
+        view.CameraParallelScale = 0.52*max(slice_width, slice_height)
         pvs.SetActiveView(view)
         pvs.SetActiveSource(section)
         pvs.Render(view)
         return {'source': source_name, 'source_id': source.GetGlobalIDAsString(), 'time': current_time,
                 'bounds': bounds, 'slice_axis': axis, 'slice_origin': origin, 'component': component,
-                'vorticity_range': data_range, 'gradient': gradient.GetGlobalIDAsString(),
+                'velocity_association': association,
+                'vorticity_range': data_range,
+                'color_range': list(color_range if color_range is not None else data_range),
+                'gradient': gradient.GetGlobalIDAsString(),
                 'slice': section.GetGlobalIDAsString(), 'view': view.GetGlobalIDAsString(),
-                'definition': 'curl(ux,uy,uz), physical coordinates; three-dimensional gradient before slicing',
-                'limitations': 'Point reconstruction and block-local derivatives near AMR interfaces are visualization approximations'}
+                'definition': 'curl(ux,uy,uz), physical coordinates; uses native cell arrays when available and computes the three-dimensional gradient before slicing',
+                'limitations': 'Block-local derivatives near AMR interfaces remain a visualization approximation'}
     except Exception:
         for proxy in reversed(created):
             pvs.Delete(proxy)

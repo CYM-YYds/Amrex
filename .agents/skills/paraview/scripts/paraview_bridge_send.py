@@ -71,7 +71,7 @@ def send(directory, action, color=None, timeout=60, options=None):
     command = {'id': uuid.uuid4().hex, 'action': action}
     if options:
         if set(options) - {'input', 'output', 'resolution', 'max_level', 'source',
-                           'slice_axis', 'slice_position', 'component', 'expected_sha256'}:
+                           'slice_axis', 'slice_position', 'component', 'color_range', 'expected_sha256'}:
             raise ValueError('未知桥接参数')
         command.update(options)
     if color is not None:
@@ -103,6 +103,8 @@ if __name__ == '__main__':
     parser.add_argument('--slice-axis', choices=['x', 'y', 'z'], default='y')
     parser.add_argument('--slice-position', type=float, help='物理坐标；默认几何中心')
     parser.add_argument('--component', choices=['Magnitude', 'X', 'Y', 'Z'], default='Magnitude')
+    parser.add_argument('--color-range', nargs=2, type=float, metavar=('MIN', 'MAX'),
+                        help='显式设置涡量色标范围；默认使用当前切片数据范围')
     parser.add_argument('--timeout', type=float, default=60)
     args = parser.parse_args()
     if args.action == 'client_manifest':
@@ -140,6 +142,8 @@ if __name__ == '__main__':
         if not args.source:
             parser.error('add_vorticity_view requires --source')
         options = {'source': args.source, 'slice_axis': args.slice_axis, 'component': args.component}
+        if args.color_range is not None:
+            options['color_range'] = args.color_range
         if args.slice_position is not None:
             options['slice_position'] = args.slice_position
     reply = send(args.directory, args.action, args.color, timeout=args.timeout, options=options)

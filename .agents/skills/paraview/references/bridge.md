@@ -148,10 +148,14 @@ launch-UUID.json 仅在 GUI 执行本次启动查询后发布。停止桥不删�
 上述读取器名称只是例子，必须使用当前inspect查到的名称及输入路径。
 `--slice-axis x/y/z`选择法向，`--slice-position`指定物理位置（默认几何中心），
 `--component Magnitude/X/Y/Z`选择旋度模或分量。当前时间沿用原活动视图，不跳转到别的输出。
-结果回传输入、时间、几何、旋度范围和新增对象ID；显示范围在GUI颜色图编辑器中调整。
+`--color-range MIN MAX`可覆盖色标范围；默认按当前切片场范围自动缩放。新视图使用
+蓝-白-红色图、水平涡量色标并隐藏块编号色标，相机按切片平面裁紧。结果回传输入、时间、
+几何、数据范围、显示范围和新增对象ID。
 
-管线为三维输入 → 必要的CellDataToPointData →
-Calculator组合`ux*iHat + uy*jHat + uz*kHat` → Gradient计算`Vorticity=curl(u)` → Slice。
+管线为三维输入 → 在原生单元或点速度数据上Calculator组合
+`ux*iHat + uy*jHat + uz*kHat` → Gradient计算`Vorticity=curl(u)` → Slice。
+存在单元速度时优先保留单元关联，避免对 AMR composite 数据做不必要的 CellDataToPointData；
+只有点速度时才在点关联上求梯度。回执会注明`velocity_association`。
 兼容旧AMReXBoxLibGridReader代理时会先ExtractBlock /Root；当前AMReXGridReader可直接承接。
 `Vorticity_3D`保留三分量结果，可以在GUI中继续添加其他切片或显示方式。
 涡量是物理坐标下的有量纲旋度，未乘H/U；AMR界面处的点重建和分块导数属于可视化近似，
