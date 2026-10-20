@@ -51,9 +51,9 @@ amr.grid_eff   = 0.7
 
 amr.n_error_buf       = 1   1   1   1
 amr.max_grid_size     = 128 128 128 128
-amr.blocking_factor_x = 32  32  32  32
-amr.blocking_factor_y = 32  32  32  32
-amr.blocking_factor_z = 32  32  32  32
+amr.blocking_factor_x = 16  16  16  16
+amr.blocking_factor_y = 16  16  16  16
+amr.blocking_factor_z = 16  16  16  16
 
 # 各层基于涡量的加密阈值；第 lev 项由 ErrorEst() 在该层使用。
 lbm.err = 0.64   1.28  2.56  5.12
