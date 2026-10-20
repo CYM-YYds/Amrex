@@ -7,7 +7,7 @@ if [[ "$(hostname -s)" != whshare-agent-1 ]]; then
     echo 'ERROR: pvserver must run on whshare-agent-1; refusing this node.' >&2
     exit 1
 fi
-PV_PREFIX="${PARAVIEW_SERVER_PREFIX:-${REPO_DIR}/.tools/paraview-batch/env}"
+PV_PREFIX="${PARAVIEW_SERVER_PREFIX:-${REPO_DIR}/.tools/paraview-mpi/env}"
 PROCESSES=1
 SERVER_ARGS=()
 while [[ $# -gt 0 ]]; do

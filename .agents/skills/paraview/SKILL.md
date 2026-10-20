@@ -25,7 +25,7 @@ Windows 本机版本预检优先读取 EXE 版本资源，缺失时使用同目�
 
 1. 核对输入 PlotFile 的绝对路径及 Header，从运行快照确认 Re、步数、变量、AMR 层级和归一化参数。“最新”按数值步号选择，不按修改时间猜测。不把 job613495 的 Re=1000 当作 Re=3200。
 2. 在共享存储创建专属输出目录，确认采样位置、分辨率和读取层级。默认实现仅提供几何中心沿 z 方向的速度中心线，不能冒充任意截面、流线或全场导出。
-3. 运行选定入口。批处理及安装探测必须在 **whshare-agent-1 编译节点**执行，使用提供的包装脚本自动 SSH；失败即停止，绝不在登录节点直接调用 pvbatch。GUI 脚本经配置的 SSH 入口转到同一编译节点；服务包装脚本检查主机名，拒绝在其他节点启动。默认现有6.2.0环境无MPI；GUI可配置ServerProcesses和RemoteParaViewPrefix，使用同版本MPI构建及其配套启动器，不能将串行包直接套mpiexec。
+3. 运行选定入口。批处理及安装探测必须在 **whshare-agent-1 编译节点**执行，使用提供的包装脚本自动 SSH；失败即停止，绝不在登录节点直接调用 pvbatch。GUI 脚本经配置的 SSH 入口转到同一编译节点；服务包装脚本检查主机名，拒绝在其他节点启动。默认环境为6.2.0的MPI/Python/EGL构建；GUI默认4进程，可配置ServerProcesses和RemoteParaViewPrefix，使用匹配安装的MPI启动器。
 4. 检查对应成功回传或批处理元数据，记录主机、版本、输入、步数、端点和读取层级。批量任务为各输入指定独立输出。桥接单槽命令必须串行；超时后先核对原命令结果，不能盲目重发。
 5. 用仓库 `.venv/bin/python` 分析 CSV，核对 vtkValidPointMask、有限值、点数及坐标。跨版本按列名和坐标比较，不只比较哈希。图表标注输入、步数、归一化和参考来源。中心线提取成功不构成全三维正确性或收敛证明。
 
@@ -53,12 +53,12 @@ bash .agents/skills/paraview/scripts/run_paraview_batch.sh \
   --resolution 1024 --max-level 2
 ```
 
-ParaView 使用应用自带 Python；其他分析只用仓库 `.venv`。应用保留在 `.tools/paraview-batch/env`，不迁移二进制到 skill，不修改系统模块或 shell 启动文件。
+ParaView 使用应用自带 Python；其他分析只用仓库 `.venv`。应用保留在 `.tools/paraview-mpi/env`，不迁移二进制到 skill，不修改系统模块或 shell 启动文件。
 
 ## 实现与维护
 
 - `connect_paraview.ps1`：Windows 6.2.0 客户端与远端同版本预检、下载桥客户端、启动连接并校验本次 GUI 回执。
-- `run_paraview_server.sh`：限定编译节点、隔离旧模块环境，启动无 MPI 的单进程 6.2.0 pvserver。
+- `run_paraview_server.sh`：限定编译节点、隔离旧模块环境，启动6.2.0的MPI服务，验证进程数、构建信息与配套启动器。
 - `paraview_bridge_client.py`：GUI 主线程执行白名单命令，后台线程只处理 SSH；builtins 持有唯一桥实例及原生回调。已有窗口不会随仓库源码自动更新。
 - `paraview_bridge_send.py`：通过共享注册和心跳发现会话，单槽投递并等待对应 ID 回传。
 - `add_vorticity_view`：复用读取器、点速度重建、Calculator与Gradient，计算三维旋度并在新布局显示切片。

@@ -4,7 +4,7 @@
 param(
     [switch]$BridgeStatus,
     [switch]$UpdateBridge,
-    [ValidateRange(1,256)][int]$ServerProcesses = 1,
+    [ValidateRange(1,256)][int]$ServerProcesses = 4,
     [ValidatePattern('^(/[A-Za-z0-9_./-]+)?$')][string]$RemoteParaViewPrefix = ""
 )
 

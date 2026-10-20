@@ -13,9 +13,8 @@
 `D:\Software\ParaView 6.2.0\bin\paraview.exe`。脚本检查客户端和服务端均为 **6.2.0**，
 版本不匹配时停止，不自动选用旧版。本机从 EXE 版本资源读取版本；若资源缺失，
 使用同目录 pvpython.exe 的控制台版本输出。Windows GUI 的 paraview.exe --version 可能无管道输出，不能用空输出来判断版本不符。
-默认远端使用仓库 `.tools/paraview-batch/env/bin/pvserver`，不加载系统ParaView/MPI模块。
-该已安装构建的PARAVIEW_USE_MPI=OFF，默认保留单进程；并行需另外准备同版本MPI构建，
-通过参数选择其安装前缀，不把默认串行包直接套上mpiexec。
+默认远端使用仓库 `.tools/paraview-mpi/env/bin/pvserver`，采用同一安装配套的MPICH，
+不加载系统ParaView/MPI模块。启动脚本默认4进程，可通过ServerProcesses调整。
 
 ### 配置服务端进程数
 
@@ -23,7 +22,7 @@
 & 'D:\OneDrive\Desktop\connect_paraview.ps1' -ServerProcesses 4 -RemoteParaViewPrefix '/absolute/path/to/paraview-mpi'
 ```
 
-`ServerProcesses`范围1–256，默认1是对现有串行安装的兼容，并非固定限制；
+`ServerProcesses`范围1–256，默认4；
 可编辑param中的默认值。`RemoteParaViewPrefix`为远端绝对安装前缀，省略时沿用默认环境。
 目前PS1参数只接受不含空格及Shell元字符的远端前缀。
 前缀必须包含同版本pvserver、匹配的bin/mpiexec及所需Python/AMReX读取能力。
@@ -41,7 +40,7 @@ bash .agents/skills/paraview/scripts/run_paraview_server.sh \
 版本探测本身不启动多个rank。已有数据连接无法通过客户端热更新改变rank数，
 切换服务进程数需要用户保存场景后新建服务连接；脚本不关闭现有窗口或服务。
 多进程性能取决于读取器分发、过滤器、文件系统和进程数，应以实际数据测量，不能只按核数推断提速。
-当前尚未安装/验收对应MPI6.2.0环境，多rank能力仍待真实服务验收。
+MPI安装与并行验收结果见[安装记录](../../../../docs/ai_changes/2026-10-20-paraview-mpi-install.md)。
 
 SSH 用户、外部入口和端口在 PS1 配置区维护，并通过环境变量传给桥客户端。
 服务命令限定 **whshare-agent-1**：外部 SSH 入口已在该节点时直接运行并使用回环隧道；

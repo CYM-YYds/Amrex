@@ -53,6 +53,13 @@ class VorticityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'component'):
             self.add_view({'source': 'unused', 'component': 'arbitrary expression'})
 
+    @unittest.skipUnless(os.environ.get('PV_EXPECT_MPI_RANKS'), 'no MPI rank count requested')
+    def test_mpi_controller_has_requested_process_count(self):
+        from paraview import servermanager
+        controller = servermanager.vtkProcessModule.GetProcessModule().GetGlobalController()
+        self.assertEqual(controller.GetClassName(), 'vtkMPIController')
+        self.assertEqual(controller.GetNumberOfProcesses(), int(os.environ['PV_EXPECT_MPI_RANKS']))
+
     @unittest.skipUnless(os.environ.get('PV_VORTICITY_TEST_INPUT'), 'no real PlotFile selected')
     def test_real_amrex_input(self):
         source = pvs.AMReXBoxLibGridReader(

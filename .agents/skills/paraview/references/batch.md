@@ -12,11 +12,16 @@
 
 系统模块 ParaView 5.11.1 的 `paraview-config.cmake` 明确为 `PARAVIEW_USE_PYTHON=OFF`，
 无法直接提供这条路线。独立安装使用 conda-forge 的 Linux aarch64 ParaView **6.2.0**，
-应用前缀为仓库 `.tools/paraview-batch/env`，不替换系统模块，也不修改 shell 启动配置。
+应用前缀为仓库 `.tools/paraview-mpi/env`，同时提供MPI服务端与独立批处理，不替换系统模块或shell启动配置。
 应用自带 Python 3.12 供 pvbatch 使用，不是额外的通用后处理 Python 环境；
-统计和绘图不在此环境运行。下载约 502 MB；依赖由 [显式锁文件](../scripts/paraview-batch-linux-aarch64.lock)
-固定为 255 个带 SHA256 的包，使用 TUNA conda-forge 镜像。
-micromamba 2.9.0 的 SHA256 经上游包 API 核对并固定在安装脚本中。
+统计和绘图不在此环境运行。依赖由[显式锁文件](../scripts/paraview-mpi-linux-aarch64.lock)
+固定88个带SHA256的包（Python、MPICH、编译器、EGL等），使用TUNA conda-forge镜像。
+ParaView从官方6.2.0源码构建，SHA256固定为
+`373afd566ef5f6c650c3acf4a5d4f43ad75975537f7fe225cb53ed20fe41cd20`，开启MPI/Python/EGL，关闭Qt界面。
+源码与目标小文件在编译节点本地临时目录构建，共享前缀只保留安装、源码归档、依赖缓存与日志。
+可用PARAVIEW_BUILD_JOBS设置构建并发数（默认32）、PARAVIEW_BUILD_ROOT指定本地构建目录。
+安装器对同一前缀加锁；已安装匹配的依赖与MPI应用时不重复构建。
+micromamba 2.9.0的SHA256保持上游固定校验；不依赖系统MPI环境。
 
 从仓库根安装或核对环境：
 
