@@ -1,4 +1,4 @@
 interface:
-  display_name: "ParaView 后处理"
-  short_description: "通过 Windows GUI 控制桥或超算编译节点独立批处理完成 ParaView 数据提取"
-  default_prompt: "使用 $paraview 选择桥接或远端批处理，提取数据并核对节点、采样和导出结果。"
+  display_name: "远端 ParaView"
+  short_description: "在超算编译节点运行 ParaView，或通过控制桥操作 Windows GUI"
+  default_prompt: "使用 $paraview 在远端环境完成当前 ParaView 任务，按需选择批处理或已有 GUI。"

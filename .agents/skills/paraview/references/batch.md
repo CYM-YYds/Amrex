@@ -1,76 +1,62 @@
-# 超算独立 ParaView 批处理
+# 远端独立批处理
 
-本入口无需本机 ParaView、Windows 启动脚本、SSH 隧道或控制桥在线。
-`pvbatch` 在独立进程中读取共享目录的 PlotFile，普通 CSV 分析和绘图仍使用根 `.venv/bin/python`。
+运行环境见 [主入口](../SKILL.md#环境与执行方式)。批处理创建独立会话，不改变用户 GUI。
 
-## 节点与运行环境
+## 现有中心线导出
 
-**ParaView 固定在编译节点 `whshare-agent-1` 执行。**
-[运行入口](../scripts/run_paraview_batch.sh) 和 [安装入口](../scripts/install_paraview_batch.sh) 若在其他节点调用，
-先通过 SSH 跳转到该节点；跳转失败即退出，不回退到登录节点执行。
-共享路径使登录节点只需发起命令、收集结果，不承载长期 ParaView 进程。
+[包装脚本](../scripts/run_paraview_batch.sh) 自动 SSH 到编译节点，失败即退出，
+并清除继承的 Python、动态库和显示配置。它固定执行中心线导出，不接受任意 Python 脚本。
 
-系统模块 ParaView 5.11.1 的 `paraview-config.cmake` 明确为 `PARAVIEW_USE_PYTHON=OFF`，
-无法直接提供这条路线。独立安装使用 conda-forge 的 Linux aarch64 ParaView **6.2.0**，
-应用前缀为仓库 `.tools/paraview-mpi/env`，同时提供MPI服务端与独立批处理，不替换系统模块或shell启动配置。
-应用自带 Python 3.12 供 pvbatch 使用，不是额外的通用后处理 Python 环境；
-统计和绘图不在此环境运行。依赖由[显式锁文件](../scripts/paraview-mpi-linux-aarch64.lock)
-固定88个带SHA256的包（Python、MPICH、编译器、EGL等），使用TUNA conda-forge镜像。
-ParaView从官方6.2.0源码构建，SHA256固定为
-`373afd566ef5f6c650c3acf4a5d4f43ad75975537f7fe225cb53ed20fe41cd20`，开启MPI/Python/EGL，关闭Qt界面。
-源码与目标小文件在编译节点本地临时目录构建，共享前缀只保留安装、源码归档、依赖缓存与日志。
-可用PARAVIEW_BUILD_JOBS设置构建并发数（默认32）、PARAVIEW_BUILD_ROOT指定本地构建目录。
-安装器对同一前缀加锁；已安装匹配的依赖与MPI应用时不重复构建。
-micromamba 2.9.0的SHA256保持上游固定校验；不依赖系统MPI环境。
-
-从仓库根安装或核对环境：
-
-```bash
-bash .agents/skills/paraview/scripts/install_paraview_batch.sh
-```
-
-依赖来源：[conda-forge ParaView](https://anaconda.org/conda-forge/paraview)，
-[ParaView Python 文档](https://www.paraview.org/paraview-docs/latest/python/)。
-
-## 独立导出中心线
-
-先在共享目录创建自己的输出目录，然后从仓库根运行：
+在共享存储创建输出目录后，从仓库根调用：
 
 ```bash
 bash .agents/skills/paraview/scripts/run_paraview_batch.sh \
-  --input /absolute/path/to/plt_256000 \
-  --output /absolute/existing-directory/centerline.csv \
-  --metadata /absolute/existing-directory/paraview_export.json \
+  --input /absolute/shared/plotfile \
+  --output /absolute/shared/output/centerline.csv \
+  --metadata /absolute/shared/output/paraview_export.json \
   --resolution 1024 --max-level 2
 ```
 
-输入/输出必须为共享存储中的绝对路径。元数据记录真实执行主机、pvbatch 路径、
-ParaView 版本、耗时、几何范围、采样端点与点数。
-运行入口会清除继承的 Python、动态库和显示相关配置，以免误用登录环境中的其他版本。
+输入、输出均使用共享存储绝对路径。该命令沿三维 bounds 的几何中心从 z_min 到 z_max
+采样 `ux/uy/uz`；1024 段产生 1025 点，`--max-level` 是请求的最大读取层级。
+CSV 使用 17 位精度；JSON 记录实际主机、版本、耗时、几何范围和采样端点。
+批量输入逐个指定独立输出，导出后检查实际层级、有效掩码、有限值及坐标。
 
-[批处理入口](../scripts/paraview_batch_export.py) 以“只加载定义”的方式复用
-[桥客户端](../scripts/paraview_bridge_client.py) 中的同一个 `export_centerline` 函数：
-AMReX reader → ExtractBlock /Root → CellDataToPointData → PlotOverLine。
-此模式不会启动 GUI 定时器、SSH 轮询或控制桥注册，也不控制用户当前窗口。
-CSV 用 17 位精度导出；样本有效性和数值比较由上层分析脚本检查。
-可以串行对多个 PlotFile 调用此命令，每次指定不同输出文件，不受桥接单槽协议限制。
+算例已有提取入口时优先复用；例如 BOX3D_OSI 的后端选择与分析用法见其
+[后处理说明](../../../../projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/README.md)。
 
-## BOX3D_OSI Re=1000 已验证流程
+## 运行其他 ParaView Python 管线
+
+截面、流线、截图等任务使用应用自带 `pvbatch` 执行所需的 ParaView Python 脚本。
+先查所属算例与公共后处理工具；没有合适入口时再编写任务脚本。输入和产物放共享存储，
+一次性脚本按仓库规则归入所属范围的 `scripts/temporary/`。
+
+下例中的脚本路径须替换为实际文件；通过 SSH 在编译节点执行，SSH 失败即停止。
+若当前已在该节点，直接执行 heredoc 内的命令，无需 SSH 回连自身：
 
 ```bash
-.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/extract_run_centerline.py \
-  projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/20261015_171801_job613495 \
-  --backend batch
+env -u LD_LIBRARY_PATH ssh -T -o BatchMode=yes -o ConnectTimeout=10 whshare-agent-1 bash -s <<'REMOTE'
+set -euo pipefail
+[[ "$(hostname -s)" == whshare-agent-1 ]]
+cd /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex
+env -u LD_LIBRARY_PATH -u PYTHONPATH -u PYTHONHOME -u DISPLAY \
+  -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH -u PV_PLUGIN_PATH \
+  QT_QPA_PLATFORM=offscreen \
+  .tools/paraview-mpi/env/bin/pvbatch --force-offscreen-rendering \
+  /absolute/shared/task.py
+REMOTE
 ```
 
-默认 `--backend bridge` 仍保留；batch 输出使用独立的 `_paraview_batch` 目录，不覆盖桥接结果。
-加 `--reuse-export` 可只用已有 CSV 重绘和分析，不要求任何 ParaView 进程在线。
+脚本内使用 `paraview.simple` API，按数据格式选择读取器；AMReX 输入先确认读取器的
+实际属性、数组关联与 composite 层次，再接过滤器。ParaView Python API 可查
+[官方文档](https://www.paraview.org/paraview-docs/latest/python/)，以当前安装支持的属性为准。
+截图或动画需在脚本中设置视图、相机、色标与输出，不能把中心线导出当作渲染入口。
 
-2026-10-19 实测：job613495 最新 plt_256000，Re=1000，AMR level 0–2，
-中心线 (0.5,0.5,0) → (0.5,0.5,1)，1024 段得到 1025 个有效点。
-元数据确认执行主机为 whshare-agent-1，数据管线与导出约 14.78 秒。
-与先前 ParaView 5.11 系列桥接结果逐点比较，坐标及三分量速度最大绝对差为 0。
-CSV 字节哈希不同，因为两个版本的输出列顺序不同；比较按列名与坐标进行。
-此验证针对同一 PlotFile 的中心线提取，不替代全三维数值正确性或收敛证明。
-独立 pvbatch 路线验证覆盖数据提取和 Matplotlib 对比绘图；其截图/动画仍未验证。
-6.2.0 client/server 的单张离屏截图证据见 [桥接验证边界](bridge.md#故障处理与验证边界)。
+默认单 rank。确需多 rank 时使用同一安装的 `bin/mpiexec -n N bin/pvbatch`，
+并验证过滤器输出；现有中心线在串行与 4 rank 下曾出现速度差异，不能默认数值等价，
+证据见 [MPI 安装与验收记录](../../../../docs/ai_changes/2026-10-20-paraview-mpi-install.md)。
+
+## 环境缺失或损坏
+
+找不到 `pvbatch` 时读 [安装与维护](maintenance.md#安装环境)。普通使用不必每次运行安装器。
+执行失败先检查 SSH、输入路径、应用路径与过滤器报错，不回退到登录节点或系统 Python。

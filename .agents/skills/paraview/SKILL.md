@@ -1,82 +1,47 @@
 ---
 name: paraview
-description: 在本仓库使用 ParaView 处理 AMReX 三维数据，包括通过 Windows GUI 与远端 pvserver 的控制桥操作当前窗口，以及在超算编译节点独立运行 pvbatch 后台导出。用户提及 ParaView 桥接、连接脚本、自动加载、远端后台后处理、批量提取中心线或桥接故障时使用；普通 CSV 绘图、求解器修改不触发。
+description: 在本仓库远端环境使用 ParaView：运行 pvbatch 后处理，或通过 Windows GUI 控制桥操作已连接窗口。用于远端执行、连接与排错；普通 CSV 绘图不触发。
 ---
 
-# ParaView 后处理
+# 远端 ParaView
 
-## 选择执行方式
+## 环境与执行方式
 
-- 需要独立自动处理共享数据、不依赖 Windows 在线：使用远端批处理，先读 [batch.md](references/batch.md)。
-- 需要操作用户当前 GUI 的管线、让提取结果保留在窗口：使用控制桥，先读 [bridge.md](references/bridge.md)。
-- 用户指定方式时按指定方式执行。批处理创建独立会话；超算端不能直接启动用户 Windows 上的 PS1。
+ParaView 在编译节点 **whshare-agent-1** 运行，不在登录节点执行。仓库私有安装为
+`.tools/paraview-mpi/env`，版本 **6.2.0**，支持 MPI/Python/EGL；使用该安装自带的
+Python 和 MPI，CSV 分析与绘图仍用仓库 `.venv/bin/python`。以下命令从仓库根执行。
 
-这是本仓库的项目 skill。命令均从仓库根执行，核心脚本唯一实现位于 `scripts/`。旧后处理目录仅保留两个 Windows 连接入口的兼容软链，不维护第二套实现。
-
-GUI 升级时须重新下载 [connect_paraview.ps1](scripts/connect_paraview.ps1) 覆盖本机文件；PS1 不会更新自身，只在启动时下载桥客户端。当前本机路径为 `D:\Software\ParaView 6.2.0\bin\paraview.exe`，两端按 6.2.0 核对。
-已有窗口先用投递器 `current client_status` 区分连接故障与客户端过旧；支持 `reload_client`
-时可由Agent执行固定来源热更新，无需用户重连或粘贴代码。启动脚本提供 `-BridgeStatus`、
-`-UpdateBridge` 两个独立模式，均不创建服务、隧道或GUI。版本3及更旧客户端首次启用该机制
-仍需一次本机加载或下次正常启动；不要对在线旧会话反复要求重新桥接。
-Windows 本机版本预检优先读取 EXE 版本资源，缺失时使用同目录 pvpython.exe；不要恢复为直接依赖 GUI 程序 `paraview.exe --version` 的管道输出。
-故障时用 `pwsh -NoExit -File "本机实际路径/connect_paraview.ps1"` 保留报错。在线 inspect、源码哈希和启动回执各有证明边界，不能代替本机最终 `Bridge ready` 验收；详见 [桥接说明](references/bridge.md)。
-
-## 共同执行步骤
-
-1. 核对输入 PlotFile 的绝对路径及 Header，从运行快照确认 Re、步数、变量、AMR 层级和归一化参数。“最新”按数值步号选择，不按修改时间猜测。不把 job613495 的 Re=1000 当作 Re=3200。
-2. 在共享存储创建专属输出目录，确认采样位置、分辨率和读取层级。默认实现仅提供几何中心沿 z 方向的速度中心线，不能冒充任意截面、流线或全场导出。
-3. 运行选定入口。批处理及安装探测必须在 **whshare-agent-1 编译节点**执行，使用提供的包装脚本自动 SSH；失败即停止，绝不在登录节点直接调用 pvbatch。GUI 脚本经配置的 SSH 入口转到同一编译节点；服务包装脚本检查主机名，拒绝在其他节点启动。默认环境为6.2.0的MPI/Python/EGL构建；GUI默认4进程，可配置ServerProcesses和RemoteParaViewPrefix，使用匹配安装的MPI启动器。
-4. 检查对应成功回传或批处理元数据，记录主机、版本、输入、步数、端点和读取层级。批量任务为各输入指定独立输出。桥接单槽命令必须串行；超时后先核对原命令结果，不能盲目重发。
-5. 用仓库 `.venv/bin/python` 分析 CSV，核对 vtkValidPointMask、有限值、点数及坐标。跨版本按列名和坐标比较，不只比较哈希。图表标注输入、步数、归一化和参考来源。中心线提取成功不构成全三维正确性或收敛证明。
+- **独立处理共享数据**：用 `pvbatch`，不要求 Windows 在线。先读 [远端批处理](references/batch.md)，包含现有中心线入口和其他 Python 管线的执行方法。
+- **操作用户当前窗口**：用 GUI 控制桥。先读 [GUI 桥接](references/bridge.md)，包含本机启动、状态查询、可用命令与排错。远端不能直接启动用户 Windows 上的 PS1。
+- 用户指定方式时按指定方式执行；未指定且无需保留 GUI 管线时用批处理。
 
 ## 最小入口
 
-桥接已由本机启动脚本建立后，探测实际连接与能力：
+已有 GUI 桥时，先查询当前连接、数据源与能力：
 
 ```bash
 .venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current inspect
 ```
 
-当前窗口添加涡量视图时，先从 inspect 确认完整三维读取器名称与输入来源，再执行白名单
-`add_vorticity_view --source '<完整名称>' --slice-axis y --component Magnitude --timeout 180`。
-先在三维上求旋度再切片；新布局保留原视图。缺少能力先检查client_status并按支持情况更新，
-不能通过文件协议执行任意Python来绕过能力限制。更新与显示选项见[桥接说明](references/bridge.md)。
-
-独立批处理先核对/安装锁定环境，再执行导出（输出目录须存在）：
+独立导出中心线（输入为共享存储绝对路径，输出父目录须存在）：
 
 ```bash
-bash .agents/skills/paraview/scripts/install_paraview_batch.sh
 bash .agents/skills/paraview/scripts/run_paraview_batch.sh \
-  --input /absolute/shared/plt_256000 \
+  --input /absolute/shared/plotfile \
   --output /absolute/shared/output/centerline.csv \
   --metadata /absolute/shared/output/paraview_export.json \
   --resolution 1024 --max-level 2
 ```
 
-ParaView 使用应用自带 Python；其他分析只用仓库 `.venv`。应用保留在 `.tools/paraview-mpi/env`，不迁移二进制到 skill，不修改系统模块或 shell 启动文件。
+## 执行时确认
 
-## 实现与维护
+核对输入 Header、步数、变量和实际 AMR 层级；“最新”按数值步号选择。按任务确定采样
+位置、读取层级及输出路径，检查回传或元数据中的实际主机、版本和输入。中心线入口固定
+沿几何中心的 z 方向采样，其他截面、流线或全场任务按需构建管线。
 
-- `connect_paraview.ps1`：Windows 6.2.0 客户端与远端同版本预检、下载桥客户端、启动连接并校验本次 GUI 回执。
-- `run_paraview_server.sh`：限定编译节点、隔离旧模块环境，启动6.2.0的MPI服务，验证进程数、构建信息与配套启动器。
-- `paraview_bridge_client.py`：GUI 主线程执行白名单命令，后台线程只处理 SSH；builtins 持有唯一桥实例及原生回调。已有窗口不会随仓库源码自动更新。
-- `paraview_bridge_send.py`：通过共享注册和心跳发现会话，单槽投递并等待对应 ID 回传。
-- `add_vorticity_view`：优先在原生单元速度数据上用 Calculator 与 Gradient 计算三维旋度；输入只有点速度时使用点数据路径，再在新布局显示切片。保留原视图，回执注明数据关联、数值范围和对象 ID。
-- `paraview_batch_export.py`：只加载桥模块定义，复用 export_centerline，不启动定时器或桥注册。
-- `run_paraview_batch.sh`、`install_paraview_batch.sh` 和显式包锁：节点路由、应用环境隔离和安装。安装状态来自 conda-meta，不另设缓存标记。
+桥命令串行投递，超时不代表取消，先检查对应命令结果再决定下一步；缺少能力时先查
+`client_status`，不要借文件协议执行任意 Python。导出后核对坐标、点数、有效掩码和有限值；
+跨版本或进程数比较按列名与坐标进行，提取成功不能作为求解器正确性或收敛证明。
 
-修改中心线算法时维护两种入口共用的函数。新增操作先核对现有能力和 API，再实现、测试并更新能力声明；不能通过文件协议投递任意 Python。算例物理参数、参考数据及绘图保留在算例的 data_post_processing 中。
-
-迁移或修改后至少执行：
-
-```bash
-bash -n .agents/skills/paraview/scripts/run_paraview_batch.sh
-bash -n .agents/skills/paraview/scripts/install_paraview_batch.sh
-bash -n .agents/skills/paraview/scripts/run_paraview_server.sh
-.venv/bin/python -m unittest discover -s .agents/skills/paraview/scripts/tests -v
-```
-
-修改涡量管线时，除解析旋转场回归外，还应使用真实 AMReX PlotFile 检查 Gradient 输出、
-数据关联和有限数值；真实文件验证未覆盖的 AMR 层级或 GUI/MPI 组合须明确说明。
-
-模拟测试覆盖启动回执、生命周期和节点路由，不能代替 Windows 现场启动。数据路径变化还需在编译节点对真实 PlotFile 导出并核对 CSV。已验证编译节点 6.2.0 client/server 的单张离屏截图；动画、Windows GUI 截图及并行 pvbatch 尚未验证。
+仅修改工具、安装环境或处理旧客户端时读 [实现与维护](references/maintenance.md)。
+算例参数、参考数据和绘图方法以所属算例的 `data_post_processing/` 为准。
