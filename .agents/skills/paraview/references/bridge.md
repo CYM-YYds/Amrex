@@ -86,6 +86,23 @@ GUI 导出成功时保留新管线，恢复原活动源，不主动改变显示�
 优先使用原生单元速度，只有点速度时走点数据路径；回执注明关联、数值范围及新增对象 ID。
 结果为物理坐标下未乘 H/U 的旋度；AMR 界面重建与分块导数是可视化近似。
 
+已有涡量切片可使用 `publication_vorticity` 原位排版：
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current publication_vorticity \
+  --source '<inspect返回的涡量切片完整名称>' --vorticity-scale 20 \
+  --color-range 0 10 --output /absolute/shared/output/vorticity.png --timeout 180
+```
+
+该操作支持坐标轴对齐的平面切片；要求其在唯一视图中可见，或已选中目标视图。
+复用已有 `Vorticity`，新增标量 `mag(Vorticity)*H/Uref`，隐藏原切片显示而保留管线。
+乘数和色标须由实际算例确定，上例 20 仅适用于 H=1、Uref=0.05；默认乘数 1
+表示未归一化。原始单元/点关联保持不变，不做平滑。白底、Times 字体、水平色标与
+蓝青绿黄红色带固定；平面内坐标范围为 0–1 时轴标题使用 x/H 等，否则保留原坐标。
+超过色标上限的值饱和显示，比较图须使用相同定义和范围。
+可选 `--output` 导出 2400×2400 无损 PNG 到服务端共享路径，父目录需预先存在；
+不指定输出则只修改 GUI。重复执行复用同一切片的论文标量过滤器。
+
 桥仅支持 inspect 声明的操作，不接受任意 Python。所需能力未实现时，独立任务可转用
 批处理；必须留在当前窗口的操作按 [维护说明](maintenance.md#实现边界与验证) 扩展工具。
 

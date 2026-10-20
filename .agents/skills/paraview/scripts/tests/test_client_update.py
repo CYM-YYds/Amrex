@@ -37,7 +37,8 @@ class ClientUpdateTests(unittest.TestCase):
         self.bridge.worker, self.bridge.timer = object(), object()
         self.bridge.closed = threading.Event()
         self.bridge.backgrounds = {'existing_view': ([0, 0, 0], 0)}
-        self.target = self.original.replace(b"BRIDGE_VERSION = '4'", b"BRIDGE_VERSION = 'test-next'")
+        version_line = ('BRIDGE_VERSION = ' + repr(definitions['BRIDGE_VERSION'])).encode()
+        self.target = self.original.replace(version_line, b"BRIDGE_VERSION = 'test-next'")
         self.bridge.remote = lambda command: self.target
 
     def tearDown(self):

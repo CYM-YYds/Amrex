@@ -16,11 +16,11 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '4'
+BRIDGE_VERSION = '5'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
-                'add_vorticity_view', 'reload_client']
+                'add_vorticity_view', 'publication_vorticity', 'reload_client']
 
 # 跨启动脚本和交互 Shell 共用唯一实例，也保留停止后可能被系统消息引用的回调。
 if not hasattr(builtins, '_amrex_paraview_bridge_runtime'):
@@ -267,6 +267,165 @@ def add_vorticity_view(command):
         raise
 
 
+def publication_vorticity(command):
+    """为已有涡量切片添加可追溯的无量纲标量及论文排版，不重新求导或平滑。"""
+    import math
+    from paraview import servermanager
+    source_name = command.get('source')
+    matches = [s for (name, _), s in pvs.GetSources().items() if name == source_name]
+    if len(matches) != 1:
+        raise ValueError('source must identify exactly one registered slice')
+    source = matches[0]
+    if source.GetXMLName() != 'Cut':
+        raise ValueError('Select a planar Vorticity slice')
+    publications = [s for (name, _), s in pvs.GetSources().items()
+                    if name.startswith('Publication_vorticity_magnitude') and
+                    s.GetXMLName() == 'Calculator' and s.Input == source]
+    if len(publications) > 1:
+        raise ValueError('Multiple publication scalars exist; select an unambiguous slice')
+    visible_source = publications[0] if publications else source
+    scale = command.get('vorticity_scale', 1.0)
+    limits = command.get('color_range')
+    if type(scale) not in (int, float) or not math.isfinite(scale) or scale <= 0:
+        raise ValueError('vorticity_scale must be finite and positive (H/Uref)')
+    if (not isinstance(limits, (list, tuple)) or len(limits) != 2 or
+            any(type(v) not in (int, float) or not math.isfinite(v) for v in limits) or
+            not 0 <= limits[0] < limits[1]):
+        raise ValueError('color_range must be nonnegative and increasing')
+    output = command.get('output')
+    if output and (not isinstance(output, str) or not output.startswith('/') or
+                   not output.lower().endswith('.png')):
+        raise ValueError('output must be an absolute server PNG path')
+    # 只使用已有可见视图，避免无意修改同一切片的隐藏预览。
+    candidates = [(v, d) for v in pvs.GetViews() if v.GetXMLName() == 'RenderView'
+                  for d in v.Representations if d.GetProperty('Input') and d.Input == visible_source]
+    candidates = [(v, d) for v, d in candidates if d.Visibility]
+    active = pvs.GetActiveView()
+    candidates = [pair for pair in candidates if pair[0] == active] or candidates
+    if len(candidates) != 1:
+        raise ValueError('Select the visible Vorticity slice view first')
+    view, original_display = candidates[0]
+    normal = list(source.SliceType.Normal)
+    axis = max(range(3), key=lambda i: abs(normal[i]))
+    if abs(abs(normal[axis]) - 1) > 1e-8 or any(abs(normal[i]) > 1e-8 for i in range(3) if i != axis):
+        raise ValueError('Publication layout requires an axis-aligned slice')
+    source.UpdatePipeline(time=view.ViewTime)
+    association = 'CELLS' if 'Vorticity' in source.CellData.keys() else 'POINTS'
+    if 'Vorticity' not in (source.CellData if association == 'CELLS' else source.PointData).keys():
+        raise ValueError('The slice must contain Vorticity')
+    scalar = publications[0] if publications else pvs.Calculator(
+        registrationName='Publication_vorticity_magnitude', Input=source)
+    scalar.AttributeType = 'Cell Data' if association == 'CELLS' else 'Point Data'
+    scalar.ResultArrayName = 'PublicationVorticityMagnitude'
+    scalar.Function = 'mag(Vorticity)*' + repr(float(scale))
+    scalar.UpdatePipeline(time=view.ViewTime)
+    values = scalar.CellData if association == 'CELLS' else scalar.PointData
+    data_range = list(values['PublicationVorticityMagnitude'].GetRange())
+    if not all(math.isfinite(x) for x in data_range):
+        pvs.Delete(scalar)
+        raise ValueError('Nonfinite scaled vorticity')
+    original_display.SetScalarBarVisibility(view, False)
+    pvs.Hide(source, view)
+    display = pvs.Show(scalar, view)
+    display.Representation = 'Surface'
+    display.Ambient = 1
+    display.Diffuse = 0
+    pvs.ColorBy(display, (association, 'PublicationVorticityMagnitude'))
+    lut = display.LookupTable
+    # 与用户参考图一致的蓝、青、绿、黄、红色带。
+    lut.ColorSpace = 'RGB'
+    lo, hi = limits
+    lut.RGBPoints = [lo, 0, 0, 1, lo+(hi-lo)*0.25, 0, 1, 1,
+                     lo+(hi-lo)*0.5, 0, 1, 0, lo+(hi-lo)*0.75, 1, 1, 0, hi, 1, 0, 0]
+    lut.RescaleTransferFunction(lo, hi)
+    lut.AutomaticRescaleRangeMode = 'Never'
+    display.SetScalarBarVisibility(view, True)
+    bar = pvs.GetScalarBar(lut, view)
+    bar.Title = 'Vorticity magnitude' if scale == 1 else 'Vorticity magnitude H/Uref'
+    bar.ComponentTitle = ''
+    bar.WindowLocation = 'Any Location'
+    bar.Orientation = 'Horizontal'
+    bar.Position = [0.22, 0.045]
+    bar.ScalarBarLength = 0.56
+    bar.ScalarBarThickness = 24
+    bar.TitleFontFamily = 'Times'
+    bar.LabelFontFamily = 'Times'
+    bar.TitleFontSize = 24
+    bar.LabelFontSize = 22
+    bar.TitleColor = [0, 0, 0]
+    bar.LabelColor = [0, 0, 0]
+    bar.TitleBold = 0
+    bar.TitleItalic = 0
+    bar.TitleShadow = 0
+    bar.LabelBold = 0
+    bar.LabelItalic = 0
+    bar.LabelShadow = 0
+    bar.UseCustomLabels = 1
+    bar.CustomLabels = [lo + (hi-lo)*i/5 for i in range(6)]
+    bar.RangeLabelFormat = '%.2g'
+    bar.LabelFormat = '%.2g'
+    bar.AddRangeLabels = 0
+    view.BackgroundColorMode = 'Single Color'
+    view.UseColorPaletteForBackground = 0
+    view.Background = [1, 1, 1]
+    view.OrientationAxesVisibility = 0
+    view.CameraParallelProjection = 1
+    bounds = list(source.GetDataInformation().GetBounds())
+    center = [(bounds[2*i]+bounds[2*i+1])/2 for i in range(3)]
+    span = max(bounds[2*i+1]-bounds[2*i] for i in range(3))
+    view.CameraFocalPoint = center
+    # y 截面从负 y 方向看，使 x 向右、z 向上。
+    direction = -1 if axis == 1 else 1
+    view.CameraPosition = [center[i] + (direction*2*span if i == axis else 0) for i in range(3)]
+    view.CameraViewUp = [0, 1, 0] if axis == 2 else [0, 0, 1]
+    view.CameraParallelScale = 0.72*span
+    grid = view.AxesGrid
+    grid.Visibility = 1
+    grid.ShowGrid = 0
+    grid.ShowEdges = 1
+    grid.ShowTicks = 1
+    grid.GridColor = [0, 0, 0]
+    grid.XTitle, grid.YTitle, grid.ZTitle = '', '', ''
+    for letter in 'XYZ':
+        for kind in ('Title', 'Label'):
+            setattr(grid, letter+kind+'Color', [0, 0, 0])
+            setattr(grid, letter+kind+'FontFamily', 'Times')
+            setattr(grid, letter+kind+'FontSize', 24 if kind == 'Title' else 22)
+            for flag in ('Bold', 'Italic', 'Shadow'):
+                setattr(grid, letter+kind+flag, 0)
+        setattr(grid, letter+'AxisUseCustomLabels', 1)
+        index = 'XYZ'.index(letter)
+        setattr(grid, letter+'AxisLabels', [bounds[2*index]+(bounds[2*index+1]-bounds[2*index])*i/5 for i in range(6)])
+    # 独立二维文字避免高分辨率截图时 CubeAxes 轴标题被自动缩成不可读大小。
+    plane_axes = [i for i in range(3) if i != axis]
+    for index, position in zip(plane_axes, ([0.48, 0.105], [0.065, 0.49])):
+        label_name = 'Publication_axis_' + str(index) + '_' + view.GetGlobalIDAsString()
+        label = pvs.FindSource(label_name)
+        if label is None:
+            label = pvs.Text(registrationName=label_name)
+        unit_extent = abs(bounds[2*index]) < 1e-8 and abs(bounds[2*index+1]-1) < 1e-8
+        label.Text = 'xyz'[index] + ('/H' if unit_extent else '')
+        label_display = pvs.Show(label, view)
+        label_display.WindowLocation = 'Any Location'
+        label_display.Position = position
+        label_display.FontFamily = 'Times'
+        label_display.FontSize = 24
+        label_display.Color = [0, 0, 0]
+    pvs.SetActiveView(view)
+    pvs.SetActiveSource(scalar)
+    pvs.Render(view)
+    if output:
+        pvs.SaveScreenshot(output, view, ImageResolution=[2400, 2400],
+                           FontScaling='Do not scale fonts',
+                           location=servermanager.vtkPVSession.DATA_SERVER)
+    return {'source': source_name, 'view': view.GetGlobalIDAsString(), 'time': view.ViewTime,
+            'scalar': scalar.GetGlobalIDAsString(), 'vorticity_scale': scale,
+            'scaled_range': data_range, 'color_range': list(limits), 'slice_normal': normal,
+            'slice_origin': list(source.SliceType.Origin), 'output': output,
+            'image_resolution': [2400, 2400] if output else None,
+            'clipping': 'Values above color maximum saturate; no numerical smoothing applied'}
+
+
 class ParaViewBridge:
     def prepare_reload(self, command):
         """后台只读取固定仓库文件；SHA256必须与投递端期望一致。"""
@@ -455,6 +614,8 @@ class ParaViewBridge:
             return export_centerline(command)
         if action == 'add_vorticity_view':
             return add_vorticity_view(command)
+        if action == 'publication_vorticity':
+            return publication_vorticity(command)
         if action == 'inspect':
             from paraview import servermanager
             connection = servermanager.ActiveConnection

@@ -18,6 +18,8 @@ class VorticityTests(unittest.TestCase):
         client = Path(__file__).resolve().parents[1] / 'paraview_bridge_client.py'
         cls.add_view = staticmethod(runpy.run_path(
             str(client), init_globals={'_PV_BRIDGE_DEFINITIONS_ONLY': True})['add_vorticity_view'])
+        cls.publication = staticmethod(runpy.run_path(
+            str(client), init_globals={'_PV_BRIDGE_DEFINITIONS_ONLY': True})['publication_vorticity'])
 
     def test_solid_body_rotation_and_original_view_preserved(self):
         # 解析场 u=(-y,x,0) 的旋度应为 (0,0,2)，避免只检查过滤器名字或成功退出。
@@ -42,6 +44,17 @@ class VorticityTests(unittest.TestCase):
         self.assertEqual(list(array.GetRange(0)), [0.0, 0.0])
         self.assertEqual(list(array.GetRange(1)), [0.0, 0.0])
         self.assertEqual(list(array.GetRange(2)), [2.0, 2.0])
+        # 排版不得改变原旋度；新标量严格按指定 H/Uref 缩放。
+        styled = self.publication({'source': 'Vorticity_slice_y',
+                                   'vorticity_scale': 20, 'color_range': [0, 50]})
+        self.assertEqual(styled['scaled_range'], [40.0, 40.0])
+        self.assertEqual(styled['view'], result['view'])
+        self.assertEqual(list(array.GetRange(2)), [2.0, 2.0])
+        self.assertEqual(list(pvs.GetActiveView().Background), [1, 1, 1])
+        self.assertEqual(pvs.GetActiveView().UseColorPaletteForBackground, 0)
+        repeated = self.publication({'source': 'Vorticity_slice_y',
+                                     'vorticity_scale': 20, 'color_range': [0, 50]})
+        self.assertEqual(repeated['scalar'], styled['scalar'])
 
     def test_rejects_missing_source_before_creating_pipeline(self):
         before = set(pvs.GetSources())

@@ -71,7 +71,7 @@ def send(directory, action, color=None, timeout=60, options=None):
     command = {'id': uuid.uuid4().hex, 'action': action}
     if options:
         if set(options) - {'input', 'output', 'resolution', 'max_level', 'source',
-                           'slice_axis', 'slice_position', 'component', 'color_range', 'expected_sha256'}:
+                           'slice_axis', 'slice_position', 'component', 'color_range', 'vorticity_scale', 'expected_sha256'}:
             raise ValueError('未知桥接参数')
         command.update(options)
     if color is not None:
@@ -93,7 +93,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', nargs='?', default='current')
     parser.add_argument('action', choices=['inspect', 'background', 'restore_background', 'export_centerline',
-                                         'add_vorticity_view', 'client_manifest', 'client_status', 'reload_client'])
+                                         'add_vorticity_view', 'publication_vorticity', 'client_manifest', 'client_status', 'reload_client'])
     parser.add_argument('--color', nargs=3, type=float)
     parser.add_argument('--input')
     parser.add_argument('--output')
@@ -103,6 +103,7 @@ if __name__ == '__main__':
     parser.add_argument('--slice-axis', choices=['x', 'y', 'z'], default='y')
     parser.add_argument('--slice-position', type=float, help='物理坐标；默认几何中心')
     parser.add_argument('--component', choices=['Magnitude', 'X', 'Y', 'Z'], default='Magnitude')
+    parser.add_argument('--vorticity-scale', type=float, default=1.0, help='论文色标的 H/Uref 乘数')
     parser.add_argument('--color-range', nargs=2, type=float, metavar=('MIN', 'MAX'),
                         help='显式设置涡量色标范围；默认使用当前切片数据范围')
     parser.add_argument('--timeout', type=float, default=60)
@@ -138,6 +139,13 @@ if __name__ == '__main__':
             parser.error('export_centerline requires --input and --output')
         options = {'input': args.input, 'output': args.output,
                    'resolution': args.resolution, 'max_level': args.max_level}
+    elif args.action == 'publication_vorticity':
+        if not args.source or args.color_range is None:
+            parser.error('publication_vorticity requires --source and --color-range')
+        options = {'source': args.source, 'color_range': args.color_range,
+                   'vorticity_scale': args.vorticity_scale}
+        if args.output:
+            options['output'] = args.output
     elif args.action == 'add_vorticity_view':
         if not args.source:
             parser.error('add_vorticity_view requires --source')
