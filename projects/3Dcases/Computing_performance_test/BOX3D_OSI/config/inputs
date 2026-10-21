@@ -55,7 +55,8 @@ amr.blocking_factor_x = 16  16  16  16
 amr.blocking_factor_y = 16  16  16  16
 amr.blocking_factor_z = 16  16  16  16
 
-# 各层基于涡量的加密阈值；第 lev 项由 ErrorEst() 在该层使用。
+# 二维 state_error_3 使用各层涡量阈值；当前三维 state_error_6 不使用这些数值。
+# 仍需保留足够层级项，供 ErrorEst() 的数组长度检查使用；三维判据见 Kernels.H。
 lbm.err = 0.64  1.28  2.56  5.12
 
 # OSI 在多层 AMR、多 Fab/MPI、全周期和六面非周期边界下均有实现。

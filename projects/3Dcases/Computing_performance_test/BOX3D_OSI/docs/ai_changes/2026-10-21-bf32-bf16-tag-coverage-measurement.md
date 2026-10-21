@@ -12,3 +12,4 @@
 - 完整结果：[Markdown 表格](../../runs/20261021_bf_tag_coverage_comparison/comparison.md)、[JSON](../../runs/20261021_bf_tag_coverage_comparison/comparison.json)、[逐次 CSV](../../runs/20261021_bf_tag_coverage_comparison/tag_coverage_timeseries.csv)。CSV 含 400 行测量，每个方案两个父层各 100 次，覆盖 step=256032 至 259200 的全部 regrid。另存 raw_valid 和 domain 两种分母，避免把第一次尚未铺满全域的 level 1 valid 打标比例误当全域比例。
 - 验证：两作业 exit_status.json 均为 0、completion_seen=true，8 个 rank 均返回 0，两个监督器均为 SUCCEEDED。400 组原始打标数与阈值超限数一致，非有限和负涡量计数均为 0；400 组 fine_cells/8 与同次 covered/covered_expected 全部相等。终点与采样数量严格校验通过。app 和 inputs 内容相同、覆盖参数仅 BF 三项不同的检查通过；Python AST、记录链接与 CRLF 兼容 diff 检查通过。
 - 边界与收尾：这些是打标/覆盖计数证据，不是涡量计算准确性、稳态收敛或性能收益的证明。作业均已退出，测量工具的独立复现副本保存在对照目录；删除本次 scripts/temporary 下无后续依赖的汇总入口，不清理其他任务工具及原始结果。用户已有 inputs 空白修改保持未提交。
+- 2026-10-21 后续核查：显存采样 CSV 的软链目标已缺失，只有峰值 JSON 留存，不能重算显存峰值；原始 run.log、refinement_summary.json 和 400 行 tag_coverage_timeseries.csv 仍完整，打标/覆盖测量可继续复核。当前配置和工作区终态见后续知识收尾记录，不沿用当时的 dirty 状态。

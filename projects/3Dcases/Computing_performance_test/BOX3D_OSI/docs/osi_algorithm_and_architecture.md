@@ -365,6 +365,38 @@ twisted(Addr(fab,q,target_phase,i,j,k),q) =
 
 ## 10. 动态 regrid：保留或重建 phase
 
+### 判据打标、建块与覆盖统计
+
+三维 `ErrorEst()` 调用 `state_error_6`，二维调用 `state_error_3`。
+当前三维以 valid 单元的涡量模 W 打标：
+`min(1, log2(W)) >= -2 - (max_ref_level - lev)`，编译期 `max_ref_level=3`，
+所以 level 0→1、1→2 的阈值分别是 0.03125、0.0625。
+运行时 `amr.max_level=2` 限制实际层数，不会改变上述映射；`lbm.err` 数值不参与
+当前三维比较，但其数组长度仍用于 ErrorEst 的层级入口检查。统一层号含义属于待决数值变更。
+
+AMReX 26.06 在 ErrorEst 后按顺序缓冲 tags、按
+`max(1, blocking_factor[lev+1]/ref_ratio[lev])` 粗化 tags，再执行投影、
+嵌套和周期处理，在粗化标记图上按 grid_eff 聚类，恢复尺度后限制 max_grid_size。
+TagBox::coarsen 在每个分组内取最大 tag（CLEAR=0、BUF=1、SET=2），不计算原始达标比例。
+当前 ratio=2：BF32 对应父层 16³ 分组，BF16 对应 8³ 分组；这是标记图的粒度约束，
+不是把流场粗化，也不保证一个原始 tag 单独生成一个细块。
+grid_eff=0.7 约束的是处理后的聚类效率，不保证细网格内 70% 的原始父单元满足涡量判据。
+
+`verification.refinement_diagnostics=true`（默认关闭）在缓冲和投影前统计
+实际用于 ErrorEst 的 valid 涡量和原始 tag，含 covered 粗单元、不含 ghost；
+同次 regrid 后复用 REGRID_DIAG/CF_MASK_DIAG 记录最终网格和覆盖。
+常规 Mesh Information 只描述最终网格，不能代替原始打标统计；现有诊断也不输出 tag 空间掩码。
+诊断包含额外 GPU 归约和 MPI 同步，不能直接用于无诊断的性能结论。
+
+逐父层令 T 为原始打标数，C 为同次 regrid 后细单元数除以细化比的维度次幂
+（三维 ratio=2 时除以 8）。覆盖放大指标 `E=C/T-1` 以原始需求为分母；
+`F=1-T/C` 以实际覆盖为分母。T=0 时 E 未定义，C=0 时 F 未定义。
+二者是计数指标，不是原始 tag 与最终覆盖的空间集合差，也不证明额外覆盖没有精度收益；
+不跨层直接累加不同分辨率的单元数。实验结果统一见
+[当前交接状态](current_status.md#2026-10-21加密覆盖与续跑终态)。
+
+### 布局与 phase 的保留/迁移
+
 以下为提交 `af3b5da` 后的现行路径。`RemakeLevel()` 遇到相同 `BoxArray` 和
 `DistributionMapping` 时保留该层 raw state 与 phase。布局变化时重置新布局的
 phase，并在重叠区按旧 phase 迁移逻辑值；不构造整层 canonical DDF：

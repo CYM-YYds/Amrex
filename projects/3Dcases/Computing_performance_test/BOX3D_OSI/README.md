@@ -6,7 +6,7 @@ BOX3D_OSI_dev 的维度兼容实现已合入本目录，后续统一在此维护
 相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
 [当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
 
-更新时间：2026-10-20。
+更新时间：2026-10-21。
 
 
 ## 二维与三维统一入口
@@ -306,10 +306,18 @@ OSI/A-B 检查。默认 `periodic`；也可设置 `BOX3D_FIXED_GRID_BOUNDARY`，
 
 ## 当前配置与验证边界
 
-当前 `config/inputs`：Re=1000，基础网格 `128³`，最高 level=2，regrid 间隔 32；
+当前三维 `config/inputs`：Re=3200，域长 1，基础网格 `128³`，最高 level=2，
+blocking_factor=16、max_grid_size=128、grid_eff=0.7，regrid 间隔 32；
 `stream_mode=1`、`collide_mode=1`、`interp_mode=0`；OSI 同层通信、插值搬运及接口平均统一使用 direct 路径；
 device-direct 关闭，host-staging 分块为 2 MiB；最多 128000 步，PlotFile 间隔
 3200、checkpoint 间隔 32000，收敛容差为 `1e-4`。这些是配置值，不表示长程已经完成。
+
+三维使用 `state_error_6`，当前阈值映射仍取编译期最高层号 3，不能把 inputs 的
+`lbm.err` 当作三维实际阈值；机制与覆盖比例定义见
+[加密判据与建块](docs/osi_algorithm_and_architecture.md#判据打标建块与覆盖统计)。
+BF32/BF16 的同起点 3200 步测量均已成功，但先前 BF16 的 32000 步续跑在首次
+PlotFile 写入时失败；完整运行状态、覆盖结果和未解决事项见
+[当前交接状态](docs/current_status.md#2026-10-21加密覆盖与续跑终态)。
 
 网格尺寸、物理域和周期性由 inputs 设置；程序校验各向同性 spacing，并通过
 `LbmGridParams` 传递派生参数。粗细覆盖掩码固定启用，`lbm.cf_mask_mode` 已移除。
