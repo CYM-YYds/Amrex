@@ -38,13 +38,23 @@ DIM_REFACTOR_BASELINE=/绝对路径/含app2d.ex和app3d.ex及git_head.txt的基�
   dsub -x 'all;' -s tests/submit_dimension_refactor_validation.sh
 ```
 
-完整迁移矩阵、静态圆盘检查、生成代码比较分别使用
-`tests/submit_dimension_validation.sh`、`tests/submit_particle_geometry_validation.sh`、
-`tests/compare_dimension_codegen.py`；沿用各工具的显式基线参数，历史基线和报告仍在
+其余工具的基线接口如下；默认历史路径不保证在主算例中存在，提交前显式指定并核对文件：
+
+| 工具 | 基线输入 |
+|---|---|
+| `tests/submit_dimension_validation.sh` | `DIMENSION_BASELINE_EXE`：迁移前三维程序完整路径 |
+| `tests/submit_particle_geometry_validation.sh` | `PARTICLE_BASELINE_EXE`：粒子改动前三维程序完整路径 |
+| `tests/submit_dimension_refactor_validation.sh` | `DIM_REFACTOR_BASELINE`：含 `app2d.ex`、`app3d.ex` 和 `git_head.txt` 的目录 |
+| `tests/compare_dimension_codegen.py` | 位置参数：访问器重构证据目录，含 `baseline/src`、`baseline/objects{2,3}d` 及 `baseline/app{2,3}d.ex`；这是该次访问器重构的专用比较，不能直接用任意旧程序替换 |
+
+历史基线和报告仍在
 [dev 历史目录](../BOX3D_OSI_dev/README.md)，不应假设已复制到本目录的 runs。
 历史已验证范围及已知 physical ghost 差异见
 [dev 维度验证记录](../BOX3D_OSI_dev/docs/ai_changes/2026-10-19-dimension-accessors.md)。
-本次合并的验证另见 [合并记录](docs/ai_changes/2026-10-20-merge-dimension-support.md)。
+历史专项预设（锁步、Re=1000、固定网格）仍按三维参数维护；二维运行使用上面的通用提交入口，不能仅设置 DIM 就套用三维预设。
+
+合并版本的验证见 [合并记录](docs/ai_changes/2026-10-20-merge-dimension-support.md)。
+现役配置、程序与较新实验范围见[当前交接状态](docs/current_status.md)，不把合并时的验收自动扩大到后续修改。
 
 ## 目录与构建关系
 
@@ -68,7 +78,7 @@ BOX3D_OSI/
 │   ├── OsiIndex.H              # Fab-local 地址映射和几何/相位上下文
 │   ├── OsiCommunication.H      # 通信 tag、MPI staging 和交换执行骨架
 │   ├── Kernels.H               # 单元级碰撞、迁移、边界及宏观量 kernel
-│   ├── LbmLattice.H                 # 统一速度集：DIM=2 为 D2Q9，DIM=3 为 D3Q27
+│   ├── LbmLattice.H             # 统一速度集：DIM=2 为 D2Q9，DIM=3 为 D3Q27
 │   ├── LbmGridParams.H         # 可传给 host/GPU 的运行时网格与物理参数
 │   ├── LagrangeParticleContainer.H/.cpp # 粒子存储、插值和受力计算
 │   ├── AuxiliaryPointContainer.H/.cpp  # 辅助测点容器
@@ -82,7 +92,7 @@ BOX3D_OSI/
 ├── runs/                       # 独立实验目录：输入、命令、证据与输出
 ├── logs/                       # 编译和调度日志
 ├── tmp_build_dir/              # 构建中间文件
-└── main3d.gnu.TPROF.MPI.CUDA.ex # 生产可执行文件
+└── main{2,3}d.gnu.TPROF.MPI.CUDA.ex # 两个维度的可执行文件
 ```
 
 其他 `chk*`、`data*` 目录属于历史结果，不能当作待删除构建残留。

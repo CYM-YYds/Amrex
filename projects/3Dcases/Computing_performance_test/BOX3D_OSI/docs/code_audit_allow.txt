@@ -22,7 +22,7 @@ collide_cumulant_opt2    # Kernels.H，cumulant 七月版
 forwardChimeraWithK      # Kernels.H，cumulant 中心矩变换
 backwardChimeraWithK     # Kernels.H，cumulant 中心矩逆变换
 compute_shear2           # Kernels.H，剪切率备选算法
-feqHeLuo                 # D3Q19.H，He-Luo 平衡态
+feqHeLuo                 # LbmLattice.H，He-Luo 平衡态
 
 # AMR 加密标记备选准则
 state_error              # Kernels.H
