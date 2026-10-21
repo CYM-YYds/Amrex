@@ -506,8 +506,25 @@ fine raw（当前 phase）-> 融合 scaling/restriction，直接读取子单元
 
 该 staging 只覆盖插值所需粗层源区或稀疏界面限制结果；二维一次处理Q=9、三维一次处理Q=27。
 `AverageDownOsiLevel` 不解码完整细层；重构前的全valid restriction `AverageDownOsiValidLevel` 则使用独立的函数局部canonical工作区，两者范围不同。
-CUDA界面平均保持32线程warp/父单元、256线程/block；半warp实验未采纳，证据见
-[当前线程映射结论](current_status.md#2026-10-21平均线程映射实验收尾)。staging仍增加内存和搬运，其职责是隔离两个问题：
+正常OSI推进的 `FillOsiGhostFromCoarse` 使用按细层保存的
+`osi_interpolation_work_cache`：一次批量缩放各coarse stage Fab，再按interp_mode
+批量执行既有数值函数。mode0按fine目标单元，mode1/2按coarse parent派发并裁剪到目标盒。
+`InterpolateDdfStageToFine`仍服务canonical和重网格临时patch，不复用正常推进的持久任务。
+插值准备阶段的物理域外延拓仍按需要填充的Box启动，不能将所有边界处理都称作已批量化。
+
+CUDA界面平均使用 `osi_restriction_block_tags`，每个标签对应原逐盒启动的一个block，
+合并所有本地interface Box提交；保持32 lane/父单元、256线程/block及每block最多8个父单元，
+不改变尾部线程或归约数值函数。CPU平均保持逐盒实现，`AverageDownOsiValidLevel`完整平均
+也不属于该批量界面路径。平均后的边界修复仍调用既有薄面批量任务。
+
+上述任务分别由 `BuildInterpolationCache`/`BuildAverageCache` 派生，
+`ClearOsiTransferCaches`在任一侧布局/存储改变前使其失效，随后由既有粗细缓存重建流程恢复。
+缩放任务持有stage的Array4；计算标签保存几何与本地索引，执行时取得当前数组和共享
+`FabPhaseCache`偏移，phase变化不触发几何重建，也不缓存独立相位副本。
+正式实现没有实验开关；Q19半warp和按q展开插值只在独立快照中。采纳状态及验证边界见
+[当前交接状态](current_status.md#2026-10-21批量插值与界面平均现役状态)。
+
+staging仍增加内存和搬运，其职责是隔离两个问题：
 
 1. OSI 单层推进是否数值正确；
 2. AMR coarse/fine 数值转换是否在 twisted/canonical 边界上正确。

@@ -337,7 +337,8 @@ PlotFile 写入时失败；完整运行状态、覆盖结果和未解决事项�
 正常 OSI 粗到细插值已使用按布局缓存的批量缩放/插值任务；CUDA 界面平均合并各
 interface Box 的启动，仍按每父单元一个 warp 计算。任务随既有粗细缓存重建/失效，
 相位从共享表取得；canonical、重网格临时插值与 CPU 平均保留各自路径。
-实现及二维/三维合并回归见[正式合入记录](docs/ai_changes/2026-10-21-batch-transfer-production-merge.md)。
+机制见[粗细层传输](docs/osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)，
+最新二维/三维验收及仅存在于实验快照的Q19候选见[当前状态](docs/current_status.md#2026-10-21批量插值与界面平均现役状态)。
 
 当前边界使用按层缓存的批量薄面任务，处理 Fab grown 区域内的非周期物理面，排除域外 ghost。
 2026-10-15 作业 `613463` 完成三种插值、单/双 rank 动态 AMR 及固定周期网格
