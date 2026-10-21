@@ -491,22 +491,23 @@ A-B 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`；锁步参考态采
 phase 的 level。当前实现使用稀疏 canonical staging 隔离跨层数据布局：
 
 ```text
-coarse twisted -> coarse canonical staging
--> 原有 scaling/interpolation
--> fine canonical result
--> scatter 到 fine logical ghost 的当前 phase
+coarse raw（当前 phase）-> ParallelCopyOsi -> coarse_stage（canonical）
+-> 物理边界填充 -> scaling/interpolation
+-> 直接写 fine logical ghost 的当前 phase raw 地址
 ```
 
 以及：
 
 ```text
-fine twisted valid -> fine canonical staging
--> 原有 scaling/restriction
--> coarse canonical result
--> scatter 到 coarse logical valid 的当前 phase
+fine raw（当前 phase）-> 融合 scaling/restriction，直接读取子单元
+-> interface_result（稀疏 canonical 粗单元）
+-> ParallelCopyOsi -> coarse 当前 phase raw 地址
 ```
 
-该 staging 只覆盖实际插值或限制需要的区域；现役实现按完整 Q=27 一次处理，仍会增加临时内存和搬运，不代表最终性能方案。它的用途是隔离两个问题：
+该 staging 只覆盖插值所需粗层源区或稀疏界面限制结果；二维一次处理Q=9、三维一次处理Q=27。
+`AverageDownOsiLevel` 不解码完整细层；重构前的全valid restriction `AverageDownOsiValidLevel` 则使用独立的函数局部canonical工作区，两者范围不同。
+CUDA界面平均保持32线程warp/父单元、256线程/block；半warp实验未采纳，证据见
+[当前线程映射结论](current_status.md#2026-10-21平均线程映射实验收尾)。staging仍增加内存和搬运，其职责是隔离两个问题：
 
 1. OSI 单层推进是否数值正确；
 2. AMR coarse/fine 数值转换是否在 twisted/canonical 边界上正确。

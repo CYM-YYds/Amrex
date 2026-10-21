@@ -87,3 +87,32 @@ dsub -s runs/q27_half_validation_20261021/submit_validation.sh
 ```bash
 .venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/q27_half_validation_20261021/summarize_q27_half_validation.py projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/q27_half_validation_20261021/job616312
 ```
+
+
+## 2026-10-21 知识收尾
+
+范围为本轮平均实验，不扩大到整个仓库或其他续跑任务。README 已指向 current_status，无需再复制结论；
+current_status 补现役采纳判断，架构修正 coarse/fine staging 示意，MLUPS索引与早期微基准报告补后续验证指针。
+权威分工为：current_status 给现役入口，本报告给Q27实际路径证据，微基准报告保留Q19/Q27局部实验历史。
+
+| 事实面 | 状态 | 核对 |
+|---|---|---|
+| 代码/配置 | verified-current | 正式src与实验前baseline_src逐文件相同；三维Q27、32线程warp/父单元、256线程/block，无实验开关。 |
+| 运行证据 | verified-current | job616312的30项退出码均0，210次同源检查与四组checkpoint误差均0；所有配对工作量相同。未重跑CFD。 |
+| 文档 | changed-and-verified | 主交接、架构、性能索引与两个报告互相对齐；修正重建后三维程序仍与旧manifest同SHA256的过期说法。 |
+| 规则 | verified-current | 根AGENTS.md仍为指向CLAUDE.md的有效软链；范围内无更近规则，无需增加重复规则。 |
+| 记忆 | out-of-scope | Codex生成记忆只读；未获直接写入请求，不写更新注记或生成索引。 |
+| 工作区 | verified-current | 单一worktree；本轮临时入口已移除，复现快照及全部日志/checkpoint保留，无本轮新增删除候选。 |
+
+恢复重建后的当前三维程序SHA256为 `0b85e59b0138a65a416c9c5202de2f1547d5e51a68f0f9d92a0e1931a2166333`，与616234/616235及本轮baseline.ex的
+`c5cb56aa5df684e37699638e48580ef35593ec79f7f5d326fc4ad7150fc77f67` 不同；不混用程序身份和数值验收范围。
+实验源码、可执行文件、构建资料的SHA256复核通过；规则同源、引用与新增文档锚点检查通过。
+
+保留分类：`runs/restriction_616311` 是微基准复现材料；`runs/q27_half_validation_20261021` 是实际路径源码、程序和逐值checkpoint证据；
+`runs/restriction_616309/616310` 保存失败构建的错误与环境。它们都不是本轮可直接清场的残留。
+其他任务的 `submit_restart_memory.sh`、`summarize_restart_memory.py` 未动。
+
+pending：128线程/block及其他分派方式、Q19完整推进、硬件profiler瓶颈归因未验证；既有I/O、收敛及physical ghost问题不因本轮收尾而消失，仍以current_status为准。
+out-of-scope：其他算例/dev归档改动、全仓库内容审计、结构审查、记忆写入、远端推送与历史数据清理。
+not-applicable：服务部署或页面/API验收。warning：当前Git仍为detached HEAD；本次只做本地文档提交，不宣称已推送或合并。
+没有删除候选或待清场动作，不需要为保留科研复现材料请求清理确认。
