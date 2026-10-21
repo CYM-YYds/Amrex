@@ -78,7 +78,6 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
 
     auto& fine_state = osi_state.at(fine_lev);
     auto& coarse_stage = interp_direct_coarse_stage.at(fine_lev);
-    const auto& fine_work_boxes = interp_direct_fine_boxes.at(fine_lev);
     const auto& fine_indices = interp_direct_fine_index.at(fine_lev);
     const auto coarse_phase = osi_phase.at(lev);
     const auto fine_phase = osi_phase.at(fine_lev);
@@ -93,9 +92,36 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
 
     ApplyPhysicalBoundaryToInterpolationStage(
         lev, coarse_stage, interp_direct_needs_physical_fill.at(fine_lev));
-    InterpolateDdfStageToFine(
-        coarse_stage, fine_state, fine_work_boxes, fine_indices,
-        true, fine_phase, apply_scale, scale);
+    const auto& cache = osi_interpolation_work_cache.at(fine_lev);
+    // 同一 stream 上先完成所有源缩放，再提交所有插值任务。
+    if (apply_scale) {
+        amrex::ParallelFor(cache.scale_tags,
+            [=] AMREX_GPU_DEVICE(int i,int j,int k,const amrex::Array4BoxTag<Real>& tag) {
+                average_scale(i,j,k,tag.dfab,scale);
+            });
+    }
+    const auto stages = coarse_stage.const_arrays();
+    const auto fines = fine_state.arrays();
+    const auto* shifts = osi_fab_phase_cache.at(fine_lev).data(fine_phase);
+    if (interp_mode == 0) {
+        amrex::ParallelFor(cache.tags,
+            [=] AMREX_GPU_DEVICE(int i,int j,int k,const InterpolationBatchTag& tag) {
+                interp_bilinear_ddf(i,j,k,fines[tag.fine_local_index],stages[tag.stage_local_index],
+                                    tag.fab,shifts[tag.phase_index]);
+            });
+    } else if (interp_mode == 1) {
+        amrex::ParallelFor(cache.tags,
+            [=] AMREX_GPU_DEVICE(int i,int j,int k,const InterpolationBatchTag& tag) {
+                interp_cell_cons_linear_children_ddf(i,j,k,fines[tag.fine_local_index],stages[tag.stage_local_index],
+                                                     tag.target,tag.fab,shifts[tag.phase_index]);
+            });
+    } else {
+        amrex::ParallelFor(cache.tags,
+            [=] AMREX_GPU_DEVICE(int i,int j,int k,const InterpolationBatchTag& tag) {
+                interp_cell_quadratic_children_ddf(i,j,k,fines[tag.fine_local_index],stages[tag.stage_local_index],
+                                                  tag.target,tag.fab,shifts[tag.phase_index]);
+            });
+    }
 }
 
 void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
@@ -115,8 +141,34 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
     }
     AMREX_ALWAYS_ASSERT(interface_result.size() == fine_indices.size());
 
+#ifdef AMREX_USE_CUDA
+    const auto& work = osi_restriction_block_tags.at(coarse_lev);
+    if (!work.empty()) {
+        const auto* tags = work.data();
+        const auto outputs = interface_result.arrays();
+        const auto fines = fine_state.const_arrays();
+        const auto* shifts = osi_fab_phase_cache.at(fine_lev).data(fine_phase);
+        amrex::launch<restriction_threads_per_block>(
+            static_cast<int>(work.size()), Gpu::Device::gpuStream(),
+            [=] AMREX_GPU_DEVICE() noexcept {
+                const auto tag = tags[blockIdx.x];
+                const Long parent = tag.first_parent + threadIdx.x / restriction_warp_size;
+                if (parent >= tag.region.numPts()) { return; }
+                const auto lo = amrex::lbound(tag.region);
+                const int nx = tag.region.length(0), ny = tag.region.length(1);
+                const int i = lo.x + static_cast<int>(parent % nx);
+                const Long yz = parent / nx;
+                const int j = lo.y + static_cast<int>(yz % ny);
+                const int k = lo.z + static_cast<int>(yz / ny);
+                average_down_osi_to_canonical_warp(
+                    i, j, k, threadIdx.x % restriction_warp_size,
+                    outputs[tag.output_local_index], fines[tag.fine_local_index],
+                    ratio, tag.fab, shifts[tag.phase_index], scale, is_scale);
+            });
+    }
+#else
     // 每个稀疏 coarse interface Box 都映射到唯一的 fine Fab；直接按细层
-    // phase 读取 2x2x2 子单元，不再解码完整细层。
+    // phase 读取细子单元，不再解码完整细层。
     for (MFIter mfi(interface_result, false); mfi.isValid(); ++mfi) {
         const int fine_index = fine_indices.at(mfi.index());
         const Box fine_ring = amrex::grow(
@@ -125,25 +177,15 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
         const Box bx = mfi.validbox();
         const auto coarse = interface_result.array(mfi);
         const auto fine = fine_state.const_array(fine_index);
-#ifdef AMREX_USE_CUDA
-        // 与 A-B 融合 restriction 保持相同的 warp 组织：一个
-        // warp 负责一个 coarse parent，lane 0..26 分别处理一个
-        // D3Q27 分量，避免单线程保留 fq[Q] 和 restricted[Q]。
-        LaunchRestrictionWarps(
-            bx, [=] AMREX_GPU_DEVICE(int i, int j, int k, int lane) noexcept {
-                average_down_osi_to_canonical_warp(
-                    i, j, k, lane, coarse, fine, ratio, fine_fab,
-                    fine_shift, scale, is_scale);
-            });
-#else
         amrex::ParallelFor(
             bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                 average_down_osi_to_canonical(
                     i, j, k, coarse, fine, ratio, fine_fab, fine_shift,
                     scale, is_scale);
             });
-#endif
     }
+
+#endif
 
     // 复用布局缓存，入口统一负责本地/MPI 分派和当前 phase 的地址映射。
     ParallelCopyOsi(

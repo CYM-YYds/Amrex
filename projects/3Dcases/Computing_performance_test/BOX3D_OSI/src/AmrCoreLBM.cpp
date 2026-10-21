@@ -82,6 +82,8 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     osi_fillboundary_cache.resize(nlevs_max);
     osi_interp_copy_cache.resize(nlevs_max);
     osi_average_copy_cache.resize(nlevs_max);
+    osi_interpolation_work_cache.resize(nlevs_max);
+    osi_restriction_block_tags.resize(nlevs_max);
     average_interface_buffer.resize(nlevs_max);
     average_interface_fine_box.resize(nlevs_max);
     covered_mask.resize(nlevs_max);

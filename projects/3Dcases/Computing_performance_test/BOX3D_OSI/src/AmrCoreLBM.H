@@ -60,6 +60,39 @@ struct BoundaryWorkCache {
     }
 };
 
+// 正常 OSI 插值的布局任务；重网格临时 patch 继续使用独立的逐盒路径。
+struct InterpolationBatchTag {
+    amrex::Box region;
+    amrex::Box target;
+    OSI::FabGeometry fab;
+    int stage_local_index;
+    int fine_local_index;
+    int phase_index;
+    AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    const amrex::Box& box() const noexcept { return region; }
+};
+struct InterpolationBatchCache {
+    amrex::TagVector<amrex::Array4BoxTag<amrex::Real>> scale_tags;
+    amrex::TagVector<InterpolationBatchTag> tags;
+    void clear() {
+        scale_tags.undefine();
+        tags.undefine();
+    }
+};
+// 每个标签对应逐盒 restriction 的一个 block；只保存几何和布局索引。
+struct RestrictionBlockTag {
+    amrex::Box region;
+    OSI::FabGeometry fab;
+    amrex::Long first_parent;
+    int output_local_index;
+    int fine_local_index;
+    int phase_index;
+};
+inline constexpr int restriction_threads_per_block = 256;
+inline constexpr int restriction_warp_size = 32;
+inline constexpr int restriction_parents_per_block =
+    restriction_threads_per_block / restriction_warp_size;
+
 class ScopedPerfTimer {
   public:
     explicit ScopedPerfTimer(double& accum, bool enabled = true)
@@ -82,8 +115,8 @@ class ScopedPerfTimer {
 // A-B 与 OSI restriction 只共用启动形状和父单元坐标展开；数学操作由调用方提供。
 template <typename ParentOperation>
 void LaunchRestrictionWarps(const amrex::Box& box, ParentOperation operation) {
-    constexpr int threads_per_block = 256;
-    constexpr int warp_size = 32;
+    constexpr int threads_per_block = restriction_threads_per_block;
+    constexpr int warp_size = restriction_warp_size;
     constexpr int warps_per_block = threads_per_block / warp_size;
     static_assert(Q <= warp_size);
     const amrex::Long ncells = box.numPts();
@@ -528,6 +561,10 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 几何、Array4 和收发缓冲只在布局重建时更新；相位偏移在执行时从对应层的共享表读取。
     amrex::Vector<OSI::CpcCache<true>> osi_interp_copy_cache;
     amrex::Vector<OSI::CpcCache<false>> osi_average_copy_cache;
+    // 唯一来源为既有稀疏 staging/interface 布局；随 ClearOsiTransferCaches 失效。
+    amrex::Vector<Box3dDetail::InterpolationBatchCache> osi_interpolation_work_cache;
+    amrex::Vector<amrex::Gpu::DeviceVector<Box3dDetail::RestrictionBlockTag>>
+        osi_restriction_block_tags;
     // 只由 BuildBoundaryWorkCache 建立；布局重建或清层时失效，不缓存 DDF 地址或相位值。
     amrex::Vector<Box3dDetail::BoundaryWorkCache> boundary_work_cache;
 

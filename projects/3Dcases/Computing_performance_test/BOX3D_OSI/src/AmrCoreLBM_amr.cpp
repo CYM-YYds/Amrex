@@ -504,6 +504,8 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
 }
 
 void AmrCoreLBM::ClearOsiTransferCaches() {
+    for (auto& cache : osi_interpolation_work_cache) { cache.clear(); }
+    for (auto& tags : osi_restriction_block_tags) { tags.clear(); }
     // 这些任务持有父层和子层的 Array4，任何一侧存储改变前都要失效。
     for (auto& cache : osi_interp_copy_cache) {
         cache.clear();
@@ -723,6 +725,28 @@ void AmrCoreLBM::BuildInterpolationCache() {
                 Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct,
                 osi_fab_phase_cache.at(lev - 1));
         }
+        // 仅缓存正常推进所用 stage；重构临时 patch 保持原逐盒实现。
+        if (streamMode() == 1 && coarse_stage.isDefined()) {
+            auto& cache = osi_interpolation_work_cache.at(lev);
+            cache.clear();
+            Vector<amrex::Array4BoxTag<Real>> scale_tags;
+            Vector<InterpolationBatchTag> tags;
+            for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
+                const int fine_index = fine_indices.at(mfi.index());
+                const Box target = fine_work_boxes.at(mfi.index());
+                const auto fab = OSI::MakeOsiFabContext(
+                    amrex::grow(osi_state.at(lev).boxArray()[fine_index],
+                                osi_state.at(lev).nGrowVect()), 0).fab;
+                const int fine_local = osi_state.at(lev).localindex(fine_index);
+                AMREX_ALWAYS_ASSERT(fine_local >= 0);
+                scale_tags.push_back({coarse_stage.array(mfi), mfi.validbox()});
+                tags.push_back({interp_mode == 0 ? target : amrex::coarsen(target,2),
+                                target, fab, mfi.LocalIndex(), fine_local,
+                                osi_fab_phase_cache.at(lev).slot(fine_index)});
+            }
+            cache.scale_tags.define(scale_tags);
+            cache.tags.define(tags);
+        }
         interp_direct_cache_ready[lev] = 1;
         ++perf_stats.interp_cache_builds;
         perf_stats.interp_cache_build += amrex::second() - start;
@@ -776,6 +800,27 @@ void AmrCoreLBM::BuildAverageCache() {
                     average_interface_buffer.at(lev), osi_state.at(lev),
                     periodicity, Q, osi_mpi_device_direct,
                     osi_fab_phase_cache.at(lev));
+#ifdef AMREX_USE_CUDA
+                Vector<RestrictionBlockTag> tags;
+                const auto& result = average_interface_buffer.at(lev);
+                const auto& fine = osi_state.at(lev + 1);
+                for (MFIter mfi(result, false); mfi.isValid(); ++mfi) {
+                    const int fi = average_interface_fine_box.at(lev).at(mfi.index());
+                    const int local_fine = fine.localindex(fi);
+                    AMREX_ALWAYS_ASSERT(local_fine >= 0);
+                    const auto fab = OSI::MakeOsiFabContext(
+                        amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0).fab;
+                    const int slot = osi_fab_phase_cache.at(lev + 1).slot(fi);
+                    const Box region = mfi.validbox();
+                    for (amrex::Long parent = 0; parent < region.numPts();
+                             parent += restriction_parents_per_block) {
+                        tags.push_back({region, fab, parent, mfi.LocalIndex(), local_fine, slot});
+                    }
+                }
+                auto& device_tags = osi_restriction_block_tags.at(lev);
+                device_tags.resize(tags.size());
+                Gpu::copy(Gpu::hostToDevice, tags.begin(), tags.end(), device_tags.begin());
+#endif
             }
         }
     }
