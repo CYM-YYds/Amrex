@@ -26,3 +26,5 @@ dev 只增加归档说明；其源码、程序、输入、历史运行、日志�
 
 已有 dev 验证详见[历史记录](../../../BOX3D_OSI_dev/docs/ai_changes/2026-10-19-dimension-accessors.md)。
 本次不重新证明长期收敛、性能或所有 physical ghost 等价。
+
+2026-10-21 清场补记：用户确认后删除临时工作副本，保留 `runs/dimension_merge3d_615942/submit_merge3d_validation.sh`。该副本复现前须恢复至原 `scripts/temporary/` 位置，以满足相对路径约定；结果与基线未删除。
