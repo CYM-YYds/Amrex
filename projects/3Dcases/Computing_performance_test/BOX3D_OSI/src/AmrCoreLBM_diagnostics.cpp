@@ -206,15 +206,14 @@ void AmrCoreLBM::ProbeFillGhostLevel(int lev) {
     std::ofstream binary(stem + ".bin", std::ios::binary);
     AMREX_ALWAYS_ASSERT(meta && binary);
     Long local_cells = 0;
-    const auto& work_boxes = interp_direct_fine_boxes.at(lev);
-    const auto& fine_indices = interp_direct_fine_index.at(lev);
+    const auto& patches = interpolation_cache.at(lev).patches;
     Gpu::synchronize();
-    for (int n = 0; n < work_boxes.size(); ++n) {
-        const int fine_index = fine_indices[n];
+    for (const auto& patch : patches) {
+        const int fine_index = patch.fine_box_index;
         if (state.DistributionMap()[fine_index] != ParallelDescriptor::MyProc()) {
             continue;
         }
-        const Box& work = work_boxes[n];
+        const Box& work = patch.fine_box;
         const Box& valid = state.boxArray()[fine_index];
         const FArrayBox& device = state[fine_index];
         FArrayBox host(device.box(), Q, The_Pinned_Arena());
@@ -254,7 +253,7 @@ void AmrCoreLBM::ProbeFillGhostLevel(int lev) {
     }
     AMREX_ALWAYS_ASSERT(meta.good() && binary.good());
     amrex::AllPrint() << "ghost_probe: mode=" << streamMode()
-                      << " lev=1 fill_count=1 boxes=" << work_boxes.size()
+                      << " lev=1 fill_count=1 boxes=" << patches.size()
                       << " local_cells=" << local_cells
                       << " stem=" << stem << '\n';
 }
@@ -1153,20 +1152,20 @@ void AmrCoreLBM::PrintInterpolationDiagnostics(const char* stage, int lev) {
         lev > 0 && lev <= finest_level,
         "PrintInterpolationDiagnostics requires an active fine level");
 
-    const auto& fine_boxes = interp_direct_fine_boxes.at(lev);
-    if (fine_boxes.empty()) {
+    const auto& patches = interpolation_cache.at(lev).patches;
+    if (patches.empty()) {
         amrex::Print() << "INTERP_DIAG stage=" << stage
                        << " lev=" << lev << " entries=0\n";
         return;
     }
 
-    const MultiFab& coarse_stage = interp_direct_coarse_stage.at(lev);
+    const MultiFab& coarse_stage = interpolation_cache.at(lev).coarse_stage;
     const MultiFab& fine_state = f_old.at(lev);
     const auto& coarse_boxes = coarse_stage.boxArray();
     long long fine_points = 0;
     long long coarse_points = 0;
-    for (const Box& box : fine_boxes) {
-        fine_points += box.numPts();
+    for (const auto& patch : patches) {
+        fine_points += patch.fine_box.numPts();
     }
     for (int ibox = 0; ibox < coarse_boxes.size(); ++ibox) {
         coarse_points += coarse_boxes[ibox].numPts();
@@ -1174,13 +1173,13 @@ void AmrCoreLBM::PrintInterpolationDiagnostics(const char* stage, int lev) {
 
     amrex::Print() << "INTERP_DIAG stage=" << stage
                    << " lev=" << lev
-                   << " entries=" << fine_boxes.size()
+                   << " entries=" << patches.size()
                    << " fine_points=" << fine_points
                    << " coarse_points=" << coarse_points;
-    if (!fine_boxes.empty()) {
-        amrex::Print() << " first_fine=" << fine_boxes.front()
+    if (!patches.empty()) {
+        amrex::Print() << " first_fine=" << patches.front().fine_box
                        << " first_coarse=" << coarse_boxes[0]
-                       << " last_fine=" << fine_boxes.back()
+                       << " last_fine=" << patches.back().fine_box
                        << " last_coarse="
                        << coarse_boxes[coarse_boxes.size() - 1];
     }

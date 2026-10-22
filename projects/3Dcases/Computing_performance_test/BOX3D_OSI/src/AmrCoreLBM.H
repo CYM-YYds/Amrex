@@ -88,6 +88,45 @@ struct RestrictionBlockTag {
     int fine_local_index;
     int phase_index;
 };
+// 按 staging Box 编号保存精确目标区和全局 fine Fab 索引；也是设备任务的唯一布局来源。
+struct InterpolationPatchTag {
+    amrex::Box fine_box;
+    int fine_box_index;
+};
+// 按细层编号拥有插值资源；先释放持有 Array4 的任务，再释放 staging 存储。
+struct InterpolationLevelCache {
+    amrex::MultiFab coarse_stage;
+    amrex::Vector<InterpolationPatchTag> patches;
+    OSI::CpcCache<true> copy;
+    InterpolationBatchCache work;
+
+    void clear_work() {
+        work.clear();
+        copy.clear();
+    }
+    void clear() {
+        clear_work();
+        coarse_stage.clear();
+        patches.clear();
+    }
+};
+// 按粗层编号拥有界面平均资源；保留 A-B/CPU 所需的全局 fine Fab 映射。
+struct AverageDownLevelCache {
+    amrex::MultiFab interface_buffer;
+    amrex::Vector<int> fine_box_indices;
+    OSI::CpcCache<false> copy;
+    amrex::Gpu::DeviceVector<RestrictionBlockTag> block_tags;
+
+    void clear_work() {
+        block_tags.clear();
+        copy.clear();
+    }
+    void clear() {
+        clear_work();
+        interface_buffer.clear();
+        fine_box_indices.clear();
+    }
+};
 inline constexpr int restriction_threads_per_block = 256;
 inline constexpr int restriction_warp_size = 32;
 // 批量 OSI 平均按编译期格子选取已验证映射；A-B 的整 warp 启动保持独立。
@@ -305,12 +344,10 @@ class AmrCoreLBM : public amrex::AmrCore {
                                 bool apply_scale);
     // lev 表示当前粗层；函数处理 lev + 1 的粗网格插值暂存区。
     void ApplyPhysicalBoundaryToInterpolationStage(
-        int coarse_lev, amrex::MultiFab& stage,
-        const amrex::Vector<unsigned char>& needs_physical_fill);
+        int coarse_lev, amrex::MultiFab& stage);
     void InterpolateDdfStageToFine(
         amrex::MultiFab& stage, amrex::MultiFab& fine,
-        const amrex::Vector<amrex::Box>& work_boxes,
-        const amrex::Vector<int>& fine_indices,
+        const amrex::Vector<Box3dDetail::InterpolationPatchTag>& patches,
         bool fine_osi, std::uint64_t fine_phase,
         bool apply_scale, amrex::Real scale);
     void RemakeDdfState(int lev, amrex::Real time,
@@ -465,10 +502,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void InitializeNewLevelFromCoarse(int lev, amrex::Real time);
     void BuildInterpolationStage(
         int lev, const amrex::MultiFab& coarse, const amrex::MultiFab& fine,
-        const amrex::Vector<amrex::Box>& work_boxes,
-        const amrex::Vector<int>& fine_indices,
-        amrex::MultiFab& stage,
-        amrex::Vector<unsigned char>& needs_physical_fill) const;
+        const amrex::Vector<Box3dDetail::InterpolationPatchTag>& patches,
+        amrex::MultiFab& stage) const;
     void InitializeDdfFromCoarse(
         int lev, amrex::Real time, const amrex::MultiFab& coarse,
         bool coarse_osi, std::uint64_t coarse_phase, amrex::MultiFab& fine,
@@ -544,32 +579,15 @@ class AmrCoreLBM : public amrex::AmrCore {
     // 非零时将每个 peer 的 host staging payload 按字节上限分块，
     // 形成 D2H/MPI/H2D 流水；默认 0 保留整块通信基线。
     int osi_mpi_pipeline_chunk_bytes = 0;
-    // 模式 1 使用的稀疏结果缓冲区，仅包含粗细交界条带内的粗层父单元。
-    amrex::Vector<amrex::MultiFab> average_interface_buffer;
-    // 将每个稀疏交界 Box 映射到包含其全部子单元的细层 Fab。
-    amrex::Vector<amrex::Vector<int>> average_interface_fine_box;
-
     // covered_mask 值为 1 的网格单元，代表该单元被更精细一层网格 `lev+1` 覆盖；
     // 交界面掩码（interface_mask）指被细网格覆盖、且紧贴未被覆盖粗网格单元的单层网格条带。
     amrex::Vector<amrex::iMultiFab> covered_mask;
     amrex::Vector<amrex::iMultiFab> interface_mask;
     amrex::Vector<amrex::Long> covered_cell_counts;
     amrex::Vector<amrex::Long> interface_cell_counts;
-    // 按 fine Box 归属缓存 coarse stencil，并直接写对应 fine Fab。
-    amrex::Vector<amrex::MultiFab> interp_direct_coarse_stage;
-    // 每个 staging Box 与一个 fine work Box/Fab 一一对应。
-    amrex::Vector<amrex::Vector<amrex::Box>> interp_direct_fine_boxes;
-    amrex::Vector<amrex::Vector<int>> interp_direct_fine_index;
-    amrex::Vector<amrex::Vector<unsigned char>> interp_direct_needs_physical_fill;
-    amrex::Vector<unsigned char> interp_direct_cache_ready;
-    // 按细层编号保存插值搬运缓存，按粗层编号保存平均写回缓存。
-    // 几何、Array4 和收发缓冲只在布局重建时更新；相位偏移在执行时从对应层的共享表读取。
-    amrex::Vector<OSI::CpcCache<true>> osi_interp_copy_cache;
-    amrex::Vector<OSI::CpcCache<false>> osi_average_copy_cache;
-    // 唯一来源为既有稀疏 staging/interface 布局；随 ClearOsiTransferCaches 失效。
-    amrex::Vector<Box3dDetail::InterpolationBatchCache> osi_interpolation_work_cache;
-    amrex::Vector<amrex::Gpu::DeviceVector<Box3dDetail::RestrictionBlockTag>>
-        osi_restriction_block_tags;
+    // 初始化、restart 和 regrid 后重建；布局改变前先使两端地址相关任务失效。
+    amrex::Vector<Box3dDetail::InterpolationLevelCache> interpolation_cache;
+    amrex::Vector<Box3dDetail::AverageDownLevelCache> average_down_cache;
     // 只由 BuildBoundaryWorkCache 建立；布局重建或清层时失效，不缓存 DDF 地址或相位值。
     amrex::Vector<Box3dDetail::BoundaryWorkCache> boundary_work_cache;
 

@@ -104,20 +104,16 @@ amrex::Interpolater* AmrCoreLBM::DdfInterpolater() const {
 
 void AmrCoreLBM::BuildInterpolationStage(
     int lev, const MultiFab& coarse, const MultiFab& fine,
-    const Vector<Box>& work_boxes, const Vector<int>& fine_indices,
-    MultiFab& stage, Vector<unsigned char>& needs_physical_fill) const {
+    const Vector<InterpolationPatchTag>& patches, MultiFab& stage) const {
     AMREX_ALWAYS_ASSERT(lev > 0 && refRatio(lev - 1) == IntVect(2));
-    AMREX_ALWAYS_ASSERT(work_boxes.size() == fine_indices.size());
     const auto coarsener = DdfInterpolater()->BoxCoarsener(refRatio(lev - 1));
     const auto coarse_valid = coarse.boxArray().simplified();
-    const auto& domain = Geom(lev - 1).Domain();
     Vector<Box> coarse_boxes;
     Vector<int> owners;
     stage.clear();
-    needs_physical_fill.clear();
-    for (int index = 0; index < static_cast<int>(work_boxes.size()); ++index) {
-        const auto& work = work_boxes[index];
-        const int fine_index = fine_indices[index];
+    for (const auto& patch : patches) {
+        const auto& work = patch.fine_box;
+        const int fine_index = patch.fine_box_index;
         const Box stencil = coarsener.doit(work);
         RequireInterpolationCoverage(
             stencil, coarse_valid, Geom(lev - 1), lev, fine_index,
@@ -126,18 +122,10 @@ void AmrCoreLBM::BuildInterpolationStage(
                 ? IntVect(0)
                 : fine.nGrowVect(),
             nProper());
-        bool needs_fill = false;
-        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
-            needs_fill = needs_fill ||
-                         (!Geom(lev - 1).isPeriodic(dir) &&
-                          (stencil.smallEnd(dir) < domain.smallEnd(dir) ||
-                           stencil.bigEnd(dir) > domain.bigEnd(dir)));
-        }
         // 每个工作区保留独立模板，owner 与目标 fine Fab 相同。
         // 模板可重叠，但不会把包围它们的无关粗层区域一并分配。
         coarse_boxes.push_back(stencil);
         owners.push_back(fine.DistributionMap()[fine_index]);
-        needs_physical_fill.push_back(static_cast<unsigned char>(needs_fill));
     }
     if (!coarse_boxes.empty()) {
         stage.define(BoxArray(coarse_boxes.data(), coarse_boxes.size()),
@@ -146,8 +134,7 @@ void AmrCoreLBM::BuildInterpolationStage(
 }
 
 void AmrCoreLBM::ApplyPhysicalBoundaryToInterpolationStage(
-    int lev, MultiFab& coarse_stage,
-    const Vector<unsigned char>& needs_physical_fill) {
+    int lev, MultiFab& coarse_stage) {
     AMREX_ALWAYS_ASSERT(lev >= 0 && lev < max_level);
     const Box coarse_domain = Geom(lev).Domain();
     const auto coarse_lo = amrex::lbound(coarse_domain);
@@ -157,11 +144,16 @@ void AmrCoreLBM::ApplyPhysicalBoundaryToInterpolationStage(
     // coarse_stage 的域外 stencil 沿最近的非周期域内单元延拓；周期方向
     // 已由调用者的 ParallelCopy(periodicity) 完成映射。
     for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-        const int stage_index = mfi.index();
-        if (!needs_physical_fill.at(stage_index)) {
-            continue;
-        }
         const Box stage_box = mfi.validbox();
+        // 是否触及物理域外由现有模板几何直接推导，不保存派生标志。
+        bool needs_fill = false;
+        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+            needs_fill = needs_fill ||
+                (!coarse_periodic[dir] &&
+                 (stage_box.smallEnd(dir) < coarse_domain.smallEnd(dir) ||
+                  stage_box.bigEnd(dir) > coarse_domain.bigEnd(dir)));
+        }
+        if (!needs_fill) { continue; }
         const auto coarse = coarse_stage.array(mfi);
         amrex::ParallelFor(
             stage_box, Q,
@@ -194,12 +186,11 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(
 
     auto& fine_state = f_old.at(fine_lev);
     const auto& coarse_state = f_old.at(lev);
-    auto& coarse_stage = interp_direct_coarse_stage.at(fine_lev);
-    const auto& fine_work_boxes = interp_direct_fine_boxes.at(fine_lev);
-    const auto& fine_indices = interp_direct_fine_index.at(fine_lev);
+    auto& coarse_stage = interpolation_cache.at(fine_lev).coarse_stage;
+    const auto& patches = interpolation_cache.at(fine_lev).patches;
     const Real scale = tau.at(fine_lev) / tau.at(lev) / Real(2.0);
 
-    if (fine_indices.empty()) {
+    if (patches.empty()) {
         return;
     }
 
@@ -211,16 +202,16 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(
         Geom(lev).periodicity());
     // 阶段 2：两条插值路径共享相同的物理边界规则。
     ApplyPhysicalBoundaryToInterpolationStage(
-        lev, coarse_stage, interp_direct_needs_physical_fill.at(fine_lev));
+        lev, coarse_stage);
 
     InterpolateDdfStageToFine(
-        coarse_stage, fine_state, fine_work_boxes, fine_indices,
+        coarse_stage, fine_state, patches,
         false, 0, apply_scale, scale);
 }
 
 void AmrCoreLBM::InterpolateDdfStageToFine(
     MultiFab& coarse_stage, MultiFab& fine_state,
-    const Vector<Box>& fine_work_boxes, const Vector<int>& fine_indices,
+    const Vector<InterpolationPatchTag>& patches,
     bool fine_osi, std::uint64_t fine_phase, bool apply_scale, Real scale) {
     for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
         // 每个 Fab 在同一 stream 上先缩放再插值，省去独立遍历的同步。
@@ -234,8 +225,9 @@ void AmrCoreLBM::InterpolateDdfStageToFine(
         const int stage_index = mfi.index();
         const auto coarse = coarse_stage.const_array(mfi);
 
-        const int fine_index = fine_indices.at(stage_index);
-        const Box fine_box = fine_work_boxes.at(stage_index);
+        const auto& patch = patches.at(stage_index);
+        const int fine_index = patch.fine_box_index;
+        const Box fine_box = patch.fine_box;
         const auto fine = fine_state.array(fine_index);
         if (fine_osi) {
             const Box fine_ring = amrex::grow(
@@ -457,24 +449,8 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
         cache.clear();
     }
     regrid_tag_counts.assign(max_level + 1, -1);
-    for (auto& buffer : average_interface_buffer) {
-        buffer.clear();
-    }
-    for (auto& buffer : interp_direct_coarse_stage) {
-        buffer.clear();
-    }
-    for (auto& boxes : interp_direct_fine_boxes) {
-        boxes.clear();
-    }
-    for (auto& indices : interp_direct_fine_index) {
-        indices.clear();
-    }
-    for (auto& flags : interp_direct_needs_physical_fill) {
-        flags.clear();
-    }
-    std::fill(
-        interp_direct_cache_ready.begin(),
-        interp_direct_cache_ready.end(), 0);
+    for (auto& cache : interpolation_cache) { cache.clear(); }
+    for (auto& cache : average_down_cache) { cache.clear(); }
     regrid(0, cur_time);
     RebuildCoarseFineCaches();
     bool refinement_diagnostics = false;
@@ -504,15 +480,9 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
 }
 
 void AmrCoreLBM::ClearOsiTransferCaches() {
-    for (auto& cache : osi_interpolation_work_cache) { cache.clear(); }
-    for (auto& tags : osi_restriction_block_tags) { tags.clear(); }
-    // 这些任务持有父层和子层的 Array4，任何一侧存储改变前都要失效。
-    for (auto& cache : osi_interp_copy_cache) {
-        cache.clear();
-    }
-    for (auto& cache : osi_average_copy_cache) {
-        cache.clear();
-    }
+    // 任一层存储改变前，先失效所有跨层 Array4 和设备任务。
+    for (auto& cache : interpolation_cache) { cache.clear_work(); }
+    for (auto& cache : average_down_cache) { cache.clear_work(); }
 }
 
 void AmrCoreLBM::RebuildCoarseFineCaches() {
@@ -531,14 +501,9 @@ void AmrCoreLBM::RebuildCoarseFineCaches() {
     for (int lev = 0; lev <= max_level; ++lev) {
         covered_mask[lev].clear();
         interface_mask[lev].clear();
-        interp_direct_coarse_stage[lev].clear();
-        interp_direct_fine_boxes[lev].clear();
-        interp_direct_fine_index[lev].clear();
-        interp_direct_needs_physical_fill[lev].clear();
-        interp_direct_cache_ready[lev] = 0;
+        interpolation_cache[lev].clear();
+        average_down_cache[lev].clear();
         boundary_work_cache[lev].clear();
-        average_interface_buffer[lev].clear();
-        average_interface_fine_box[lev].clear();
     }
 
     // 构造 coarse 覆盖掩码和 coarse-fine 交界掩码，供粗层
@@ -697,13 +662,9 @@ void AmrCoreLBM::BuildInterpolationCache() {
             }
         }
 
-        auto& coarse_stage = interp_direct_coarse_stage[lev];
-        auto& fine_work_boxes = interp_direct_fine_boxes[lev];
-        auto& fine_indices = interp_direct_fine_index[lev];
-        auto& needs_physical_fill = interp_direct_needs_physical_fill[lev];
-        osi_interp_copy_cache.at(lev).clear();
-        fine_work_boxes.clear();
-        fine_indices.clear();
+        auto& coarse_stage = interpolation_cache[lev].coarse_stage;
+        auto& patches = interpolation_cache[lev].patches;
+        interpolation_cache[lev].clear();
 
         for (int fine_index = 0; fine_index < fine_ba.size(); ++fine_index) {
             const Box target =
@@ -711,29 +672,28 @@ void AmrCoreLBM::BuildInterpolationCache() {
             const BoxList leftover =
                 fine_ba_simplified.complementIn(target, Geom(lev).periodicity()); // 计算 target 中没有被 fine_ba_simplified 覆盖的区域, 并以多个互不重叠的 Box 返回，考虑周期性情况。
             for (const Box& work_box : leftover) {
-                fine_work_boxes.push_back(work_box);
-                fine_indices.push_back(fine_index);
+                patches.push_back({work_box, fine_index});
             }
         }
 
         BuildInterpolationStage(
-            lev, coarse_layout, fine_layout, fine_work_boxes, fine_indices,
-            coarse_stage, needs_physical_fill);
+            lev, coarse_layout, fine_layout, patches, coarse_stage);
         if (streamMode() == 1 && coarse_stage.isDefined()) {
-            osi_interp_copy_cache.at(lev).define(
+            interpolation_cache.at(lev).copy.define(
                 osi_state.at(lev - 1), coarse_stage,
                 Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct,
                 osi_fab_phase_cache.at(lev - 1));
         }
         // 仅缓存正常推进所用 stage；重构临时 patch 保持原逐盒实现。
         if (streamMode() == 1 && coarse_stage.isDefined()) {
-            auto& cache = osi_interpolation_work_cache.at(lev);
+            auto& cache = interpolation_cache.at(lev).work;
             cache.clear();
             Vector<amrex::Array4BoxTag<Real>> scale_tags;
             Vector<InterpolationBatchTag> tags;
             for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-                const int fine_index = fine_indices.at(mfi.index());
-                const Box target = fine_work_boxes.at(mfi.index());
+                const auto& patch = patches.at(mfi.index());
+                const int fine_index = patch.fine_box_index;
+                const Box target = patch.fine_box;
                 const auto fab = OSI::MakeOsiFabContext(
                     amrex::grow(osi_state.at(lev).boxArray()[fine_index],
                                 osi_state.at(lev).nGrowVect()), 0).fab;
@@ -747,7 +707,6 @@ void AmrCoreLBM::BuildInterpolationCache() {
             cache.scale_tags.define(scale_tags);
             cache.tags.define(tags);
         }
-        interp_direct_cache_ready[lev] = 1;
         ++perf_stats.interp_cache_builds;
         perf_stats.interp_cache_build += amrex::second() - start;
     }
@@ -755,7 +714,7 @@ void AmrCoreLBM::BuildInterpolationCache() {
 
 void AmrCoreLBM::BuildAverageCache() {
     for (int lev = 0; lev < finest_level; ++lev) {
-        osi_average_copy_cache.at(lev).clear();
+        average_down_cache.at(lev).clear();
         const MultiFab& fine_layout =
             streamMode() == 1 ? osi_state.at(lev + 1) : f_old.at(lev + 1);
         const BoxArray coarse_from_fine =
@@ -793,19 +752,19 @@ void AmrCoreLBM::BuildAverageCache() {
         BoxArray interface_ba(interface_boxes);
         if (!interface_ba.empty()) {
             DistributionMapping interface_dm(interface_owners);
-            average_interface_buffer[lev].define(interface_ba, interface_dm, Q, 0);
-            average_interface_fine_box[lev] = std::move(fine_box_indices); // “把 fine_box_indices 这份索引列表转交给 average_interface_fine_box[lev]，避免复制，直接拿走内部数据。”
+            average_down_cache[lev].interface_buffer.define(interface_ba, interface_dm, Q, 0);
+            average_down_cache[lev].fine_box_indices = std::move(fine_box_indices);
             if (streamMode() == 1) {
-                osi_average_copy_cache.at(lev).define(
-                    average_interface_buffer.at(lev), osi_state.at(lev),
+                average_down_cache.at(lev).copy.define(
+                    average_down_cache.at(lev).interface_buffer, osi_state.at(lev),
                     periodicity, Q, osi_mpi_device_direct,
                     osi_fab_phase_cache.at(lev));
 #ifdef AMREX_USE_CUDA
                 Vector<RestrictionBlockTag> tags;
-                const auto& result = average_interface_buffer.at(lev);
+                const auto& result = average_down_cache.at(lev).interface_buffer;
                 const auto& fine = osi_state.at(lev + 1);
                 for (MFIter mfi(result, false); mfi.isValid(); ++mfi) {
-                    const int fi = average_interface_fine_box.at(lev).at(mfi.index());
+                    const int fi = average_down_cache.at(lev).fine_box_indices.at(mfi.index());
                     const int local_fine = fine.localindex(fi);
                     AMREX_ALWAYS_ASSERT(local_fine >= 0);
                     const auto fab = OSI::MakeOsiFabContext(
@@ -817,7 +776,7 @@ void AmrCoreLBM::BuildAverageCache() {
                         tags.push_back({region, fab, parent, mfi.LocalIndex(), local_fine, slot});
                     }
                 }
-                auto& device_tags = osi_restriction_block_tags.at(lev);
+                auto& device_tags = average_down_cache.at(lev).block_tags;
                 device_tags.resize(tags.size());
                 Gpu::copy(Gpu::hostToDevice, tags.begin(), tags.end(), device_tags.begin());
 #endif
@@ -1036,19 +995,18 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
     // 不初始化 fine ghost，其生命周期由后续 FillGhostLevel、同层通信
     // 和物理边界处理维护。粗层模板的域外延拓仍用于 valid 边缘插值。
     AMREX_ALWAYS_ASSERT(requested_boxes.size() == requested_indices.size());
-    Vector<Box> work_boxes = requested_boxes;
-    Vector<int> fine_indices = requested_indices;
-    if (work_boxes.empty()) {
+    Vector<InterpolationPatchTag> patches;
+    if (requested_boxes.empty()) {
         for (int index = 0; index < fine_state.boxArray().size(); ++index) {
-            work_boxes.push_back(fine_state.boxArray()[index]);
-            fine_indices.push_back(index);
+            patches.push_back({fine_state.boxArray()[index], index});
+        }
+    } else {
+        for (int index = 0; index < static_cast<int>(requested_boxes.size()); ++index) {
+            patches.push_back({requested_boxes[index], requested_indices[index]});
         }
     }
     MultiFab coarse_stage;
-    Vector<unsigned char> needs_physical_fill;
-    BuildInterpolationStage(
-        lev, coarse_state, fine_state, work_boxes, fine_indices,
-        coarse_stage, needs_physical_fill);
+    BuildInterpolationStage(lev, coarse_state, fine_state, patches, coarse_stage);
 
     if (coarse_osi) {
         // 调用内搬运计划只绑定当前临时模板，不进入长期 ghost 缓存。
@@ -1059,11 +1017,11 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
             Geom(lev - 1).periodicity());
     }
     ApplyPhysicalBoundaryToInterpolationStage(
-        lev - 1, coarse_stage, needs_physical_fill);
+        lev - 1, coarse_stage);
     const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
     // 初始化目标为 canonical 或 phase=0 OSI，直接使用同一组自定义核。
     InterpolateDdfStageToFine(
-        coarse_stage, fine_state, work_boxes, fine_indices,
+        coarse_stage, fine_state, patches,
         false, 0, true, scale);
 }
 

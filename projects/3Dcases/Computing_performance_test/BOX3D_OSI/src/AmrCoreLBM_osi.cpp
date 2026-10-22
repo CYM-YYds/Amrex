@@ -74,25 +74,30 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
     const int fine_lev = lev + 1;
     AMREX_ALWAYS_ASSERT(lev >= 0 && fine_lev <= finest_level);
     AMREX_ALWAYS_ASSERT(refRatio(lev) == IntVect(2));
-    AMREX_ALWAYS_ASSERT(interp_direct_cache_ready.at(fine_lev));
 
     auto& fine_state = osi_state.at(fine_lev);
-    auto& coarse_stage = interp_direct_coarse_stage.at(fine_lev);
-    const auto& fine_indices = interp_direct_fine_index.at(fine_lev);
+    auto& coarse_stage = interpolation_cache.at(fine_lev).coarse_stage;
+    const auto& patches = interpolation_cache.at(fine_lev).patches;
     const auto coarse_phase = osi_phase.at(lev);
     const auto fine_phase = osi_phase.at(fine_lev);
     const Real scale = tau.at(fine_lev) / tau.at(lev) / Real(2.0);
 
-    if (fine_indices.empty()) {
+    if (patches.empty()) {
         return;
     }
+    AMREX_ALWAYS_ASSERT(coarse_stage.isDefined() && coarse_stage.size() == patches.size());
+    AMREX_ALWAYS_ASSERT(interpolation_cache.at(fine_lev).copy.ready);
+    // 无本地模板的 rank 可以没有设备任务，但仍须参与跨 rank 搬运。
+    const auto& cache = interpolation_cache.at(fine_lev).work;
+    AMREX_ALWAYS_ASSERT(cache.tags.is_defined() && cache.scale_tags.is_defined());
+    AMREX_ALWAYS_ASSERT(cache.tags.ntags == coarse_stage.local_size() &&
+                        cache.scale_tags.ntags == coarse_stage.local_size());
 
-    ParallelCopyOsi(osi_interp_copy_cache.at(fine_lev),
+    ParallelCopyOsi(interpolation_cache.at(fine_lev).copy,
                     osi_fab_phase_cache.at(lev).data(coarse_phase));
 
     ApplyPhysicalBoundaryToInterpolationStage(
-        lev, coarse_stage, interp_direct_needs_physical_fill.at(fine_lev));
-    const auto& cache = osi_interpolation_work_cache.at(fine_lev);
+        lev, coarse_stage);
     // 同一 stream 上先完成所有源缩放，再提交所有插值任务。
     if (apply_scale) {
         amrex::ParallelFor(cache.scale_tags,
@@ -129,8 +134,8 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
     AMREX_ALWAYS_ASSERT(fine_lev > 0 && fine_lev <= finest_level);
     auto& coarse_state = osi_state.at(coarse_lev);
     const auto& fine_state = osi_state.at(fine_lev);
-    auto& interface_result = average_interface_buffer.at(coarse_lev);
-    const auto& fine_indices = average_interface_fine_box.at(coarse_lev);
+    auto& interface_result = average_down_cache.at(coarse_lev).interface_buffer;
+    const auto& fine_indices = average_down_cache.at(coarse_lev).fine_box_indices;
     const auto ratio = refRatio(coarse_lev);
     const auto coarse_phase = osi_phase.at(coarse_lev);
     const auto fine_phase = osi_phase.at(fine_lev);
@@ -142,7 +147,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
     AMREX_ALWAYS_ASSERT(interface_result.size() == fine_indices.size());
 
 #ifdef AMREX_USE_CUDA
-    const auto& work = osi_restriction_block_tags.at(coarse_lev);
+    const auto& work = average_down_cache.at(coarse_lev).block_tags;
     if (!work.empty()) {
         const auto* tags = work.data();
         const auto outputs = interface_result.arrays();
@@ -201,7 +206,7 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
 
     // 复用布局缓存，入口统一负责本地/MPI 分派和当前 phase 的地址映射。
     ParallelCopyOsi(
-        osi_average_copy_cache.at(coarse_lev),
+        average_down_cache.at(coarse_lev).copy,
         osi_fab_phase_cache.at(coarse_lev).data(coarse_phase),
         {&perf_stats.osi_mpi_pack, &perf_stats.osi_mpi_wait,
          &perf_stats.osi_mpi_unpack});

@@ -164,8 +164,8 @@ void AmrCoreLBM::AverageDownInterfaceLevel(int fine_lev, bool is_scale) {
     {
         const Long children_per_parent = ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]);
         // 交界区域融合路径只处理缓存的 coarse-interface 父单元。
-        MultiFab& interface_result = average_interface_buffer[coarse_lev];
-        const Vector<int>& fine_box_indices = average_interface_fine_box[coarse_lev];
+        MultiFab& interface_result = average_down_cache[coarse_lev].interface_buffer;
+        const Vector<int>& fine_box_indices = average_down_cache[coarse_lev].fine_box_indices;
         if (fine_box_indices.empty()) {
             return;
         }

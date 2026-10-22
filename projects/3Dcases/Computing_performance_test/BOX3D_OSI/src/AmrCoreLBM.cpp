@@ -80,21 +80,12 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     osi_phase.resize(nlevs_max, 0);
     osi_fab_phase_cache.resize(nlevs_max);
     osi_fillboundary_cache.resize(nlevs_max);
-    osi_interp_copy_cache.resize(nlevs_max);
-    osi_average_copy_cache.resize(nlevs_max);
-    osi_interpolation_work_cache.resize(nlevs_max);
-    osi_restriction_block_tags.resize(nlevs_max);
-    average_interface_buffer.resize(nlevs_max);
-    average_interface_fine_box.resize(nlevs_max);
+    interpolation_cache.resize(nlevs_max);
+    average_down_cache.resize(nlevs_max);
     covered_mask.resize(nlevs_max);
     interface_mask.resize(nlevs_max);
     covered_cell_counts.resize(nlevs_max, 0);
     interface_cell_counts.resize(nlevs_max, 0);
-    interp_direct_coarse_stage.resize(nlevs_max);
-    interp_direct_fine_boxes.resize(nlevs_max);
-    interp_direct_fine_index.resize(nlevs_max);
-    interp_direct_needs_physical_fill.resize(nlevs_max);
-    interp_direct_cache_ready.resize(nlevs_max, 0);
     boundary_work_cache.resize(nlevs_max);
 
     velocity.resize(nlevs_max);
