@@ -1,7 +1,8 @@
 # BOX3D_OSI
 
 基于 AMReX 26.06、C++20、CUDA 和 MPI 的二维 D2Q9 / 三维 D3Q27 LBM 动态 AMR 算例。
-BOX3D_OSI_dev 的维度兼容实现已合入本目录，后续统一在此维护。
+原 BOX3D_OSI_dev 的维度兼容实现已合入本目录，后续统一在此维护；
+原 dev 目录已在 `53de250` 删除，历史内容从 Git 获取。
 本目录支持 canonical 双数组 A-B 基准和 one-step index（OSI）单数组推进；
 相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
 [当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
@@ -47,10 +48,11 @@ DIM_REFACTOR_BASELINE=/绝对路径/含app2d.ex和app3d.ex及git_head.txt的基�
 | `tests/submit_dimension_refactor_validation.sh` | `DIM_REFACTOR_BASELINE`：含 `app2d.ex`、`app3d.ex` 和 `git_head.txt` 的目录 |
 | `tests/compare_dimension_codegen.py` | 位置参数：访问器重构证据目录，含 `baseline/src`、`baseline/objects{2,3}d` 及 `baseline/app{2,3}d.ex`；这是该次访问器重构的专用比较，不能直接用任意旧程序替换 |
 
-历史基线和报告仍在
-[dev 历史目录](../BOX3D_OSI_dev/README.md)，不应假设已复制到本目录的 runs。
-历史已验证范围及已知 physical ghost 差异见
-[dev 维度验证记录](../BOX3D_OSI_dev/docs/ai_changes/2026-10-19-dimension-accessors.md)。
+历史 dev 内容可从 `53de250^` 的
+`projects/3Dcases/Computing_performance_test/BOX3D_OSI_dev/` 路径读取，
+例如在仓库根执行 `git show 53de250^:projects/3Dcases/Computing_performance_test/BOX3D_OSI_dev/README.md`。
+不要假设历史基线程序或 runs 已迁入本算例；现役验证范围和已知 physical ghost 差异见
+[当前交接状态](docs/current_status.md)。
 历史专项预设（锁步、Re=1000、固定网格）仍按三维参数维护；二维运行使用上面的通用提交入口，不能仅设置 DIM 就套用三维预设。
 
 合并版本的验证见 [合并记录](docs/ai_changes/2026-10-20-merge-dimension-support.md)。
@@ -140,14 +142,17 @@ main coarse-step 循环
   └─ Cycle2(lev, time)
        ├─ 有细层时：FillGhostLevel(lev, time, scale) 填 lev+1 的 ghost
        ├─ AdvanceLevel(lev)
-       │    ├─ Collide → CommunicateLevel → Stream → Boundary
+       │    ├─ 串行路径：Collide → CommunicateLevel → Stream → Boundary
+       │    ├─ OSI 重叠路径：发送源碰撞 → FillBoundaryOsi(剩余碰撞回调) → Stream → Boundary
        │    └─ SwapLevel
        └─ 有细层时：Cycle2(lev+1) 两次 → AverageDownInterfaceLevel(lev+1)
 ```
 
 两个 fine substeps 共用父层在本次调用开始时的 ghost 填充。
 普通推进只执行所选布局；锁步验证模式在 `AdvanceLevel` 内显式执行两种布局，
-在碰撞、通信、迁移、边界等阶段立即比较。
+在碰撞、通信、迁移、边界等阶段比较；重叠时碰撞比较在回调内、两个子集都完成后执行。
+发送源分类、stream 顺序和 phase 依赖的唯一机制说明见
+[同层通信重叠](docs/osi_algorithm_and_architecture.md#61-整块碰撞与同层传输重叠)。
 A-B 的 Stream 写入 `f_new`，随后 Swap；OSI 的 Stream 提交 phase，Swap 无需交换数组。
 完整平均后的边界修复只改 covered 粗层 valid 物理边界，排除 uncovered、ghost 和最细层；
 [算法文档](docs/osi_algorithm_and_architecture.md#101-完整平均后的边界修复)给出筛选细节。
@@ -204,11 +209,23 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
   --tolerance 1e-4 --output /tmp/BOX3D_OSI_convergence.png
 ```
 
-`performance.osi_detail_timing=1` 默认保留 OSI 细分计时；设为 0 可关闭通信与缓存搬运的
-嵌套细分计时，保留 `comm/interp/average` 等主阶段计时。关闭时 `osi_*` 细分秒数为 0，
-表示未测量；`perf(s)` 的 `osi_detail_timing` 字段给出实际开关。
-细分计时会增加同步，算法性能对比应保持开关一致；
-[开关配对实验](docs/ai_changes/2026-10-15-osi-optional-detail-timing.md)未证明关闭后有一致的整体加速。
+### 同层通信重叠与计时
+
+当前三维 [inputs](config/inputs) 显式设置 `lbm.osi_collide_comm_overlap=1`、
+`performance.osi_detail_timing=0`。二维 inputs 未启用重叠、细分计时仍为 1；
+程序未读到参数时，两个开关分别缺省为 0 和 1。
+重叠仅用于有远端发送源且有剩余块的 OSI rank/level；设为 0 可用同一程序对照原顺序。
+单 rank、A-B 或没有可重叠块的场景保持原顺序。
+
+关闭细分计时保留 `comm/interp/average` 等主阶段计时，`osi_*` 为 0 表示未测量；
+`perf(s)` 的 `osi_detail_timing` 字段给出实际开关。开启细分计时会同步 GPU、限制重叠，
+只适合定位成本。重叠时 `comm` 区间包含剩余 GPU 碰撞，`collide` 包含该子集的提交时间；
+两者不是独立 GPU 成本，不直接相加，端到端收益使用 `total`。
+
+2026-10-22 的三轮配对在生产块大小128下，2/4 GPU真实AMR总耗时中位数下降5.52%/4.18%；
+块大小32和单层没有稳定收益。对照两端均关闭细分计时，不能把该收益归因于默认计时开关变化。
+[完整实验与数值边界](docs/ai_changes/2026-10-22-osi-collision-communication-overlap.md)限定于单节点host staging；
+[较早的计时开关实验](docs/ai_changes/2026-10-15-osi-optional-detail-timing.md)只代表当时版本。
 
 中心线、收敛和性能图已分别收敛为参数化入口；中心线绘图通过参数指定数据、步数、归一化、
 参考数据和输出路径。ParaView 提取入口仍保留 Re=1000/3200、U_lid=0.05 和按运行目录命名输出的

@@ -176,7 +176,9 @@ $$
     storage 的活跃区域再次表示迁移和物理边界处理后的 incoming DDF
 ```
 
-当前每步在碰撞后同步 owner 的 post-collision 值；接收值仍写当前 phase `p`，再由 phase
+上述1/2是逻辑阶段；开启[整块重叠](#61-整块碰撞与同层传输重叠)后，
+发送源碰撞先完成，剩余块碰撞可以与传输并行。每个owner值仍在其碰撞后才被打包，
+本地复制和unpack排在剩余碰撞之后。接收值仍写当前 phase `p`，再由 phase
 提交表达 streaming。phase 只能在整层本次碰撞和通信完成后提交一次。不能让不同
 Fab、不同 MPI rank 或同一 level 的不同 kernel 各自提前增加 phase。GPU 实现还必须用
 同一 stream 的顺序或显式同步保证碰撞和通信已完成，不能只提前修改主机端 phase 元数据。
@@ -253,24 +255,28 @@ $$
 
 不能把 twisted `MultiFab` 直接交给普通 `FillBoundary()` 并期待正确结果，因为
 `FillBoundary()` 按相同 `(i,j,k,q)` 复制，而不知道发送和接收 Fab 各自的 OSI 映射。
-现役 `CommunicateLevel()` 依据 `DdfLayout` 分派；OSI 分支由
+串行路径由 `CommunicateLevel()` 依据 `DdfLayout` 分派；OSI重叠路径由
+`AdvanceOneLayout()` 直接传回调给同一通信实现。两者均由
 `FillBoundaryOsi()` 直接按当前 phase 完成同 rank raw-to-raw 和跨 rank
 pack/unpack。AMReX `getFB()` 的任务在建层时转换为本地、发送和接收 tag，
 `FillBoundaryCache` 按层保留计划与独立缓冲；布局重建前先使引用旧 `MultiFab`
 的 tag 失效。`MpiPlan`、`MpiBuffers`、peer offset、tag 构建和缓冲索引与
-粗细层 CPC 共用辅助实现。`osi_local_direct`、`osi_parallel_copy`、
+粗细层 CPC 共用辅助实现。每个tag的MPI缓冲采用 `[q][cell]`，收发端一致，
+消息字节数、Q和区域不变。`osi_local_direct`、`osi_parallel_copy`、
 `osi_mpi_direct` 仅兼容旧输入中的值 1，值 0 会报错。
 
 可选的 `osi_mpi_pipeline_chunk_bytes` 将每个 peer 的 host-staging payload 分块：
 发送侧在一块 D2H 完成后立即投递非阻塞 send，与下一块 D2H 重叠；
 接收侧先投递全部 receive，每块到达后在独立 GPU stream 上 H2D，主机继续
 等待后续块。当前 `config/inputs` 使用 2 MiB；0 表示整块同步路径。2 MiB
-只在单节点、单 peer 范围内完成验收，多 peer、多节点和多层 AMR 必须重新验收。
+的较新证据包括单节点2/4 ranks及动态AMR，详见[当前状态](current_status.md)。
+不同peer拓扑、消息规模和多节点仍需单独验证，不能将2 MiB称为普遍最优值。
 
 实验开关 `osi_mpi_device_direct` 将 MPI 指针从 pinned host 缓冲切换为 device 缓冲，
 并要求 AMReX 已确认 GPU-aware MPI。远端请求投递后才启动本地 seam copy，使该 kernel
 与 MPI wait 重叠；unpack 仍排在同一 CUDA stream 后方，保持本地和远端 ghost 写入顺序。
-当前 HMPI/UCX 不支持该 device transport，因此默认和当前可运行路径仍是 host staging。
+当前配置尚未确认 HMPI/UCX 支持该 device transport，默认使用 host staging；
+更换传输环境后仍需单独验收，不能将 host-staging 结果当成 device-direct 证据。
 
 历史 canonical fallback 的源区和目标区曾由独立的逻辑 `Box` 缓存构造：目标 grown ghost 反向周期平移后与
 `BoxArray` valid 相交，得到 source box，再平移回 destination ghost。每个 Fab 的候选
@@ -283,6 +289,27 @@ Box 必须先去重，否则同一 canonical cell 会被并发写入。缓存不
 D3Q27 连续推进两步后只保证 valid 仍可信，外层 wrap 污染可能已进入 ghost。因此两步
 后必须刷新或丢弃 ghost；若 average-down、IBM 或边界需要读取演化后的 ghost，必须
 单独证明其可信范围或增加同步。
+
+### 6.1 整块碰撞与同层传输重叠
+
+`lbm.osi_collide_comm_overlap` 启用后，FB发送tags的 `srcIndex` 唯一决定发送源Fab分类；
+`send_fabs` 和是否存在两个非空子集的标志由 `BuildOsiCommunicationRegionCache` 更新，
+随 `FillBoundaryCache.clear()` 失效。分类只依赖布局，不随phase变化。
+接收、本地复制属性可以与发送属性重叠，不另建互斥块类别。
+
+1. 碰撞所有远端发送源Fab，范围和原kernel不变，然后pack并同步，保证发送数据完整。
+2. `FillBoundaryOsi` 的回调将其余Fab碰撞排到stream 0；该子集用
+   `MFItInfo.DisableDeviceSync().UseDefaultStream()`，不在MFIter退出或Collide末尾等待。
+   CPU继续推进既有staging/MPI；分块D2H/H2D使用stream 1。
+3. 本地seam copy及远端unpack排在stream 0的剩余碰撞之后，避免先写ghost再碰撞。
+   阶段完成后才提交整层phase；MPI请求仍在一次FillBoundaryOsi调用内完成，没有跨步骤状态。
+
+两个子集只改变顺序，碰撞cell并集、mask判断和写回公式不变，每层调用计数仍按一次推进累加。
+只有发送源或只有剩余块时，以及开关关闭时，沿用原顺序。整块同步staging和细分计时的
+同步可能减少隐藏机会；验证通过不意味着这些路径有同等加速。
+
+默认值、计时口径及性能使用入口见[README](../README.md#同层通信重叠与计时)，
+数值与性能验收见[当前状态](current_status.md)。
 
 ## 7. 物理边界
 
@@ -566,7 +593,7 @@ SoA 属性校验和在并行归约容差内一致，两层 D3Q27 全局 `Linf=0`
 生产或锁步参考态。
 
 同层通信的 `FillBoundaryCache` 按层保存本地、pack/unpack tag、`MpiPlan` 和
-独立 `MpiBuffers`。粗细层 CPC 缓存复用计划和 tag 构建辅助逻辑，但各传输保留
+独立 `MpiBuffers` 及由发送tags派生的整块碰撞分类。粗细层 CPC 缓存复用计划和 tag 构建辅助逻辑，但各传输保留
 自己的缓冲。所有持有 `Array4` 的 tag 都必须在所引用 `MultiFab` 释放或替换前
 失效；布局建立后重新构建。phase 改变时读取当前值，不重建几何任务。
 
@@ -576,7 +603,7 @@ SoA 属性校验和在并行归约容差内一致，两层 D3Q27 全局 `Linf=0`
 checkpoint 常量位于 `AmrCoreLBM.H`，没有独立 detail 头文件。
 
 OSI 通信/缓存搬运的嵌套细分计时由 `RuntimeParams` 中一次读取的
-`performance.osi_detail_timing` 控制，默认保留。关闭时跳过计时器及其同步，
+`performance.osi_detail_timing` 控制；代码缺省保留，但当前三维inputs显式关闭。关闭时跳过计时器及其同步，
 保留显式数据依赖同步和主阶段计时；日志明确标记未测量，不能把零值解释为没有搬运成本。
 用法和配对结果见[README](../README.md#构建运行与实验记录)。
 

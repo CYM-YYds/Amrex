@@ -1,8 +1,26 @@
-4. 多 rank 时，进一步完善流水；单卡暂时不用优先做。
-   [FillBoundaryOsi() (line 220)](/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/src/AmrCoreLBM_osi.cpp:220) 已有本地复制与 MPI 重叠、host staging 分块，但仍有几个限制：
+# OSI 通信优化状态与后续候选
 
-- 整批 pack 完成后才投递接收，可以考虑提前投递；
-- 所有发送块提交完后才开始处理接收完成；
-- 接收按固定顺序 wait()，前面的慢块会推迟后面已到达块的 H2D；
-- 最后统一 unpack，尚未形成完整的分块消费流水。
-  另外，粗细层用的 [parallel_copy_mpi() (line 297)](/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/src/OsiCommunication.H:297) 仍是整块 staging 与等待，没有沿用同层通信的分块流水。多卡 AMR 下也值得测，但目前没有证据能承诺收益。
+更新时间：2026-10-22。机制以[架构](osi_algorithm_and_architecture.md#6-ghost-与-mpi-的新契约)为准，
+默认开关与计时口径见[README](../README.md#同层通信重叠与计时)，此页只维护候选状态。
+
+| 方向 | 已验证结论 | 现役状态 |
+|---|---|---|
+| tag内MPI缓冲按 `[q][cell]` 排列 | 指定2 GPU AMR三轮total下降1.46% | 已采纳 `6047cb8` |
+| 同层提前接收、发送中推进接收、按完成顺序H2D | 单层局部收益未延续为稳定AMR收益 | 已测，未采纳 |
+| CPC提前接收、本地copy与整块staging重叠 | 指定AMR三轮整体收益很小 | 已测，未采纳 |
+| 本地坐标复用 | 无稳定收益 | 已测，未采纳 |
+| 发送源Fab先碰撞，其余Fab异步与staging/MPI重叠 | 指定128/64块布局AMR有稳定收益，32块及单层无稳定收益 | 已采纳 `a9f6076`，可用开关关闭 |
+
+前四项的控制、节点和数据范围见[调度与缓冲实验](ai_changes/2026-10-22-osi-communication-buffer-layout.md)；
+整块重叠的数值、性能及失败候选见[重叠实验](ai_changes/2026-10-22-osi-collision-communication-overlap.md)。
+不同实验的百分比不直接相加，也不跨节点比较绝对秒数。
+
+## 尚未实现或验收
+
+- 同层接收仍按固定顺序等待、最后统一unpack；CPC仍为整块staging。
+  已测“按完成顺序处理”不等于完整分块消费流水或CPC分块流水已测试。
+- 若多数Fab都是发送源，整块分类缺少可隐藏计算；进一步拆分发送依赖区域与内部区域尚未实现。
+- 用event替代部分主机等待、跨stream依赖，以及多节点/GPU-aware MPI需要独立设计与验证。
+- CPC数据量和重复搬运尚无新测量证据，不把未实现的CPC流水列成已证明的主要瓶颈。
+
+这些是候选而非已批准的实施任务；继续优化应结合实际布局、关键路径和受控端到端结果。
