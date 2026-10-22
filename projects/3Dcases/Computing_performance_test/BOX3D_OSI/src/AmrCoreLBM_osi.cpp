@@ -323,6 +323,7 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
     auto& recv_device = cache.buffers.recv_device;
     auto& send_host = cache.buffers.send_host;
     auto& recv_host = cache.buffers.recv_host;
+    // 通信缓冲按 tag 内 [q][cell] 排列，收发两端保持相同次序与字节总量。
     const bool pipeline_staging = osi_mpi_pipeline_chunk_bytes > 0;
     const std::size_t pipeline_chunk_reals = pipeline_staging
                                                  ? std::max<std::size_t>(
@@ -345,7 +346,7 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
                     const auto raw = OSI::osi_address(
                         {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab,
                         phase_shift);
-                    buffer[tag.offset + cell * Q + q] =
+                    buffer[tag.offset + static_cast<std::size_t>(q) * tag.region.numPts() + cell] =
                         tag.src(raw.x, raw.y, raw.z, q);
                 });
         }
@@ -500,7 +501,7 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
                         {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab,
                         phase_shift);
                     tag.dst(raw.x, raw.y, raw.z, q) =
-                        buffer[tag.offset + cell * Q + q];
+                        buffer[tag.offset + static_cast<std::size_t>(q) * tag.region.numPts() + cell];
                 });
         }
     }
@@ -557,21 +558,21 @@ void AmrCoreLBM::ParallelCopyOsi(
                 const auto raw = OSI::osi_address(
                     {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab,
                     phase_shifts[tag.phase_index]);
-                buffer[tag.offset + cell * Q + q] = tag.src(raw.x, raw.y, raw.z, q);
+                buffer[tag.offset + static_cast<std::size_t>(q) * tag.region.numPts() + cell] = tag.src(raw.x, raw.y, raw.z, q);
             } else {
-                buffer[tag.offset + cell * Q + q] = tag.src(i, j, k, q);
+                buffer[tag.offset + static_cast<std::size_t>(q) * tag.region.numPts() + cell] = tag.src(i, j, k, q);
             }
         },
         [phase_shifts] AMREX_GPU_DEVICE(int i, int j, int k, int q,
                              const UnpackTag& tag, const Real* buffer) noexcept {
             const std::size_t cell = OSI::buffer_cell_index(tag.region, i, j, k);
             if constexpr (SourceRaw) {
-                tag.dst(i, j, k, q) = buffer[tag.offset + cell * Q + q];
+                tag.dst(i, j, k, q) = buffer[tag.offset + static_cast<std::size_t>(q) * tag.region.numPts() + cell];
             } else {
                 const auto raw = OSI::osi_address(
                     {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab,
                     phase_shifts[tag.phase_index]);
-                tag.dst(raw.x, raw.y, raw.z, q) = buffer[tag.offset + cell * Q + q];
+                tag.dst(raw.x, raw.y, raw.z, q) = buffer[tag.offset + static_cast<std::size_t>(q) * tag.region.numPts() + cell];
             }
         }, timing, &cache.buffers);
 }
@@ -677,7 +678,7 @@ void AmrCoreLBM::ParallelCopyOsi(
             const auto shift = OSI::osi_phase_shift(source_phase, tag.fab);
             const auto raw = OSI::osi_address(
                 {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab, shift);
-            send_buffer[tag.offset + cell * Q + q] =
+            send_buffer[tag.offset + static_cast<std::size_t>(q) * tag.region.numPts() + cell] =
                 tag.src(raw.x, raw.y, raw.z, q);
         },
         [=] AMREX_GPU_DEVICE(int i, int j, int k, int q,
@@ -693,7 +694,7 @@ void AmrCoreLBM::ParallelCopyOsi(
             const auto raw = OSI::osi_address(
                 {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, tag.fab, shift);
             tag.dst(raw.x, raw.y, raw.z, q) =
-                receive_buffer[tag.offset + cell * Q + q];
+                receive_buffer[tag.offset + static_cast<std::size_t>(q) * tag.region.numPts() + cell];
         });
 }
 
