@@ -149,11 +149,13 @@ void AmrCoreLBM::ApplyPhysicalBoundaryToInterpolationStage(
         bool needs_fill = false;
         for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
             needs_fill = needs_fill ||
-                (!coarse_periodic[dir] &&
-                 (stage_box.smallEnd(dir) < coarse_domain.smallEnd(dir) ||
-                  stage_box.bigEnd(dir) > coarse_domain.bigEnd(dir)));
+                         (!coarse_periodic[dir] &&
+                          (stage_box.smallEnd(dir) < coarse_domain.smallEnd(dir) ||
+                           stage_box.bigEnd(dir) > coarse_domain.bigEnd(dir)));
         }
-        if (!needs_fill) { continue; }
+        if (!needs_fill) {
+            continue;
+        }
         const auto coarse = coarse_stage.array(mfi);
         amrex::ParallelFor(
             stage_box, Q,
@@ -449,8 +451,12 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
         cache.clear();
     }
     regrid_tag_counts.assign(max_level + 1, -1);
-    for (auto& cache : interpolation_cache) { cache.clear(); }
-    for (auto& cache : average_down_cache) { cache.clear(); }
+    for (auto& cache : interpolation_cache) {
+        cache.clear();
+    }
+    for (auto& cache : average_down_cache) {
+        cache.clear();
+    }
     regrid(0, cur_time);
     RebuildCoarseFineCaches();
     bool refinement_diagnostics = false;
@@ -481,8 +487,12 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
 
 void AmrCoreLBM::ClearOsiTransferCaches() {
     // 任一层存储改变前，先失效所有跨层 Array4 和设备任务。
-    for (auto& cache : interpolation_cache) { cache.clear_work(); }
-    for (auto& cache : average_down_cache) { cache.clear_work(); }
+    for (auto& cache : interpolation_cache) {
+        cache.clear_work();
+    }
+    for (auto& cache : average_down_cache) {
+        cache.clear_work();
+    }
 }
 
 void AmrCoreLBM::RebuildCoarseFineCaches() {
@@ -603,9 +613,11 @@ void AmrCoreLBM::BuildBoundaryWorkCache() {
         for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
             const Box& valid_box = ba[mfi.index()];
             const auto fab = OSI::MakeOsiFabContext(
-                amrex::grow(valid_box, state.nGrowVect()), 0).fab;
+                                 amrex::grow(valid_box, state.nGrowVect()), 0)
+                                 .fab;
             const int phase_index = use_osi
-                ? osi_fab_phase_cache.at(lev).slot(mfi.index()) : -1;
+                                        ? osi_fab_phase_cache.at(lev).slot(mfi.index())
+                                        : -1;
             cache.full_cells += valid_box.numPts();
 
             // 边界条件同样会更新域内Fab对象中、紧邻非周期物理边界的ghost单元。
@@ -682,10 +694,9 @@ void AmrCoreLBM::BuildInterpolationCache() {
             interpolation_cache.at(lev).copy.define(
                 osi_state.at(lev - 1), coarse_stage,
                 Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct,
-                osi_fab_phase_cache.at(lev - 1));
-        }
-        // 仅缓存正常推进所用 stage；重构临时 patch 保持原逐盒实现。
-        if (streamMode() == 1 && coarse_stage.isDefined()) {
+                osi_fab_phase_cache.at(lev - 1)); // 构建粗网格复制的缓存信息
+
+            // 仅缓存正常推进所用 stage；重构临时 patch 保持原逐盒实现。
             auto& cache = interpolation_cache.at(lev).work;
             cache.clear();
             Vector<amrex::Array4BoxTag<Real>> scale_tags;
@@ -695,12 +706,14 @@ void AmrCoreLBM::BuildInterpolationCache() {
                 const int fine_index = patch.fine_box_index;
                 const Box target = patch.fine_box;
                 const auto fab = OSI::MakeOsiFabContext(
-                    amrex::grow(osi_state.at(lev).boxArray()[fine_index],
-                                osi_state.at(lev).nGrowVect()), 0).fab;
+                                     amrex::grow(osi_state.at(lev).boxArray()[fine_index],
+                                                 osi_state.at(lev).nGrowVect()),
+                                     0)
+                                     .fab;
                 const int fine_local = osi_state.at(lev).localindex(fine_index);
                 AMREX_ALWAYS_ASSERT(fine_local >= 0);
                 scale_tags.push_back({coarse_stage.array(mfi), mfi.validbox()});
-                tags.push_back({interp_mode == 0 ? target : amrex::coarsen(target,2),
+                tags.push_back({interp_mode == 0 ? target : amrex::coarsen(target, 2),
                                 target, fab, mfi.LocalIndex(), fine_local,
                                 osi_fab_phase_cache.at(lev).slot(fine_index)});
             }
@@ -768,11 +781,12 @@ void AmrCoreLBM::BuildAverageCache() {
                     const int local_fine = fine.localindex(fi);
                     AMREX_ALWAYS_ASSERT(local_fine >= 0);
                     const auto fab = OSI::MakeOsiFabContext(
-                        amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0).fab;
+                                         amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0)
+                                         .fab;
                     const int slot = osi_fab_phase_cache.at(lev + 1).slot(fi);
                     const Box region = mfi.validbox();
                     for (amrex::Long parent = 0; parent < region.numPts();
-                             parent += osi_restriction_parents_per_block) {
+                         parent += osi_restriction_parents_per_block) {
                         tags.push_back({region, fab, parent, mfi.LocalIndex(), local_fine, slot});
                     }
                 }
@@ -794,7 +808,9 @@ void AmrCoreLBM::FindCentre() {
 
 void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::BoxArray& ba,
                                         const amrex::DistributionMapping& dm) {
-    if (probe_.regrid_fixture) { amrex::Print() << "AMR_LIFECYCLE MakeNewLevelFromCoarse level=" << lev << '\n'; }
+    if (probe_.regrid_fixture) {
+        amrex::Print() << "AMR_LIFECYCLE MakeNewLevelFromCoarse level=" << lev << '\n';
+    }
 
     // 给新建的细网格层 lev 分配数据，并从紧邻的粗层插值出初始 DDF 状态, 只在 regrid() 新增一个此前不存在的细层时调用，RefineMesh() 会调用。
     if (lev == 0) {
@@ -843,9 +859,11 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
 
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
                              const amrex::DistributionMapping& dm) {
-    if (probe_.regrid_fixture) { amrex::Print() << "AMR_LIFECYCLE RemakeLevel level=" << lev << '\n'; }
- // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用
-    amrex::MultiFab u_new(ba, dm, AMREX_SPACEDIM, nghost);           // 按新 ba/dm 重建派生宏观场；density/velocity 后续由 DDF 重新计算。
+    if (probe_.regrid_fixture) {
+        amrex::Print() << "AMR_LIFECYCLE RemakeLevel level=" << lev << '\n';
+    }
+    // 某个已存在的细层网格布局发生变化后，按新的 ba/dm 重建该层，并把旧流场尽可能迁移过去。主要由RefineMesh()调用
+    amrex::MultiFab u_new(ba, dm, AMREX_SPACEDIM, nghost); // 按新 ba/dm 重建派生宏观场；density/velocity 后续由 DDF 重新计算。
     amrex::MultiFab rho_new(ba, dm, 1, nghost);
     amrex::MultiFab vort_new(ba, dm, 2, nghost);
     amrex::MultiFab force_new(ba, dm, AMREX_SPACEDIM, nghost);
@@ -1026,7 +1044,9 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
 }
 
 void AmrCoreLBM::ClearLevel(int lev) {
-    if (probe_.regrid_fixture) { amrex::Print() << "AMR_LIFECYCLE ClearLevel level=" << lev << '\n'; }
+    if (probe_.regrid_fixture) {
+        amrex::Print() << "AMR_LIFECYCLE ClearLevel level=" << lev << '\n';
+    }
 
     ClearOsiTransferCaches();
     boundary_work_cache[lev].clear();
@@ -1153,21 +1173,20 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
         for (MFIter mfi(tags); mfi.isValid(); ++mfi) {
             const auto tag = tags.array(mfi);
             amrex::ParallelFor(mfi.validbox(),
-                [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                    const Real x = Real(i - lower.x) / size.x;
-                    const Real y = Real(j - lower.y) / size.y;
-                    bool inside = refine && x >= inset + shift && x < Real(1) - inset + shift &&
-                        y >= inset && y < Real(1) - inset;
+                               [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                                   const Real x = Real(i - lower.x) / size.x;
+                                   const Real y = Real(j - lower.y) / size.y;
+                                   bool inside = refine && x >= inset + shift && x < Real(1) - inset + shift &&
+                                                 y >= inset && y < Real(1) - inset;
 #if AMREX_SPACEDIM == 3
-                    const Real z = Real(k - lower.z) / size.z;
-                    inside = inside && z >= inset && z < Real(1) - inset;
+                                   const Real z = Real(k - lower.z) / size.z;
+                                   inside = inside && z >= inset && z < Real(1) - inset;
 #endif
-                    tag(i, j, k) = inside ? TagBox::SET : TagBox::CLEAR;
-                });
+                                   tag(i, j, k) = inside ? TagBox::SET : TagBox::CLEAR;
+                               });
         }
         return;
     }
-
 
     if (lev >= err.size()) {
         return;
@@ -1208,7 +1227,7 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
         const int points_num = particle_num;
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-            // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
+        // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
 #if AMREX_SPACEDIM == 3
             state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
 #else

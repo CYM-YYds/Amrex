@@ -1,5 +1,0 @@
-# 本算例运行与编译证据保留在本地，不作为开发副本源码提交。
-runs/
-logs/
-.wrapbin/
-.*_commands.jsonl
