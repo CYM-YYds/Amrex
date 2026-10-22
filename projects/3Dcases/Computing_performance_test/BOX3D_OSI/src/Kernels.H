@@ -2750,6 +2750,68 @@ Real warp_sum_32(Real value) noexcept { // 对一个 warp 内 32 个线程各自
     return __shfl_sync(full_mask, value, 0);
 }
 
+#if Q == 27
+// 两个半 warp 使用独立掩码；尾部父单元整组退出后，另一组仍可安全归约。
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+Real half_warp_sum_16(Real value, unsigned int mask) noexcept {
+    for (int offset = 8; offset > 0; offset /= 2) {
+        value += __shfl_down_sync(mask, value, offset, 16);
+    }
+    return __shfl_sync(mask, value, 0, 16);
+}
+
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void average_down_osi_to_canonical_half_warp(
+    int i, int j, int k, int lane,
+    amrex::Array4<Real> coarse, amrex::Array4<const Real> fine,
+    OSI::FabGeometry fine_fab, OSI::PhaseShift3 fine_shift,
+    Real scale, bool apply_scale) noexcept {
+    // 每 lane 保存 q=lane 与 q=lane+16，避免引入完整 Q 长度线程局部数组。
+    const unsigned int mask = 0xffffu << ((threadIdx.x & 31) / 16 * 16);
+    const int q0 = lane, q1 = lane + 16;
+    Real restricted0 = 0.0, restricted1 = 0.0;
+    for (int kr = 0; kr < 2; ++kr) {
+        for (int jr = 0; jr < 2; ++jr) {
+            for (int ir = 0; ir < 2; ++ir) {
+                const auto src0 = OSI::osi_address(
+                    {2 * i + ir, 2 * j + jr, 2 * k + kr},
+                    {e[q0][0], e[q0][1], lattice_ez(q0)}, fine_fab, fine_shift);
+                const Real f0 = fine(src0.x, src0.y, src0.z, q0);
+                Real f1 = 0.0;
+                if (q1 < Q) {
+                    const auto src1 = OSI::osi_address(
+                        {2 * i + ir, 2 * j + jr, 2 * k + kr},
+                        {e[q1][0], e[q1][1], lattice_ez(q1)}, fine_fab, fine_shift);
+                    f1 = fine(src1.x, src1.y, src1.z, q1);
+                }
+                if (apply_scale) {
+                    const Real rho = half_warp_sum_16(f0 + f1, mask);
+                    const Real ux = half_warp_sum_16(
+                        f0 * e[q0][0] + (q1 < Q ? f1 * e[q1][0] : 0), mask) / rho;
+                    const Real uy = half_warp_sum_16(
+                        f0 * e[q0][1] + (q1 < Q ? f1 * e[q1][1] : 0), mask) / rho;
+                    const Real uz = half_warp_sum_16(
+                        f0 * lattice_ez(q0) + (q1 < Q ? f1 * lattice_ez(q1) : 0), mask) / rho;
+                    const Real eq0 = feqQian(rho, {ux, uy, uz}, q0);
+                    restricted0 += eq0 + (f0 - eq0) * scale;
+                    if (q1 < Q) {
+                        const Real eq1 = feqQian(rho, {ux, uy, uz}, q1);
+                        restricted1 += eq1 + (f1 - eq1) * scale;
+                    }
+                } else {
+                    restricted0 += f0;
+                    restricted1 += f1;
+                }
+            }
+        }
+    }
+    coarse(i, j, k, q0) = restricted0 * Real(0.125);
+    if (q1 < Q) {
+        coarse(i, j, k, q1) = restricted1 * Real(0.125);
+    }
+}
+#endif
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void average_down_osi_to_canonical_warp(

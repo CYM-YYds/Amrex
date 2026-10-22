@@ -148,11 +148,11 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
         const auto outputs = interface_result.arrays();
         const auto fines = fine_state.const_arrays();
         const auto* shifts = osi_fab_phase_cache.at(fine_lev).data(fine_phase);
-        amrex::launch<restriction_threads_per_block>(
+        amrex::launch<osi_restriction_threads_per_block>(
             static_cast<int>(work.size()), Gpu::Device::gpuStream(),
             [=] AMREX_GPU_DEVICE() noexcept {
                 const auto tag = tags[blockIdx.x];
-                const Long parent = tag.first_parent + threadIdx.x / restriction_warp_size;
+                const Long parent = tag.first_parent + threadIdx.x / osi_restriction_group_size;
                 if (parent >= tag.region.numPts()) { return; }
                 const auto lo = amrex::lbound(tag.region);
                 const int nx = tag.region.length(0), ny = tag.region.length(1);
@@ -160,10 +160,22 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
                 const Long yz = parent / nx;
                 const int j = lo.y + static_cast<int>(yz % ny);
                 const int k = lo.z + static_cast<int>(yz / ny);
+                // Q19 相邻线程处理相邻父单元；Q27 每半 warp 合作处理一个父单元。
+#if Q == 19
+                average_down_osi_to_canonical(
+                    i, j, k, outputs[tag.output_local_index], fines[tag.fine_local_index],
+                    ratio, tag.fab, shifts[tag.phase_index], scale, is_scale);
+#elif Q == 27
+                average_down_osi_to_canonical_half_warp(
+                    i, j, k, threadIdx.x % osi_restriction_group_size,
+                    outputs[tag.output_local_index], fines[tag.fine_local_index],
+                    tag.fab, shifts[tag.phase_index], scale, is_scale);
+#else
                 average_down_osi_to_canonical_warp(
                     i, j, k, threadIdx.x % restriction_warp_size,
                     outputs[tag.output_local_index], fines[tag.fine_local_index],
                     ratio, tag.fab, shifts[tag.phase_index], scale, is_scale);
+#endif
             });
     }
 #else

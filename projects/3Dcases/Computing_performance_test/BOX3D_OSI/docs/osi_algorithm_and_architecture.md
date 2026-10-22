@@ -512,17 +512,23 @@ fine raw（当前 phase）-> 融合 scaling/restriction，直接读取子单元
 `InterpolateDdfStageToFine`仍服务canonical和重网格临时patch，不复用正常推进的持久任务。
 插值准备阶段的物理域外延拓仍按需要填充的Box启动，不能将所有边界处理都称作已批量化。
 
-CUDA界面平均使用 `osi_restriction_block_tags`，每个标签对应原逐盒启动的一个block，
-合并所有本地interface Box提交；保持32 lane/父单元、256线程/block及每block最多8个父单元，
-不改变尾部线程或归约数值函数。CPU平均保持逐盒实现，`AverageDownOsiValidLevel`完整平均
-也不属于该批量界面路径。平均后的边界修复仍调用既有薄面批量任务。
+CUDA界面平均使用 `osi_restriction_block_tags` 合并所有本地interface Box提交。
+映射由编译期Q确定：Q27每16 lane处理一个父单元、128线程/block，每block最多8个父单元；
+Q19每线程处理一个父单元、128线程/block，每block最多128个父单元，复用既有标量平均函数。
+Q27半warp每lane保存q=lane及q=lane+16两槽，分别对每个细子单元归约rho/动量、缩放后累加，
+两个半warp使用独立shuffle掩码，尾部父单元整组退出。
+二维Q9保持32 lane/父单元和256线程/block。缓存建表与执行共用
+`osi_restriction_parents_per_block`及对应group/thread常量，避免遗漏或重复父单元。
+CPU平均保持逐盒实现；canonical A-B的整warp启动参数独立，
+`AverageDownOsiValidLevel`完整平均也不属于该批量界面路径。平均后的边界修复仍调用既有薄面批量任务。
 
 上述任务分别由 `BuildInterpolationCache`/`BuildAverageCache` 派生，
 `ClearOsiTransferCaches`在任一侧布局/存储改变前使其失效，随后由既有粗细缓存重建流程恢复。
 缩放任务持有stage的Array4；计算标签保存几何与本地索引，执行时取得当前数组和共享
 `FabPhaseCache`偏移，phase变化不触发几何重建，也不缓存独立相位副本。
-正式实现没有实验开关；Q19半warp和按q展开插值只在独立快照中。采纳状态及验证边界见
-[当前交接状态](current_status.md#2026-10-21批量插值与界面平均现役状态)。
+正式实现没有映射实验开关，默认格子仍为三维Q27、二维Q9；选择Q19编译时自动使用标量映射，
+不新增运行时模型选择。其余映射和按q展开插值仅保留在实验快照中。采纳状态及验证边界见
+[当前交接状态](current_status.md)。
 
 staging仍增加内存和搬运，其职责是隔离两个问题：
 

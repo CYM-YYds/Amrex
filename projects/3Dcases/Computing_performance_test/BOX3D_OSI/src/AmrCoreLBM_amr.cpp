@@ -813,7 +813,7 @@ void AmrCoreLBM::BuildAverageCache() {
                     const int slot = osi_fab_phase_cache.at(lev + 1).slot(fi);
                     const Box region = mfi.validbox();
                     for (amrex::Long parent = 0; parent < region.numPts();
-                             parent += restriction_parents_per_block) {
+                             parent += osi_restriction_parents_per_block) {
                         tags.push_back({region, fab, parent, mfi.LocalIndex(), local_fine, slot});
                     }
                 }

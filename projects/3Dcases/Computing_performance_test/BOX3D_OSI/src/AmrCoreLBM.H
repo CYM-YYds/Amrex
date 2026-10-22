@@ -90,8 +90,13 @@ struct RestrictionBlockTag {
 };
 inline constexpr int restriction_threads_per_block = 256;
 inline constexpr int restriction_warp_size = 32;
-inline constexpr int restriction_parents_per_block =
-    restriction_threads_per_block / restriction_warp_size;
+// 批量 OSI 平均按编译期格子选取已验证映射；A-B 的整 warp 启动保持独立。
+inline constexpr int osi_restriction_threads_per_block =
+    (Q == 19 || Q == 27) ? 128 : restriction_threads_per_block;
+inline constexpr int osi_restriction_group_size =
+    Q == 19 ? 1 : (Q == 27 ? 16 : restriction_warp_size);
+inline constexpr int osi_restriction_parents_per_block =
+    osi_restriction_threads_per_block / osi_restriction_group_size;
 
 class ScopedPerfTimer {
   public:
@@ -112,7 +117,7 @@ class ScopedPerfTimer {
     double m_start;
 };
 #ifdef AMREX_USE_CUDA
-// A-B 与 OSI restriction 只共用启动形状和父单元坐标展开；数学操作由调用方提供。
+// canonical A-B 平均保留整 warp；与批量 OSI 的格子专用启动参数分离。
 template <typename ParentOperation>
 void LaunchRestrictionWarps(const amrex::Box& box, ParentOperation operation) {
     constexpr int threads_per_block = restriction_threads_per_block;
