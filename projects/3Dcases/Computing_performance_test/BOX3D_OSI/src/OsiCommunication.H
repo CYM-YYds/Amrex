@@ -213,8 +213,13 @@ struct FillBoundaryCache {
     amrex::TagVector<MpiUnpackTag> unpack_tags;
     MpiPlan plan;
     MpiBuffers buffers;
+    // 发送源分类由 FB 计划生成，与布局缓存共同重建和失效。
+    amrex::Vector<int> send_fabs;
+    bool overlap_collision = false;
 
     void clear() {
+        send_fabs.clear();
+        overlap_collision = false;
         local_tags.undefine();
         pack_tags.undefine();
         unpack_tags.undefine();

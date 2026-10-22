@@ -237,6 +237,24 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                               phases.slot(tag.dstIndex)});
     }
     cache.local_tags.define(local_tags);
+    cache.send_fabs.assign(ba.size(), 0);
+    for (const auto& [peer, tags] : *fb.m_SndTags) {
+        for (const auto& tag : tags) { cache.send_fabs[tag.srcIndex] = 1; }
+    }
+    int early = 0, deferred = 0;
+    long long early_cells = 0, deferred_cells = 0;
+    for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
+        const auto cells = (amrex::grow(mfi.validbox(), nghost) &
+                            Geom(lev).growPeriodicDomain(nghost)).numPts();
+        if (cache.send_fabs[mfi.index()]) { ++early; early_cells += cells; }
+        else { ++deferred; deferred_cells += cells; }
+    }
+    cache.overlap_collision = early > 0 && deferred > 0;
+    amrex::Print(amrex::Print::AllProcs)
+        << "[OSI overlap layout] rank=" << ParallelDescriptor::MyProc()
+        << " level=" << lev << " early_fabs=" << early
+        << " deferred_fabs=" << deferred << " early_cells=" << early_cells
+        << " deferred_cells=" << deferred_cells << '\n';
 
     const int nprocs = ParallelDescriptor::NProcs();
     const int my_rank = ParallelDescriptor::MyProc();
@@ -276,7 +294,7 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
                    << " amrex_plan=1 remote_records=" << remote_records << '\n';
 }
 
-void AmrCoreLBM::FillBoundaryOsi(int lev) {
+void AmrCoreLBM::FillBoundaryOsi(int lev, const std::function<void()>& during_transfer) {
     ScopedPerfTimer timer(perf_stats.osi_fillboundary, params_.perf_osi_detail_timing);
     const std::uint64_t phase = osi_phase.at(lev);
     auto& cache = osi_fillboundary_cache.at(lev);
@@ -353,6 +371,8 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
         // D2H staging 在 stream 1 上提交；先明确等待 pack 所在的当前
         // stream，避免 stream 1 在 pack 尚未完成时读取 send_device。
         Gpu::streamSynchronize();
+        // pack 已完成，剩余碰撞仅在 stream 0 排队；CPU 继续推进 staging/MPI。
+        if (during_transfer) { during_transfer(); }
         if (!osi_mpi_device_direct && !pipeline_staging &&
             !send_device.empty()) {
             if (osi_mpi_async_staging) {
@@ -362,8 +382,10 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
                 Gpu::dtoh_memcpy_async(send_host.data(), send_device.data(),
                                        send_device.size() * sizeof(Real));
                 Gpu::Device::resetStreamIndex();
-                launch_local_copy();
-                local_copy_launched = true;
+                if (!during_transfer) {
+                    launch_local_copy();
+                    local_copy_launched = true;
+                }
                 Gpu::Device::setStreamIndex(1);
                 Gpu::streamSynchronize();
                 Gpu::Device::resetStreamIndex();
@@ -404,7 +426,7 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
             OSI::post_receives(receives, recv_counts, recv_offsets,
                                recv_buffer, nprocs, mpi_tag);
         }
-        if (pipeline_staging && !local_copy_launched) {
+        if (pipeline_staging && !local_copy_launched && !during_transfer) {
             launch_local_copy();
             local_copy_launched = true;
         }
@@ -434,6 +456,8 @@ void AmrCoreLBM::FillBoundaryOsi(int lev) {
             OSI::post_sends(sends, send_counts, send_offsets,
                             send_buffer, nprocs, mpi_tag);
         }
+        // 此时发送源已打包且 MPI 已启动；剩余 Fab 与发送源存储互不重叠。
+        // 本地复制必须等剩余碰撞结束，避免提前覆盖其 ghost 输入。
         if (!local_copy_launched) {
             launch_local_copy();
         }

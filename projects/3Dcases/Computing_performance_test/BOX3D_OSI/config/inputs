@@ -72,6 +72,10 @@ lbm.err = 0.64  1.28  2.56  5.12
 # 只有更换并验证 CUDA-aware MPI 后才设置为 1。
 lbm.osi_mpi_device_direct = 0
 
+# 先碰撞远端发送源块，再将其余块的碰撞与 host staging/MPI 重叠。
+# 全部块都是发送源或没有远端发送时沿用原顺序；0 可作同程序对照。
+lbm.osi_collide_comm_overlap = 1
+
 # Host-staging 分块流水的每块字节数；0 表示整块同步路径。
 # 仅适用于 device_direct=0、async_staging=0；
 # 当前单 peer 性能测试的历史较优值为 2097152 字节（2 MiB）。
@@ -84,8 +88,10 @@ lbm.osi_mpi_pipeline_chunk_bytes = 2097152
 # =============================================================================
 performance.report_int = 1000
 # 设为 0 可关闭 OSI 嵌套细分计时以减少同步；osi_* 秒数为 0 表示未测量。
-# comm/interp/average 等主阶段计时保留；默认 1 延续原有细分统计。
-performance.osi_detail_timing = 1
+# comm/interp/average 等主阶段计时保留；性能运行默认关闭嵌套同步。
+# 设为 1 进行细分诊断会限制通信重叠，不能用于评价其端到端收益。
+# 重叠时 comm 包含剩余碰撞的 GPU 执行，collide 包含该子集的提交时间。
+performance.osi_detail_timing = 0
 
 # =============================================================================
 # 7. PlotFile 输出

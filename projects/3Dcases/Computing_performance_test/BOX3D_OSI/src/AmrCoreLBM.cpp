@@ -508,6 +508,7 @@ void AmrCoreLBM::ReadParameters() {
                              "=0 is no longer supported; OSI always uses direct transfers");
             }
         }
+        pp.query("osi_collide_comm_overlap", osi_collide_comm_overlap);
         pp.query("osi_mpi_device_direct", osi_mpi_device_direct);
         pp.query("osi_mpi_async_staging", osi_mpi_async_staging);
         pp.query("osi_mpi_pipeline_chunk_bytes", osi_mpi_pipeline_chunk_bytes);

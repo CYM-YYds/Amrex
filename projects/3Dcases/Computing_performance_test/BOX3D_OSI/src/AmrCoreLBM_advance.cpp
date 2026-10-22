@@ -275,8 +275,15 @@ void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
 
 void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
     // 生产推进只执行一次布局；锁步检测由 AdvanceLevel 显式编排两次布局。
-    Collide(lev, nghost, layout);
-    CommunicateLevel(lev, layout);
+    if (layout == DdfLayout::Osi && osi_collide_comm_overlap &&
+        osi_fillboundary_cache.at(lev).overlap_collision) {
+        Collide(lev, nghost, layout, 1);
+        ScopedPerfTimer comm_timer(perf_stats.comm);
+        FillBoundaryOsi(lev, [&]() { Collide(lev, nghost, layout, 0); });
+    } else {
+        Collide(lev, nghost, layout);
+        CommunicateLevel(lev, layout);
+    }
     Stream(lev, nghost, layout);
     Boundary(lev, layout);
 }
@@ -298,11 +305,20 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
             CompareOsiReferenceStage(
                 lev, "InterpolationGhost", f_old.at(lev), nghost, true);
         }
-        Collide(lev, nghost, DdfLayout::Osi);
+        const bool overlap = osi_collide_comm_overlap &&
+                             osi_fillboundary_cache.at(lev).overlap_collision;
+        Collide(lev, nghost, DdfLayout::Osi, overlap ? 1 : -1);
         Collide(lev, nghost, DdfLayout::Canonical);
-        CompareOsiReferenceStage(lev, "Collision", f_old.at(lev), 0);
-
-        CommunicateLevel(lev, DdfLayout::Osi);
+        if (overlap) {
+            ScopedPerfTimer comm_timer(perf_stats.comm);
+            FillBoundaryOsi(lev, [&]() {
+                Collide(lev, nghost, DdfLayout::Osi, 0);
+                CompareOsiReferenceStage(lev, "Collision", f_old.at(lev), 0);
+            });
+        } else {
+            CompareOsiReferenceStage(lev, "Collision", f_old.at(lev), 0);
+            CommunicateLevel(lev, DdfLayout::Osi);
+        }
         CommunicateLevel(lev, DdfLayout::Canonical);
         CompareOsiReferenceStage(
             lev, "Communication", f_old.at(lev), 0);
@@ -397,10 +413,12 @@ void AmrCoreLBM::Boundary(int lev, DdfLayout layout) {
     ApplyPhysicalBoundaryLevel(lev, state, layout, false);
 }
 
-void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
+void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout, int send_subset) {
     const double collide_start = amrex::second();
 
     const bool use_osi = layout == DdfLayout::Osi;
+    AMREX_ALWAYS_ASSERT(send_subset >= -1 && send_subset <= 1 &&
+                        (send_subset == -1 || use_osi));
     const Box domain = Geom(lev).Domain();
     const amrex::IntVect hi = domain.bigEnd();
     amrex::MultiFab& state_lev =
@@ -424,7 +442,13 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
     AMREX_ALWAYS_ASSERT(n >= 0 && n <= state_lev.nGrow());
     // GPU 上两种布局均按完整 Fab 发射 kernel，确保碰撞 cell 集合只由
     // n 决定，与 DDF 的存储布局无关。
-    for (MFIter mfi(state_lev, false); mfi.isValid(); ++mfi) {
+    MFItInfo collision_info;
+    if (send_subset == 0) { collision_info.DisableDeviceSync().UseDefaultStream(); }
+    for (MFIter mfi(state_lev, collision_info); mfi.isValid(); ++mfi) {
+        if (send_subset >= 0 &&
+            osi_fillboundary_cache.at(lev).send_fabs.at(mfi.index()) != send_subset) {
+            continue;
+        }
         const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
         // 周期域外 ghost 可参与碰撞；非周期 ghost 由物理边界条件处理。
         const Box bx = amrex::grow(mfi.validbox(), n) & collision_domain;
@@ -477,11 +501,15 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout) {
                 });
         }
     }
-    amrex::Gpu::streamSynchronize();
+    // 延后子集留在 stream 0，由通信后的同 stream 消费和阶段同步保证完成。
+    if (send_subset != 0) { amrex::Gpu::streamSynchronize(); }
+    // 重叠子集这里只累计提交时间，其 GPU 执行在通信区间中完成；
+    // collide/comm 不再表示独立 GPU 内核成本，端到端比较使用 total。
     const double collide_elapsed = amrex::second() - collide_start;
     perf_stats.collide += collide_elapsed;
     perf_stats.collide_level.at(lev) += collide_elapsed;
-    ++perf_stats.collide_level_calls.at(lev);
+    // 两个互斥子集共同计为一次推进，发射 cell 数分别累加。
+    if (send_subset != 1) { ++perf_stats.collide_level_calls.at(lev); }
     perf_stats.collide_level_launch_cells.at(lev) += level_launch_cells;
 }
 

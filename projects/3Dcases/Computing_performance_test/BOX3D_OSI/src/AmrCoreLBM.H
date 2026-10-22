@@ -383,10 +383,12 @@ class AmrCoreLBM : public amrex::AmrCore {
     void CommunicateLevel(int lev,
                           DdfLayout layout = DdfLayout::Canonical);
     // OSI 版 FillBoundary：统一使用本地 raw copy 与 OSI-aware MPI。
-    void FillBoundaryOsi(int lev);
+    void FillBoundaryOsi(int lev, const std::function<void()>& during_transfer = {});
     void Boundary(int lev, DdfLayout layout = DdfLayout::Canonical);
+    // send_subset: -1 为全部，1 为发送源块，0 为剩余块。
     void Collide(int lev, int n,
-                 DdfLayout layout = DdfLayout::Canonical);
+                 DdfLayout layout = DdfLayout::Canonical,
+                 int send_subset = -1);
     void Stream(int lev, int n,
                 DdfLayout layout = DdfLayout::Canonical);
     void SwapLevel(int lev, int n,
@@ -575,6 +577,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool osi_mpi_device_direct = false;
     // host staging 实验路径：用独立 GPU stream 将批量 D2H/H2D 与本地
     // seam copy 和 MPI send 收尾重叠；默认关闭，便于与同步基线直接对照。
+    // 显式启用整块碰撞与同层传输重叠；发送源分类随 FB 缓存失效。
+    bool osi_collide_comm_overlap = false;
     bool osi_mpi_async_staging = false;
     // 非零时将每个 peer 的 host staging payload 按字节上限分块，
     // 形成 D2H/MPI/H2D 流水；默认 0 保留整块通信基线。
