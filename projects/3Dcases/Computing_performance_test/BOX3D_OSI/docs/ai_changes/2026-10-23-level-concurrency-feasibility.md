@@ -83,6 +83,34 @@ MPI_Wait内部包含协议推进、主机端传输和等待对端等可能成本
 [原样本空闲拆分](../../runs/level_concurrency_20261023/job617831/mature_r4_trace/idle_breakdown.json)和
 [MPI补采拆分](../../runs/level_concurrency_20261023/idle_mpi_job617837/idle_breakdown.json)。
 
+## GPU直传与AMReX通信路径补充
+
+2026-10-23在编译节点加载与生产相同的HMPI1.2模块后，只读查询`ompi_info`，
+`mpi_built_with_cuda_support:value:false`、`opal_cuda_support:value:false`。
+因此当前生产环境不能只将`lbm.osi_mpi_device_direct`改为1就视作CUDA-aware MPI已可用。
+查询命令、实际ompi_info路径和结果见[能力记录](../../runs/level_concurrency_20261023/hmpi_cuda_capability_20261023.txt)。
+这是MPI构建能力检查，不是另一次GPU传输性能测试。已有独立CUDA-aware实验入口仍未验收。
+
+实际AMReX26.06源码：普通`FillBoundary`立即依次调用`FillBoundary_nowait`和`FillBoundary_finish`。
+前者复用getFB计划，投递接收、GPU打包、发送，并处理本地复制；后者等待接收、GPU解包、等待发送并释放缓冲。
+应用须在nowait和finish之间安排独立工作，才能额外隐藏应用计算；nowait自身也可能等待打包完成。
+`ParallelDescriptor::Initialize`查询MPI支持并读取`amrex.use_gpu_aware_mpi`，
+`The_Comms_Arena`据此选择device或pinned host缓冲。
+`AMReX_FBI.H`的GPU pack/unpack直接访问该通信缓冲；非GPU-aware分支因此不等同于
+本算例显式device聚合缓冲加D2H/H2D的路径。
+
+OSI的`lbm.osi_mpi_device_direct`独立决定自定义MPI调用使用device还是host指针，
+不由`amrex.use_gpu_aware_mpi`自动替代控制。自定义路径复用getFB几何计划，但pack/unpack必须处理OSI phase地址。
+CUDA-aware接口支持设备指针不保证底层总是绕过主机暂存，具体IPC/P2P/RDMA路径仍取决于MPI、驱动和硬件。
+
+现有碰撞重叠按整Fab分组：任何包含远端发送源的Fab先完整碰撞，随后pack，再异步提交剩余Fab碰撞，
+与staging/MPI重叠。因而可隐藏计算只是剩余整Fab的碰撞，不是全部细层计算。
+256064重网格后的level2布局确有剩余Fab（各rank18–38个），没有将整个样本误当作关闭重叠的路径；
+发射点数量不等于实际活跃计算量或时间比例。
+此前早期场同节点配对的128布局总耗时下降2/4 GPU为5.518%/4.184%，证明该机制已有收益；
+不能外推为当前成熟场的同等收益或最佳可达重叠程度。当前证据支持“存在已验证的部分重叠，
+通信完成链仍明显长于可隐藏计算”，不支持将全部MPI_Wait归为网络传输或直接当作可删除成本。
+
 ## 验证与证据边界
 
 - 诊断副本全部九个算例翻译单元独立重编成功，仅复用未变AMReX对象；原始源码、输入、
