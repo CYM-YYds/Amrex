@@ -40,8 +40,48 @@ Nsight Systems各rank分析连续8个粗步的时间并集：早期单卡kernel 
 早期双卡ghost填充区间约占total的40%，包含粗到细通信、暂存、缩放和插值。
 
 结论：此次实际碰撞并发只有几个百分点收益；成熟四卡整层推进重叠的乐观上限约10.5%。
-当前证据不支持为纯kernel并发全面改写AMR调度。多卡更值得先验证局部粗到细传输与独立计算重叠；
+当前证据不支持为纯kernel并发全面改写AMR调度。下述空闲归因补充将成熟场的优化重点进一步
+定位到level2同层通信；粗到细传输仍有空间，但不应只根据早期场阶段占比优先于同层通信。
 若进一步拆分细层内部/边界，其潜力须另测，不受上述“其余成本不变”模型约束。
+
+## GPU空闲归因补充
+
+重新分析617831成熟四卡trace，以GPU上没有kernel、memcpy或memset执行的时间为完全空闲。
+在step256065–256072的连续8个粗步中，以rank0为例，窗口2.17755秒，完全空闲1.34647秒：
+
+| 空闲发生的阶段 | 空闲时间 | 占全部空闲 |
+|---|---:|---:|
+| level2同层通信 | 970.46 ms | 72.1% |
+| level1同层通信 | 134.85 ms | 10.0% |
+| level1到2的ghost填充 | 169.16 ms | 12.6% |
+| level2到1的平均下传 | 60.39 ms | 4.5% |
+| 其他 | 11.60 ms | 0.9% |
+
+四个rank各自有66.3%–90.3%的完全空闲落在`FillBoundaryOsi`范围内；这些比率不相加rank时间。
+rank0在8步内D2H共4.730GB、H2D共4.262GB，合计3584次CUDA拷贝；这是GPU与主机之间的流量，
+不是网络字节数。2MiB分块策略用于同层FB，粗细层CPC仍走整块暂存/收发/等待路径。
+
+为进一步区分CPU/MPI区间，作业617837使用同一冻结程序、输入和成熟checkpoint，增加MPI/OSRT跟踪，
+推进256001–256073，只分析同样的256065–256072八步，四rank启动器退出0，rank0记录finalized，调度SUCCEEDED。
+补采节点是whshare-agent-174，与原始whshare-agent-96不同，且跟踪项增加；不比较两次绝对耗时或归因性能差值。
+补采中各rank有92.2%–97.1%的GPU完全空闲与CPU执行`MPI_Wait`重合。
+按requestHandle与最近的Isend/Irecv关联，接收请求占Wait空闲的63.7%–91.5%，其余为发送请求。
+示例rank0的空闲1.56234秒中，有1.45700秒位于`MPI_Wait`，其中接收0.92783秒、发送0.52918秒。
+
+源码对应`FillBoundaryOsi`的分块接收/发送请求逐个`message.wait()`，以及插值/平均使用的
+`OSI::parallel_copy_mpi`中的`wait_messages`；AMReX `Message::wait()`最终调用`MPI_Wait`。
+host staging的链为GPU pack→D2H→MPI收发与完成等待→H2D→GPU unpack，后续推进消费接收结果。
+GPU只在MPI等待期间仍有其他已排队任务时才能保持活跃，现有剩余Fab碰撞重叠未覆盖全部等待。
+
+MPI_Wait内部包含协议推进、主机端传输和等待对端等可能成本，不能等同于网络延迟。
+这批证据也未进一步拆分对端准备延后、MPI内部拷贝与具体传输协议的贡献。
+统计的8步没有regrid，也关闭了PlotFile/checkpoint输出，因此不能将本批空闲归给它们。
+分析脚本做GPU活动并集取补集，再与互斥外层NVTX阶段、CUDA及MPI API区间相交；
+没有把整个通信区间都计作GPU空闲，也没有把CPU等待GPU拷贝的时间重复计为GPU空闲。
+
+原样本与补采结果分别见
+[原样本空闲拆分](../../runs/level_concurrency_20261023/job617831/mature_r4_trace/idle_breakdown.json)和
+[MPI补采拆分](../../runs/level_concurrency_20261023/idle_mpi_job617837/idle_breakdown.json)。
 
 ## 验证与证据边界
 
