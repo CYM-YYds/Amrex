@@ -1,0 +1,32 @@
+# 本次实验的日志审计与计时汇总；保留为结果的复现入口。
+import json
+import re
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+results = {}
+for folder in sorted(root.iterdir()):
+    if not folder.is_dir() or not (folder / 'run.log').exists():
+        continue
+    text = (folder / 'run.log').read_text()
+    row = {'finalized': 'AMReX (26.06) finalized' in text}
+    if folder.name.startswith('check_'):
+        sources = re.findall(r'osi_ab_stream_sources:.*', text)
+        stages = re.findall(r'osi_ab_stage:.*', text)
+        row.update(source_checks=len(sources), stage_checks=len(stages),
+                   internal_mismatches=sum(int(x) for line in sources for x in re.findall(r'\bmismatch_internal_ghost=(\d+)', line)),
+                   physical_mismatches=sum(int(x) for line in sources for x in re.findall(r'\bmismatch_physical_ghost=(\d+)', line)),
+                   source_mismatches=sum(int(x) for line in sources for x in re.findall(r'\bmismatches=(\d+)', line)),
+                   max_stage_linf=max((float(x) for line in stages for x in re.findall(r'\blinf=([^ ]+)', line)), default=None),
+                   regrids=text.count('REFINEMENT_REGRID'))
+    row['ddf_norm'] = re.findall(r'ddf_norm_(?:level|global):.*', text)
+    if folder.name.startswith('timing_'):
+        row['windows'] = []
+        for line in text.splitlines():
+            if ' perf(s):' in line:
+                fields = dict(re.findall(r'(\w+)=([^ ]+)', line))
+                row['windows'].append({k: float(fields[k]) for k in ['collide','comm','total','MLUPS_total']})
+        row['collision_levels'] = re.findall(r'collide_level:.*', text)
+    results[folder.name] = row
+(root / 'audit.json').write_text(json.dumps(results, indent=2)+'\n')
+print(json.dumps(results, indent=2))

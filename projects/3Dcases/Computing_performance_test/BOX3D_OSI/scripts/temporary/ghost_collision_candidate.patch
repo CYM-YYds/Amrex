@@ -1,0 +1,43 @@
+--- a/src/AmrCoreLBM.H
++++ b/src/AmrCoreLBM.H
+@@ -587,0 +588,2 @@
++    // 实验派生缓存：由 Collide 按 BoxArray/DistributionMap 重建，随求解器销毁。
++    amrex::Vector<amrex::iMultiFab> same_level_collision_masks;
+--- a/src/AmrCoreLBM_advance.cpp
++++ b/src/AmrCoreLBM_advance.cpp
+@@ -418,0 +419,7 @@
++    // 实验开关只控制同层 ghost 的重复碰撞，不改变通信与迁移。
++    static bool skip_same_level_ghost = [] {
++        bool enabled = false;
++        amrex::ParmParse pp("lbm");
++        pp.query("skip_same_level_ghost_collision", enabled);
++        return enabled;
++    }();
+@@ -434,0 +442,13 @@
++    // 掩码仅依赖层布局；同层 valid 及其周期映射覆盖的 ghost 为 0。
++    if (same_level_collision_masks.size() <= lev) { same_level_collision_masks.resize(lev + 1); }
++    auto& same_level_mask = same_level_collision_masks[lev];
++    if (skip_same_level_ghost &&
++        (!same_level_mask.isDefined() ||
++         same_level_mask.boxArray() != state_lev.boxArray() ||
++         same_level_mask.DistributionMap() != state_lev.DistributionMap())) {
++        same_level_mask.define(state_lev.boxArray(), state_lev.DistributionMap(), 1,
++                               state_lev.nGrowVect());
++        same_level_mask.setVal(1);
++        same_level_mask.setVal(0, 0, 1, 0);
++        same_level_mask.FillBoundary(Geom(lev).periodicity());
++    }
+@@ -456,0 +477,4 @@
++        const Box valid = mfi.validbox();
++        const bool skip_ghost = skip_same_level_ghost && use_osi;
++        const auto same = skip_ghost ? same_level_mask.const_array(mfi)
++                                    : Array4<const int>{};
+@@ -476,0 +501,2 @@
++                    if (skip_ghost && !valid.contains(IntVect(AMREX_D_DECL(i,j,k))) &&
++                        same(i,j,k) == 0) { return; }
+@@ -486,0 +513,2 @@
++                    if (skip_ghost && !valid.contains(IntVect(AMREX_D_DECL(i,j,k))) &&
++                        same(i,j,k) == 0) { return; }
+@@ -495,0 +524,2 @@
++                    if (skip_ghost && !valid.contains(IntVect(AMREX_D_DECL(i,j,k))) &&
++                        same(i,j,k) == 0) { return; }
