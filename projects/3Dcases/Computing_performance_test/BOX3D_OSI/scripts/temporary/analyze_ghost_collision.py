@@ -45,3 +45,15 @@ for mode in range(3):
 (root / 'summary.json').write_text(json.dumps(summary, indent=2)+'\n')
 (root / 'audit.json').write_text(json.dumps(results, indent=2)+'\n')
 print(json.dumps(results, indent=2))
+# 可选第二参数是 cuobjdump --dump-sass 输出；仅统计静态指令，不推断动态瓶颈。
+if len(sys.argv) > 2:
+    from collections import Counter
+    sass = Path(sys.argv[2])
+    counts = []
+    for block in sass.read_text().split('Function : ')[1:]:
+        name = block.splitlines()[0]
+        if 'Collide' not in name:
+            continue
+        ops = re.findall(r'/\*[0-9a-f]+\*/\s+(?:@!?P\d+\s+)?([A-Z][A-Z0-9.]*)', block)
+        counts.append({'name': name, 'instructions': len(ops), 'opcodes': dict(Counter(ops))})
+    sass.with_name('instruction_counts.json').write_text(json.dumps(counts, indent=2)+'\n')

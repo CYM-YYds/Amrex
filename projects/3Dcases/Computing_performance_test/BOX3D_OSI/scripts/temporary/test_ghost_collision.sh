@@ -17,6 +17,7 @@ module load mpi/hmpi/1.2.0_bs2.4.0_sp1 compilers/cuda/12.8.0 compilers/gcc/11.3.
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXP="$CASE_DIR/runs/ghost_collision_20261023"
 if [[ "${COLLISION_TEST:-0}" == 1 ]]; then EXP="$CASE_DIR/runs/collision_batch_20261023"; fi
+if [[ "${COLLISION_COORD_TEST:-0}" == 1 ]]; then EXP="$CASE_DIR/runs/collision_coordinates_20261023"; fi
 OUT="$EXP/job${CCS_JOB_ID:?}"
 mkdir -p "$OUT"
 cp "$EXP/candidate/main3d.gnu.TPROF.MPI.CUDA.ex" "$OUT/app.ex"
@@ -29,6 +30,11 @@ printf '%s\n' "${GHOST_TEST_MODE:-all}" > "$OUT/mode.txt"
 printf 'case\texit\n' > "$OUT/status.tsv"
 run() {
  local name=$1 ranks=$2; shift 2
+ if [[ "${COLLISION_COORD_TEST:-0}" == 1 ]]; then
+  local cached=false
+  [[ "$name" == *b1* ]] && cached=true
+  set -- "$@" lbm.collision_batch_mode=0 lbm.collision_cached_coordinates="$cached"
+ fi
  mkdir -p "$OUT/$name"; cd "$OUT/$name"
  printf '%q ' "$OUT/app.ex" "$OUT/inputs" "$@" > command.txt
  local code=0
@@ -48,8 +54,12 @@ mesh=(amr.n_cell=32 32 32 amr.max_level=2 amr.max_grid_size=16 16 16
  amr.blocking_factor_x=8 8 8 amr.blocking_factor_y=8 8 8 amr.blocking_factor_z=8 8 8 amr.n_proper=2)
 # 批量碰撞实验复用相同运行与溯源入口，避免复制提交框架。
 if [[ "${COLLISION_TEST:-0}" == 1 ]]; then
+ check_variants=(1 2); real_variants=(0 1 2); timing_variants=(0 1 2 2 1 0)
+ if [[ "${COLLISION_COORD_TEST:-0}" == 1 ]]; then
+  check_variants=(1); real_variants=(0 1); timing_variants=(0 1 1 0)
+ fi
  if [[ "${GHOST_TEST_MODE:-all}" != timing ]]; then
-  for variant in 1 2; do
+  for variant in "${check_variants[@]}"; do
    for ranks in 1 2; do
     for mode in 0 1 2; do
      for boundary in cavity periodic; do
@@ -70,7 +80,7 @@ if [[ "${COLLISION_TEST:-0}" == 1 ]]; then
   amr.blocking_factor_x=32 32 32 amr.blocking_factor_y=32 32 32 amr.blocking_factor_z=32 32 32)
  if [[ "${GHOST_TEST_MODE:-all}" != timing ]]; then
   # 参考态在本地输出，不允许 checkpoint 清理历史输入目录。
-  for variant in 0 1 2; do
+  for variant in "${real_variants[@]}"; do
    name="real_b${variant}"
    mkdir -p "$OUT/$name"
    ln -s "$restart" "$OUT/$name/chk00256000"
@@ -80,7 +90,7 @@ if [[ "${COLLISION_TEST:-0}" == 1 ]]; then
     checkpoint.chk_int=32 max_step=256032 lbm.collision_batch_mode="$variant" "${extra[@]}"
   done
  fi
- for variant in 0 1 2 2 1 0; do
+ for variant in "${timing_variants[@]}"; do
   run "timing_b${variant}_$(date +%s)" 1 "${prod[@]}" max_step=256640 lbm.collision_batch_mode="$variant"
  done
  exit 0

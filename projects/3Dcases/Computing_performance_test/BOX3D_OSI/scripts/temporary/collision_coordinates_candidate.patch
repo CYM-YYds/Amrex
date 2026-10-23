@@ -1,0 +1,64 @@
+--- a/src/AmrCoreLBM_advance.cpp
++++ b/src/AmrCoreLBM_advance.cpp
+@@ -501,0 +502,5 @@
++    static const bool cached_coordinates = [] {
++        bool enabled=false;
++        amrex::ParmParse("lbm").query("collision_cached_coordinates",enabled);
++        return enabled;
++    }();
+@@ -591 +596,7 @@
+-        if (use_osi) {
++        if (use_osi && cached_coordinates) {
++            const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring,phase);
++            amrex::ParallelFor(bx,[=] AMREX_GPU_DEVICE(int i,int j,int k) {
++                if(has_fine_level && covered(i,j,k)!=0 && interface(i,j,k)==0) { return; }
++                collide_bgk_cached_impl<true>(i,j,k,state,fab,phase_shift,omega_lev);
++            });
++        } else if (use_osi) {
+--- a/src/Kernels.H
++++ b/src/Kernels.H
+@@ -2297,0 +2298,44 @@
++template <bool UseOsiAddress>
++AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_cached_impl(
++    int i, int j, int k, amrex::Array4<amrex::Real> const& state,
++    OSI::FabGeometry const& fab,
++    OSI::PhaseShift3 const& phase_shift,
++    amrex::Real omega) noexcept {
++    // 复用已有九坐标缓存，数学公式和分布函数求和顺序不变。
++    const auto coordinates = OSI::osi_cell_coordinates({i,j,k},fab,phase_shift);
++    Real fq[Q];
++    Real rho = 0.0;
++    Real uxt = 0.0;
++    Real uyt = 0.0;
++    Real uzt = 0.0;
++
++#pragma unroll
++    for (int q = 0; q < Q; ++q) {
++        const Real ft = load_ddf_cached<UseOsiAddress>(
++            i, j, k, q, state, coordinates);
++        fq[q] = ft;
++        rho += ft;
++        uxt += ft * e[q][0];
++        uyt += ft * e[q][1];
++        uzt += ft * lattice_ez(q);
++    }
++
++    const Real inv_rho = 1.0 / rho;
++    const Real ux = uxt * inv_rho;
++    const Real uy = uyt * inv_rho;
++    const Real uz = uzt * inv_rho;
++    const Real velocity_sq = ux * ux + uy * uy + uz * uz;
++    const Real equilibrium_common = 1.0 - 1.5 * velocity_sq;
++    const Real keep = 1.0 - omega;
++
++#pragma unroll
++    for (int q = 0; q < Q; ++q) {
++        const Real eu = e[q][0] * ux + e[q][1] * uy + lattice_ez(q) * uz;
++        const Real feq = w[q] * rho *
++                         (equilibrium_common + 3.0 * eu + 4.5 * eu * eu);
++        const Real value = keep * fq[q] + omega * feq;
++        store_ddf_cached<UseOsiAddress>(
++            i, j, k, q, value, state, coordinates);
++    }
++}
++
