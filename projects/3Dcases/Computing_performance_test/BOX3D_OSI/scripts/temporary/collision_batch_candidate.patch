@@ -1,0 +1,142 @@
+--- a/src/AmrCoreLBM.H
++++ b/src/AmrCoreLBM.H
+@@ -587,0 +588,8 @@
++    // 实验缓存复用相同几何 tag；不持有状态数组或当前 phase。
++    struct CollisionWorkCache {
++        std::array<amrex::TagVector<Box3dDetail::BoundaryWorkTag>,3> full, trimmed;
++        std::array<amrex::Long,3> full_cells{}, trimmed_cells{};
++        bool ready = false;
++    };
++    amrex::Vector<CollisionWorkCache> collision_work;
++    void BuildCollisionWork(int lev, int n);
+--- a/src/AmrCoreLBM_amr.cpp
++++ b/src/AmrCoreLBM_amr.cpp
+@@ -602,0 +603,3 @@
++    // 掩码和布局重建时统一失效；下一次碰撞懒构建。
++    collision_work.clear();
++    collision_work.resize(finest_level + 1);
+--- a/src/AmrCoreLBM_advance.cpp
++++ b/src/AmrCoreLBM_advance.cpp
+@@ -5,0 +6,2 @@
++#include <map>
++#include <tuple>
+@@ -415,0 +418,81 @@
++
++// 逐行提取 active 区间，并沿 y/z 合并；只在布局/掩码失效后构建。
++void AmrCoreLBM::BuildCollisionWork(int lev, int n) {
++    auto& state = osi_state.at(lev);
++    auto& cache = collision_work.at(lev);
++    iMultiFab same(state.boxArray(), state.DistributionMap(),1,state.nGrowVect());
++    same.setVal(1); same.setVal(0,0,1,0);
++    same.FillBoundary(Geom(lev).periodicity());
++    std::array<Vector<BoundaryWorkTag>,3> full, trimmed;
++    const bool has_fine = lev < finest_level;
++    for (MFIter mfi(state,false); mfi.isValid(); ++mfi) {
++        const Box valid = mfi.validbox();
++        const Box ring = amrex::grow(valid,state.nGrowVect());
++        const Box bx = amrex::grow(valid,n) & Geom(lev).growPeriodicDomain(n);
++        const auto fab = OSI::MakeOsiFabContext(ring,0).fab;
++        const int li=mfi.LocalIndex(), pi=osi_fab_phase_cache.at(lev).slot(mfi.index());
++        const int subset=osi_fillboundary_cache.at(lev).send_fabs.at(mfi.index())+1;
++        auto add = [&](const Box& region, bool trim) {
++            auto& tags = trim ? trimmed : full;
++            auto& counts = trim ? cache.trimmed_cells : cache.full_cells;
++            for (int target : {0,subset}) {
++                tags[target].push_back({region,fab,li,pi});
++                counts[target] += region.numPts();
++            }
++        };
++        add(bx,false);
++        BaseFab<int> hs(ring,1,The_Pinned_Arena());
++        Gpu::dtoh_memcpy(hs.dataPtr(),same[mfi].dataPtr(),hs.nBytes());
++        BaseFab<int> hc(ring,1,The_Pinned_Arena()), hi(ring,1,The_Pinned_Arena());
++        if (has_fine) {
++            Gpu::dtoh_memcpy(hc.dataPtr(),covered_mask[lev][mfi].dataPtr(),hc.nBytes());
++            Gpu::dtoh_memcpy(hi.dataPtr(),interface_mask[lev][mfi].dataPtr(),hi.nBytes());
++        }
++        auto sm=hs.const_array(), cm=hc.const_array(), im=hi.const_array();
++        auto active=[&](int i,int j,int k) {
++            return (valid.contains(IntVect(AMREX_D_DECL(i,j,k))) || sm(i,j,k)!=0) &&
++                   (!has_fine || cm(i,j,k)==0 || im(i,j,k)!=0);
++        };
++        Vector<Box> regions;
++        std::map<std::tuple<int,int,int,int>,int> previous_z;
++        for(int k=bx.smallEnd(2);k<=bx.bigEnd(2);++k) {
++            Vector<Box> plane;
++            std::map<std::pair<int,int>,int> previous_y;
++            for(int j=bx.smallEnd(1);j<=bx.bigEnd(1);++j) {
++                std::map<std::pair<int,int>,int> current_y;
++                int i=bx.smallEnd(0);
++                while(i<=bx.bigEnd(0)) {
++                    if(!active(i,j,k)) { ++i; continue; }
++                    int lo=i++; while(i<=bx.bigEnd(0) && active(i,j,k)) { ++i; }
++                    const auto key=std::make_pair(lo,i-1);
++                    auto it=previous_y.find(key);
++                    if(it!=previous_y.end()) {
++                        plane[it->second].setBig(1,j); current_y[key]=it->second;
++                    } else {
++                        current_y[key]=plane.size();
++                        plane.emplace_back(IntVect(lo,j,k),IntVect(i-1,j,k));
++                    }
++                }
++                previous_y=std::move(current_y);
++            }
++            std::map<std::tuple<int,int,int,int>,int> current_z;
++            for(const auto& box:plane) {
++                auto key=std::make_tuple(box.smallEnd(0),box.bigEnd(0),box.smallEnd(1),box.bigEnd(1));
++                auto it=previous_z.find(key);
++                if(it!=previous_z.end()) {
++                    regions[it->second].setBig(2,k); current_z[key]=it->second;
++                } else { current_z[key]=regions.size(); regions.push_back(box); }
++            }
++            previous_z=std::move(current_z);
++        }
++        for(const auto& region:regions) { add(region,true); }
++    }
++    for(int subset=0;subset<3;++subset) {
++        cache.full[subset].define(full[subset]); cache.trimmed[subset].define(trimmed[subset]);
++    }
++    amrex::Print() << "COLLISION_WORK lev=" << lev << " full_tags=" << full[0].size()
++                   << " trimmed_tags=" << trimmed[0].size() << " full_cells=" << cache.full_cells[0]
++                   << " trimmed_cells=" << cache.trimmed_cells[0] << "\n";
++    cache.ready=true;
++}
++
+@@ -444,0 +528,35 @@
++    static const int batch_mode = [] {
++        int mode = 0;
++        amrex::ParmParse("lbm").query("collision_batch_mode", mode);
++        AMREX_ALWAYS_ASSERT(mode >= 0 && mode <= 2);
++        return mode;
++    }();
++    if (use_osi && batch_mode != 0) {
++        auto& cache = collision_work.at(lev);
++        if (!cache.ready) { BuildCollisionWork(lev, n); }
++        const int subset = send_subset + 1;
++        const auto states = state_lev.arrays();
++        const auto covered = has_fine_level ? covered_mask[lev].const_arrays()
++                                            : MultiArray4<const int>{};
++        const auto interfaces = has_fine_level ? interface_mask[lev].const_arrays()
++                                               : MultiArray4<const int>{};
++        const auto* shifts = osi_fab_phase_cache.at(lev).data(phase);
++        if (batch_mode == 1) {
++            level_launch_cells = cache.full_cells[subset];
++            amrex::ParallelFor(cache.full[subset],
++                [=] AMREX_GPU_DEVICE(int i,int j,int k,const BoundaryWorkTag& tag) {
++                    const int li = tag.local_index;
++                    if (has_fine_level && covered[li](i,j,k) != 0 &&
++                        interfaces[li](i,j,k) == 0) { return; }
++                    collide_bgk_register_osi(i,j,k,states[li],tag.fab,
++                                            shifts[tag.phase_index],omega_lev);
++                });
++        } else {
++            level_launch_cells = cache.trimmed_cells[subset];
++            amrex::ParallelFor(cache.trimmed[subset],
++                [=] AMREX_GPU_DEVICE(int i,int j,int k,const BoundaryWorkTag& tag) {
++                    collide_bgk_register_osi(i,j,k,states[tag.local_index],tag.fab,
++                                            shifts[tag.phase_index],omega_lev);
++                });
++        }
++    } else {
+@@ -503,0 +622 @@
++    }

@@ -19,7 +19,8 @@ for folder in sorted(root.iterdir()):
                    source_mismatches=sum(int(x) for line in sources for x in re.findall(r'\bmismatches=(\d+)', line)),
                    max_stage_linf=max((float(x) for line in stages for x in re.findall(r'\blinf=([^ ]+)', line)), default=None),
                    regrids=text.count('REFINEMENT_REGRID'))
-    row['ddf_norm'] = re.findall(r'ddf_norm_(?:level|global):.*', text)
+    row['ddf_norm'] = re.findall(r'(?:ddf_norm_global|ddf_cell_norm_level):.*', text)
+    row['work_tables'] = re.findall(r'COLLISION_WORK.*', text)
     if folder.name.startswith('timing_'):
         row['windows'] = []
         for line in text.splitlines():
@@ -28,5 +29,19 @@ for folder in sorted(root.iterdir()):
                 row['windows'].append({k: float(fields[k]) for k in ['collide','comm','total','MLUPS_total']})
         row['collision_levels'] = re.findall(r'collide_level:.*', text)
     results[folder.name] = row
+# 每次运行跳过首窗口，避免将首次工作表构建混入稳态比较。
+summary = {}
+for mode in range(3):
+    runs = [v for k, v in results.items() if k.startswith(f'timing_b{mode}_') and v['finalized']]
+    if not runs:
+        continue
+    rows = [w for run in runs for w in run['windows'][1:]]
+    summary[str(mode)] = {
+        'runs': len(runs), 'steady_windows': len(rows),
+        'mean': {f: sum(w[f] for w in rows)/len(rows) for f in ['total','collide','comm','MLUPS_total']},
+        'total_range': [min(w['total'] for w in rows), max(w['total'] for w in rows)],
+        'run_mean_total': [sum(w['total'] for w in run['windows'][1:])/len(run['windows'][1:]) for run in runs]
+    }
+(root / 'summary.json').write_text(json.dumps(summary, indent=2)+'\n')
 (root / 'audit.json').write_text(json.dumps(results, indent=2)+'\n')
 print(json.dumps(results, indent=2))
