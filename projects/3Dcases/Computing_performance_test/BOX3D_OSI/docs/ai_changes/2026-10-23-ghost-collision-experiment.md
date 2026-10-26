@@ -65,4 +65,4 @@ off/on/on/off均从step256000固定原三层布局，BF32、regrid_int=-1，关�
 - 文档：changed-and-verified，本记录为ghost复测权威结果；当前状态和MLUPS记录仅放摘要/指针，不改写历史性能表。
 - 规则：verified-current，根AGENTS.md→CLAUDE.md软链有效；本轮未改规则。新实验按现有runs/temporary约定，已有证据目录不自动迁移。
 - 记忆：out-of-scope（generated-read-only），只读查线索，本次未明确授权写记忆，不修改生成文件。
-- 工作区：证据保留；其他算例、用户修改、性能/数值修复均out-of-scope。三个历史candidate/tmp_build_dir各约139MiB可列为后续清理候选，当前未删除；脚本/补丁仍是复现依赖，不列为可删。
+- 工作区：证据保留；其他算例、用户修改、性能/数值修复均out-of-scope。用户在收尾汇报后明确确认“删除候选清理”，2026-10-26已删除ghost_collision_20261023、collision_batch_20261023、collision_coordinates_20261023下的candidate/tmp_build_dir（三个各约139MiB）。删除前确认仅含o/s编译中间产物、无跟踪文件/软链且实验入口不依赖这些目录；删除后检查源码快照、config和可执行文件均保留。日志、checkpoint、报告及复现脚本/补丁未删除。
