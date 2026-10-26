@@ -31,8 +31,9 @@ for folder in sorted(root.iterdir()):
     results[folder.name] = row
 # 每次运行跳过首窗口，避免将首次工作表构建混入稳态比较。
 summary = {}
-for mode in range(3):
-    runs = [v for k, v in results.items() if k.startswith(f'timing_b{mode}_') and v['finalized']]
+for mode in ['0','1','2','off','on']:
+    prefix = f'timing_b{mode}_' if mode.isdigit() else f'timing_{mode}_'
+    runs = [v for k, v in results.items() if k.startswith(prefix) and v['finalized']]
     if not runs:
         continue
     rows = [w for run in runs for w in run['windows'][1:]]
@@ -42,6 +43,17 @@ for mode in range(3):
         'total_range': [min(w['total'] for w in rows), max(w['total'] for w in rows)],
         'run_mean_total': [sum(w['total'] for w in run['windows'][1:])/len(run['windows'][1:]) for run in runs]
     }
+    levels = {}
+    for lev in range(3):
+        samples = [line for run in runs for line in
+                   [x for x in run['collision_levels'] if f'lev={lev} ' in x][1:]]
+        if samples:
+            levels[str(lev)] = {
+                'mean_seconds': sum(float(re.search(r'seconds=([^ ]+)', line)[1]) for line in samples)/len(samples),
+                'calls': sorted(set(int(re.search(r'calls=(\d+)', line)[1]) for line in samples)),
+                'launch_cells': sorted(set(int(re.search(r'launch_cells=(\d+)', line)[1]) for line in samples))
+            }
+    summary[str(mode)]['levels'] = levels
 (root / 'summary.json').write_text(json.dumps(summary, indent=2)+'\n')
 (root / 'audit.json').write_text(json.dumps(results, indent=2)+'\n')
 print(json.dumps(results, indent=2))

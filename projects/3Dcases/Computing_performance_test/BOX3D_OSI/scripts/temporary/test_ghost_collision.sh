@@ -18,7 +18,7 @@ CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXP="$CASE_DIR/runs/ghost_collision_20261023"
 if [[ "${COLLISION_TEST:-0}" == 1 ]]; then EXP="$CASE_DIR/runs/collision_batch_20261023"; fi
 if [[ "${COLLISION_COORD_TEST:-0}" == 1 ]]; then EXP="$CASE_DIR/runs/collision_coordinates_20261023"; fi
-OUT="$EXP/job${CCS_JOB_ID:?}"
+OUT="${GHOST_RESULTS_DIR:-$EXP}/job${CCS_JOB_ID:?}"
 mkdir -p "$OUT"
 cp "$EXP/candidate/main3d.gnu.TPROF.MPI.CUDA.ex" "$OUT/app.ex"
 cp "$EXP/candidate/config/inputs" "$OUT/inputs"
@@ -117,7 +117,7 @@ fi
 # 真实三层 checkpoint，同一节点单卡交替运行；先正确性，再性能。
 restart="$CASE_DIR/runs/20261019_124153_job615364/chk00256000"
 prod=("${common[@]}" checkpoint.begin_step=256000 checkpoint.chk_prefix="$restart/../chk"
- max_step=256320 amr.max_level=2 amr.regrid_int=-1 performance.report_int=160
+ max_step="${GHOST_END_STEP:-256320}" amr.max_level=2 amr.regrid_int=-1 performance.report_int="${GHOST_REPORT_INT:-160}"
  amr.blocking_factor_x=32 32 32 amr.blocking_factor_y=32 32 32 amr.blocking_factor_z=32 32 32)
 if [[ "${GHOST_TEST_MODE:-all}" != timing ]]; then
 run reference 1 "${prod[@]}" checkpoint.chk_prefix=chk checkpoint.begin_step=0 max_step=64 "${mesh[@]}" \
@@ -125,6 +125,21 @@ run reference 1 "${prod[@]}" checkpoint.chk_prefix=chk checkpoint.begin_step=0 m
 run candidate 1 "${prod[@]}" checkpoint.begin_step=0 max_step=64 "${mesh[@]}" \
  verification.regrid_fixture=true lbm.skip_same_level_ghost_collision=true \
  "verification.ddf_reference_checkpoint=$OUT/reference/chk00000064"
+fi
+# 可选真实网格逐值对照，输出留在本作业目录，历史checkpoint只读。
+if [[ "${GHOST_REAL_CHECK:-0}" == 1 ]]; then
+ for variant in off on; do
+  name="real_${variant}"; mkdir -p "$OUT/$name"
+  ln -s "$restart" "$OUT/$name/chk00256000"
+  extra=(); enabled=false
+  if [[ "$variant" == on ]]; then
+   enabled=true; extra+=("verification.ddf_reference_checkpoint=$OUT/real_off/chk00256032")
+  else
+   extra+=(checkpoint.chk_int=32)
+  fi
+  run "$name" 1 "${prod[@]}" checkpoint.chk_prefix=chk checkpoint.keep_latest_only=false \
+   max_step=256032 lbm.skip_same_level_ghost_collision="$enabled" "${extra[@]}"
+ done
 fi
 for variant in off on on off; do
  enabled=false; [[ "$variant" == on ]] && enabled=true
