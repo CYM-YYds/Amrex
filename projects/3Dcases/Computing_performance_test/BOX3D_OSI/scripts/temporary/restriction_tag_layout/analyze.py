@@ -50,6 +50,16 @@ report=['# Restriction 标签布局 A/B 实测', '', '窗口：排除前 64 步�
 for ranks, metrics in summary.items():
     for metric, v in metrics.items():
         report.append(f"| {ranks} | {metric} | {v['baseline_mean']:.6f} | {v['split_mean']:.6f} | {v['delta_pct']:+.2f}% |")
+report += ['', '以上为样本均值，不能直接解释为优化的因果收益；需检查以下逐次结果及波动，尤其其他未修改阶段是否同时变化。', '', '## 逐次计时（65–256 步）', '', '| ranks | trial | variant | average (s) | total (s) |', '|---:|---:|---|---:|---:|']
+for row in rows:
+    report.append(f"| {row['ranks']} | {row['trial']} | {row['variant']} | {row['average']:.6f} | {row['total']:.6f} |")
+report += ['', '## 重复运行的波动', '', '| ranks | metric | variant | min (s) | max (s) | sample CV |', '|---:|---|---|---:|---:|---:|']
+for ranks in summary:
+    for metric in ('average', 'total'):
+        for variant in ('baseline', 'split'):
+            values = [row[metric] for row in rows if row['ranks']==ranks and row['variant']==variant]
+            cv = statistics.stdev(values)/statistics.mean(values)*100
+            report.append(f'| {ranks} | {metric} | {variant} | {min(values):.6f} | {max(values):.6f} | {cv:.2f}% |')
 report += ['', '## 每层每 rank 的标签存储范围', '', '| level | baseline bytes 范围 | split bytes 范围 |', '|---:|---:|---:|']
 for lev in sorted({int(x['lev']) for x in layout}):
     values=[]
@@ -59,3 +69,28 @@ for lev in sorted({int(x['lev']) for x in layout}):
     report.append(f'| {lev} | {values[0]} | {values[1]} |')
 report += ['', '逐次原始值见 layout.json，重复运行的完整分布见 analysis.json；字节为逻辑标签载荷，不含分配器预留。构建时间为生成及上传标签并同步的耗时，含分配成本，未分离 GPU kernel 时间。', '', '仅覆盖本次固定输入、64³ 基网格、三层 AMR、每 32 步重构、当前 D3Q27 线程映射；不能推广为所有生产布局的结果。数值比较见 check_* 目录。']
 (run/'report.md').write_text('\n'.join(report)+'\n')
+# Linf 不能证明含 NaN 区域一致；另外保留完整 checkpoint 和界面快照的字节审计。
+import hashlib
+
+def digest(path):
+    value = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b''):
+            value.update(block)
+    return value.hexdigest()
+
+audit = {}
+for ranks in summary:
+    before = run / f'check_r{ranks}_baseline'
+    after = run / f'check_r{ranks}_split'
+    files = sorted(x.relative_to(before) for x in (before/'chk00000064').rglob('*') if x.is_file())
+    files += sorted(x.relative_to(before) for x in before.glob('average_probe_*') if x.is_file())
+    checks = {}
+    for name in files:
+        original = digest(before/name)
+        candidate = digest(after/name)
+        checks[str(name)] = {'baseline_sha256': original, 'split_sha256': candidate, 'equal': original == candidate}
+        if original != candidate:
+            raise ValueError(f'numerical bytes mismatch: ranks={ranks} {name}')
+    audit[ranks] = {'files': checks, 'norm_lines': [x for x in (after/'run.log').read_text().splitlines() if 'ddf_cell_norm_level:' in x]}
+(run/'numerical_audit.json').write_text(json.dumps(audit, indent=2))
