@@ -2634,6 +2634,16 @@ void average_down_osi_to_canonical(
                 const int ii = fi + ir;
                 const int jj = fj + jr;
                 const int kk = fk + kr;
+                // 无缩放时直接累加 DDF，不恢复宏观量或暂存全部方向。
+                if (!apply_scale) {
+                    for (int q = 0; q < Q; ++q) {
+                        const auto src = OSI::osi_address(
+                            {ii, jj, kk}, {e[q][0], e[q][1], lattice_ez(q)},
+                            fine_fab, fine_shift);
+                        restricted[q] += fine(src.x, src.y, src.z, q);
+                    }
+                    continue;
+                }
                 Real fq[Q];
                 Real rho = 0.0;
                 Real ux = 0.0;
@@ -2651,18 +2661,12 @@ void average_down_osi_to_canonical(
                     uz += fq[q] * lattice_ez(q);
                 }
 
-                if (apply_scale) {
-                    ux /= rho;
-                    uy /= rho;
-                    uz /= rho;
-                }
+                ux /= rho;
+                uy /= rho;
+                uz /= rho;
                 for (int q = 0; q < Q; ++q) {
-                    if (apply_scale) {
-                        const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
-                        restricted[q] += feq + (fq[q] - feq) * scale;
-                    } else {
-                        restricted[q] += fq[q];
-                    }
+                    const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
+                    restricted[q] += feq + (fq[q] - feq) * scale;
                 }
             }
         }
