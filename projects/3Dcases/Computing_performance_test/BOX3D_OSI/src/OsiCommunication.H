@@ -476,7 +476,7 @@ struct CpcCache {
         };
         amrex::Vector<LocalCopyTag> local;
         local.reserve(cpc.m_LocTags->size());
-        for (const auto& tag : *cpc.m_LocTags) {
+        for (const auto& tag : *cpc.m_LocTags) { //将 AMReX 的本地复制关系转成自己的 GPU 任务
             local.push_back({source.const_array(tag.srcIndex),
                              destination.array(tag.dstIndex), tag.sbox, tag.dbox,
                              geometry(source, tag.srcIndex),

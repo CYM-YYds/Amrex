@@ -70,7 +70,7 @@ struct OsiFabContext {
 // 在 host 启动 kernel 前统一准备几何与当前相位，供所有格点复用。
 template <typename Box>
 inline OsiFabContext MakeOsiFabContext(const Box& ring,
-                                      std::uint64_t phase) noexcept {
+                                       std::uint64_t phase) noexcept {
     const auto lo = ring.smallEnd();
 #if defined(AMREX_SPACEDIM) && AMREX_SPACEDIM == 2
     const FabGeometry fab{{lo[0], lo[1], 0},

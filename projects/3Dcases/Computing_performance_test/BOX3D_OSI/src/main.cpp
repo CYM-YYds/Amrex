@@ -51,7 +51,7 @@ InputConfig ReadInputConfig() {
     pp_amr.get("max_level", config.max_level);
     config.n_cell.resize(AMREX_SPACEDIM);
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(pp_amr.countval("n_cell") == AMREX_SPACEDIM,
-        "amr.n_cell must have exactly DIM entries; select the matching inputs file");
+                                     "amr.n_cell must have exactly DIM entries; select the matching inputs file");
     pp_amr.getarr("n_cell", config.n_cell);
     const auto n_amr_levels = static_cast<std::size_t>(config.max_level + 1);
     config.max_grid_size.resize(n_amr_levels);
@@ -73,8 +73,8 @@ InputConfig ReadInputConfig() {
     config.is_periodic.resize(AMREX_SPACEDIM);
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
         pp_geometry.countval("prob_lo") == AMREX_SPACEDIM &&
-        pp_geometry.countval("prob_hi") == AMREX_SPACEDIM &&
-        pp_geometry.countval("is_periodic") == AMREX_SPACEDIM,
+            pp_geometry.countval("prob_hi") == AMREX_SPACEDIM &&
+            pp_geometry.countval("is_periodic") == AMREX_SPACEDIM,
         "geometry arrays must have exactly DIM entries");
     pp_geometry.getarr("prob_lo", config.prob_lo);
     pp_geometry.getarr("prob_hi", config.prob_hi);
@@ -175,7 +175,7 @@ int main(int argc, char* argv[]) {
         for (std::size_t lev = 0; lev < n_amr_levels; ++lev) {
             blocking_factor[lev] = amrex::IntVect(
                 AMREX_D_DECL(input.blocking_factor_x[lev], input.blocking_factor_y[lev],
-                input.blocking_factor_z[lev]));
+                             input.blocking_factor_z[lev]));
             max_grid_size[lev] = amrex::IntVect(input.max_grid_size[lev]);
         }
         amrex::AmrInfo info{1, runtime_max_level, ref_ratio,
@@ -207,7 +207,6 @@ int main(int argc, char* argv[]) {
                 lid.InitCpPoint(lid.finestLevel());
                 lid.PrintParticleParm();
             }
-
         }
 
         lid.ValidateConfiguration(); // 配置、层级、OSI 数组和模式是否允许计算
@@ -257,7 +256,6 @@ int main(int argc, char* argv[]) {
                 if (lid.params().write_particles) {
                     lid.RedistributeParticle();
                 }
-
             }
 
             auto end_time_regrid_time = std::chrono::high_resolution_clock::now();

@@ -694,7 +694,7 @@ void AmrCoreLBM::BuildInterpolationCache() {
             interpolation_cache.at(lev).copy.define(
                 osi_state.at(lev - 1), coarse_stage,
                 Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct,
-                osi_fab_phase_cache.at(lev - 1)); // 构建粗网格复制的缓存信息
+                osi_fab_phase_cache.at(lev - 1)); // 构建粗网格复制所需的缓存信息
 
             // 仅缓存正常推进所用 stage；重构临时 patch 保持原逐盒实现。
             auto& cache = interpolation_cache.at(lev).work;

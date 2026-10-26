@@ -2382,9 +2382,9 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_ddf_impl(
     for (int q = 0; q < Q; ++q) {
 #if AMREX_SPACEDIM == 2
         const Real value = coarse(ic, jc, 0, q) * Real(9.0 / 16.0) +
-            coarse(ic + sx, jc, 0, q) * Real(3.0 / 16.0) +
-            coarse(ic, jc + sy, 0, q) * Real(3.0 / 16.0) +
-            coarse(ic + sx, jc + sy, 0, q) * Real(1.0 / 16.0);
+                           coarse(ic + sx, jc, 0, q) * Real(3.0 / 16.0) +
+                           coarse(ic, jc + sy, 0, q) * Real(3.0 / 16.0) +
+                           coarse(ic + sx, jc + sy, 0, q) * Real(1.0 / 16.0);
 #else
         const Real value =
             coarse(ic, jc, kc, q) * w000 +
@@ -2440,9 +2440,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_ddf_im
         const Real sy = (dyp * dym > Real(0))
                             ? std::copysign(amrex::min(std::abs(dyp), std::abs(dym)), dyp)
                             : Real(0);
-        const Real sz = AMREX_D_PICK(Real(0), Real(0), (dzp * dzm > Real(0))
-                            ? std::copysign(amrex::min(std::abs(dzp), std::abs(dzm)), dzp)
-                            : Real(0));
+        const Real sz = AMREX_D_PICK(Real(0), Real(0), (dzp * dzm > Real(0)) ? std::copysign(amrex::min(std::abs(dzp), std::abs(dzm)), dzp) : Real(0));
 
 #pragma unroll
         for (int koff = 0; koff < AMREX_D_PICK(1, 1, 2); ++koff) {
@@ -2507,29 +2505,19 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_ddf_impl
                         (coarse(ic + 1, jc, kc, q) - coarse(ic - 1, jc, kc, q));
         const Real sy = half *
                         (coarse(ic, jc + 1, kc, q) - coarse(ic, jc - 1, kc, q));
-        const Real sz = AMREX_D_PICK(Real(0), Real(0), half *
-                        (coarse(ic, jc, kc + 1, q) - coarse(ic, jc, kc - 1, q)));
+        const Real sz = AMREX_D_PICK(Real(0), Real(0), half * (coarse(ic, jc, kc + 1, q) - coarse(ic, jc, kc - 1, q)));
         const Real sxx = coarse(ic - 1, jc, kc, q) - Real(2) * center +
                          coarse(ic + 1, jc, kc, q);
         const Real syy = coarse(ic, jc - 1, kc, q) - Real(2) * center +
                          coarse(ic, jc + 1, kc, q);
-        const Real szz = AMREX_D_PICK(Real(0), Real(0), coarse(ic, jc, kc - 1, q) - Real(2) * center +
-                         coarse(ic, jc, kc + 1, q));
+        const Real szz = AMREX_D_PICK(Real(0), Real(0), coarse(ic, jc, kc - 1, q) - Real(2) * center + coarse(ic, jc, kc + 1, q));
         const Real sxy = quarter *
                          (coarse(ic - 1, jc - 1, kc, q) -
                           coarse(ic + 1, jc - 1, kc, q) -
                           coarse(ic - 1, jc + 1, kc, q) +
                           coarse(ic + 1, jc + 1, kc, q));
-        const Real sxz = AMREX_D_PICK(Real(0), Real(0), quarter *
-                         (coarse(ic - 1, jc, kc - 1, q) -
-                          coarse(ic + 1, jc, kc - 1, q) -
-                          coarse(ic - 1, jc, kc + 1, q) +
-                          coarse(ic + 1, jc, kc + 1, q)));
-        const Real syz = AMREX_D_PICK(Real(0), Real(0), quarter *
-                         (coarse(ic, jc - 1, kc - 1, q) -
-                          coarse(ic, jc - 1, kc + 1, q) -
-                          coarse(ic, jc + 1, kc - 1, q) +
-                          coarse(ic, jc + 1, kc + 1, q)));
+        const Real sxz = AMREX_D_PICK(Real(0), Real(0), quarter * (coarse(ic - 1, jc, kc - 1, q) - coarse(ic + 1, jc, kc - 1, q) - coarse(ic - 1, jc, kc + 1, q) + coarse(ic + 1, jc, kc + 1, q)));
+        const Real syz = AMREX_D_PICK(Real(0), Real(0), quarter * (coarse(ic, jc - 1, kc - 1, q) - coarse(ic, jc - 1, kc + 1, q) - coarse(ic, jc + 1, kc - 1, q) + coarse(ic, jc + 1, kc + 1, q)));
 
 #pragma unroll
         for (int koff = 0; koff < AMREX_D_PICK(1, 1, 2); ++koff) {
@@ -2753,15 +2741,15 @@ Real warp_sum_32(Real value) noexcept { // 对一个 warp 内 32 个线程各自
 #if Q == 27
 // 两个半 warp 使用独立掩码；尾部父单元整组退出后，另一组仍可安全归约。
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-Real half_warp_sum_16(Real value, unsigned int mask) noexcept {
+    Real
+    half_warp_sum_16(Real value, unsigned int mask) noexcept {
     for (int offset = 8; offset > 0; offset /= 2) {
         value += __shfl_down_sync(mask, value, offset, 16);
     }
     return __shfl_sync(mask, value, 0, 16);
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void average_down_osi_to_canonical_half_warp(
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_osi_to_canonical_half_warp(
     int i, int j, int k, int lane,
     amrex::Array4<Real> coarse, amrex::Array4<const Real> fine,
     OSI::FabGeometry fine_fab, OSI::PhaseShift3 fine_shift,
@@ -2787,11 +2775,14 @@ void average_down_osi_to_canonical_half_warp(
                 if (apply_scale) {
                     const Real rho = half_warp_sum_16(f0 + f1, mask);
                     const Real ux = half_warp_sum_16(
-                        f0 * e[q0][0] + (q1 < Q ? f1 * e[q1][0] : 0), mask) / rho;
+                                        f0 * e[q0][0] + (q1 < Q ? f1 * e[q1][0] : 0), mask) /
+                                    rho;
                     const Real uy = half_warp_sum_16(
-                        f0 * e[q0][1] + (q1 < Q ? f1 * e[q1][1] : 0), mask) / rho;
+                                        f0 * e[q0][1] + (q1 < Q ? f1 * e[q1][1] : 0), mask) /
+                                    rho;
                     const Real uz = half_warp_sum_16(
-                        f0 * lattice_ez(q0) + (q1 < Q ? f1 * lattice_ez(q1) : 0), mask) / rho;
+                                        f0 * lattice_ez(q0) + (q1 < Q ? f1 * lattice_ez(q1) : 0), mask) /
+                                    rho;
                     const Real eq0 = feqQian(rho, {ux, uy, uz}, q0);
                     restricted0 += eq0 + (f0 - eq0) * scale;
                     if (q1 < Q) {

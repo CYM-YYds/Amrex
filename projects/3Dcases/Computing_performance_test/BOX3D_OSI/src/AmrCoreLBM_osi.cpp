@@ -73,7 +73,6 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
     (void)time;
     const int fine_lev = lev + 1;
     AMREX_ALWAYS_ASSERT(lev >= 0 && fine_lev <= finest_level);
-    AMREX_ALWAYS_ASSERT(refRatio(lev) == IntVect(2));
 
     auto& fine_state = osi_state.at(fine_lev);
     auto& coarse_stage = interpolation_cache.at(fine_lev).coarse_stage;
@@ -85,7 +84,7 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
     if (patches.empty()) {
         return;
     }
-    AMREX_ALWAYS_ASSERT(coarse_stage.isDefined() && coarse_stage.size() == patches.size());
+
     AMREX_ALWAYS_ASSERT(interpolation_cache.at(fine_lev).copy.ready);
     // 无本地模板的 rank 可以没有设备任务，但仍须参与跨 rank 搬运。
     const auto& cache = interpolation_cache.at(fine_lev).work;
@@ -101,31 +100,31 @@ void AmrCoreLBM::FillOsiGhostFromCoarse(
     // 同一 stream 上先完成所有源缩放，再提交所有插值任务。
     if (apply_scale) {
         amrex::ParallelFor(cache.scale_tags,
-            [=] AMREX_GPU_DEVICE(int i,int j,int k,const amrex::Array4BoxTag<Real>& tag) {
-                average_scale(i,j,k,tag.dfab,scale);
-            });
+                           [=] AMREX_GPU_DEVICE(int i, int j, int k, const amrex::Array4BoxTag<Real>& tag) {
+                               average_scale(i, j, k, tag.dfab, scale);
+                           });
     }
     const auto stages = coarse_stage.const_arrays();
     const auto fines = fine_state.arrays();
     const auto* shifts = osi_fab_phase_cache.at(fine_lev).data(fine_phase);
     if (interp_mode == 0) {
         amrex::ParallelFor(cache.tags,
-            [=] AMREX_GPU_DEVICE(int i,int j,int k,const InterpolationBatchTag& tag) {
-                interp_bilinear_ddf(i,j,k,fines[tag.fine_local_index],stages[tag.stage_local_index],
-                                    tag.fab,shifts[tag.phase_index]);
-            });
+                           [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
+                               interp_bilinear_ddf(i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
+                                                   tag.fab, shifts[tag.phase_index]);
+                           });
     } else if (interp_mode == 1) {
         amrex::ParallelFor(cache.tags,
-            [=] AMREX_GPU_DEVICE(int i,int j,int k,const InterpolationBatchTag& tag) {
-                interp_cell_cons_linear_children_ddf(i,j,k,fines[tag.fine_local_index],stages[tag.stage_local_index],
-                                                     tag.target,tag.fab,shifts[tag.phase_index]);
-            });
+                           [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
+                               interp_cell_cons_linear_children_ddf(i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
+                                                                    tag.target, tag.fab, shifts[tag.phase_index]);
+                           });
     } else {
         amrex::ParallelFor(cache.tags,
-            [=] AMREX_GPU_DEVICE(int i,int j,int k,const InterpolationBatchTag& tag) {
-                interp_cell_quadratic_children_ddf(i,j,k,fines[tag.fine_local_index],stages[tag.stage_local_index],
-                                                  tag.target,tag.fab,shifts[tag.phase_index]);
-            });
+                           [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
+                               interp_cell_quadratic_children_ddf(i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
+                                                                  tag.target, tag.fab, shifts[tag.phase_index]);
+                           });
     }
 }
 
@@ -158,27 +157,24 @@ void AmrCoreLBM::AverageDownOsiLevel(int fine_lev, bool is_scale) {
             [=] AMREX_GPU_DEVICE() noexcept {
                 const auto tag = tags[blockIdx.x];
                 const Long parent = tag.first_parent + threadIdx.x / osi_restriction_group_size;
-                if (parent >= tag.region.numPts()) { return; }
+                if (parent >= tag.region.numPts()) {
+                    return;
+                }
                 const auto lo = amrex::lbound(tag.region);
                 const int nx = tag.region.length(0), ny = tag.region.length(1);
                 const int i = lo.x + static_cast<int>(parent % nx);
                 const Long yz = parent / nx;
                 const int j = lo.y + static_cast<int>(yz % ny);
                 const int k = lo.z + static_cast<int>(yz / ny);
-                // Q19 相邻线程处理相邻父单元；Q27 每半 warp 合作处理一个父单元。
-#if Q == 19
-                average_down_osi_to_canonical(
-                    i, j, k, outputs[tag.output_local_index], fines[tag.fine_local_index],
-                    ratio, tag.fab, shifts[tag.phase_index], scale, is_scale);
-#elif Q == 27
+            // Q19 相邻线程处理相邻父单元；Q27 每半 warp 合作处理一个父单元。
+#if Q == 27
                 average_down_osi_to_canonical_half_warp(
                     i, j, k, threadIdx.x % osi_restriction_group_size,
                     outputs[tag.output_local_index], fines[tag.fine_local_index],
                     tag.fab, shifts[tag.phase_index], scale, is_scale);
 #else
-                average_down_osi_to_canonical_warp(
-                    i, j, k, threadIdx.x % restriction_warp_size,
-                    outputs[tag.output_local_index], fines[tag.fine_local_index],
+                average_down_osi_to_canonical(
+                    i, j, k, outputs[tag.output_local_index], fines[tag.fine_local_index],
                     ratio, tag.fab, shifts[tag.phase_index], scale, is_scale);
 #endif
             });
@@ -239,15 +235,23 @@ void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     cache.local_tags.define(local_tags);
     cache.send_fabs.assign(ba.size(), 0);
     for (const auto& [peer, tags] : *fb.m_SndTags) {
-        for (const auto& tag : tags) { cache.send_fabs[tag.srcIndex] = 1; }
+        for (const auto& tag : tags) {
+            cache.send_fabs[tag.srcIndex] = 1;
+        }
     }
     int early = 0, deferred = 0;
     long long early_cells = 0, deferred_cells = 0;
     for (MFIter mfi(state, false); mfi.isValid(); ++mfi) {
         const auto cells = (amrex::grow(mfi.validbox(), nghost) &
-                            Geom(lev).growPeriodicDomain(nghost)).numPts();
-        if (cache.send_fabs[mfi.index()]) { ++early; early_cells += cells; }
-        else { ++deferred; deferred_cells += cells; }
+                            Geom(lev).growPeriodicDomain(nghost))
+                               .numPts();
+        if (cache.send_fabs[mfi.index()]) {
+            ++early;
+            early_cells += cells;
+        } else {
+            ++deferred;
+            deferred_cells += cells;
+        }
     }
     cache.overlap_collision = early > 0 && deferred > 0;
     amrex::Print(amrex::Print::AllProcs)
@@ -372,7 +376,9 @@ void AmrCoreLBM::FillBoundaryOsi(int lev, const std::function<void()>& during_tr
         // stream，避免 stream 1 在 pack 尚未完成时读取 send_device。
         Gpu::streamSynchronize();
         // pack 已完成，剩余碰撞仅在 stream 0 排队；CPU 继续推进 staging/MPI。
-        if (during_transfer) { during_transfer(); }
+        if (during_transfer) {
+            during_transfer();
+        }
         if (!osi_mpi_device_direct && !pipeline_staging &&
             !send_device.empty()) {
             if (osi_mpi_async_staging) {
@@ -389,7 +395,9 @@ void AmrCoreLBM::FillBoundaryOsi(int lev, const std::function<void()>& during_tr
                 Gpu::Device::setStreamIndex(1);
                 Gpu::streamSynchronize();
                 Gpu::Device::resetStreamIndex();
-                if (params_.perf_osi_detail_timing) { perf_stats.osi_mpi_dtoh += amrex::second() - dtoh_start; }
+                if (params_.perf_osi_detail_timing) {
+                    perf_stats.osi_mpi_dtoh += amrex::second() - dtoh_start;
+                }
             } else {
                 ScopedPerfTimer dtoh_timer(perf_stats.osi_mpi_dtoh, params_.perf_osi_detail_timing);
                 Gpu::dtoh_memcpy(send_host.data(), send_device.data(),
@@ -422,7 +430,8 @@ void AmrCoreLBM::FillBoundaryOsi(int lev, const std::function<void()>& during_tr
             }
         } else {
             Real* recv_buffer = osi_mpi_device_direct
-                                    ? recv_device.data() : recv_host.data();
+                                    ? recv_device.data()
+                                    : recv_host.data();
             OSI::post_receives(receives, recv_counts, recv_offsets,
                                recv_buffer, nprocs, mpi_tag);
         }
@@ -445,14 +454,17 @@ void AmrCoreLBM::FillBoundaryOsi(int lev, const std::function<void()>& during_tr
                                            count * sizeof(Real));
                     Gpu::streamSynchronize();
                     Gpu::Device::resetStreamIndex();
-                    if (params_.perf_osi_detail_timing) { perf_stats.osi_mpi_dtoh += amrex::second() - dtoh_start; }
+                    if (params_.perf_osi_detail_timing) {
+                        perf_stats.osi_mpi_dtoh += amrex::second() - dtoh_start;
+                    }
                     sends.push_back(ParallelDescriptor::Asend(
                         send_host.data() + offset, count, peer, mpi_tag));
                 }
             }
         } else {
             const Real* send_buffer = osi_mpi_device_direct
-                                          ? send_device.data() : send_host.data();
+                                          ? send_device.data()
+                                          : send_host.data();
             OSI::post_sends(sends, send_counts, send_offsets,
                             send_buffer, nprocs, mpi_tag);
         }
@@ -493,13 +505,17 @@ void AmrCoreLBM::FillBoundaryOsi(int lev, const std::function<void()>& during_tr
             Gpu::Device::setStreamIndex(1);
             Gpu::streamSynchronize();
             Gpu::Device::resetStreamIndex();
-            if (params_.perf_osi_detail_timing) { perf_stats.osi_mpi_htod += amrex::second() - pipeline_htod_start; }
+            if (params_.perf_osi_detail_timing) {
+                perf_stats.osi_mpi_htod += amrex::second() - pipeline_htod_start;
+            }
         }
         if (osi_mpi_async_staging && !recv_device.empty()) {
             Gpu::Device::setStreamIndex(1);
             Gpu::streamSynchronize();
             Gpu::Device::resetStreamIndex();
-            if (params_.perf_osi_detail_timing) { perf_stats.osi_mpi_htod += amrex::second() - htod_start; }
+            if (params_.perf_osi_detail_timing) {
+                perf_stats.osi_mpi_htod += amrex::second() - htod_start;
+            }
         }
     }
 
@@ -541,12 +557,14 @@ void AmrCoreLBM::ParallelCopyOsi(
     OSI::CopyTiming timing) {
     AMREX_ALWAYS_ASSERT(cache.ready);
     // 关闭细分计时只移除计时指针；搬运与缓冲生命周期同步仍由执行层保证。
-    if (!params_.perf_osi_detail_timing) { timing = {}; }
+    if (!params_.perf_osi_detail_timing) {
+        timing = {};
+    }
     ScopedPerfTimer copy_timer(perf_stats.osi_parallel_copy, params_.perf_osi_detail_timing);
     OSI::parallel_copy_local(
         cache.local_tags, Q,
         [phase_shifts] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                             const OSI::LocalCopyTag& tag) noexcept {
+                                        const OSI::LocalCopyTag& tag) noexcept {
             const auto source = OSI::source_cell(tag, i, j, k);
             if constexpr (SourceRaw) {
                 const auto raw = OSI::osi_address(
@@ -576,7 +594,7 @@ void AmrCoreLBM::ParallelCopyOsi(
         cache.pack_tags, cache.unpack_tags, cache.plan,
         osi_mpi_device_direct, Q, nprocs,
         [phase_shifts] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                             const PackTag& tag, Real* buffer) noexcept {
+                                        const PackTag& tag, Real* buffer) noexcept {
             const std::size_t cell = OSI::buffer_cell_index(tag.region, i, j, k);
             if constexpr (SourceRaw) {
                 const auto raw = OSI::osi_address(
@@ -588,7 +606,7 @@ void AmrCoreLBM::ParallelCopyOsi(
             }
         },
         [phase_shifts] AMREX_GPU_DEVICE(int i, int j, int k, int q,
-                             const UnpackTag& tag, const Real* buffer) noexcept {
+                                        const UnpackTag& tag, const Real* buffer) noexcept {
             const std::size_t cell = OSI::buffer_cell_index(tag.region, i, j, k);
             if constexpr (SourceRaw) {
                 tag.dst(i, j, k, q) = buffer[tag.offset + static_cast<std::size_t>(q) * tag.region.numPts() + cell];
@@ -598,7 +616,8 @@ void AmrCoreLBM::ParallelCopyOsi(
                     phase_shifts[tag.phase_index]);
                 tag.dst(raw.x, raw.y, raw.z, q) = buffer[tag.offset + static_cast<std::size_t>(q) * tag.region.numPts() + cell];
             }
-        }, timing, &cache.buffers);
+        },
+        timing, &cache.buffers);
 }
 
 void AmrCoreLBM::ParallelCopyOsi(
