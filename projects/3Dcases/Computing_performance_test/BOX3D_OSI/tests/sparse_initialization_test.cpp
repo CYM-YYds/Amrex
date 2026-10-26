@@ -4,6 +4,7 @@
 #include <AMReX_FillPatchUtil.H>
 #include <AMReX_MultiFabUtil.H>
 #include <AMReX_PhysBCFunct.H>
+#include <AMReX_TagParallelFor.H>
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -11,6 +12,10 @@
 #include "OsiCommunication.H"
 
 using namespace amrex;
+namespace Box3dDetail {
+#include "sparse_initialization_types.inc"
+}
+using namespace Box3dDetail;
 
 // 此 fixture 只替代驱动的状态容器；下方所有被测方法均从生产源码提取。
 class AmrCoreLBM {
@@ -26,11 +31,14 @@ public:
     int nProper() const { return 1; }
     Interpolater* DdfInterpolater() const;
     void BuildInterpolationStage(int, const MultiFab&, const MultiFab&,
-        const Vector<Box>&, const Vector<int>&, MultiFab&, Vector<unsigned char>&) const;
-    void ApplyPhysicalBoundaryToInterpolationStage(int, MultiFab&, const Vector<unsigned char>&);
-    void ScaleInterpolationStage(MultiFab&, Real);
-    void InterpolateDdfStageToFine(MultiFab&, MultiFab&, const Vector<Box>&,
-        const Vector<int>&, bool, std::uint64_t, bool, Real);
+        const Vector<InterpolationPatchTag>&, MultiFab&) const;
+    void ApplyPhysicalBoundaryToInterpolationStage(int, MultiFab&);
+    void BuildInterpolationWork(MultiFab&, const MultiFab&,
+        const Vector<InterpolationPatchTag>&, InterpolationBatchCache&,
+        const OSI::FabPhaseCache* = nullptr) const;
+    template <bool UseOsiAddress>
+    void InterpolateDdfStageBatch(MultiFab&, MultiFab&, const InterpolationBatchCache&,
+        const OSI::PhaseShift3*, bool, Real);
     void InitializeDdfFromCoarse(int, Real, const MultiFab&, bool, std::uint64_t, MultiFab&,
         const Vector<Box>& = {}, const Vector<int>& = {});
     void ParallelCopyOsi(int, const MultiFab&, std::uint64_t, MultiFab&, std::uint64_t);
@@ -224,24 +232,48 @@ void run_case(int mode, int periodic_case, bool coarse_osi, std::uint64_t phase,
     }
     const Real ghost_linf=ghost_error.norm0(0,Q,IntVect(2));
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(ghost_linf==0,"initialization overwrote fine ghost");
+    // 不完整父单元 patch：只允许写入请求区，其他 valid 和 ghost 都保留 sentinel。
+    Vector<Box> requested;
+    Vector<int> requested_indices;
+    for (int fi=0; fi<fba.size(); ++fi) {
+        Box target=fba[fi];
+        target.setSmall(0,target.smallEnd(0)+1);
+        target.setBig(1,target.bigEnd(1)-1);
+        requested.push_back(target);
+        requested_indices.push_back(fi);
+    }
+    MultiFab partial(fba,fdm,Q,2), partial_error(fba,fdm,Q,2);
+    partial.setVal(-777);
+    lbm.InitializeDdfFromCoarse(1,0.,coarse_osi ? raw : canonical,coarse_osi,phase,
+                                partial,requested,requested_indices);
+    for (MFIter mfi(partial);mfi.isValid();++mfi) {
+        const auto values=partial.const_array(mfi);
+        const auto expected=reference.const_array(mfi);
+        const auto error=partial_error.array(mfi);
+        const Box target=requested.at(mfi.index());
+        ParallelFor(partial[mfi].box(),Q,[=] AMREX_GPU_DEVICE(int i,int j,int k,int q) {
+            const Real truth=target.contains(i,j,k) ? expected(i,j,k,q) : Real(-777);
+            error(i,j,k,q)=std::abs(values(i,j,k,q)-truth);
+        });
+    }
+    AMREX_ALWAYS_ASSERT(!partial_error.contains_nan(0,Q,2));
+    const Real partial_linf=partial_error.norm0(0,Q,IntVect(2));
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(partial_linf<Real(2.e-14),"partial patch or sentinel mismatch");
     MultiFab::Subtract(amrex_reference,reference,0,0,Q,0);
     const Real amrex_linf=amrex_reference.norm0(0,Q,IntVect(0));
     MultiFab::Subtract(actual,reference,0,0,Q,0);
     const Real linf=actual.norm0(0,Q,IntVect(0));
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(linf < Real(2.e-14), "sparse initialization differs from independent custom oracle");
-    Vector<Box> work;
-    Vector<int> indices;
+    Vector<InterpolationPatchTag> patches;
     for (int i=0;i<fba.size();++i) {
-        work.push_back(fba[i]);
-        indices.push_back(i);
+        patches.push_back({fba[i],i});
     }
     MultiFab stage;
-    Vector<unsigned char> physical;
-    lbm.BuildInterpolationStage(1,canonical,reference,work,indices,stage,physical);
+    lbm.BuildInterpolationStage(1,canonical,reference,patches,stage);
     AMREX_ALWAYS_ASSERT(stage.nGrow()==0 && stage.boxArray().numPts() < ba.numPts());
     Print() << "PASS sparse initialization mode=" << mode << " periodic=" << periodic_case
             << " osi=" << coarse_osi << " phase=" << phase << " linf=" << linf
-            << " ghost_linf=" << ghost_linf << " amrex_linf=" << amrex_linf << " stage_cells=" << stage.boxArray().numPts() << " parent_cells=" << ba.numPts() << '\n';
+            << " partial_linf=" << partial_linf << " ghost_linf=" << ghost_linf << " amrex_linf=" << amrex_linf << " stage_cells=" << stage.boxArray().numPts() << " parent_cells=" << ba.numPts() << '\n';
 }
 
 int main(int argc,char** argv) {

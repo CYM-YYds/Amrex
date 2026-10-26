@@ -113,6 +113,11 @@ int main() {
             average_down_lbm(0,0,0,expected.a,workspace.a,IntVect(2));
             average_down_to_canonical<false>(0,0,0,ab_result.a,canonical.a,IntVect(2),{}, {},Real(.7),scaled);
             average_down_to_canonical<true>(0,0,0,osi_result.a,raw.a,IntVect(2),ctx.fab,ctx.phase_shift,Real(.7),scaled);
+            Field stored(-2,2,Q);
+            average_down_to_canonical<false,true>(0,0,0,ab_result.a,canonical.a,IntVect(2),{}, {},Real(.7),scaled,stored.a);
+            cells(fine.box,[&](int i,int j,int k) {
+                for (int q=0;q<Q;++q) near(stored.a(i,j,k,q),workspace.a(i,j,k,q),"stored scaled fine");
+            });
             for (int q=0;q<Q;++q) {
                 near(ab_result.a(0,0,0,q), expected.a(0,0,0,q), "fused AB restriction");
                 near(osi_result.a(0,0,0,q), expected.a(0,0,0,q), "fused OSI restriction");

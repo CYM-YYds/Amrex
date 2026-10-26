@@ -15,7 +15,7 @@ include $(AMREX_HOME)/Src/Base/Make.package
 include $(AMREX_HOME)/Src/AmrCore/Make.package
 include $(AMREX_HOME)/Src/Boundary/Make.package
 CEXE_sources += sparse_initialization_test.cpp
-CEXE_headers += sparse_initialization_impl.inc
+CEXE_headers += sparse_initialization_impl.inc sparse_initialization_types.inc
 INCLUDE_LOCATIONS += $(TEST_DIR)/../src
 VPATH_LOCATIONS += $(TEST_DIR)
 include $(AMREX_HOME)/Tools/GNUMake/Make.rules

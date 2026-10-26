@@ -12,62 +12,6 @@ using namespace Box3dDetail;
 
 // OSI 地址转换、通信与粗细层传输。
 
-void AmrCoreLBM::AverageDownOsiValidLevel(int lev, bool is_scale) {
-    AMREX_ALWAYS_ASSERT(lev >= 0 && lev < finest_level);
-    auto& coarse_state = osi_state.at(lev);
-    const auto& fine_state = osi_state.at(lev + 1);
-    const IntVect ratio = refRatio(lev);
-    const auto fine_phase = osi_phase.at(lev + 1);
-    const auto coarse_phase = osi_phase.at(lev);
-    const Real scale = Real(2.0) * tau.at(lev) / tau.at(lev + 1);
-    const BoxArray restricted_ba = amrex::coarsen(fine_state.boxArray(), ratio);
-
-    // 这里使用函数局部 canonical 工作区，不保留跨调用同步缓冲。
-    // 该路径只服务于完整 valid restriction，避免污染后续通信阶段的状态。
-    MultiFab fine_canonical(
-        fine_state.boxArray(), fine_state.DistributionMap(), Q, 0);
-    MultiFab coarse_canonical(
-        coarse_state.boxArray(), coarse_state.DistributionMap(), Q, 0);
-
-    // 完整工作区一次解码全部 Q 分量，供 canonical restriction 使用。
-    DecodeOsiValid(fine_state, fine_phase, fine_canonical);
-    DecodeOsiValid(coarse_state, coarse_phase, coarse_canonical);
-
-    if (is_scale) {
-        for (MFIter mfi(fine_canonical, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            const Box bx = mfi.tilebox();
-            const auto fine = fine_canonical.array(mfi);
-            amrex::ParallelFor(
-                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    average_scale(i, j, k, fine, scale);
-                });
-        }
-    }
-    amrex::average_down(
-        fine_canonical, coarse_canonical, 0, Q, ratio);
-
-    for (MFIter mfi(coarse_state, false); mfi.isValid(); ++mfi) {
-        const Box bx = mfi.validbox();
-        const Box ring = amrex::grow(bx, coarse_state.nGrowVect());
-        const auto [coarse_fab, coarse_shift] = OSI::MakeOsiFabContext(ring, coarse_phase);
-        const auto src = coarse_canonical.const_array(mfi);
-        const auto dst = coarse_state.array(mfi);
-        // 只把细层有效盒粗化后的交集写回，保留 uncovered 粗单元的原值。
-        for (const auto& intersection : restricted_ba.intersections(bx)) {
-            const Box write_box = intersection.second;
-            amrex::ParallelFor(
-                write_box, Q,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                    const auto raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)},
-                        coarse_fab, coarse_shift);
-                    dst(raw.x, raw.y, raw.z, q) = src(i, j, k, q);
-                });
-        }
-    }
-    amrex::Gpu::streamSynchronize();
-}
-
 void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
     auto& cache = osi_fillboundary_cache.at(lev);
     cache.clear();

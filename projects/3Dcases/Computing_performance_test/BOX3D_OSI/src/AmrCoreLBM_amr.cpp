@@ -255,83 +255,51 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(
     }
 }
 
-void AmrCoreLBM::InterpolateDdfStageToFine(
-    MultiFab& coarse_stage, MultiFab& fine_state,
-    const Vector<InterpolationPatchTag>& patches,
-    bool fine_osi, std::uint64_t fine_phase, bool apply_scale, Real scale) {
+void AmrCoreLBM::BuildInterpolationWork(
+    MultiFab& coarse_stage, const MultiFab& fine,
+    const Vector<InterpolationPatchTag>& patches, InterpolationBatchCache& work,
+    const OSI::FabPhaseCache* phases) const {
+    work.clear();
+    Vector<amrex::Array4BoxTag<Real>> scale_tags;
+    Vector<InterpolationBatchTag> tags;
     for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-        // 每个 Fab 在同一 stream 上先缩放再插值，省去独立遍历的同步。
-        if (apply_scale) {
-            const auto stage = coarse_stage.array(mfi);
-            amrex::ParallelFor(
-                mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    average_scale(i, j, k, stage, scale);
-                });
-        }
-        const int stage_index = mfi.index();
-        const auto coarse = coarse_stage.const_array(mfi);
+        const auto& patch = patches.at(mfi.index());
+        const int fi = patch.fine_box_index;
+        const auto fab = OSI::MakeOsiFabContext(
+            amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0).fab;
+        const int local_fine = fine.localindex(fi);
+        AMREX_ALWAYS_ASSERT(local_fine >= 0);
+        scale_tags.push_back({coarse_stage.array(mfi), mfi.validbox()});
+        tags.push_back({interp_mode == 0 ? patch.fine_box : amrex::coarsen(patch.fine_box, 2),
+                        patch.fine_box, fab, mfi.LocalIndex(), local_fine,
+                        phases ? phases->slot(fi) : -1});
+    }
+    work.scale_tags.define(scale_tags);
+    work.tags.define(tags);
+}
 
-        const auto& patch = patches.at(stage_index);
-        const int fine_index = patch.fine_box_index;
-        const Box fine_box = patch.fine_box;
-        const auto fine = fine_state.array(fine_index);
-        if (fine_osi) {
-            const Box fine_ring = amrex::grow(
-                fine_state.boxArray()[fine_index], fine_state.nGrowVect());
-            const auto [fine_fab, fine_shift] = OSI::MakeOsiFabContext(fine_ring, fine_phase);
-
-            const auto coarse_const = coarse_stage.const_array(mfi);
-            if (interp_mode == 0) {
-                amrex::ParallelFor(
-                    fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        interp_bilinear_ddf(
-                            i, j, k, fine, coarse_const, fine_fab, fine_shift);
-                    });
-            } else {
-                const Box coarse_parent_box = amrex::coarsen(fine_box, 2);
-                if (interp_mode == 1) {
-                    amrex::ParallelFor(
-                        coarse_parent_box,
-                        [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                            interp_cell_cons_linear_children_ddf(
-                                ic, jc, kc, fine, coarse_const, fine_box,
-                                fine_fab, fine_shift);
-                        });
-                } else {
-                    amrex::ParallelFor(
-                        coarse_parent_box,
-                        [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                            interp_cell_quadratic_children_ddf(
-                                ic, jc, kc, fine, coarse_const, fine_box,
-                                fine_fab, fine_shift);
-                        });
-                }
-            }
-            continue;
-        }
-        if (interp_mode == 0) {
-            amrex::ParallelFor(
-                fine_box, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    interp_bilinear_ddf(i, j, k, fine, coarse);
-                });
-        } else if (interp_mode == 1) {
-            const Box coarse_parent_box = amrex::coarsen(fine_box, 2);
-            amrex::ParallelFor(
-                coarse_parent_box,
-                [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                    interp_cell_cons_linear_children_ddf(
-                        ic, jc, kc, fine, coarse, fine_box);
-                });
-        } else {
-            const Box coarse_parent_box = amrex::coarsen(fine_box, 2);
-            amrex::ParallelFor(
-                coarse_parent_box,
-                [=] AMREX_GPU_DEVICE(int ic, int jc, int kc) {
-                    interp_cell_quadratic_children_ddf(
-                        ic, jc, kc, fine, coarse, fine_box);
-                });
+void AmrCoreLBM::BuildRestrictionWork(
+    const MultiFab& fine, const MultiFab& result, const Vector<int>& fine_indices,
+    Gpu::DeviceVector<RestrictionBlockTag>& work, const OSI::FabPhaseCache* phases) const {
+    work.clear();
+#ifdef AMREX_USE_CUDA
+    Vector<RestrictionBlockTag> tags;
+    AMREX_ALWAYS_ASSERT(result.size() == fine_indices.size());
+    for (MFIter mfi(result, false); mfi.isValid(); ++mfi) {
+        const int fi = fine_indices.at(mfi.index());
+        const int local_fine = fine.localindex(fi);
+        AMREX_ALWAYS_ASSERT(local_fine >= 0);
+        const auto fab = OSI::MakeOsiFabContext(
+            amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0).fab;
+        const Box region = mfi.validbox();
+        for (Long parent = 0; parent < region.numPts(); parent += restriction_parents_per_block) {
+            tags.push_back({region, fab, parent, mfi.LocalIndex(), local_fine,
+                            phases ? phases->slot(fi) : -1});
         }
     }
+    work.resize(tags.size());
+    Gpu::copy(Gpu::hostToDevice, tags.begin(), tags.end(), work.begin());
+#endif
 }
 
 void AmrCoreLBM::RemakeDdfState(
@@ -742,29 +710,9 @@ void AmrCoreLBM::BuildInterpolationCache() {
 
         }
         if (coarse_stage.isDefined()) {
-            // 两种布局都缓存正常推进任务；重构临时 patch 保留独立生命周期。
-            auto& cache = interpolation_cache.at(lev).work;
-            cache.clear();
-            Vector<amrex::Array4BoxTag<Real>> scale_tags;
-            Vector<InterpolationBatchTag> tags;
-            for (MFIter mfi(coarse_stage, false); mfi.isValid(); ++mfi) {
-                const auto& patch = patches.at(mfi.index());
-                const int fine_index = patch.fine_box_index;
-                const Box target = patch.fine_box;
-                const auto fab = OSI::MakeOsiFabContext(
-                                     amrex::grow(fine_layout.boxArray()[fine_index],
-                                                 fine_layout.nGrowVect()),
-                                     0)
-                                     .fab;
-                const int fine_local = fine_layout.localindex(fine_index);
-                AMREX_ALWAYS_ASSERT(fine_local >= 0);
-                scale_tags.push_back({coarse_stage.array(mfi), mfi.validbox()});
-                tags.push_back({interp_mode == 0 ? target : amrex::coarsen(target, 2),
-                                target, fab, mfi.LocalIndex(), fine_local,
-                                streamMode() == 1 ? osi_fab_phase_cache.at(lev).slot(fine_index) : -1});
-            }
-            cache.scale_tags.define(scale_tags);
-            cache.tags.define(tags);
+            BuildInterpolationWork(coarse_stage, fine_layout, patches,
+                interpolation_cache.at(lev).work,
+                streamMode() == 1 ? &osi_fab_phase_cache.at(lev) : nullptr);
         }
         ++perf_stats.interp_cache_builds;
         perf_stats.interp_cache_build += amrex::second() - start;
@@ -819,30 +767,9 @@ void AmrCoreLBM::BuildAverageCache() {
                     periodicity, Q, osi_mpi_device_direct,
                     osi_fab_phase_cache.at(lev));
             }
-#ifdef AMREX_USE_CUDA
-            {
-                Vector<RestrictionBlockTag> tags;
-                const auto& result = average_down_cache.at(lev).interface_buffer;
-                const auto& fine = fine_layout;
-                for (MFIter mfi(result, false); mfi.isValid(); ++mfi) {
-                    const int fi = average_down_cache.at(lev).fine_box_indices.at(mfi.index());
-                    const int local_fine = fine.localindex(fi);
-                    AMREX_ALWAYS_ASSERT(local_fine >= 0);
-                    const auto fab = OSI::MakeOsiFabContext(
-                                         amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0)
-                                         .fab;
-                    const int slot = streamMode() == 1 ? osi_fab_phase_cache.at(lev + 1).slot(fi) : -1;
-                    const Box region = mfi.validbox();
-                    for (amrex::Long parent = 0; parent < region.numPts();
-                         parent += restriction_parents_per_block) {
-                        tags.push_back({region, fab, parent, mfi.LocalIndex(), local_fine, slot});
-                    }
-                }
-                auto& device_tags = average_down_cache.at(lev).block_tags;
-                device_tags.resize(tags.size());
-                Gpu::copy(Gpu::hostToDevice, tags.begin(), tags.end(), device_tags.begin());
-            }
-#endif
+            BuildRestrictionWork(fine_layout, average_down_cache.at(lev).interface_buffer,
+                average_down_cache.at(lev).fine_box_indices, average_down_cache.at(lev).block_tags,
+                streamMode() == 1 ? &osi_fab_phase_cache.at(lev + 1) : nullptr);
         }
     }
 }
@@ -1085,10 +1012,12 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
     ApplyPhysicalBoundaryToInterpolationStage(
         lev - 1, coarse_stage);
     const Real scale = tau.at(lev) / tau.at(lev - 1) / Real(2.0);
-    // 初始化目标为 canonical 或 phase=0 OSI，直接使用同一组自定义核。
-    InterpolateDdfStageToFine(
-        coarse_stage, fine_state, patches,
-        false, 0, true, scale);
+    // 初始化目标为 canonical 或 phase=0 OSI，和正常推进共用建表与批量执行器。
+    // 临时任务必须在 stage/fine 存储释放或替换前完成，不进入持久 ghost 缓存。
+    InterpolationBatchCache work;
+    BuildInterpolationWork(coarse_stage, fine_state, patches, work);
+    InterpolateDdfStageBatch<false>(coarse_stage, fine_state, work, nullptr, true, scale);
+    Gpu::streamSynchronize();
 }
 
 void AmrCoreLBM::ClearLevel(int lev) {

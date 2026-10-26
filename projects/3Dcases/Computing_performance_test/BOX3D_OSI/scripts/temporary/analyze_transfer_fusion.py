@@ -10,6 +10,7 @@ import numpy as np
 
 root = Path(sys.argv[1]).resolve()
 rows = list(csv.DictReader((root / 'status.tsv').open(), delimiter='\t'))
+perf_config = (root / 'perf_config.txt').read_text() if (root / 'perf_config.txt').exists() else 'regrid_int=-1\nfixture=false\n'
 production_only = bool(rows) and all(r['case'].startswith('prod_') for r in rows)
 
 
@@ -185,6 +186,10 @@ def timing(name):
     counts = []
     levels = {}
     for line in log.splitlines():
+        regrid = re.match(r'^step(\d+) compute_time: .* regrid_time: ([0-9.eE+\-]+) ms', line)
+        if regrid and int(regrid[1]) > 128:
+            record = windows.setdefault(int(regrid[1]), {})
+            record['regrid'] = max(record.get('regrid', 0), float(regrid[2]) / 1000)
         if ' perf(s):' in line:
             step = int(re.match(r'step(\d+)', line)[1])
             if step <= 128:
@@ -204,7 +209,9 @@ def timing(name):
                 levels[(step, lev)] = max(levels.get((step, lev), 0), float(f['seconds']))
     if len(windows) != 3:
         raise ValueError('missing timing windows: ' + name)
-    result = {k: sum(w[k] for w in windows.values()) for k in next(iter(windows.values()))}
+    result = {k: sum(w[k] for w in windows.values()) for k in ('total', 'interp', 'average', 'collide', 'comm')}
+    if all('regrid' in w for w in windows.values()):
+        result['regrid'] = sum(w['regrid'] for w in windows.values())
     for lev in sorted({lev for _, lev in levels}):
         result[f'collide_L{lev}'] = sum(t for (_, level), t in levels.items() if level == lev)
     return result, sorted(counts)
@@ -224,28 +231,41 @@ for ranks in (1, 2):
             if ac != bc:
                 raise ValueError('collision workload changed: ' + str(names))
             pairs.append(dict(repeat=repeat, baseline=a, candidate=b,
-                              changes_percent={k: 100 * (b[k] / a[k] - 1) for k in a}))
+                              changes_percent={k: 100 * (b[k] / a[k] - 1) for k in a if a[k] > 0}))
         perf.append(dict(ranks=ranks, storage=storage, pairs=pairs,
                          median_changes_percent={k: statistics.median(p['changes_percent'][k] for p in pairs)
-                                                 for k in ('total', 'interp', 'average')} if pairs else {}))
+                                                 for k in ('total', 'interp', 'average', 'regrid') if all(k in p['changes_percent'] for p in pairs)} if pairs else {}))
 
 units = []
 for dim in (() if production_only else (2, 3)):
     name = f'unit_d{dim}'
     log = (root / name / 'run.log').read_text(errors='replace') if (root / name / 'run.log').exists() else ''
     units.append(dict(dimension=dim, passed=status.get(name, 1) == 0 and
-                      f'PASS restriction GPU DIM={dim} cases=80 ' in log, log=log.strip()))
+                      bool(re.search(rf'PASS restriction GPU DIM={dim} cases=(?:80|160) ', log)), log=log.strip()))
+initialization = []
+for row in rows:
+    name=row['case']
+    if not name.startswith('initialization_'):
+        continue
+    log=(root/name/'run.log').read_text(errors='replace')
+    if name=='initialization_coverage_negative':
+        passed=int(row['exit_code'])!=0 and all(x in log for x in ('[InterpolationCoverage]', 'missing_coarse_boxes=', 'fine_level=1'))
+    else:
+        rank=int(name.rsplit('r',1)[1])
+        passed=int(row['exit_code'])==0 and f'PASS sparse initialization matrix ranks={rank}' in log
+        passed=passed and len(re.findall(r'^PASS sparse initialization mode=',log,re.M))==36
+    initialization.append(dict(case=name,passed=passed))
 expected_cases = 4 if production_only else 108
 report = dict(numerical_complete=len(numerics) == expected_cases,
-              numerical_passed=len(numerics) == expected_cases and all(r['passed'] for r in numerics) and all(r['passed'] for r in units),
+              numerical_passed=len(numerics) == expected_cases and all(r['passed'] for r in numerics) and all(r['passed'] for r in units) and all(r['passed'] for r in initialization),
               validation_scope='finite active and finite valid values; identical covered nonfinite patterns' if production_only else 'finite saved valid and active values; stage and source diagnostics',
-              gpu_units=units,
+              gpu_units=units, initialization=initialization,
               max_stage_linf=max((r['stage_linf'] or 0 for r in numerics), default=0),
               max_valid_linf=max((r['valid_linf'] or 0 for r in numerics), default=0),
               max_active_linf=max((r['active_linf'] or 0 for r in numerics), default=0),
               valid_all_finite=all(r['valid_all_finite'] for row in numerics for r in row['checkpoint']),
               failures=[r for r in numerics if not r['passed']], numerics=numerics,
-              performance=perf, timing_scope='step 129-320; maximum rank per window, then sum; four alternating pairs')
+              performance=perf, perf_config=perf_config, timing_scope='step 129-320; maximum rank per window, then sum; four alternating pairs')
 report['strict_full_valid_passed'] = report['numerical_passed'] and report['valid_all_finite']
 (root / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
 valid_label = '有限 valid 分量' if production_only else 'valid DDF'
@@ -267,15 +287,16 @@ if production_only:
 else:
     lines += ['动态 fixture 的最高层与最终层数不同；核对实际 MakeNew/Remake/Clear 日志及 report.json 中逐层 checkpoint 记录。', '',
               '数值矩阵中的两个 MPI rank 若只分配一张 GPU，则共享 GPU，仅证明该配置的 MPI/数值行为。', '',
-              '性能：同节点、同一 step 64 checkpoint、固定 64³ 基网格与三层布局，关闭 regrid、输出和细分计时；',
+              '性能：同节点、同一 step 64 checkpoint、64³ 基网格和最高 level 2，关闭输出和细分计时；',
+              '重网格设置：' + perf_config.strip().replace('\n', '，') + '。',
               '每轮丢弃 step 65–128，比较 step 129–320。每窗口先取较慢 rank，再求和；下表为四轮配对变化中位数。', '',
-              '| ranks | 模式 | 配对数 | interp 变化 | average 变化 | total 变化 |', '|---:|---|---:|---:|---:|---:|']
+              '| ranks | 模式 | 配对数 | interp 变化 | average 变化 | RefineMesh 调用变化 | total 变化 |', '|---:|---|---:|---:|---:|---:|---:|']
     for row in perf:
         if row['pairs']:
             d = row['median_changes_percent']
-            lines.append(f"| {row['ranks']} | {'OSI' if row['storage'] else 'AB'} | {len(row['pairs'])} | {d['interp']:+.3f}% | {d['average']:+.3f}% | {d['total']:+.3f}% |")
+            lines.append(f"| {row['ranks']} | {'OSI' if row['storage'] else 'AB'} | {len(row['pairs'])} | {d['interp']:+.3f}% | {d['average']:+.3f}% | {format(d['regrid'], '+.3f')+'%' if 'regrid' in d else '未测量'} | {d['total']:+.3f}% |")
     lines += ['', '各轮原始秒数、L0/L1/L2 碰撞耗时和工作量一致性记录见 report.json；未出现的 rank 配置未测量。',
-              '该短测不证明生产 128³ 布局、动态重网格性能或物理精度。']
+              '该短测只覆盖所列重网格设置及受控 fixture，不外推生产 128³ 布局或物理精度。']
 (root / 'report.md').write_text('\n'.join(lines) + '\n')
 print(json.dumps({k: v for k, v in report.items() if k != 'numerics'}, ensure_ascii=False, indent=2))
 sys.exit(0 if report['numerical_passed'] else 1)

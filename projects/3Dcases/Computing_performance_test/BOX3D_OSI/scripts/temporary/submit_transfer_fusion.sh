@@ -16,8 +16,10 @@ module purge
 module load mpi/hmpi/1.2.0_bs2.4.0_sp1 compilers/cuda/12.8.0 compilers/gcc/11.3.0
 export FUSION_GPU_COUNT="${FUSION_GPU_COUNT:-2}"
 FUSION_PHASE="${FUSION_PHASE:-full}"
+FUSION_PERF_REGRID_INT="${FUSION_PERF_REGRID_INT:--1}"
+FUSION_PERF_FIXTURE="${FUSION_PERF_FIXTURE:-false}"
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ROOT="$CASE_DIR/runs/temporary/ab_osi_transfer_fusion"
+ROOT="${FUSION_ROOT:-$CASE_DIR/runs/temporary/ab_osi_transfer_fusion}"
 REPO_DIR="$(git -C "$CASE_DIR" rev-parse --show-toplevel)"
 RUN_DIR="$ROOT/job${CCS_JOB_ID:?}"
 mkdir "$RUN_DIR"
@@ -26,6 +28,7 @@ cp "${BASH_SOURCE[0]}" "$RUN_DIR/submit.sh"
 cp "$CASE_DIR/scripts/temporary/analyze_transfer_fusion.py" "$RUN_DIR/analyze.py"
 hostname > "$RUN_DIR/node.txt"
 printf '%s\n' "$FUSION_GPU_COUNT" > "$RUN_DIR/gpu_count.txt"
+printf 'regrid_int=%s\nfixture=%s\n' "$FUSION_PERF_REGRID_INT" "$FUSION_PERF_FIXTURE" > "$RUN_DIR/perf_config.txt"
 nvidia-smi > "$RUN_DIR/gpu.txt"
 module list > "$RUN_DIR/modules.txt" 2>&1
 printf 'case\texit_code\n' > "$RUN_DIR/status.tsv"
@@ -53,6 +56,14 @@ if [[ "$FUSION_PHASE" == full ]]; then
     for dim in 2 3; do
         run "unit_d${dim}" 1 "$ROOT/candidate/restriction${dim}d.ex" "$ROOT/baseline/config/inputs"
     done
+fi
+# 进一步融合时可接入同一份生产初始化函数的独立模板/部分父单元检查。
+if [[ "$FUSION_PHASE" == full && -x "$ROOT/candidate/sparse_initialization3d.ex" ]]; then
+    for ranks in 1 2; do
+        run "initialization_r${ranks}" "$ranks" "$ROOT/candidate/sparse_initialization3d.ex" "$ROOT/baseline/config/inputs" amrex.abort_on_unused_inputs=0
+    done
+    # 负例仍必须在源覆盖缺口处终止，单独保存退出码与诊断。
+    run initialization_coverage_negative 1 "$ROOT/candidate/sparse_initialization3d.ex" "$ROOT/baseline/config/inputs" amrex.abort_on_unused_inputs=0 coverage_fail=1
 fi
 common=(amr.regrid_int=32 amr.plot_int=-1 checkpoint.keep_latest_only=false checkpoint.write_particles=false
     verification.convergence_enabled=false verification.final_state_check=true
@@ -130,7 +141,7 @@ done
 echo "FUSION_NUMERICS_DONE $RUN_DIR"
 "$REPO_DIR/.venv/bin/python" "$RUN_DIR/analyze.py" "$RUN_DIR" > "$RUN_DIR/numerical_report.log"
 # 性能只在数值矩阵退出成功后执行；解析器另行检查逐值误差与覆盖。
-if awk -F '\t' 'NR>1 && $2!=0 {bad=1} END {exit bad}' "$RUN_DIR/status.tsv"; then
+if awk -F '\t' 'NR>1 && $1!="initialization_coverage_negative" && $2!=0 {bad=1} END {exit bad}' "$RUN_DIR/status.tsv"; then
     perf_mesh=(amr.n_cell=64 64 64 amr.max_level=2 amr.max_grid_size=32 32 32
         amr.blocking_factor_x=16 16 16 amr.blocking_factor_y=16 16 16 amr.blocking_factor_z=16 16 16 amr.n_proper=2)
     run perf_seed 2 "$ROOT/baseline/app3d.ex" "$ROOT/baseline/config/inputs" \
@@ -148,7 +159,7 @@ if awk -F '\t' 'NR>1 && $2!=0 {bad=1} END {exit bad}' "$RUN_DIR/status.tsv"; the
                     run "perf_r${ranks}_s${storage}_${repeat}_${version}" "$ranks" "$ROOT/$version/app3d.ex" "$ROOT/baseline/config/inputs" \
                         "${perf_mesh[@]}" checkpoint.begin_step=64 \
                         checkpoint.chk_prefix="$RUN_DIR/perf_seed/chk" checkpoint.chk_int=-1 \
-                        max_step=320 amr.regrid_int=-1 amr.plot_int=-1 verification.convergence_enabled=false \
+                        max_step=320 amr.regrid_int="$FUSION_PERF_REGRID_INT" verification.regrid_fixture="$FUSION_PERF_FIXTURE" amr.plot_int=-1 verification.convergence_enabled=false \
                         verification.final_state_check=true performance.report_int=64 performance.osi_detail_timing=0 \
                         lbm.stream_mode="$storage" lbm.interp_mode=0
                 done

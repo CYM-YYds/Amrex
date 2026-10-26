@@ -60,7 +60,7 @@ struct BoundaryWorkCache {
     }
 };
 
-// 正常推进共用的插值布局任务；重网格临时 patch 保留独立生命周期。
+// 正常推进与重网格共用任务格式；持久/临时任务分别拥有各自生命周期。
 struct InterpolationBatchTag {
     amrex::Box region;
     amrex::Box target;
@@ -315,11 +315,6 @@ class AmrCoreLBM : public amrex::AmrCore {
         amrex::MultiFab& stage, amrex::MultiFab& fine,
         const Box3dDetail::InterpolationBatchCache& work,
         const OSI::PhaseShift3* shifts, bool apply_scale, amrex::Real scale);
-    void InterpolateDdfStageToFine(
-        amrex::MultiFab& stage, amrex::MultiFab& fine,
-        const amrex::Vector<Box3dDetail::InterpolationPatchTag>& patches,
-        bool fine_osi, std::uint64_t fine_phase,
-        bool apply_scale, amrex::Real scale);
     void RemakeDdfState(int lev, amrex::Real time,
                         amrex::MultiFab& new_old_state);
     void RebuildCoarseFineMasks();
@@ -335,7 +330,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     void ComputeVorticity(amrex::Real time);
     void ComputeShearLevel(int lev);
     void ComputeShear();
-    void AverageDownValidLevel(int lev, bool is_scale);
+    void AverageDownValidLevel(int lev, bool is_scale,
+                               DdfLayout layout = DdfLayout::Canonical);
     // 完整平均下传并仅修复被改写的粗层物理边界；可选检查点位于修复前。
     void AverageDownValid(const std::function<void()>& before_repair = {});
     // 只修复 covered 粗层 valid 物理边界，单层时不做处理。
@@ -463,6 +459,16 @@ class AmrCoreLBM : public amrex::AmrCore {
         const amrex::MultiFab& previous) const;
     void BuildBoundaryWorkCache();
     void BuildOsiCommunicationRegionCache(int lev);
+    void BuildInterpolationWork(
+        amrex::MultiFab& stage, const amrex::MultiFab& fine,
+        const amrex::Vector<Box3dDetail::InterpolationPatchTag>& patches,
+        Box3dDetail::InterpolationBatchCache& work,
+        const OSI::FabPhaseCache* phases = nullptr) const;
+    void BuildRestrictionWork(
+        const amrex::MultiFab& fine, const amrex::MultiFab& result,
+        const amrex::Vector<int>& fine_indices,
+        amrex::Gpu::DeviceVector<Box3dDetail::RestrictionBlockTag>& work,
+        const OSI::FabPhaseCache* phases = nullptr) const;
     void BuildInterpolationCache();
     void BuildAverageCache();
     void ProbeAverageInterfaceLevel(int lev, const char* stage);
@@ -488,10 +494,16 @@ class AmrCoreLBM : public amrex::AmrCore {
     void DecodeOsiValid(const amrex::MultiFab& state,
                         std::uint64_t phase,
                         amrex::MultiFab& canonical) const;
-    void AverageDownOsiValidLevel(int lev, bool is_scale);
     // 两种布局共享平均计算和批量启动，写回按目标布局选择搬运方式。
     template <bool UseOsiAddress>
     void AverageDownLayoutLevel(int fine_lev, bool is_scale);
+    // 只执行任务指定的父单元；任务范围与写回由界面/完整 valid 调用方各自管理。
+    template <bool UseOsiAddress, bool StoreScaledFine = false>
+    void RestrictDdfToCoarse(
+        int fine_lev, amrex::MultiFab& result, const amrex::Vector<int>& fine_indices,
+        const amrex::Gpu::DeviceVector<Box3dDetail::RestrictionBlockTag>& work,
+        bool is_scale);
+
     // 缓存重载统一执行插值/平均搬运，不重建布局计划。
     template <bool SourceRaw>
     void ParallelCopyOsi(OSI::CpcCache<SourceRaw>& cache,

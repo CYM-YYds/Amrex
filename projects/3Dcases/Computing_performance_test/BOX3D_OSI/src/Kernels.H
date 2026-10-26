@@ -2613,8 +2613,8 @@ void average_down_lbm(int i, int j, int k, amrex::Array4<amrex::Real> const& crs
     }
 }
 
-// 两种布局按逻辑子单元读取，缩放后平均到 canonical 暂存区。
-template <bool UseOsiAddress>
+// 界面/完整 valid 平均共用数值核；可选保留 AB 完整平均对 f_new 的缩放写入。
+template <bool UseOsiAddress, bool StoreScaledFine = false>
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void average_down_to_canonical(
@@ -2622,7 +2622,7 @@ void average_down_to_canonical(
     amrex::Array4<amrex::Real const> const& fine,
     amrex::IntVect const& ratio, OSI::FabGeometry fine_fab,
     OSI::PhaseShift3 fine_shift, amrex::Real scale,
-    bool apply_scale) noexcept {
+    bool apply_scale, amrex::Array4<Real> scaled_fine = {}) noexcept {
     Real restricted[Q]{};
     const int fi = i * ratio[0];
     const int fj = j * ratio[1];
@@ -2637,8 +2637,12 @@ void average_down_to_canonical(
                 // 无缩放时直接累加 DDF，不恢复宏观量或暂存全部方向。
                 if (!apply_scale) {
                     for (int q = 0; q < Q; ++q) {
-                        restricted[q] += load_ddf<UseOsiAddress>(
+                        const Real value = load_ddf<UseOsiAddress>(
                             ii, jj, kk, q, fine, fine_fab, fine_shift);
+                        if constexpr (StoreScaledFine) {
+                            scaled_fine(ii, jj, kk, q) = value;
+                        }
+                        restricted[q] += value;
                     }
                     continue;
                 }
@@ -2662,7 +2666,11 @@ void average_down_to_canonical(
                 uz /= rho;
                 for (int q = 0; q < Q; ++q) {
                     const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
-                    restricted[q] += feq + (fq[q] - feq) * scale;
+                    const Real value = feq + (fq[q] - feq) * scale;
+                    if constexpr (StoreScaledFine) {
+                        scaled_fine(ii, jj, kk, q) = value;
+                    }
+                    restricted[q] += value;
                 }
             }
         }
@@ -2697,12 +2705,12 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     return __shfl_sync(mask, value, 0, 16);
 }
 
-template <bool UseOsiAddress>
+template <bool UseOsiAddress, bool StoreScaledFine = false>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_to_canonical_half_warp(
     int i, int j, int k, int lane,
     amrex::Array4<Real> coarse, amrex::Array4<const Real> fine,
     OSI::FabGeometry fine_fab, OSI::PhaseShift3 fine_shift,
-    Real scale, bool apply_scale) noexcept {
+    Real scale, bool apply_scale, amrex::Array4<Real> scaled_fine = {}) noexcept {
     // 每 lane 保存 q=lane 与 q=lane+16，避免引入完整 Q 长度线程局部数组。
     const unsigned int mask = 0xffffu << ((threadIdx.x & 31) / 16 * 16);
     const int q0 = lane, q1 = lane + 16;
@@ -2719,6 +2727,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_to_canonical_half_warp(
                         2 * i + ir, 2 * j + jr, 2 * k + kr, q1,
                         fine, fine_fab, fine_shift);
                 }
+                Real value0 = f0, value1 = f1;
                 if (apply_scale) {
                     const Real rho = half_warp_sum_16(f0 + f1, mask);
                     const Real ux = half_warp_sum_16(
@@ -2731,14 +2740,19 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_to_canonical_half_warp(
                                         f0 * lattice_ez(q0) + (q1 < Q ? f1 * lattice_ez(q1) : 0), mask) /
                                     rho;
                     const Real eq0 = feqQian(rho, {ux, uy, uz}, q0);
-                    restricted0 += eq0 + (f0 - eq0) * scale;
+                    value0 = eq0 + (f0 - eq0) * scale;
                     if (q1 < Q) {
                         const Real eq1 = feqQian(rho, {ux, uy, uz}, q1);
-                        restricted1 += eq1 + (f1 - eq1) * scale;
+                        value1 = eq1 + (f1 - eq1) * scale;
                     }
-                } else {
-                    restricted0 += f0;
-                    restricted1 += f1;
+                }
+                restricted0 += value0;
+                restricted1 += value1;
+                if constexpr (StoreScaledFine) {
+                    scaled_fine(2 * i + ir, 2 * j + jr, 2 * k + kr, q0) = value0;
+                    if (q1 < Q) {
+                        scaled_fine(2 * i + ir, 2 * j + jr, 2 * k + kr, q1) = value1;
+                    }
                 }
             }
         }
@@ -2750,7 +2764,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_to_canonical_half_warp(
 }
 #endif
 
-template <bool UseOsiAddress>
+template <bool UseOsiAddress, bool StoreScaledFine = false>
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void average_down_to_canonical_warp(
@@ -2759,7 +2773,7 @@ void average_down_to_canonical_warp(
     amrex::Array4<amrex::Real const> const& fine,
     amrex::IntVect const& ratio, OSI::FabGeometry fine_fab,
     OSI::PhaseShift3 fine_shift, amrex::Real scale,
-    bool apply_scale) noexcept {
+    bool apply_scale, amrex::Array4<Real> scaled_fine = {}) noexcept {
     const int fi = i * ratio[0];
     const int fj = j * ratio[1];
     const int fk = k * AMREX_D_PICK(1, 1, ratio[2]);
@@ -2776,6 +2790,7 @@ void average_down_to_canonical_warp(
                         fi + ir, fj + jr, fk + kr, q, fine, fine_fab, fine_shift);
                 }
 
+                Real value = fq;
                 if (apply_scale) {
                     const Real rho = warp_sum_32(fq);
                     const Real ux = warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0)) / rho;
@@ -2783,10 +2798,14 @@ void average_down_to_canonical_warp(
                     const Real uz = warp_sum_32(q < Q ? fq * lattice_ez(q) : Real(0.0)) / rho;
                     if (q < Q) {
                         const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
-                        restricted += feq + (fq - feq) * scale;
+                        value = feq + (fq - feq) * scale;
                     }
-                } else if (q < Q) {
-                    restricted += fq;
+                }
+                if (q < Q) {
+                    restricted += value;
+                    if constexpr (StoreScaledFine) {
+                        scaled_fine(fi + ir, fj + jr, fk + kr, q) = value;
+                    }
                 }
             }
         }

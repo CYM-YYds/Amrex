@@ -532,13 +532,16 @@ fine raw（当前 phase）-> 融合 scaling/restriction，直接读取子单元
 ```
 
 该 staging 只覆盖插值所需粗层源区或稀疏界面限制结果；二维一次处理Q=9、三维一次处理Q=27。
-正常界面平均 `AverageDownLayoutLevel<UseOsiAddress>` 不解码完整细层；
-完整 valid restriction `AverageDownOsiValidLevel` 使用独立的函数局部 canonical 工作区，两者范围不同。
+界面平均与完整 valid 平均都通过 `RestrictDdfToCoarse<UseOsiAddress, StoreScaledFine>`
+直接读取当前细层数据，不再为 OSI 完整解码细层和粗层。界面任务只覆盖稀疏界面，
+完整 valid 任务覆盖所有 fine valid 盒粗化后的父单元，不能互换任务范围。
 正常 A-B/OSI 推进都调用 `FillDdfGhostFromCoarse`，按布局装入同一 canonical stage，
 再由 `InterpolateDdfStageBatch<UseOsiAddress>` 共用批量缩放和插值提交。
 任务由细层的 `interpolation_cache[lev].work` 持有：mode 0 按 fine 目标单元，
 mode 1/2 按 coarse parent 派发并裁剪到目标盒。
-`InterpolateDdfStageToFine` 服务重网格临时 patch，不复用正常推进的持久任务。
+正常推进和重网格初始化共用 `BuildInterpolationWork` 与 `InterpolateDdfStageBatch`。
+正常推进将任务保存在层缓存；初始化按本次请求 patch 构造局部任务，并在任务/暂存区销毁前同步。
+初始化目标为 canonical 或 phase=0 OSI，使用同一 canonical 写入特化；不覆盖 fine ghost 或请求区外的 valid。
 插值准备阶段的物理域外延拓仍按需要填充的 Box 启动。
 
 CUDA 界面平均使用 `average_down_cache[coarse_lev].block_tags` 合并所有本地 interface Box 提交。
@@ -551,8 +554,13 @@ Q27 半 warp 每 lane 保存 q=lane 及 q=lane+16 两槽，分别对每个细子
 二维 Q9 使用 32 lane 合作处理一个父单元、256 线程/block，避免旧 OSI 标量分支的同父单元重复写入。
 缓存建表与执行共用 `restriction_parents_per_block` 及对应 group/thread 常量。
 任务只绑定几何和布局索引，执行时取当前数组与 phase，避免 A-B 双缓冲交换后访问旧数组。
-CPU 界面平均保持逐盒提交，共用 `average_down_to_canonical<UseOsiAddress>` 标量核。
-完整 valid 平均保持原有实现；平均后的边界修复仍调用既有薄面批量任务。
+CPU 的两种平均范围保持逐盒提交，共用 `average_down_to_canonical` 标量核。
+`AverageDownValidLevel(..., DdfLayout)` 创建函数局部的 coarsen(fine valid) canonical 结果区，
+复用 `BuildRestrictionWork` 与共同执行器，再按布局写回，保留 uncovered 粗单元。
+AB 完整平均使用 `StoreScaledFine=true`，同时将各子单元缩放后的 DDF 写入 `f_new` valid，
+保留原实现的双缓冲状态行为；接口平均及 OSI 不写此辅助区。
+完整平均的临时搬运计划、任务、结果在 GPU/MPI 完成后才释放，不进入持久界面缓存。
+平均后的边界修复仍调用既有薄面批量任务。
 
 上述任务分别由 `BuildInterpolationCache`/`BuildAverageCache` 派生，
 `ClearOsiTransferCaches`在任一侧布局/存储改变前使其失效，随后由既有粗细缓存重建流程恢复。

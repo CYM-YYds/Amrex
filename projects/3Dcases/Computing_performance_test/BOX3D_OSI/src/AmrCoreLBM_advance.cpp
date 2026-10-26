@@ -65,30 +65,35 @@ void AmrCoreLBM::ComputeShear() {
     }
 }
 
-void AmrCoreLBM::AverageDownValidLevel(int lev, bool is_scale) {
-    // amrex::average_down(f_old[lev+1], f_old[lev], geom[lev+1], geom[lev],0, Q, refRatio(lev));
-
-    amrex::MultiFab& fine_mf = f_old[lev + 1];
-    amrex::MultiFab& crse_mf = f_old[lev];
-
-    amrex::MultiFab& fine_boundary_data = f_new.at(lev + 1);
-
-    amrex::MultiFab::Copy(fine_boundary_data, fine_mf, 0, 0, Q, 0);
-
-    if (is_scale) {
-        amrex::Real scale = 2.0 * tau[lev] / tau[lev + 1];
-
-        for (MFIter mfi(fine_boundary_data, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            const auto bx = mfi.growntilebox(0);
-
-            const Array4<Real>& fold = fine_boundary_data.array(mfi);
-
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                average_scale(i, j, k, fold, scale);
-            });
-        }
+void AmrCoreLBM::AverageDownValidLevel(int lev, bool is_scale, DdfLayout layout) {
+    AMREX_ALWAYS_ASSERT(lev >= 0 && lev < finest_level);
+    const bool use_osi = layout == DdfLayout::Osi;
+    const int fine_lev = lev + 1;
+    const auto& fine = use_osi ? osi_state.at(fine_lev) : f_old.at(fine_lev);
+    const auto ratio = refRatio(lev);
+    AMREX_ALWAYS_ASSERT(ratio == IntVect(2) && fine.boxArray().coarsenable(ratio));
+    // 完整 valid 的父单元与 fine Fab 一一对应；布局与任务只在本次调用内有效。
+    MultiFab result(amrex::coarsen(fine.boxArray(), ratio), fine.DistributionMap(), Q, 0);
+    Vector<int> fine_indices(fine.boxArray().size());
+    for (int index = 0; index < fine_indices.size(); ++index) {
+        fine_indices[index] = index;
     }
-    amrex::average_down(fine_boundary_data, crse_mf, 0, Q, refRatio(lev));
+    Gpu::DeviceVector<RestrictionBlockTag> work;
+    BuildRestrictionWork(fine, result, fine_indices, work,
+                         use_osi ? &osi_fab_phase_cache.at(fine_lev) : nullptr);
+    OSI::CpcCache<false> copy;
+    if (use_osi) {
+        RestrictDdfToCoarse<true>(fine_lev, result, fine_indices, work, is_scale);
+        copy.define(result, osi_state.at(lev), Geom(lev).periodicity(), Q,
+                    osi_mpi_device_direct, osi_fab_phase_cache.at(lev));
+        ParallelCopyOsi(copy, osi_fab_phase_cache.at(lev).data(osi_phase.at(lev)));
+    } else {
+        // f_new 是 AB 的下一次交换目标，保留旧完整平均对其全部 fine valid 的写入。
+        RestrictDdfToCoarse<false, true>(fine_lev, result, fine_indices, work, is_scale);
+        f_old.at(lev).ParallelCopy(result, 0, 0, Q);
+    }
+    // 临时设备任务、结果与 MPI 搬运完成后再离开其作用域。
+    Gpu::streamSynchronize();
 }
 
 void AmrCoreLBM::AverageDownValid(const std::function<void()>& before_repair) {
@@ -96,7 +101,7 @@ void AmrCoreLBM::AverageDownValid(const std::function<void()>& before_repair) {
     // 因此重网格前必须先将全部细层 valid 数据完整同步到粗层父单元。
     for (int lev = finest_level - 1; lev >= 0; --lev) {
         if (streamMode() == 1) {
-            AverageDownOsiValidLevel(lev, true);
+            AverageDownValidLevel(lev, true, DdfLayout::Osi);
             if (osiReferenceEnabled()) {
                 // 锁步参考态也要在重网格前完成全部有效单元的平均下传。
                 AverageDownValidLevel(lev, true);
@@ -130,6 +135,76 @@ void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复
     }
 }
 
+template <bool UseOsiAddress, bool StoreScaledFine>
+void AmrCoreLBM::RestrictDdfToCoarse(
+    int fine_lev, MultiFab& result, const Vector<int>& fine_indices,
+    const Gpu::DeviceVector<RestrictionBlockTag>& work, bool is_scale) {
+    const auto& fine_state = UseOsiAddress ? osi_state.at(fine_lev) : f_old.at(fine_lev);
+    const auto ratio = refRatio(fine_lev - 1);
+    const Real scale = Real(2.0) * tau.at(fine_lev - 1) / tau.at(fine_lev);
+    AMREX_ALWAYS_ASSERT(result.size() == fine_indices.size());
+    const OSI::PhaseShift3* shifts = nullptr;
+    if constexpr (UseOsiAddress) {
+        shifts = osi_fab_phase_cache.at(fine_lev).data(osi_phase.at(fine_lev));
+    }
+#ifdef AMREX_USE_CUDA
+    if (!work.empty()) {
+        const auto* tags = work.data();
+        const auto outputs = result.arrays();
+        const auto fines = fine_state.const_arrays();
+        const auto scaled = StoreScaledFine ? f_new.at(fine_lev).arrays() : MultiArray4<Real>{};
+        amrex::launch<restriction_threads_per_block>(
+            static_cast<int>(work.size()), Gpu::Device::gpuStream(),
+            [=] AMREX_GPU_DEVICE() noexcept {
+                const auto tag = tags[blockIdx.x];
+                const Long parent = tag.first_parent + threadIdx.x / restriction_group_size;
+                // 整组退出，保证同组的 shuffle 掩码与有效线程一致。
+                if (parent >= tag.region.numPts()) {
+                    return;
+                }
+                const auto lo = amrex::lbound(tag.region);
+                const int nx = tag.region.length(0), ny = tag.region.length(1);
+                const int i = lo.x + static_cast<int>(parent % nx);
+                const Long yz = parent / nx;
+                const int j = lo.y + static_cast<int>(yz % ny);
+                const int k = lo.z + static_cast<int>(yz / ny);
+                const auto shift = UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{};
+                const auto scaled_fine = StoreScaledFine ? scaled[tag.fine_local_index] : Array4<Real>{};
+#if Q == 27
+                average_down_to_canonical_half_warp<UseOsiAddress, StoreScaledFine>(
+                    i, j, k, threadIdx.x % restriction_group_size,
+                    outputs[tag.output_local_index], fines[tag.fine_local_index],
+                    tag.fab, shift, scale, is_scale, scaled_fine);
+#elif Q == 19
+                average_down_to_canonical<UseOsiAddress, StoreScaledFine>(
+                    i, j, k, outputs[tag.output_local_index], fines[tag.fine_local_index],
+                    ratio, tag.fab, shift, scale, is_scale, scaled_fine);
+#else
+                average_down_to_canonical_warp<UseOsiAddress, StoreScaledFine>(
+                    i, j, k, threadIdx.x % restriction_group_size,
+                    outputs[tag.output_local_index], fines[tag.fine_local_index],
+                    ratio, tag.fab, shift, scale, is_scale, scaled_fine);
+#endif
+            });
+    }
+#else
+    for (MFIter mfi(result, false); mfi.isValid(); ++mfi) {
+        const int fine_index = fine_indices.at(mfi.index());
+        const auto context = OSI::MakeOsiFabContext(
+            amrex::grow(fine_state.boxArray()[fine_index], fine_state.nGrowVect()),
+            UseOsiAddress ? osi_phase.at(fine_lev) : 0);
+        const auto coarse = result.array(mfi);
+        const auto fine = fine_state.const_array(fine_index);
+        const auto scaled_fine = StoreScaledFine ? f_new.at(fine_lev).array(fine_index) : Array4<Real>{};
+        amrex::ParallelFor(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+            average_down_to_canonical<UseOsiAddress, StoreScaledFine>(
+                i, j, k, coarse, fine, ratio, context.fab, context.phase_shift,
+                scale, is_scale, scaled_fine);
+        });
+    }
+#endif
+}
+
 template <bool UseOsiAddress>
 void AmrCoreLBM::AverageDownLayoutLevel(int fine_lev, bool is_scale) {
     const int coarse_lev = fine_lev - 1;
@@ -138,14 +213,8 @@ void AmrCoreLBM::AverageDownLayoutLevel(int fine_lev, bool is_scale) {
         return;
     }
     auto& interface_result = cache.interface_buffer;
-    const auto& fine_state = UseOsiAddress ? osi_state.at(fine_lev) : f_old.at(fine_lev);
     const auto ratio = refRatio(coarse_lev);
-    const Real scale = Real(2.0) * tau.at(coarse_lev) / tau.at(fine_lev);
     AMREX_ALWAYS_ASSERT(interface_result.size() == cache.fine_box_indices.size());
-    const OSI::PhaseShift3* shifts = nullptr;
-    if constexpr (UseOsiAddress) {
-        shifts = osi_fab_phase_cache.at(fine_lev).data(osi_phase.at(fine_lev));
-    }
     for (int index : interface_result.IndexArray()) {
         const Long parents = interface_result.boxArray()[index].numPts();
         perf_stats.average_parent_cells += parents;
@@ -158,59 +227,9 @@ void AmrCoreLBM::AverageDownLayoutLevel(int fine_lev, bool is_scale) {
     ScopedPerfTimer avgdown_timer(perf_stats.average_down, detail);
     {
         ScopedPerfTimer fused_timer(perf_stats.average_fused, detail);
-#ifdef AMREX_USE_CUDA
-        const auto& work = cache.block_tags;
-        if (!work.empty()) {
-            const auto* tags = work.data();
-            const auto outputs = interface_result.arrays();
-            const auto fines = fine_state.const_arrays();
-            amrex::launch<restriction_threads_per_block>(
-                static_cast<int>(work.size()), Gpu::Device::gpuStream(),
-                [=] AMREX_GPU_DEVICE() noexcept {
-                    const auto tag = tags[blockIdx.x];
-                    const Long parent = tag.first_parent + threadIdx.x / restriction_group_size;
-                    // 整组退出，保证同组的 shuffle 掩码与有效线程一致。
-                    if (parent >= tag.region.numPts()) {
-                        return;
-                    }
-                    const auto lo = amrex::lbound(tag.region);
-                    const int nx = tag.region.length(0), ny = tag.region.length(1);
-                    const int i = lo.x + static_cast<int>(parent % nx);
-                    const Long yz = parent / nx;
-                    const int j = lo.y + static_cast<int>(yz % ny);
-                    const int k = lo.z + static_cast<int>(yz / ny);
-                    const auto shift = UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{};
-#if Q == 27
-                    average_down_to_canonical_half_warp<UseOsiAddress>(
-                        i, j, k, threadIdx.x % restriction_group_size,
-                        outputs[tag.output_local_index], fines[tag.fine_local_index],
-                        tag.fab, shift, scale, is_scale);
-#elif Q == 19
-                    average_down_to_canonical<UseOsiAddress>(
-                        i, j, k, outputs[tag.output_local_index], fines[tag.fine_local_index],
-                        ratio, tag.fab, shift, scale, is_scale);
-#else
-                    average_down_to_canonical_warp<UseOsiAddress>(
-                        i, j, k, threadIdx.x % restriction_group_size,
-                        outputs[tag.output_local_index], fines[tag.fine_local_index],
-                        ratio, tag.fab, shift, scale, is_scale);
-#endif
-                });
-        }
-#else
-        for (MFIter mfi(interface_result, false); mfi.isValid(); ++mfi) {
-            const int fine_index = cache.fine_box_indices.at(mfi.index());
-            const auto context = OSI::MakeOsiFabContext(
-                amrex::grow(fine_state.boxArray()[fine_index], fine_state.nGrowVect()),
-                UseOsiAddress ? osi_phase.at(fine_lev) : 0);
-            const auto coarse = interface_result.array(mfi);
-            const auto fine = fine_state.const_array(fine_index);
-            amrex::ParallelFor(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                average_down_to_canonical<UseOsiAddress>(
-                    i, j, k, coarse, fine, ratio, context.fab, context.phase_shift, scale, is_scale);
-            });
-        }
-#endif
+        RestrictDdfToCoarse<UseOsiAddress>(
+            fine_lev, interface_result, cache.fine_box_indices, cache.block_tags, is_scale);
+
     }
     ScopedPerfTimer copyback_timer(perf_stats.average_copyback, detail);
     if constexpr (UseOsiAddress) {
