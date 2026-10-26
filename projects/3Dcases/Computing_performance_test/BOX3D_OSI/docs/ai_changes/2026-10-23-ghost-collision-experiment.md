@@ -13,7 +13,7 @@
 ## 正确性
 
 - 两次候选编译均成功；最终二进制由完整构建后增量重建获得，各 job 目录记录 SHA256。
-- job617898：3D D3Q27，基础 32³，最高 level 2，max_grid_size=16，BF8；三种插值模式 × 非周期/全周期 × 1/2 ranks，共12组，每组64 coarse steps、regrid_int=16，使用已有 regrid_fixture 和 A-B 阶段检查。
+- job617898：3D D3Q27，基础 32³，最高 level 2，max_grid_size=16，BF8（用于多块/多rank阶段验证，不用于下方性能计时）；三种插值模式 × 非周期/全周期 × 1/2 ranks，共12组，每组64 coarse steps、regrid_int=16，使用已有 regrid_fixture 和 A-B 阶段检查。
 - 日志审计：19860 条阶段检查的最大 linf=0；2376 条迁移源检查中的内部 ghost mismatch 全部为0。统计条数不等于格点数，也不表示每个阶段都检查所有 covered 单元。
 - 双 rank 非周期的物理域外 source 有 A-B 差异；job617899 关闭优化后三种插值模式的物理 mismatch 计数均与候选相同（各2453208），内部 ghost mismatch=0、阶段最大 linf=0。该物理 ghost 问题独立保留，不能声称所有 source 完全一致。
 - 同程序开关对照（job617898/reference 与 candidate）：相同初值、三层 fixture、64步，checkpoint DDF 比较 global linf/l1/l2 均为0。逐层 valid/active 结果见原始日志；不以进程退出码替代逐值证据。
@@ -34,10 +34,35 @@ job617900 在 whshare-agent-66、A100-PCIE-40GB 上，单 rank 使用 GPU0（申
 
 结论：这些测试支持在所测条件下省略同层 ghost 重复碰撞，但当前掩码候选没有足够性能证据支持合入。保留实验，生产不改。若继续，应衡量可裁剪格点比例，并比较区域发射方案的额外启动成本。
 
-## 2026-10-26 真实网格长窗口复测（已提交，尚未出结果）
+## 2026-10-26 真实网格长窗口复测（已完成）
 
-为核对小块是否影响结论，复查旧作业：617898的32³基础、max_grid_size=16只用于阶段正确性；性能作业617900已经使用615364真实checkpoint的128³基础、1/10/33个块，max_grid_size=128，最小块为L1的32³和L2的32×32×64。因此不能将旧性能结果归因于16³块。
+617898的32³基础、max_grid_size=16只用于阶段正确性；性能作业617900和本轮619072均使用615364真实checkpoint的128³基础、1/10/33个块，max_grid_size=128，最小块为L1的32³和L2的32×32×64。不能将性能接近归因于16³小块；没有GPU计数器数据，也不能据此声称算力已满或未满。
 
-本轮复用同一个已验证候选程序，原/跳过同层可覆盖ghost开关交替（off/on/on/off）。仍从step256000固定真实三层网格，BF32、regrid_int=-1，关闭输出和细分计时；每次1600步至257600，每400步报告，排除首窗口，计划每模式6个稳态窗口。开始计时前，在真实网格推进32步，对比所有valid DDF。复用实验入口，新增GHOST_END_STEP/GHOST_REPORT_INT/GHOST_REAL_CHECK/GHOST_RESULTS_DIR参数，不复制新长期入口。此为历史候选复测，不称为当前源码的重新构建。
+619071在启动前取消以改申请单卡；619072最终SUCCEEDED，真实网格对照2次、性能4次应用退出码均为0。节点whshare-agent-178，A100-PCIE-40GB、单rank/GPU0。复用此前已验证的冻结候选程序，不是当前源码重新构建；程序SHA256、输入、命令和退出码见[作业目录](../../runs/ghost_realgrid_20261026/job619072/)。
 
-[本轮包装脚本及结果目录](../../runs/ghost_realgrid_20261026/)记录资源与参数。619071尚未启动时取消，改申请实际需要的单卡；619072已提交，调度器PENDING原因是No available gpu card meets requirements（20615）。尚无新数值结果或性能结论。包装脚本在应用正常结束后自动生成job619072/audit.json和summary.json，包含剔除首窗口后的off/on分层耗时、调用次数和launch_cells。不得把“已提交”当作验证通过；后续须检查status.tsv所有退出码、real_on的逐值结果、网格及分层工作量后才解读summary。
+off/on/on/off均从step256000固定原三层布局，BF32、regrid_int=-1，关闭输出、收敛和OSI细分计时；每次1600步至257600，每400步报告，排除首窗口，每模式6个稳态窗口。三层调用次数和launch_cells逐窗口相同；候选仍按原区域发射，launch_cells不代表实际执行碰撞的cell数。
+
+| 每400步稳态均值 | 关闭跳过 | 开启跳过 |
+|---|---:|---:|
+| total(s) | 14.505682 | 14.491630 |
+| collide(s) | 9.853043 | 9.844810 |
+| MLUPS_total | 1462.349 | 1463.767 |
+| total窗口范围(s) | 14.499284–14.514466 | 14.485818–14.497333 |
+| L0 collide(s) | 0.301010 | 0.300813 |
+| L1 collide(s) | 1.218241 | 1.225729 |
+| L2 collide(s) | 8.333793 | 8.318268 |
+
+总时间下降0.0969%，碰撞时间下降约0.0836%；本次正反顺序均有极小收益，但不足以作为实用优化采纳理由，不写成两种方案严格同速，也不能从中推导GPU利用率瓶颈。此前批量区域和坐标复用候选分别见[批量实验](2026-10-23-collision-batch-experiment.md)、[计数器与坐标实验](2026-10-23-collision-profile-coordinates.md)，均未合入。
+
+真实网格推进32步至256032的DDF对照：三层active（比较器定义为covered==0）的Linf/L1/L2均为0；L2全valid范数也为0。L0/L1全valid的L1/L2范数为NaN，不能据valid_linf=0或global active范数为0声称全valid逐值通过。日志ddf_mismatch_location标记均落在covered、interface=0；该计数的实现也会将NaN纳入count_gt_1e-12，不能把它直接解释为有限值误差数。是否为两端相同的既有非有限模式、是否在源checkpoint中已存在，尚未逐值分类验证，保持pending。
+
+本轮为历史候选复测，正式源码未改、候选未启用。输入/命令/原始日志/summary.json/audit.json/程序/checkpoint及源码补丁作为关键复现材料保留。[参数化入口](../../scripts/temporary/test_ghost_collision.sh)支持GHOST_END_STEP、GHOST_REPORT_INT、GHOST_REAL_CHECK、GHOST_RESULTS_DIR；[汇总工具](../../scripts/temporary/analyze_ghost_collision.py)剔除首窗口并按层输出，均仍服务复现。
+
+### 知识收尾边界（2026-10-26）
+
+- 代码：verified-current，仅核对三项实验开关均未进入正式src/config；用户已有5个源码修改文件保留，不纳入本轮验收或提交。
+- 运行态：verified-current，619072成功；全valid非有限模式验证为pending，Nsight计数器权限仍pending。
+- 文档：changed-and-verified，本记录为ghost复测权威结果；当前状态和MLUPS记录仅放摘要/指针，不改写历史性能表。
+- 规则：verified-current，根AGENTS.md→CLAUDE.md软链有效；本轮未改规则。新实验按现有runs/temporary约定，已有证据目录不自动迁移。
+- 记忆：out-of-scope（generated-read-only），只读查线索，本次未明确授权写记忆，不修改生成文件。
+- 工作区：证据保留；其他算例、用户修改、性能/数值修复均out-of-scope。三个历史candidate/tmp_build_dir各约139MiB可列为后续清理候选，当前未删除；脚本/补丁仍是复现依赖，不列为可删。

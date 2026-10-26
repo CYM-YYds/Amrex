@@ -1,10 +1,20 @@
 # BOX3D_OSI 当前交接状态
 
-更新时间：2026-10-22
+更新时间：2026-10-26
+
+## 2026-10-26：碰撞候选实验收尾（未采纳）
+
+正式src/config未加入跳过同层ghost碰撞、TagVector碰撞批量发射或坐标复用开关；本节只汇总冻结实验，不重新验收当前5个已有未提交源码修改，也不沿用历史程序SHA256作为当前程序证明。
+
+- 小网格32³/max_grid_size=16仅用于阶段验证；性能均采用615364真实三层checkpoint。619072长窗口复测已SUCCEEDED，6次应用均退出0；同节点单卡off/on/on/off、各1600步，剔除首400步后，跳过同层ghost的total仅下降0.0969%，未采纳。完整范围、分层耗时和保留路径见[ghost实验权威记录](ai_changes/2026-10-23-ghost-collision-experiment.md#2026-10-26-真实网格长窗口复测已完成)。
+- 数值边界：619072三层active范数为0，L0/L1全valid范数出现NaN；日志标记落在covered且interface=0，但两端非有限模式是否相同/源checkpoint是否已有仍pending，不能宣称全valid等价。
+- [原区域/裁剪区域批量候选](ai_changes/2026-10-23-collision-batch-experiment.md)分别慢7.32%/6.38%；[坐标复用候选](ai_changes/2026-10-23-collision-profile-coordinates.md)慢1.33%，均为各自冻结程序的同节点对照，未合入。Nsight因ERR_NVGPUCTRPERM未取得计数器，带宽/occupancy/stall归因仍pending；这些负结果不证明碰撞已达性能上限。
+
+以下旧条目保留各次验收的版本和范围，不自动覆盖后续源码修改。
 
 ## 2026-10-22：同层碰撞与通信重叠（现役）
 
-现役实现为 `a9f6076`：先碰撞远端发送源Fab，pack后异步提交其余Fab碰撞，与host staging/MPI重叠。
+此机制于 `a9f6076` 完成该次验收：先碰撞远端发送源Fab，pack后异步提交其余Fab碰撞，与host staging/MPI重叠。
 本地复制/unpack仍排在剩余碰撞之后，phase在通信阶段完成后提交；串行路径与CPC数值路径保留。
 机制唯一说明见[架构](osi_algorithm_and_architecture.md#61-整块碰撞与同层传输重叠)，
 开关、三维/二维输入差异和计时口径见[README](../README.md#同层通信重叠与计时)。
@@ -18,7 +28,7 @@ jobs617192/617193/617233/617234/617235/617236共254次程序运行成功；
 38,711条阶段记录Linf=0，三层小网格checkpoint的10,948,608个DDF分量CPU逐值差异为0，
 DIM2/3构建和42项维度检查及12组控制通过。物理ghost既有差异保持，不解释成所有ghost等价，
 也不代表长期精度、多节点、CUDA-aware MPI或二维性能已验收。
-当前正式程序与最终测试副本SHA256一致，完整条件、逐层范围和来源分类见
+该次验收时正式程序与最终测试副本SHA256一致，完整条件、逐层范围和来源分类见
 [实现与验收记录](ai_changes/2026-10-22-osi-collision-communication-overlap.md)。
 
 同日较早的通信候选与保留的 `[q][cell]` MPI缓冲布局见
