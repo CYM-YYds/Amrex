@@ -179,36 +179,80 @@ void AmrCoreLBM::ApplyPhysicalBoundaryToInterpolationStage(
     }
 }
 
+template <bool UseOsiAddress>
+void AmrCoreLBM::InterpolateDdfStageBatch(
+    MultiFab& coarse_stage, MultiFab& fine_state,
+    const InterpolationBatchCache& cache, const OSI::PhaseShift3* shifts,
+    bool apply_scale, Real scale) {
+    // 所有 stage 先缩放，再在同一 stream 上批量插值，保持读写依赖。
+    if (apply_scale) {
+        amrex::ParallelFor(cache.scale_tags,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, const amrex::Array4BoxTag<Real>& tag) {
+                average_scale(i, j, k, tag.dfab, scale);
+            });
+    }
+    // 每次调用取当前数组，避免 A-B 双缓冲交换后仍访问旧存储。
+    const auto stages = coarse_stage.const_arrays();
+    const auto fines = fine_state.arrays();
+    if (interp_mode == 0) {
+        amrex::ParallelFor(cache.tags,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
+                interp_bilinear_ddf_impl<UseOsiAddress>(
+                    i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
+                    tag.fab, UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{});
+            });
+    } else if (interp_mode == 1) {
+        amrex::ParallelFor(cache.tags,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
+                interp_cell_cons_linear_children_ddf_impl<UseOsiAddress>(
+                    i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
+                    tag.target, tag.fab, UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{});
+            });
+    } else {
+        amrex::ParallelFor(cache.tags,
+            [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
+                interp_cell_quadratic_children_ddf_impl<UseOsiAddress>(
+                    i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
+                    tag.target, tag.fab, UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{});
+            });
+    }
+}
+
 void AmrCoreLBM::FillDdfGhostFromCoarse(
-    int lev, amrex::Real time, bool apply_scale) {
+    int lev, amrex::Real time, bool apply_scale, DdfLayout layout) {
     (void)time;
     const int fine_lev = lev + 1;
     AMREX_ALWAYS_ASSERT(lev >= 0 && fine_lev <= finest_level);
     AMREX_ALWAYS_ASSERT(refRatio(lev) == IntVect(2));
-
-    auto& fine_state = f_old.at(fine_lev);
-    const auto& coarse_state = f_old.at(lev);
-    auto& coarse_stage = interpolation_cache.at(fine_lev).coarse_stage;
-    const auto& patches = interpolation_cache.at(fine_lev).patches;
+    const bool use_osi = layout == DdfLayout::Osi;
+    auto& fine_state = use_osi ? osi_state.at(fine_lev) : f_old.at(fine_lev);
+    auto& cache = interpolation_cache.at(fine_lev);
+    auto& coarse_stage = cache.coarse_stage;
     const Real scale = tau.at(fine_lev) / tau.at(lev) / Real(2.0);
-
-    if (patches.empty()) {
+    if (cache.patches.empty()) {
         return;
     }
-
-    ScopedPerfTimer timer(perf_stats.interp_fillpatch);
-
-    // 阶段 1：把 canonical coarse valid/周期像装入稀疏 stencil。
-    coarse_stage.ParallelCopy(
-        coarse_state, 0, 0, Q, IntVect(0), IntVect(0),
-        Geom(lev).periodicity());
-    // 阶段 2：两条插值路径共享相同的物理边界规则。
-    ApplyPhysicalBoundaryToInterpolationStage(
-        lev, coarse_stage);
-
-    InterpolateDdfStageToFine(
-        coarse_stage, fine_state, patches,
-        false, 0, apply_scale, scale);
+    AMREX_ALWAYS_ASSERT(cache.work.tags.is_defined() && cache.work.scale_tags.is_defined());
+    AMREX_ALWAYS_ASSERT(cache.work.tags.ntags == coarse_stage.local_size() &&
+                        cache.work.scale_tags.ntags == coarse_stage.local_size());
+    ScopedPerfTimer timer(perf_stats.interp_fillpatch,
+                          !use_osi || params_.perf_osi_detail_timing);
+    // 无本地模板的 rank 仍须参与通信；两种布局都先装入 canonical stage。
+    if (use_osi) {
+        AMREX_ALWAYS_ASSERT(cache.copy.ready);
+        ParallelCopyOsi(cache.copy, osi_fab_phase_cache.at(lev).data(osi_phase.at(lev)));
+    } else {
+        coarse_stage.ParallelCopy(f_old.at(lev), 0, 0, Q, IntVect(0), IntVect(0),
+                                  Geom(lev).periodicity());
+    }
+    ApplyPhysicalBoundaryToInterpolationStage(lev, coarse_stage);
+    if (use_osi) {
+        InterpolateDdfStageBatch<true>(coarse_stage, fine_state, cache.work,
+            osi_fab_phase_cache.at(fine_lev).data(osi_phase.at(fine_lev)), apply_scale, scale);
+    } else {
+        InterpolateDdfStageBatch<false>(coarse_stage, fine_state, cache.work,
+                                       nullptr, apply_scale, scale);
+    }
 }
 
 void AmrCoreLBM::InterpolateDdfStageToFine(
@@ -696,7 +740,9 @@ void AmrCoreLBM::BuildInterpolationCache() {
                 Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct,
                 osi_fab_phase_cache.at(lev - 1)); // 构建粗网格复制所需的缓存信息
 
-            // 仅缓存正常推进所用 stage；重构临时 patch 保持原逐盒实现。
+        }
+        if (coarse_stage.isDefined()) {
+            // 两种布局都缓存正常推进任务；重构临时 patch 保留独立生命周期。
             auto& cache = interpolation_cache.at(lev).work;
             cache.clear();
             Vector<amrex::Array4BoxTag<Real>> scale_tags;
@@ -706,16 +752,16 @@ void AmrCoreLBM::BuildInterpolationCache() {
                 const int fine_index = patch.fine_box_index;
                 const Box target = patch.fine_box;
                 const auto fab = OSI::MakeOsiFabContext(
-                                     amrex::grow(osi_state.at(lev).boxArray()[fine_index],
-                                                 osi_state.at(lev).nGrowVect()),
+                                     amrex::grow(fine_layout.boxArray()[fine_index],
+                                                 fine_layout.nGrowVect()),
                                      0)
                                      .fab;
-                const int fine_local = osi_state.at(lev).localindex(fine_index);
+                const int fine_local = fine_layout.localindex(fine_index);
                 AMREX_ALWAYS_ASSERT(fine_local >= 0);
                 scale_tags.push_back({coarse_stage.array(mfi), mfi.validbox()});
                 tags.push_back({interp_mode == 0 ? target : amrex::coarsen(target, 2),
                                 target, fab, mfi.LocalIndex(), fine_local,
-                                osi_fab_phase_cache.at(lev).slot(fine_index)});
+                                streamMode() == 1 ? osi_fab_phase_cache.at(lev).slot(fine_index) : -1});
             }
             cache.scale_tags.define(scale_tags);
             cache.tags.define(tags);
@@ -772,10 +818,12 @@ void AmrCoreLBM::BuildAverageCache() {
                     average_down_cache.at(lev).interface_buffer, osi_state.at(lev),
                     periodicity, Q, osi_mpi_device_direct,
                     osi_fab_phase_cache.at(lev));
+            }
 #ifdef AMREX_USE_CUDA
+            {
                 Vector<RestrictionBlockTag> tags;
                 const auto& result = average_down_cache.at(lev).interface_buffer;
-                const auto& fine = osi_state.at(lev + 1);
+                const auto& fine = fine_layout;
                 for (MFIter mfi(result, false); mfi.isValid(); ++mfi) {
                     const int fi = average_down_cache.at(lev).fine_box_indices.at(mfi.index());
                     const int local_fine = fine.localindex(fi);
@@ -783,18 +831,18 @@ void AmrCoreLBM::BuildAverageCache() {
                     const auto fab = OSI::MakeOsiFabContext(
                                          amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0)
                                          .fab;
-                    const int slot = osi_fab_phase_cache.at(lev + 1).slot(fi);
+                    const int slot = streamMode() == 1 ? osi_fab_phase_cache.at(lev + 1).slot(fi) : -1;
                     const Box region = mfi.validbox();
                     for (amrex::Long parent = 0; parent < region.numPts();
-                         parent += osi_restriction_parents_per_block) {
+                         parent += restriction_parents_per_block) {
                         tags.push_back({region, fab, parent, mfi.LocalIndex(), local_fine, slot});
                     }
                 }
                 auto& device_tags = average_down_cache.at(lev).block_tags;
                 device_tags.resize(tags.size());
                 Gpu::copy(Gpu::hostToDevice, tags.begin(), tags.end(), device_tags.begin());
-#endif
             }
+#endif
         }
     }
 }

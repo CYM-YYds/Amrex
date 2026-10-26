@@ -130,88 +130,112 @@ void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复
     }
 }
 
+template <bool UseOsiAddress>
+void AmrCoreLBM::AverageDownLayoutLevel(int fine_lev, bool is_scale) {
+    const int coarse_lev = fine_lev - 1;
+    auto& cache = average_down_cache.at(coarse_lev);
+    if (cache.fine_box_indices.empty()) {
+        return;
+    }
+    auto& interface_result = cache.interface_buffer;
+    const auto& fine_state = UseOsiAddress ? osi_state.at(fine_lev) : f_old.at(fine_lev);
+    const auto ratio = refRatio(coarse_lev);
+    const Real scale = Real(2.0) * tau.at(coarse_lev) / tau.at(fine_lev);
+    AMREX_ALWAYS_ASSERT(interface_result.size() == cache.fine_box_indices.size());
+    const OSI::PhaseShift3* shifts = nullptr;
+    if constexpr (UseOsiAddress) {
+        shifts = osi_fab_phase_cache.at(fine_lev).data(osi_phase.at(fine_lev));
+    }
+    for (int index : interface_result.IndexArray()) {
+        const Long parents = interface_result.boxArray()[index].numPts();
+        perf_stats.average_parent_cells += parents;
+        if (is_scale) {
+            perf_stats.average_scale_cells += parents * ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]);
+        }
+    }
+    // 保留 A-B 既有细分计时；OSI 关闭细分时不新增阶段同步。
+    const bool detail = !UseOsiAddress || params_.perf_osi_detail_timing;
+    ScopedPerfTimer avgdown_timer(perf_stats.average_down, detail);
+    {
+        ScopedPerfTimer fused_timer(perf_stats.average_fused, detail);
+#ifdef AMREX_USE_CUDA
+        const auto& work = cache.block_tags;
+        if (!work.empty()) {
+            const auto* tags = work.data();
+            const auto outputs = interface_result.arrays();
+            const auto fines = fine_state.const_arrays();
+            amrex::launch<restriction_threads_per_block>(
+                static_cast<int>(work.size()), Gpu::Device::gpuStream(),
+                [=] AMREX_GPU_DEVICE() noexcept {
+                    const auto tag = tags[blockIdx.x];
+                    const Long parent = tag.first_parent + threadIdx.x / restriction_group_size;
+                    // 整组退出，保证同组的 shuffle 掩码与有效线程一致。
+                    if (parent >= tag.region.numPts()) {
+                        return;
+                    }
+                    const auto lo = amrex::lbound(tag.region);
+                    const int nx = tag.region.length(0), ny = tag.region.length(1);
+                    const int i = lo.x + static_cast<int>(parent % nx);
+                    const Long yz = parent / nx;
+                    const int j = lo.y + static_cast<int>(yz % ny);
+                    const int k = lo.z + static_cast<int>(yz / ny);
+                    const auto shift = UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{};
+#if Q == 27
+                    average_down_to_canonical_half_warp<UseOsiAddress>(
+                        i, j, k, threadIdx.x % restriction_group_size,
+                        outputs[tag.output_local_index], fines[tag.fine_local_index],
+                        tag.fab, shift, scale, is_scale);
+#elif Q == 19
+                    average_down_to_canonical<UseOsiAddress>(
+                        i, j, k, outputs[tag.output_local_index], fines[tag.fine_local_index],
+                        ratio, tag.fab, shift, scale, is_scale);
+#else
+                    average_down_to_canonical_warp<UseOsiAddress>(
+                        i, j, k, threadIdx.x % restriction_group_size,
+                        outputs[tag.output_local_index], fines[tag.fine_local_index],
+                        ratio, tag.fab, shift, scale, is_scale);
+#endif
+                });
+        }
+#else
+        for (MFIter mfi(interface_result, false); mfi.isValid(); ++mfi) {
+            const int fine_index = cache.fine_box_indices.at(mfi.index());
+            const auto context = OSI::MakeOsiFabContext(
+                amrex::grow(fine_state.boxArray()[fine_index], fine_state.nGrowVect()),
+                UseOsiAddress ? osi_phase.at(fine_lev) : 0);
+            const auto coarse = interface_result.array(mfi);
+            const auto fine = fine_state.const_array(fine_index);
+            amrex::ParallelFor(mfi.validbox(), [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                average_down_to_canonical<UseOsiAddress>(
+                    i, j, k, coarse, fine, ratio, context.fab, context.phase_shift, scale, is_scale);
+            });
+        }
+#endif
+    }
+    ScopedPerfTimer copyback_timer(perf_stats.average_copyback, detail);
+    if constexpr (UseOsiAddress) {
+        ParallelCopyOsi(cache.copy, osi_fab_phase_cache.at(coarse_lev).data(osi_phase.at(coarse_lev)),
+                       {&perf_stats.osi_mpi_pack, &perf_stats.osi_mpi_wait, &perf_stats.osi_mpi_unpack});
+    } else {
+        f_old.at(coarse_lev).ParallelCopy(interface_result, 0, 0, Q);
+    }
+}
+
 void AmrCoreLBM::AverageDownInterfaceLevel(int fine_lev, bool is_scale) {
     const int coarse_lev = fine_lev - 1;
     AMREX_ALWAYS_ASSERT(fine_lev > 0 && fine_lev <= finest_level);
     ScopedPerfTimer timer(perf_stats.average);
     ++perf_stats.avgdown_calls;
-
     const bool probe_this_call = probe_.average_first && coarse_lev == 0 && is_scale &&
                                  ++probe_.level0_average_count == 1;
     if (probe_this_call) {
-        ProbeAverageInterfaceLevel(coarse_lev, "before"); // 导出一次界面平均前或后的状态快照，供离线逐单元比较
+        ProbeAverageInterfaceLevel(coarse_lev, "before");
     }
-
     if (streamMode() == 1) {
-        AverageDownOsiLevel(fine_lev, is_scale);
-        if (!osiReferenceEnabled()) {
-            if (probe_this_call) {
-                ProbeAverageInterfaceLevel(coarse_lev, "after");
-            }
-            return;
-        }
-        // 锁步模式继续为 A-B 参考态执行相同的界面平均。
+        AverageDownLayoutLevel<true>(fine_lev, is_scale);
     }
-
-    amrex::MultiFab& fine_mf = f_old[fine_lev];
-    amrex::MultiFab& crse_mf = f_old[coarse_lev];
-
-    const IntVect ratio = refRatio(coarse_lev);
-    // 平均前先将细层非平衡分布函数转换到粗层松弛时间对应的尺度。
-    const Real scale = 2.0 * tau[coarse_lev] / tau[fine_lev];
-    ScopedPerfTimer avgdown_timer(perf_stats.average_down);
-
-    {
-        const Long children_per_parent = ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]);
-        // 交界区域融合路径只处理缓存的 coarse-interface 父单元。
-        MultiFab& interface_result = average_down_cache[coarse_lev].interface_buffer;
-        const Vector<int>& fine_box_indices = average_down_cache[coarse_lev].fine_box_indices;
-        if (fine_box_indices.empty()) {
-            return;
-        }
-
-        AMREX_ALWAYS_ASSERT(interface_result.size() == fine_box_indices.size());
-
-        {
-            // 缩放与插值融合，不写回完整的缩放后 DDF 中间数据。
-            ScopedPerfTimer fused_timer(perf_stats.average_fused);
-            for (MFIter mfi(interface_result, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-                const int fine_index = fine_box_indices[mfi.index()];
-                const Box bx = mfi.tilebox();
-                const Array4<const Real>& fine = fine_mf.const_array(fine_index);
-                const Array4<Real>& coarse = interface_result.array(mfi);
-                perf_stats.average_parent_cells += bx.numPts();
-                if (is_scale) {
-                    perf_stats.average_scale_cells += bx.numPts() * children_per_parent;
-#ifdef AMREX_USE_CUDA
-                    // 一个 warp 负责一个粗层父单元，D3Q27 分量分配给不同 lane；相比
-                    // 单线程负责整个父单元，可显著降低单线程寄存器占用。
-                    LaunchRestrictionWarps(
-                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k, int lane) noexcept {
-                            average_down_lbm_scaled_warp(
-                                i, j, k, lane, coarse, fine, ratio, scale);
-                        });
-#else
-                    amrex::ParallelFor(
-                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                            average_down_lbm_scaled(i, j, k, coarse, fine, ratio, scale);
-                        });
-#endif
-                } else {
-                    amrex::ParallelFor(
-                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                            average_down_lbm(i, j, k, coarse, fine, ratio);
-                        });
-                }
-            }
-        }
-
-        {
-            ScopedPerfTimer copyback_timer(perf_stats.average_copyback);
-            // 稀疏缓冲区沿用细层数据归属；ParallelCopy 负责将结果通过本地复制或
-            // 必要的 MPI 通信写入真实粗层布局。
-            crse_mf.ParallelCopy(interface_result, 0, 0, Q);
-        }
+    if (streamMode() == 0 || osiReferenceEnabled()) {
+        AverageDownLayoutLevel<false>(fine_lev, is_scale);
     }
     if (probe_this_call) {
         ProbeAverageInterfaceLevel(coarse_lev, "after");
@@ -225,7 +249,7 @@ void AmrCoreLBM::FillGhostLevel(int coarse_lev, amrex::Real time, bool is_scale)
     AMREX_ALWAYS_ASSERT(coarse_lev >= 0 && fine_lev <= finest_level);
 
     if (streamMode() == 1) {
-        FillOsiGhostFromCoarse(coarse_lev, time, is_scale);
+        FillDdfGhostFromCoarse(coarse_lev, time, is_scale, DdfLayout::Osi);
         if (osiReferenceEnabled()) {
             // 锁步参考态必须与独立 A-B 一样填充粗到细 ghost。
             FillDdfGhostFromCoarse(coarse_lev, time, is_scale);

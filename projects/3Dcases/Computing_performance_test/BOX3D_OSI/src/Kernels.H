@@ -255,12 +255,12 @@ void compute_shear2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
 
 #endif
 
-template <bool UseOsiAddress>
+template <bool UseOsiAddress, typename T>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     amrex::Real
     load_ddf(
         int i, int j, int k, int q,
-        amrex::Array4<amrex::Real> const& state,
+        amrex::Array4<T> const& state,
         OSI::FabGeometry const& fab,
         OSI::PhaseShift3 const& phase_shift) noexcept {
     if constexpr (UseOsiAddress) {
@@ -2613,11 +2613,11 @@ void average_down_lbm(int i, int j, int k, amrex::Array4<amrex::Real> const& crs
     }
 }
 
-// 从细层 grown-Fab OSI 状态直接读取子单元，把限制结果写入 canonical
-// staging Fab。尺度转换与 average_down_lbm_scaled() 完全相同，只改变寻址。
+// 两种布局按逻辑子单元读取，缩放后平均到 canonical 暂存区。
+template <bool UseOsiAddress>
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void average_down_osi_to_canonical(
+void average_down_to_canonical(
     int i, int j, int k, amrex::Array4<amrex::Real> const& coarse,
     amrex::Array4<amrex::Real const> const& fine,
     amrex::IntVect const& ratio, OSI::FabGeometry fine_fab,
@@ -2637,10 +2637,8 @@ void average_down_osi_to_canonical(
                 // 无缩放时直接累加 DDF，不恢复宏观量或暂存全部方向。
                 if (!apply_scale) {
                     for (int q = 0; q < Q; ++q) {
-                        const auto src = OSI::osi_address(
-                            {ii, jj, kk}, {e[q][0], e[q][1], lattice_ez(q)},
-                            fine_fab, fine_shift);
-                        restricted[q] += fine(src.x, src.y, src.z, q);
+                        restricted[q] += load_ddf<UseOsiAddress>(
+                            ii, jj, kk, q, fine, fine_fab, fine_shift);
                     }
                     continue;
                 }
@@ -2651,10 +2649,8 @@ void average_down_osi_to_canonical(
                 Real uz = 0.0;
 
                 for (int q = 0; q < Q; ++q) {
-                    const auto src = OSI::osi_address(
-                        {ii, jj, kk}, {e[q][0], e[q][1], lattice_ez(q)},
-                        fine_fab, fine_shift);
-                    fq[q] = fine(src.x, src.y, src.z, q);
+                    fq[q] = load_ddf<UseOsiAddress>(
+                        ii, jj, kk, q, fine, fine_fab, fine_shift);
                     rho += fq[q];
                     ux += fq[q] * e[q][0];
                     uy += fq[q] * e[q][1];
@@ -2676,58 +2672,6 @@ void average_down_osi_to_canonical(
         Real(1.0) / Real(ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]));
     for (int q = 0; q < Q; ++q) {
         coarse(i, j, k, q) = restricted[q] * inv_children;
-    }
-}
-
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void average_down_lbm_scaled(int i, int j, int k,
-                             amrex::Array4<amrex::Real> const& crse,
-                             amrex::Array4<amrex::Real const> const& fine,
-                             amrex::IntVect const& ratio, amrex::Real scale) noexcept {
-    Real restricted[Q];
-    for (int q = 0; q < Q; ++q) {
-        restricted[q] = 0.0;
-    }
-
-    const int fi = i * ratio[0];
-    const int fj = j * ratio[1];
-    const int fk = k * AMREX_D_PICK(1, 1, ratio[2]);
-
-    for (int kr = 0; kr < AMREX_D_PICK(1, 1, ratio[2]); ++kr) {
-        for (int jr = 0; jr < ratio[1]; ++jr) {
-            for (int ir = 0; ir < ratio[0]; ++ir) {
-                const int ii = fi + ir;
-                const int jj = fj + jr;
-                const int kk = fk + kr;
-                Real rho = 0.0;
-                Real ux = 0.0;
-                Real uy = 0.0;
-                Real uz = 0.0;
-
-                for (int q = 0; q < Q; ++q) {
-                    const Real fq = fine(ii, jj, kk, q);
-                    rho += fq;
-                    ux += fq * e[q][0];
-                    uy += fq * e[q][1];
-                    uz += fq * lattice_ez(q);
-                }
-
-                ux /= rho;
-                uy /= rho;
-                uz /= rho;
-                for (int q = 0; q < Q; ++q) {
-                    const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
-                    const Real fq = fine(ii, jj, kk, q);
-                    restricted[q] += feq + (fq - feq) * scale;
-                }
-            }
-        }
-    }
-
-    const Real inv_children = Real(1.0) / Real(ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]));
-    for (int q = 0; q < Q; ++q) {
-        crse(i, j, k, q) = restricted[q] * inv_children;
     }
 }
 
@@ -2753,7 +2697,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE
     return __shfl_sync(mask, value, 0, 16);
 }
 
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_osi_to_canonical_half_warp(
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_to_canonical_half_warp(
     int i, int j, int k, int lane,
     amrex::Array4<Real> coarse, amrex::Array4<const Real> fine,
     OSI::FabGeometry fine_fab, OSI::PhaseShift3 fine_shift,
@@ -2765,16 +2710,14 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_osi_to_canonical_half_warp
     for (int kr = 0; kr < 2; ++kr) {
         for (int jr = 0; jr < 2; ++jr) {
             for (int ir = 0; ir < 2; ++ir) {
-                const auto src0 = OSI::osi_address(
-                    {2 * i + ir, 2 * j + jr, 2 * k + kr},
-                    {e[q0][0], e[q0][1], lattice_ez(q0)}, fine_fab, fine_shift);
-                const Real f0 = fine(src0.x, src0.y, src0.z, q0);
+                const Real f0 = load_ddf<UseOsiAddress>(
+                    2 * i + ir, 2 * j + jr, 2 * k + kr, q0,
+                    fine, fine_fab, fine_shift);
                 Real f1 = 0.0;
                 if (q1 < Q) {
-                    const auto src1 = OSI::osi_address(
-                        {2 * i + ir, 2 * j + jr, 2 * k + kr},
-                        {e[q1][0], e[q1][1], lattice_ez(q1)}, fine_fab, fine_shift);
-                    f1 = fine(src1.x, src1.y, src1.z, q1);
+                    f1 = load_ddf<UseOsiAddress>(
+                        2 * i + ir, 2 * j + jr, 2 * k + kr, q1,
+                        fine, fine_fab, fine_shift);
                 }
                 if (apply_scale) {
                     const Real rho = half_warp_sum_16(f0 + f1, mask);
@@ -2807,9 +2750,10 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_osi_to_canonical_half_warp
 }
 #endif
 
+template <bool UseOsiAddress>
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
-void average_down_osi_to_canonical_warp(
+void average_down_to_canonical_warp(
     int i, int j, int k, int q,
     amrex::Array4<amrex::Real> const& coarse,
     amrex::Array4<amrex::Real const> const& fine,
@@ -2828,11 +2772,8 @@ void average_down_osi_to_canonical_warp(
             for (int ir = 0; ir < ratio[0]; ++ir) {
                 Real fq = 0.0;
                 if (q < Q) {
-                    const auto src = OSI::osi_address(
-                        {fi + ir, fj + jr, fk + kr},
-                        {e[q][0], e[q][1], lattice_ez(q)}, fine_fab,
-                        fine_shift);
-                    fq = fine(src.x, src.y, src.z, q);
+                    fq = load_ddf<UseOsiAddress>(
+                        fi + ir, fj + jr, fk + kr, q, fine, fine_fab, fine_shift);
                 }
 
                 if (apply_scale) {
@@ -2856,43 +2797,7 @@ void average_down_osi_to_canonical_warp(
     }
 }
 
-AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void average_down_lbm_scaled_warp(int i, int j, int k, int q,
-                                  amrex::Array4<amrex::Real> const& crse,
-                                  amrex::Array4<amrex::Real const> const& fine,
-                                  amrex::IntVect const& ratio, amrex::Real scale) noexcept {
-    const int fi = i * ratio[0];
-    const int fj = j * ratio[1];
-    const int fk = k * AMREX_D_PICK(1, 1, ratio[2]);
-    const int nchildren = ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]);
-    Real restricted = 0.0;
-    const Real inv_children = Real(1.0) / Real(nchildren);
 
-    for (int kr = 0; kr < AMREX_D_PICK(1, 1, ratio[2]); ++kr) {
-        for (int jr = 0; jr < ratio[1]; ++jr) {
-            for (int ir = 0; ir < ratio[0]; ++ir) {
-                const int ii = fi + ir;
-                const int jj = fj + jr;
-                const int kk = fk + kr;
-                const Real fq = q < Q ? fine(ii, jj, kk, q) : Real(0.0);
-                const Real rho = warp_sum_32(fq);
-                const Real ux = warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0)) / rho;
-                const Real uy = warp_sum_32(q < Q ? fq * e[q][1] : Real(0.0)) / rho;
-                const Real uz = warp_sum_32(q < Q ? fq * lattice_ez(q) : Real(0.0)) / rho;
-
-                if (q < Q) {
-                    const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
-                    restricted += feq + (fq - feq) * scale;
-                }
-            }
-        }
-    }
-
-    if (q < Q) {
-        crse(i, j, k, q) = restricted * inv_children;
-    }
-}
 #endif
 
 struct AmrCoreFill {

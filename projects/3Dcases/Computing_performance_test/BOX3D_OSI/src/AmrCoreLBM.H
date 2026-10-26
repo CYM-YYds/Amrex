@@ -60,7 +60,7 @@ struct BoundaryWorkCache {
     }
 };
 
-// 正常 OSI 插值的布局任务；重网格临时 patch 继续使用独立的逐盒路径。
+// 正常推进共用的插值布局任务；重网格临时 patch 保留独立生命周期。
 struct InterpolationBatchTag {
     amrex::Box region;
     amrex::Box target;
@@ -127,15 +127,11 @@ struct AverageDownLevelCache {
         fine_box_indices.clear();
     }
 };
-inline constexpr int restriction_threads_per_block = 256;
-inline constexpr int restriction_warp_size = 32;
-// 批量 OSI 平均按编译期格子选取已验证映射；A-B 的整 warp 启动保持独立。
-inline constexpr int osi_restriction_threads_per_block =
-    (Q == 19 || Q == 27) ? 128 : restriction_threads_per_block;
-inline constexpr int osi_restriction_group_size =
-    Q == 19 ? 1 : (Q == 27 ? 16 : restriction_warp_size);
-inline constexpr int osi_restriction_parents_per_block =
-    osi_restriction_threads_per_block / osi_restriction_group_size;
+// 两种布局共用格子专用映射；布局差异只影响 DDF 寻址。
+inline constexpr int restriction_threads_per_block = (Q == 19 || Q == 27) ? 128 : 256;
+inline constexpr int restriction_group_size = Q == 19 ? 1 : (Q == 27 ? 16 : 32);
+inline constexpr int restriction_parents_per_block =
+    restriction_threads_per_block / restriction_group_size;
 
 class ScopedPerfTimer {
   public:
@@ -155,37 +151,6 @@ class ScopedPerfTimer {
     bool m_enabled;
     double m_start;
 };
-#ifdef AMREX_USE_CUDA
-// canonical A-B 平均保留整 warp；与批量 OSI 的格子专用启动参数分离。
-template <typename ParentOperation>
-void LaunchRestrictionWarps(const amrex::Box& box, ParentOperation operation) {
-    constexpr int threads_per_block = restriction_threads_per_block;
-    constexpr int warp_size = restriction_warp_size;
-    constexpr int warps_per_block = threads_per_block / warp_size;
-    static_assert(Q <= warp_size);
-    const amrex::Long ncells = box.numPts();
-    const int nblocks = static_cast<int>(
-        (ncells + warps_per_block - 1) / warps_per_block);
-    const auto lo = amrex::lbound(box);
-    const int nx = box.length(0);
-    const int ny = box.length(1);
-    amrex::launch<threads_per_block>(
-        nblocks, amrex::Gpu::Device::gpuStream(),
-        [=] AMREX_GPU_DEVICE() noexcept {
-            const int lane = threadIdx.x % warp_size;
-            const int warp_in_block = threadIdx.x / warp_size;
-            const amrex::Long icell =
-                static_cast<amrex::Long>(blockIdx.x) * warps_per_block + warp_in_block;
-            if (icell < ncells) {
-                const int i = lo.x + static_cast<int>(icell % nx);
-                const amrex::Long yz = icell / nx;
-                const int j = lo.y + static_cast<int>(yz % ny);
-                const int k = lo.z + static_cast<int>(yz / ny);
-                operation(i, j, k, lane);
-            }
-        });
-}
-#endif
 } // namespace Box3dDetail
 
 class AmrCoreLBM : public amrex::AmrCore {
@@ -341,10 +306,15 @@ class AmrCoreLBM : public amrex::AmrCore {
     void RebuildCoarseFineCaches();
     // lev 表示当前粗层；函数填充 lev + 1 细层的 DDF ghost。
     void FillDdfGhostFromCoarse(int lev, amrex::Real time,
-                                bool apply_scale);
+                                bool apply_scale, DdfLayout layout = DdfLayout::Canonical);
     // lev 表示当前粗层；函数处理 lev + 1 的粗网格插值暂存区。
     void ApplyPhysicalBoundaryToInterpolationStage(
         int coarse_lev, amrex::MultiFab& stage);
+    template <bool UseOsiAddress>
+    void InterpolateDdfStageBatch(
+        amrex::MultiFab& stage, amrex::MultiFab& fine,
+        const Box3dDetail::InterpolationBatchCache& work,
+        const OSI::PhaseShift3* shifts, bool apply_scale, amrex::Real scale);
     void InterpolateDdfStageToFine(
         amrex::MultiFab& stage, amrex::MultiFab& fine,
         const amrex::Vector<Box3dDetail::InterpolationPatchTag>& patches,
@@ -519,11 +489,9 @@ class AmrCoreLBM : public amrex::AmrCore {
                         std::uint64_t phase,
                         amrex::MultiFab& canonical) const;
     void AverageDownOsiValidLevel(int lev, bool is_scale);
-    // lev 表示当前粗层；函数填充 lev + 1 细层的 OSI ghost。
-    void FillOsiGhostFromCoarse(int lev, amrex::Real time,
-                                bool apply_scale);
-    // fine_lev 表示当前细层；将 fine_lev 平均下传到 fine_lev - 1 粗层。
-    void AverageDownOsiLevel(int fine_lev, bool is_scale);
+    // 两种布局共享平均计算和批量启动，写回按目标布局选择搬运方式。
+    template <bool UseOsiAddress>
+    void AverageDownLayoutLevel(int fine_lev, bool is_scale);
     // 缓存重载统一执行插值/平均搬运，不重建布局计划。
     template <bool SourceRaw>
     void ParallelCopyOsi(OSI::CpcCache<SourceRaw>& cache,

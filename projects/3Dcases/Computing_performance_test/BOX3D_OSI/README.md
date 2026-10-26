@@ -114,7 +114,7 @@ BOX3D_OSI/
 | [AmrCoreLBM.cpp](src/AmrCoreLBM.cpp) | 构造与参数读取、`ComputeMacroLevel`、PlotFile、`WriteCheckpoint`/`ReadCheckpoint`、粒子接口 |
 | [AmrCoreLBM_amr.cpp](src/AmrCoreLBM_amr.cpp) | `MakeNewLevel*`/`RemakeLevel`/`ClearLevel`/`ErrorEst` 等 AMReX 回调；`RefineMesh`、覆盖 mask、插值/平均缓存、模板覆盖检查 |
 | [AmrCoreLBM_advance.cpp](src/AmrCoreLBM_advance.cpp) | `AdvanceLevel`、Collide/Stream/Boundary/Swap；`FillGhostLevel`、`CommunicateLevel` 等布局分派；界面/完整平均及平均后物理边界修复；涡量与剪切 |
-| [AmrCoreLBM_osi.cpp](src/AmrCoreLBM_osi.cpp) | `DecodeOsiValid`；`FillOsiGhostFromCoarse`、`AverageDownOsi*`；`FillBoundaryOsi` 分派后的通信实现、通信缓存与 `ParallelCopyOsi` 重网格迁移 |
+| [AmrCoreLBM_osi.cpp](src/AmrCoreLBM_osi.cpp) | `DecodeOsiValid`、完整 valid 平均 `AverageDownOsiValidLevel`；`FillBoundaryOsi` 分派后的通信实现、通信缓存与 `ParallelCopyOsi` 重网格迁移 |
 | [AmrCoreLBM_diagnostics.cpp](src/AmrCoreLBM_diagnostics.cpp) | 阶段级/逐 cell 对照、Stream 源诊断、checksum、checkpoint 对比和收敛测量；不是生产推进入口 |
 | [OsiAbVerification.H/.cpp](src/OsiAbVerification.H) | 按 `verification.*` 配置安排 regrid 前后、首次 FillGhost 和推进后的检查；实际比较由驱动类诊断函数执行 |
 | [OsiIndex.H](src/OsiIndex.H) | `FabGeometry`、`PhaseShift3`、`MakeOsiFabContext(ring, phase)` 和 `osi_address`；只计算索引，不拥有 level 状态 |
@@ -351,11 +351,12 @@ PlotFile 写入时失败；完整运行状态、覆盖结果和未解决事项�
 普通粗到细插值缓存会检查父层 valid 模板覆盖，考虑周期像及物理边界延拓；
 域内缺口立即报错，当前没有自动多层递归补缺。
 
-正常 OSI 粗到细插值使用按布局缓存的批量缩放/插值任务；CUDA 界面平均合并各
+正常 A-B/OSI 粗到细插值共用按布局缓存的批量缩放/插值任务；CUDA 界面平均共用内核并合并各
 interface Box 启动，并按编译期Q选择映射：Q27半warp/父单元、Q19单线程/父单元，
 均为128线程/block；二维Q9保持整warp/父单元、256线程/block。
 正式默认模型仍为三维Q27、二维Q9，不提供运行时Q19切换开关。
-任务随既有粗细缓存重建/失效，相位从共享表取得；canonical、重网格临时插值与CPU平均保留各自路径。
+任务随既有粗细缓存重建/失效，执行时取得当前数组与 OSI 相位。两种布局仅在 DDF 寻址和通信搬运处分派；
+重网格临时插值保留独立任务生命周期，CPU 界面平均共用标量计算核；完整 valid 平均保持原有范围与实现。
 机制见[粗细层传输](docs/osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)，
 正式程序与最新验收范围见[当前状态](docs/current_status.md)。
 

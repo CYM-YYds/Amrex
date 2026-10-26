@@ -97,6 +97,28 @@ int main() {
         for(int q=0;q<Q;++q) near(load_ddf<true>(i,j,k,q,raw.a,context.fab,context.phase_shift),canonical.a(i,j,k,q),"OSI collision");
     });
     for(int q=0;q<Q;++q) near(legacy.a(0,0,0,q),canonical.a(0,0,0,q),"BGK baseline");
+    // 独立的先缩放、再平均作为融合内核对照；覆盖相位绕环与关闭缩放。
+    for (std::uint64_t phase : {std::uint64_t(0), std::uint64_t(1), std::uint64_t(17)}) {
+        const auto ctx = OSI::MakeOsiFabContext(raw.box, phase);
+        cells(raw.box, [&](int i, int j, int k) {
+            for (int q = 0; q < Q; ++q) {
+                const auto p = OSI::osi_address({i,j,k}, {e[q][0], e[q][1], lattice_ez(q)}, ctx.fab, ctx.phase_shift);
+                raw.a(p.x,p.y,p.z,q) = canonical.a(i,j,k,q);
+            }
+        });
+        for (bool scaled : {false, true}) {
+            Field workspace(-2,2,Q), expected(0,0,Q), ab_result(0,0,Q), osi_result(0,0,Q);
+            std::copy(canonical.data.begin(), canonical.data.end(), workspace.data.begin());
+            if (scaled) cells(workspace.box, [&](int i,int j,int k) { average_scale(i,j,k,workspace.a,Real(.7)); });
+            average_down_lbm(0,0,0,expected.a,workspace.a,IntVect(2));
+            average_down_to_canonical<false>(0,0,0,ab_result.a,canonical.a,IntVect(2),{}, {},Real(.7),scaled);
+            average_down_to_canonical<true>(0,0,0,osi_result.a,raw.a,IntVect(2),ctx.fab,ctx.phase_shift,Real(.7),scaled);
+            for (int q=0;q<Q;++q) {
+                near(ab_result.a(0,0,0,q), expected.a(0,0,0,q), "fused AB restriction");
+                near(osi_result.a(0,0,0,q), expected.a(0,0,0,q), "fused OSI restriction");
+            }
+        }
+    }
     cells(velocity.box,[&](int i,int j,int k) {
         velocity.a(i,j,k,0)=-j;velocity.a(i,j,k,1)=i;
 #if AMREX_SPACEDIM == 3

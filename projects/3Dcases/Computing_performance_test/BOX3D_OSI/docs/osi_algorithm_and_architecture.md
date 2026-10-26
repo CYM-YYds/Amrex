@@ -532,22 +532,27 @@ fine raw（当前 phase）-> 融合 scaling/restriction，直接读取子单元
 ```
 
 该 staging 只覆盖插值所需粗层源区或稀疏界面限制结果；二维一次处理Q=9、三维一次处理Q=27。
-`AverageDownOsiLevel` 不解码完整细层；重构前的全valid restriction `AverageDownOsiValidLevel` 则使用独立的函数局部canonical工作区，两者范围不同。
-正常OSI推进的 `FillOsiGhostFromCoarse` 使用按细层保存的
-`osi_interpolation_work_cache`：一次批量缩放各coarse stage Fab，再按interp_mode
-批量执行既有数值函数。mode0按fine目标单元，mode1/2按coarse parent派发并裁剪到目标盒。
-`InterpolateDdfStageToFine`仍服务canonical和重网格临时patch，不复用正常推进的持久任务。
-插值准备阶段的物理域外延拓仍按需要填充的Box启动，不能将所有边界处理都称作已批量化。
+正常界面平均 `AverageDownLayoutLevel<UseOsiAddress>` 不解码完整细层；
+完整 valid restriction `AverageDownOsiValidLevel` 使用独立的函数局部 canonical 工作区，两者范围不同。
+正常 A-B/OSI 推进都调用 `FillDdfGhostFromCoarse`，按布局装入同一 canonical stage，
+再由 `InterpolateDdfStageBatch<UseOsiAddress>` 共用批量缩放和插值提交。
+任务由细层的 `interpolation_cache[lev].work` 持有：mode 0 按 fine 目标单元，
+mode 1/2 按 coarse parent 派发并裁剪到目标盒。
+`InterpolateDdfStageToFine` 服务重网格临时 patch，不复用正常推进的持久任务。
+插值准备阶段的物理域外延拓仍按需要填充的 Box 启动。
 
-CUDA界面平均使用 `osi_restriction_block_tags` 合并所有本地interface Box提交。
-映射由编译期Q确定：Q27每16 lane处理一个父单元、128线程/block，每block最多8个父单元；
-Q19每线程处理一个父单元、128线程/block，每block最多128个父单元，复用既有标量平均函数。
-Q27半warp每lane保存q=lane及q=lane+16两槽，分别对每个细子单元归约rho/动量、缩放后累加，
-两个半warp使用独立shuffle掩码，尾部父单元整组退出。
-二维Q9保持32 lane/父单元和256线程/block。缓存建表与执行共用
-`osi_restriction_parents_per_block`及对应group/thread常量，避免遗漏或重复父单元。
-CPU平均保持逐盒实现；canonical A-B的整warp启动参数独立，
-`AverageDownOsiValidLevel`完整平均也不属于该批量界面路径。平均后的边界修复仍调用既有薄面批量任务。
+CUDA 界面平均使用 `average_down_cache[coarse_lev].block_tags` 合并所有本地 interface Box 提交。
+两种布局共用映射和数值函数，`load_ddf<UseOsiAddress>` 在编译期选择直接读取或 OSI 地址映射；
+结果都先写入 canonical interface buffer，再分别用 `ParallelCopy` 或 `ParallelCopyOsi` 写回粗层。
+映射由编译期 Q 确定：Q27 每 16 lane 处理一个父单元、128 线程/block，每 block 最多 8 个父单元；
+Q19 每线程处理一个父单元、128 线程/block。默认模型仍为三维 Q27、二维 Q9，不提供运行时 Q19 切换。
+Q27 半 warp 每 lane 保存 q=lane 及 q=lane+16 两槽，分别对每个细子单元归约 rho/动量、缩放后累加，
+两个半 warp 使用独立 shuffle 掩码，尾部父单元整组退出。
+二维 Q9 使用 32 lane 合作处理一个父单元、256 线程/block，避免旧 OSI 标量分支的同父单元重复写入。
+缓存建表与执行共用 `restriction_parents_per_block` 及对应 group/thread 常量。
+任务只绑定几何和布局索引，执行时取当前数组与 phase，避免 A-B 双缓冲交换后访问旧数组。
+CPU 界面平均保持逐盒提交，共用 `average_down_to_canonical<UseOsiAddress>` 标量核。
+完整 valid 平均保持原有实现；平均后的边界修复仍调用既有薄面批量任务。
 
 上述任务分别由 `BuildInterpolationCache`/`BuildAverageCache` 派生，
 `ClearOsiTransferCaches`在任一侧布局/存储改变前使其失效，随后由既有粗细缓存重建流程恢复。
