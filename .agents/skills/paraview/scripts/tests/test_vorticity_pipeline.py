@@ -23,6 +23,40 @@ class VorticityTests(unittest.TestCase):
             str(client), init_globals={'_PV_BRIDGE_DEFINITIONS_ONLY': True})['publication_vorticity'])
         cls.amr_script = runpy.run_path(
             str(client), init_globals={'_PV_BRIDGE_DEFINITIONS_ONLY': True})['AMR_CELL_VORTICITY_SCRIPT']
+        cls.repair_slice = staticmethod(runpy.run_path(
+            str(client), init_globals={'_PV_BRIDGE_DEFINITIONS_ONLY': True})['repair_vorticity_slice'])
+
+    def test_existing_slice_repair_preserves_plane_display_and_camera(self):
+        image = pvs.Wavelet()
+        image.WholeExtent = [-4, 4, -4, 4, -4, 4]
+        vector = pvs.Calculator(Input=image)
+        vector.ResultArrayName = 'test_velocity'
+        vector.Function = '-coordsY*iHat + coordsX*jHat'
+        cells = pvs.PointDatatoCellData(Input=vector)
+        gradient = pvs.Gradient(Input=cells)
+        gradient.ScalarArray = ['CELLS', 'test_velocity']
+        gradient.ComputeVorticity = 1
+        section = pvs.Slice(registrationName='repair_test_slice', Input=gradient)
+        section.SliceType.Origin = [0, 0.75, 0]
+        section.SliceType.Normal = [0, 1, 0]
+        view = pvs.CreateView('RenderView')
+        display = pvs.Show(section, view)
+        pvs.ColorBy(display, ('CELLS', 'Vorticity'))
+        pvs.ResetCamera(view)
+        pvs.Render(view)
+        camera = list(view.CameraPosition)
+        colors = list(display.ColorArrayName)
+        display_id = display.GetGlobalIDAsString()
+        result = self.repair_slice({'source': 'repair_test_slice'})
+        self.assertEqual(result['slice'], section.GetGlobalIDAsString())
+        self.assertEqual(result['previous_gradient'], gradient.GetGlobalIDAsString())
+        self.assertEqual(result['vorticity_range'], [2.0, 2.0])
+        self.assertEqual(list(section.SliceType.Origin), [0, 0.75, 0])
+        self.assertEqual(list(section.SliceType.Normal), [0, 1, 0])
+        self.assertEqual(list(view.CameraPosition), camera)
+        self.assertEqual(list(display.ColorArrayName), colors)
+        self.assertEqual(pvs.GetDisplayProperties(section, view).GetGlobalIDAsString(), display_id)
+        self.assertNotEqual(section.GetProperty('Input')[0].GetGlobalIDAsString(), result['previous_gradient'])
 
     def test_covered_coarse_cells_do_not_corrupt_visible_curl(self):
         import numpy as np

@@ -16,11 +16,11 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '6'
+BRIDGE_VERSION = '7'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
-                'add_vorticity_view', 'publication_vorticity', 'reload_client']
+                'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'reload_client']
 
 # 代码随 ProgrammableFilter 在数据所在 rank 执行；不依赖 Windows 上的仓库模块路径。
 # 仅在求导副本中解除细层覆盖，输出恢复原掩膜，避免改动输入或重复显示粗细层。
@@ -313,6 +313,59 @@ def add_vorticity_view(command):
             pvs.Delete(proxy)
         pvs.SetActiveSource(previous_source)
         pvs.SetActiveView(previous_view)
+        raise
+
+
+def repair_vorticity_slice(command):
+    """只替换指定切片的旋度输入，复用求导修复并保留已有显示对象。"""
+    name = command.get('source', '')
+    matches = [s for (n, _), s in pvs.GetSources().items() if n == name]
+    if len(matches) != 1 or matches[0].GetXMLName() != 'Cut':
+        raise ValueError('source must identify exactly one existing Slice')
+    section = matches[0]
+    old = section.GetProperty('Input')[0]
+    if old.GetXMLName() != 'Gradient':
+        raise ValueError('The existing Slice must directly follow a native Gradient; no input was changed')
+    association, array_name = list(old.ScalarArray)
+    if association != 'CELLS':
+        raise ValueError('This repair requires three-dimensional cell velocity')
+    velocity = old.GetProperty('Input')[0]
+    views = [v for v in pvs.GetViews() if v.GetXMLName() == 'RenderView'
+             and v.SMProxy.FindRepresentation(section.SMProxy, 0) is not None]
+    current_time = views[0].ViewTime if views else pvs.GetAnimationScene().AnimationTime
+    velocity.UpdatePipeline(time=current_time)
+    bounds = list(velocity.GetDataInformation().GetBounds())
+    if any(bounds[2*i] >= bounds[2*i+1] for i in range(3)):
+        raise ValueError('Velocity input is not three-dimensional; compute curl before slicing')
+    if array_name not in velocity.CellData.keys() or velocity.CellData[array_name].GetNumberOfComponents() != 3:
+        raise ValueError('Gradient input must contain its selected three-component cell vector')
+    output_name = str(old.VorticityArrayName)
+    # 只替换固定脚本中的数组名字，不执行命令传入的代码。
+    script = AMR_CELL_VORTICITY_SCRIPT.replace("'VelocityForVorticity'", repr(array_name))
+    script = script.replace("'Vorticity'", repr(output_name))
+    fixed = pvs.ProgrammableFilter(registrationName=name + '_AMR_vorticity', Input=velocity)
+    fixed.Script = script
+    try:
+        fixed.UpdatePipeline(time=current_time)
+        if output_name not in fixed.CellData.keys():
+            raise ValueError('Corrected filter did not generate the requested vorticity')
+        import math
+        data_range = list(fixed.CellData[output_name].GetRange(-1))
+        if not all(math.isfinite(v) for v in data_range):
+            raise ValueError('Corrected vorticity has a nonfinite range')
+        section.Input = fixed
+        section.UpdatePipeline(time=current_time)
+        for view in views:
+            pvs.Render(view)
+        return {'source': name, 'slice': section.GetGlobalIDAsString(), 'time': current_time,
+                'previous_gradient': old.GetGlobalIDAsString(), 'gradient': fixed.GetGlobalIDAsString(),
+                'velocity_input': velocity.GetGlobalIDAsString(), 'velocity_array': array_name,
+                'vorticity_array': output_name, 'vorticity_range': data_range,
+                'views': [v.GetGlobalIDAsString() for v in views],
+                'preserved': 'existing Slice, plane, displays, cameras and color maps; original Gradient retained'}
+    except Exception:
+        section.Input = old
+        pvs.Delete(fixed)
         raise
 
 
@@ -663,6 +716,8 @@ class ParaViewBridge:
             return export_centerline(command)
         if action == 'add_vorticity_view':
             return add_vorticity_view(command)
+        if action == 'repair_vorticity_slice':
+            return repair_vorticity_slice(command)
         if action == 'publication_vorticity':
             return publication_vorticity(command)
         if action == 'inspect':
@@ -676,6 +731,9 @@ class ParaViewBridge:
                     'source_details': [
                         {'name': name, 'id': key, 'type': source.GetXMLName(),
                          'level': int(source.Level) if source.GetProperty('Level') else None,
+                         'inputs': [source.GetProperty('Input').SMProperty.GetProxy(i).GetGlobalIDAsString()
+                                    for i in range(source.GetProperty('Input').SMProperty.GetNumberOfProxies())]
+                                   if source.GetProperty('Input') else [],
                          'files': list(source.FileNames) if source.GetProperty('FileNames') else []}
                         for (name, key), source in pvs.GetSources().items() if source is not None],
                     'views': [v.GetXMLName() for v in pvs.GetViews()]}

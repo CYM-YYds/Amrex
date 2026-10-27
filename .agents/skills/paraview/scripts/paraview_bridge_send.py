@@ -93,7 +93,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', nargs='?', default='current')
     parser.add_argument('action', choices=['inspect', 'background', 'restore_background', 'export_centerline',
-                                         'add_vorticity_view', 'publication_vorticity', 'client_manifest', 'client_status', 'reload_client'])
+                                         'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'client_manifest', 'client_status', 'reload_client'])
     parser.add_argument('--color', nargs=3, type=float)
     parser.add_argument('--input')
     parser.add_argument('--output')
@@ -139,6 +139,10 @@ if __name__ == '__main__':
             parser.error('export_centerline requires --input and --output')
         options = {'input': args.input, 'output': args.output,
                    'resolution': args.resolution, 'max_level': args.max_level}
+    elif args.action == 'repair_vorticity_slice':
+        if not args.source:
+            parser.error('repair_vorticity_slice requires --source')
+        options = {'source': args.source}
     elif args.action == 'publication_vorticity':
         if not args.source or args.color_range is None:
             parser.error('publication_vorticity requires --source and --color-range')

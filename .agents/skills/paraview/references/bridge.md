@@ -91,6 +91,19 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 热更新桥脚本不会改写已有 Gradient 管线；需重新执行 `add_vorticity_view` 创建修复视图，
 原视图保留用于比较。
 
+已有 `Calculator → Gradient → Slice` 管线可原位修复，保留切片与显示：
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current repair_vorticity_slice \
+  --source Slice3 --timeout 600
+```
+
+`--source` 精确指定唯一切片名称；要求它直接连接原生 Gradient，且 Gradient 的输入为
+三维单元速度向量。复用原速度数组和覆盖掩膜修复，只把该切片的 Input 接到新的求导过滤器；
+原 Gradient 保留，切片平面、显示对象、相机与色标不重建。该操作只输出旋度，原 Gradient 的
+其他派生量仍留在原管线上；已有非原生 Gradient 或二维速度输入会在修改连接前拒绝。
+操作失败时恢复原输入。热更新后再使用；超时先查看同 ID 的回执，不重复投递。
+
 已有涡量切片可使用 `publication_vorticity` 原位排版：
 
 ```bash
