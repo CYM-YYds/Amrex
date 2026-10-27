@@ -1,8 +1,10 @@
 # 后处理脚本使用指南
 
+当前 ParaView 连接、桥接、AMR 涡量修复和日志获取统一见 [ParaView skill](../.agents/skills/paraview/SKILL.md)。下文介绍两项独立的二维提取与 CSV 比较工具，不代表整个目录仅有这两个脚本。
+
 ## 📁 脚本文件清单
 
-整理后的后处理脚本共 **2 个核心脚本**：
+本节介绍 **2 项提取与比较工具**：
 
 ### 1. 📊 **data_extraction.py** - AMReX数据提取与导出脚本
 
@@ -29,13 +31,15 @@ PROJECT_FOLDERS = ['Cylinder2D_BTDF1', ...]         # 项目名称列表
 - 列：Points:0, Points:1, Points:2, Velocity:0, ..., ux, uy
 - 行数：与输入数据一致
 
-**运行方法：**
+**运行方法（以下路径相对本目录）：**
 ```python
-# 在 ParaView 中
+# 在 ParaView Python Shell 中
 exec(open('data_extraction.py').read())
+```
 
-# 或在命令行
-python data_extraction.py
+```bash
+# 或在 whshare-agent-1 上使用应用自带解释器，环境与启动方式见 ParaView skill
+../.tools/paraview-mpi/env/bin/pvbatch --force-offscreen-rendering data_extraction.py
 ```
 
 ---
@@ -75,11 +79,14 @@ RESULT_OUTPUT_FILE = '/path/to/errors.csv'  # 结果文件名
 - 列：File, Points, L2_ux, L2_uy, L2_velocity, Relative_L2_ux%, Relative_L2_uy%, Relative_L2_velocity%
 
 **运行方法：**
-```python
-# 在 Python 中
-python l2_error_calculator.py
+```bash
+# 在本目录的终端中
+../.venv/bin/python l2_error_calculator.py
+```
 
-# 或作为模块导入
+在仓库虚拟环境的 Python 中也可作为模块导入：
+
+```python
 from l2_error_calculator import calculate_l2_error_single
 result = calculate_l2_error_single('ref.csv', 'comp.csv')
 ```

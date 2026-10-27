@@ -88,8 +88,8 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 参与本层差分；输出恢复原覆盖掩膜，输入不变。该标记由读取器生成，不等同于 PlotFile
 导出 ghost。修复依赖被覆盖粗速度有效，不补充缺失的块间 ghost，也不构造跨层差分。
 结果为物理坐标下未乘 H/U 的旋度；块边界与粗细离散误差仍需单独验证。
-热更新桥脚本不会改写已有 Gradient 管线；需重新执行 `add_vorticity_view` 创建修复视图，
-原视图保留用于比较。
+热更新桥脚本不会自动改写已有 Gradient 管线。需要新视图时使用 `add_vorticity_view`；
+保留现有切片时使用下述 `repair_vorticity_slice`。
 
 已有 `Calculator → Gradient → Slice` 管线可原位修复，保留切片与显示：
 
@@ -103,6 +103,8 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 原 Gradient 保留，切片平面、显示对象、相机与色标不重建。该操作只输出旋度，原 Gradient 的
 其他派生量仍留在原管线上；已有非原生 Gradient 或二维速度输入会在修改连接前拒绝。
 操作失败时恢复原输入。热更新后再使用；超时先查看同 ID 的回执，不重复投递。
+已修复的切片不再直接连接原生 Gradient，无需再次执行修复。保存新的 `.pvsm` 状态文件
+才能在重开场景后保留该连接；加载修复前的旧状态仍会使用原管线。
 
 已有涡量切片可使用 `publication_vorticity` 原位排版：
 
@@ -129,7 +131,11 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 - 服务端断线：启动器自动将服务 stdout/stderr 同时写入共享仓库
   `.tools/paraview-mpi/logs/pvserver_日期时间_随机后缀.log`，路径也显示在启动窗口中；
   关闭 Windows 窗口后日志仍保留。版本预检不生成日志，日志不自动清理。
-  该日志不包含 Windows 客户端 Output Messages，仍需区分双方最先发生的错误。
+  已使用当前远端启动器的 PS1 无需因该日志功能重新下载。该日志不包含 Windows 客户端
+  Output Messages、SSH 客户端错误或自动调用栈；客户端窗口用 `Save to File…` 单独保存。
+  `PARAVIEW_SERVER_LOG_DIR` 可覆盖远端日志目录。退出码 0 不代表此前没有协议错误。
+  已观察到的 `Tag mismatch`（188968 为取消检查标签）仍未确定根因，不能把涡量修复或
+  Linux 客户端层级切换通过当作 Windows GUI 断线已修复；需保留首次错误和触发操作。
 - PS1 窗口立即关闭：在已打开的 PowerShell 中用 `pwsh -NoExit -File "本机实际路径/connect_paraview.ps1"` 保留完整报错。
 - 版本预检得到空值：重新下载 PS1；当前实现读 EXE 版本资源，缺失时用同目录 pvpython，不能依赖 GUI `paraview.exe --version` 的管道输出。
 - PythonQt 缺失：确认使用最新桥客户端，且在 ParaView GUI 内加载，而非普通 Python。
@@ -139,4 +145,7 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 
 当前操作是否成功以对应命令回传为准；远端测试不能代替 Windows 本机的完整启动验收。
 历史验证按日期查 [6.2.0 收尾记录](../../../../docs/ai_changes/2026-10-19-paraview-knowledge-closeout.md)
-和后续 [MPI 验收记录](../../../../docs/ai_changes/2026-10-20-paraview-mpi-install.md)，不把其中会话快照当作当前在线状态。
+和后续 [MPI 验收记录](../../../../docs/ai_changes/2026-10-20-paraview-mpi-install.md)。
+2026-10-27 的证据见 [AMR 涡量对照](../../../../docs/ai_changes/2026-10-27-paraview-amr-vorticity.md)、
+[断线诊断与日志](../../../../docs/ai_changes/2026-10-27-paraview-disconnect-logging.md)及
+[现有切片修复](../../../../docs/ai_changes/2026-10-27-paraview-existing-slice-repair.md)；不把会话快照当作当前在线状态。

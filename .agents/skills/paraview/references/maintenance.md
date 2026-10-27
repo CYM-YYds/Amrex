@@ -11,7 +11,8 @@ bash .agents/skills/paraview/scripts/install_paraview_batch.sh
 ```
 
 安装器自动 SSH 到编译节点，不回退到登录节点。安装在 `.tools/paraview-mpi/env`，
-不修改系统模块或 Shell 启动文件。系统 ParaView 5.11.1 未启用 Python，不能替代此环境。
+不修改系统模块或 Shell 启动文件。集群另有 `/home/HPCBase/tools/ParaView-EGL-5.11.1`，
+MPI 开启但 Python 关闭，不能替代此环境的 Python 桥接与批处理，也不能与 6.2.0 客户端混用。
 依赖由 [MPI 锁文件](../scripts/paraview-mpi-linux-aarch64.lock) 固定；ParaView 官方源码
 及引导程序的版本、SHA256 以 [安装器](../scripts/install_paraview_batch.sh) 为准。
 安装状态来自 conda-meta 和实际应用探测，不另设缓存标记。
@@ -55,6 +56,8 @@ pv_bridge.stop()
 - `paraview_batch_export.py` 只加载桥模块定义，复用 `export_centerline`，不启动计时器、SSH 或会话注册。修改中心线算法须维护两种入口的共同实现。
 - 热更新只接收固定仓库源码及匹配 SHA256，在 GUI 主线程替换命令实现，保留连接、视图及状态；传输、计时器或状态协议不兼容时提高 `RUNTIME_UPDATE_PROTOCOL`，要求正常启动。热更新后的状态以实时 inspect 为准，不重写旧启动回执。
 - 新增桥操作先核对已有能力和 ParaView API，再实现并更新能力声明；不以任意 Python 投递绕过协议。涡量须在三维速度上计算后再切片，单元速度优先，兼容旧读取器时才 ExtractBlock。
+- AMR 单元涡量修复的唯一求导实现为客户端的 `AMR_CELL_VORTICITY_SCRIPT`，新视图与现有
+  切片操作共同复用。具体掩膜处理、限制和操作见 [GUI 桥接](bridge.md)。
 
 验证按修改范围选择：纯文档检查路径、链接和 skill 格式；修改执行机制时检查相应语言语法，
 并运行现有回归：
