@@ -15,6 +15,9 @@ verify_artifacts() {
 	local found=0
 	shopt -s nullglob
 	for f in main${AMREX_BUILD_DIM:-}d*.ex main*.ex *.ex; do
+		# 显式选择精度时，不把另一精度的历史产物作为本次提示。
+		if [[ "${AMREX_BUILD_PRECISION:-}" == FLOAT && "$f" != *.FLOAT.* ]]; then continue; fi
+		if [[ "${AMREX_BUILD_PRECISION:-}" == DOUBLE && "$f" == *.FLOAT.* ]]; then continue; fi
 		if [[ -x "$f" ]]; then
 			info "检测到可执行文件: $f"
 			found=1
@@ -72,6 +75,7 @@ run_build_entry() {
 		ssh_workdir=$(printf '%q' "$PROJECT_ROOT")
 		ssh_make_j=$(printf '%q' "$MAKE_J")
 		ssh_build_dim=$(printf '%q' "${AMREX_BUILD_DIM:-}")
+		ssh_build_precision=$(printf '%q' "${AMREX_BUILD_PRECISION:-}")
 		ssh_cuda_arch=$(printf '%q' "$CUDA_ARCH")
 		ssh_gen_ccdb=$(printf '%q' "$GEN_CCDB")
 		ssh_ccdb_method=$(printf '%q' "$CCDB_METHOD")
@@ -90,6 +94,7 @@ run_build_entry() {
 		ssh whshare-agent-1 "cd ${ssh_workdir}; \
             MAKE_J=${ssh_make_j} \
             AMREX_BUILD_DIM=${ssh_build_dim} \
+            AMREX_BUILD_PRECISION=${ssh_build_precision} \
             CUDA_ARCH=${ssh_cuda_arch} \
             GEN_CCDB=${ssh_gen_ccdb} \
             CCDB_METHOD=${ssh_ccdb_method} \

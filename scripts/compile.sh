@@ -46,6 +46,11 @@ if [[ -n "$AMREX_BUILD_DIM" && "$AMREX_BUILD_DIM" != 2 && "$AMREX_BUILD_DIM" != 
     echo "错误: AMREX_BUILD_DIM 必须为 2 或 3" >&2
     exit 1
 fi
+AMREX_BUILD_PRECISION="${AMREX_BUILD_PRECISION:-}"
+if [[ -n "$AMREX_BUILD_PRECISION" && "$AMREX_BUILD_PRECISION" != DOUBLE && "$AMREX_BUILD_PRECISION" != FLOAT ]]; then
+    echo "错误: AMREX_BUILD_PRECISION 必须为 DOUBLE 或 FLOAT" >&2
+    exit 1
+fi
 MAKE_J="${MAKE_J:-16}"
 CUDA_ARCH="${CUDA_ARCH:-80}"
 #   - GEN_CCDB : 是否生成编译数据库 compile_commands.json（0 不生成；1 生成；默认 1）

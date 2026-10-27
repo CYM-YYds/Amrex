@@ -162,8 +162,10 @@ dsub -s ./scripts/submit.sh
 
 1. 编译与运行都应在算例根目录内执行，避免路径与配置错位。
 2. 编译完成后可执行文件会出现在算例目录中（如 `main2d...ex` 或 `main3d...ex`）。
-3. 运行日志通常可在算例目录的 `*.log` 或 `logs/` 下查看。
-4. 结果数据通常输出到 `data/`。
+3. 公共编译入口可通过 `AMREX_BUILD_PRECISION=DOUBLE/FLOAT` 显式向本地/远程 make 传递精度；
+   未设置时保持各算例构建配置的默认值。BOX3D_OSI 的用户入口使用 `PRECISION`，见其 README。
+4. 运行日志通常可在算例目录的 `*.log` 或 `logs/` 下查看。
+5. 结果数据通常输出到 `data/`。
 
 调用公共 `scripts/submit.sh` 的入口会显式加载 MPI、CUDA 和 GCC，并向 MPI rank
 传递计算环境。rank 的 GPU 绑定使用不读取个人启动文件的 Bash，且清除 `BASH_ENV`；

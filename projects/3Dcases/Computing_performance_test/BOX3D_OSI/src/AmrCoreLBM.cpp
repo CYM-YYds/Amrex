@@ -121,8 +121,8 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     points.resize(particle_num);
     // generateSpheres(particle_num, R, NX, NY, NZ, points);
     // generateSpheres(D, NX, NY, NZ, points);
-    points[0] = {AMREX_D_DECL(0.5 * grid_.nx_cells, 0.5 * grid_.ny_cells,
-                 0.5 * grid_.nz_cells)};
+    points[0] = {AMREX_D_DECL(Real(0.5) * grid_.nx_cells, Real(0.5) * grid_.ny_cells,
+                 Real(0.5) * grid_.nz_cells)};
     // points[1] = {X + 2.0*D, Y, Z};
     // points[0] = {X + 0.03*D, Y + 0.03*D, 21.00*D};
     // points[1] = {X - 0.03*D, Y - 0.03*D, 18.96*D};

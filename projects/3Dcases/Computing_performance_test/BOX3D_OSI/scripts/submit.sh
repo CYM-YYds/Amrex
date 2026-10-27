@@ -20,9 +20,13 @@ DIM="${DIM:-3}"
 [[ "$DIM" == 2 || "$DIM" == 3 ]] || { echo "错误: DIM 必须为 2 或 3" >&2; exit 1; }
 INPUT_NAME=inputs
 if [[ "$DIM" == 2 ]]; then INPUT_NAME=inputs.2d; fi
+PRECISION="${PRECISION:-DOUBLE}"
+[[ "$PRECISION" == DOUBLE || "$PRECISION" == FLOAT ]] || { echo "错误: PRECISION 必须为 DOUBLE 或 FLOAT" >&2; exit 1; }
+PRECISION_SUFFIX=""
+if [[ "$PRECISION" == FLOAT ]]; then PRECISION_SUFFIX=.FLOAT; fi
 export BOX3D_DIM="$DIM"
 SOURCE_INPUTS="${CASE_DIR}/config/${INPUT_NAME}"
-APP_EXE="${CASE_DIR}/main${DIM}d.gnu.TPROF.MPI.CUDA.ex"
+APP_EXE="${CASE_DIR}/main${DIM}d.gnu${PRECISION_SUFFIX}.TPROF.MPI.CUDA.ex"
 if [[ ! -f "${SOURCE_INPUTS}" ]]; then
     echo "ERROR: inputs not found: ${SOURCE_INPUTS}" >&2
     exit 1
@@ -69,6 +73,7 @@ printf '%s\n' "${AMREX_RUN_ARGS:-}" >> "${RUN_DIR}/command.txt"
 
 {
     echo "dimension=${DIM}"
+    echo "precision=${PRECISION}"
     echo "run_id=${RUN_ID}"
     echo "job_id=${CCS_JOB_ID:-manual}"
     echo "created_at=$(date --iso-8601=seconds)"

@@ -22,6 +22,9 @@ do_compile() {
 	if [[ -n "${AMREX_BUILD_DIM:-}" ]]; then
 		dimension_args+=("DIM=${AMREX_BUILD_DIM}")
 	fi
+	if [[ -n "${AMREX_BUILD_PRECISION:-}" ]]; then
+		dimension_args+=("PRECISION=${AMREX_BUILD_PRECISION}")
+	fi
 	make_cmd+=("${dimension_args[@]}")
 	if [ "${MAKE_KEEP_GOING}" = "1" ]; then
 		make_cmd+=(-k)

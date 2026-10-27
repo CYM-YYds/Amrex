@@ -72,9 +72,9 @@ public:
         grid_ = grid;
         radius = rate*R;      //lev=0网格下的解析度, 算球体可能要内缩一下
 
-        centre  = {AMREX_D_DECL(0.5 * grid_.nx_cells,
-                                0.5 * grid_.ny_cells,
-                                0.5 * grid_.nz_cells)};    //lev=0网格下
+        centre  = {AMREX_D_DECL(Real(0.5) * grid_.nx_cells,
+                                Real(0.5) * grid_.ny_cells,
+                                Real(0.5) * grid_.nz_cells)};    //lev=0网格下
 
         const Real particle_length = D * grid_.dx;
         const Real particle_volume = AMREX_D_PICK(0,

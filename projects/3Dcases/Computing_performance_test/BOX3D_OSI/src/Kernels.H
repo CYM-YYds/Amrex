@@ -13,117 +13,117 @@
 
 using namespace amrex;
 
-static constexpr Real c1o2 = 1.0 / 2.0;
-static constexpr Real c3o2 = 3.0 / 2.0;
-static constexpr Real c1o3 = 1.0 / 3.0;
-static constexpr Real c2o3 = 2.0 / 3.0;
-static constexpr Real c1o4 = 1.0 / 4.0;
-static constexpr Real c3o4 = 3.0 / 4.0;
-static constexpr Real c1o6 = 1.0 / 6.0;
-static constexpr Real c1o7 = 1.0 / 7.0;
-static constexpr Real c1o8 = 1.0 / 8.0;
-static constexpr Real c1o9 = 1.0 / 9.0;
-static constexpr Real c2o9 = 2.0 / 9.0;
-static constexpr Real c4o9 = 4.0 / 9.0;
-static constexpr Real c4o10 = 4.0 / 10.0;
-static constexpr Real c1o10 = 1.0 / 10.0;
-static constexpr Real c1o12 = 1.0 / 12.0;
-static constexpr Real c1o16 = 1.0 / 16.0;
-static constexpr Real c3o16 = 3.0 / 16.0;
-static constexpr Real c9o16 = 9.0 / 16.0;
-static constexpr Real c1o18 = 1.0 / 18.0;
-static constexpr Real c1o20 = 1.0 / 20.0;
-static constexpr Real c19o20 = 19.0 / 20.0;
-static constexpr Real c21o20 = 21.0 / 20.0;
-static constexpr Real c1o24 = 1.0 / 24.0;
-static constexpr Real c1o27 = 1.0 / 27.0;
-static constexpr Real c3o32 = 3.0 / 32.0;
-static constexpr Real c4o32 = 4.0 / 32.0;
-static constexpr Real c1o36 = 1.0 / 36.0;
-static constexpr Real c1o48 = 1.0 / 48.0;
-static constexpr Real c1o64 = 1.0 / 64.0;
-static constexpr Real c3o64 = 3.0 / 64.0;
-static constexpr Real c9o64 = 9.0 / 64.0;
-static constexpr Real c27o64 = 27.0 / 64.0;
-static constexpr Real c1o66 = 1.0 / 66.0;
-static constexpr Real c1o72 = 1.0 / 72.0;
-static constexpr Real c1o264 = 1.0 / 264.0;
-static constexpr Real c8o27 = 8.0 / 27.0;
-static constexpr Real c2o27 = 2.0 / 27.0;
-static constexpr Real c1o54 = 1.0 / 54.0;
-static constexpr Real c1o100 = 1.0 / 100.0;
-static constexpr Real c99o100 = 99.0 / 100.0;
-static constexpr Real c1o126 = 1.0 / 126.0;
-static constexpr Real c1o216 = 1.0 / 216.0;
-static constexpr Real c5o4 = 5.0 / 4.0;
-static constexpr Real c4o3 = 4.0 / 3.0;
-static constexpr Real c9o4 = 9.0 / 4.0;
-static constexpr Real c5o2 = 5.0 / 2.0;
-static constexpr Real c9o2 = 9.0 / 2.0;
+static constexpr Real c1o2 = 1.0_rt / 2.0_rt;
+static constexpr Real c3o2 = 3.0_rt / 2.0_rt;
+static constexpr Real c1o3 = 1.0_rt / 3.0_rt;
+static constexpr Real c2o3 = 2.0_rt / 3.0_rt;
+static constexpr Real c1o4 = 1.0_rt / 4.0_rt;
+static constexpr Real c3o4 = 3.0_rt / 4.0_rt;
+static constexpr Real c1o6 = 1.0_rt / 6.0_rt;
+static constexpr Real c1o7 = 1.0_rt / 7.0_rt;
+static constexpr Real c1o8 = 1.0_rt / 8.0_rt;
+static constexpr Real c1o9 = 1.0_rt / 9.0_rt;
+static constexpr Real c2o9 = 2.0_rt / 9.0_rt;
+static constexpr Real c4o9 = 4.0_rt / 9.0_rt;
+static constexpr Real c4o10 = 4.0_rt / 10.0_rt;
+static constexpr Real c1o10 = 1.0_rt / 10.0_rt;
+static constexpr Real c1o12 = 1.0_rt / 12.0_rt;
+static constexpr Real c1o16 = 1.0_rt / 16.0_rt;
+static constexpr Real c3o16 = 3.0_rt / 16.0_rt;
+static constexpr Real c9o16 = 9.0_rt / 16.0_rt;
+static constexpr Real c1o18 = 1.0_rt / 18.0_rt;
+static constexpr Real c1o20 = 1.0_rt / 20.0_rt;
+static constexpr Real c19o20 = 19.0_rt / 20.0_rt;
+static constexpr Real c21o20 = 21.0_rt / 20.0_rt;
+static constexpr Real c1o24 = 1.0_rt / 24.0_rt;
+static constexpr Real c1o27 = 1.0_rt / 27.0_rt;
+static constexpr Real c3o32 = 3.0_rt / 32.0_rt;
+static constexpr Real c4o32 = 4.0_rt / 32.0_rt;
+static constexpr Real c1o36 = 1.0_rt / 36.0_rt;
+static constexpr Real c1o48 = 1.0_rt / 48.0_rt;
+static constexpr Real c1o64 = 1.0_rt / 64.0_rt;
+static constexpr Real c3o64 = 3.0_rt / 64.0_rt;
+static constexpr Real c9o64 = 9.0_rt / 64.0_rt;
+static constexpr Real c27o64 = 27.0_rt / 64.0_rt;
+static constexpr Real c1o66 = 1.0_rt / 66.0_rt;
+static constexpr Real c1o72 = 1.0_rt / 72.0_rt;
+static constexpr Real c1o264 = 1.0_rt / 264.0_rt;
+static constexpr Real c8o27 = 8.0_rt / 27.0_rt;
+static constexpr Real c2o27 = 2.0_rt / 27.0_rt;
+static constexpr Real c1o54 = 1.0_rt / 54.0_rt;
+static constexpr Real c1o100 = 1.0_rt / 100.0_rt;
+static constexpr Real c99o100 = 99.0_rt / 100.0_rt;
+static constexpr Real c1o126 = 1.0_rt / 126.0_rt;
+static constexpr Real c1o216 = 1.0_rt / 216.0_rt;
+static constexpr Real c5o4 = 5.0_rt / 4.0_rt;
+static constexpr Real c4o3 = 4.0_rt / 3.0_rt;
+static constexpr Real c9o4 = 9.0_rt / 4.0_rt;
+static constexpr Real c5o2 = 5.0_rt / 2.0_rt;
+static constexpr Real c9o2 = 9.0_rt / 2.0_rt;
 
-static constexpr Real c0o1 = 0.;
-static constexpr Real c1o1 = 1.;
-static constexpr Real c2o1 = 2.;
-static constexpr Real c3o1 = 3.;
-static constexpr Real c4o1 = 4.;
-static constexpr Real c5o1 = 5.;
-static constexpr Real c6o1 = 6.;
-static constexpr Real c7o1 = 7.;
-static constexpr Real c8o1 = 8.;
-static constexpr Real c9o1 = 9.;
-static constexpr Real c10o1 = 10.;
-static constexpr Real c11o1 = 11.;
-static constexpr Real c12o1 = 12.;
-static constexpr Real c13o1 = 13.;
-static constexpr Real c14o1 = 14.;
-static constexpr Real c15o1 = 15.;
-static constexpr Real c16o1 = 16.;
-static constexpr Real c17o1 = 17.;
-static constexpr Real c18o1 = 18.;
-static constexpr Real c21o1 = 21.;
-static constexpr Real c24o1 = 24.;
-static constexpr Real c25o1 = 25.;
-static constexpr Real c26o1 = 26.;
-static constexpr Real c27o1 = 27.;
-static constexpr Real c28o1 = 28.;
-static constexpr Real c29o1 = 29.;
-static constexpr Real c30o1 = 30.;
-static constexpr Real c32o1 = 32.;
-static constexpr Real c33o1 = 33.;
-static constexpr Real c34o1 = 34.;
-static constexpr Real c36o1 = 36.;
-static constexpr Real c40o1 = 40.;
-static constexpr Real c42o1 = 42.;
-static constexpr Real c46o1 = 46.;
-static constexpr Real c48o1 = 48.;
-static constexpr Real c50o1 = 50.;
-static constexpr Real c52o1 = 52.;
-static constexpr Real c54o1 = 54.;
-static constexpr Real c56o1 = 56.;
-static constexpr Real c64o1 = 64.;
-static constexpr Real c66o1 = 66.;
-static constexpr Real c68o1 = 68.;
-static constexpr Real c69o1 = 69.;
-static constexpr Real c72o1 = 72.;
-static constexpr Real c84o1 = 84.;
-static constexpr Real c88o1 = 88.;
-static constexpr Real c96o1 = 96.;
-static constexpr Real c100o1 = 100.0;
-static constexpr Real c130o1 = 130.0;
-static constexpr Real c152o1 = 152.0;
-static constexpr Real c166o1 = 166.0;
-static constexpr Real c195o1 = 195.0;
-static constexpr Real c216o1 = 216.0;
-static constexpr Real c264o1 = 264.0;
-static constexpr Real c290o1 = 290.0;
-static constexpr Real c367o1 = 367.0;
+static constexpr Real c0o1 = 0._rt;
+static constexpr Real c1o1 = 1._rt;
+static constexpr Real c2o1 = 2._rt;
+static constexpr Real c3o1 = 3._rt;
+static constexpr Real c4o1 = 4._rt;
+static constexpr Real c5o1 = 5._rt;
+static constexpr Real c6o1 = 6._rt;
+static constexpr Real c7o1 = 7._rt;
+static constexpr Real c8o1 = 8._rt;
+static constexpr Real c9o1 = 9._rt;
+static constexpr Real c10o1 = 10._rt;
+static constexpr Real c11o1 = 11._rt;
+static constexpr Real c12o1 = 12._rt;
+static constexpr Real c13o1 = 13._rt;
+static constexpr Real c14o1 = 14._rt;
+static constexpr Real c15o1 = 15._rt;
+static constexpr Real c16o1 = 16._rt;
+static constexpr Real c17o1 = 17._rt;
+static constexpr Real c18o1 = 18._rt;
+static constexpr Real c21o1 = 21._rt;
+static constexpr Real c24o1 = 24._rt;
+static constexpr Real c25o1 = 25._rt;
+static constexpr Real c26o1 = 26._rt;
+static constexpr Real c27o1 = 27._rt;
+static constexpr Real c28o1 = 28._rt;
+static constexpr Real c29o1 = 29._rt;
+static constexpr Real c30o1 = 30._rt;
+static constexpr Real c32o1 = 32._rt;
+static constexpr Real c33o1 = 33._rt;
+static constexpr Real c34o1 = 34._rt;
+static constexpr Real c36o1 = 36._rt;
+static constexpr Real c40o1 = 40._rt;
+static constexpr Real c42o1 = 42._rt;
+static constexpr Real c46o1 = 46._rt;
+static constexpr Real c48o1 = 48._rt;
+static constexpr Real c50o1 = 50._rt;
+static constexpr Real c52o1 = 52._rt;
+static constexpr Real c54o1 = 54._rt;
+static constexpr Real c56o1 = 56._rt;
+static constexpr Real c64o1 = 64._rt;
+static constexpr Real c66o1 = 66._rt;
+static constexpr Real c68o1 = 68._rt;
+static constexpr Real c69o1 = 69._rt;
+static constexpr Real c72o1 = 72._rt;
+static constexpr Real c84o1 = 84._rt;
+static constexpr Real c88o1 = 88._rt;
+static constexpr Real c96o1 = 96._rt;
+static constexpr Real c100o1 = 100.0_rt;
+static constexpr Real c130o1 = 130.0_rt;
+static constexpr Real c152o1 = 152.0_rt;
+static constexpr Real c166o1 = 166.0_rt;
+static constexpr Real c195o1 = 195.0_rt;
+static constexpr Real c216o1 = 216.0_rt;
+static constexpr Real c264o1 = 264.0_rt;
+static constexpr Real c290o1 = 290.0_rt;
+static constexpr Real c367o1 = 367.0_rt;
 
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void init_fluid(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
                 amrex::Array4<amrex::Real> const& fnew) {
     for (int q = 0; q < Q; q++) {
-        fold(i, j, k, q) = feqQian(rho0, {AMREX_D_DECL(0.0, 0.0, 0.0)}, q);
+        fold(i, j, k, q) = feqQian(rho0, {AMREX_D_DECL(0.0_rt, 0.0_rt, 0.0_rt)}, q);
         fnew(i, j, k, q) = fold(i, j, k, q);
     }
 }
@@ -133,7 +133,7 @@ AMREX_FORCE_INLINE
 void compute_macro(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
                    amrex::Array4<amrex::Real> const& rho,
                    amrex::Array4<amrex::Real> const& u) {
-    Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0, ft = 0.0;
+    Real uxt = 0.0_rt, uyt = 0.0_rt, uzt = 0.0_rt, rhot = 0.0_rt, ft = 0.0_rt;
 
     for (int q = 0; q < Q; q++) {
         ft = fold(i, j, k, q);
@@ -169,9 +169,9 @@ void compute_vorticity(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
     Real WY = u_z - w_x;
     Real WZ = v_x - u_y;
 
-    Real Q_criterion = -0.5 * (u_x * u_x + v_y * v_y + w_z * w_z) - u_y * v_x -
+    Real Q_criterion = -0.5_rt * (u_x * u_x + v_y * v_y + w_z * w_z) - u_y * v_x -
                        u_z * w_x - v_z * w_y;
-    Real Vorticity = sqrt(WX * WX + WY * WY + WZ * WZ);
+    Real Vorticity = std::sqrt(WX * WX + WY * WY + WZ * WZ);
 
     vort(i, j, k, 0) = Q_criterion;
     vort(i, j, k, 1) = Vorticity;
@@ -197,30 +197,30 @@ void compute_shear(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
     Real XX = u_x;
     Real YY = v_y;
     Real ZZ = w_z;
-    Real XY = 0.5 * (u_y + v_x);
-    Real XZ = 0.5 * (u_z + w_x);
-    Real YZ = 0.5 * (v_z + w_y);
+    Real XY = 0.5_rt * (u_y + v_x);
+    Real XZ = 0.5_rt * (u_z + w_x);
+    Real YZ = 0.5_rt * (v_z + w_y);
 
-    SS = 2.0 * (XX * XX + XY * XY + XZ * XZ + XY * XY + YY * YY + YZ * YZ +
+    SS = 2.0_rt * (XX * XX + XY * XY + XZ * XZ + XY * XY + YY * YY + YZ * YZ +
                 XZ * XZ + YZ * YZ + ZZ * ZZ);
 
-    Q_CSM = (-0.5) * (u_x * u_x + u_y * v_x + u_z * w_x + v_x * u_y + v_y * v_y +
+    Q_CSM = (-0.5_rt) * (u_x * u_x + u_y * v_x + u_z * w_x + v_x * u_y + v_y * v_y +
                       v_z * w_y + w_x * u_z + w_y * v_z + w_z * w_z);
 
-    E_CSM = 0.5 * (u_x * u_x + v_x * v_x + w_x * w_x + u_y * u_y + v_y * v_y +
+    E_CSM = 0.5_rt * (u_x * u_x + v_x * v_x + w_x * w_x + u_y * u_y + v_y * v_y +
                    w_y * w_y + u_z * u_z + v_z * v_z + w_z * w_z);
-    if (E_CSM != 0.0)
+    if (E_CSM != 0.0_rt)
         F_CSM = Q_CSM / E_CSM;
     else
-        F_CSM = 0.0;
-    if (F_CSM < (-1.0))
-        F_CSM = -1.0;
-    if (F_CSM > (1.0))
-        F_CSM = 1.0;
-    C_CSM = 1.0 / 22.0 * pow(fabs(F_CSM), 1.5) * (1.0 - F_CSM);
+        F_CSM = 0.0_rt;
+    if (F_CSM < (-1.0_rt))
+        F_CSM = -1.0_rt;
+    if (F_CSM > (1.0_rt))
+        F_CSM = 1.0_rt;
+    C_CSM = 1.0_rt / 22.0_rt * std::pow(fabs(F_CSM), 1.5_rt) * (1.0_rt - F_CSM);
 
     shear(i, j, k, 0) =
-        C_CSM * dt * dt * sqrt(SS); // 不知道这样直接从三维改到二维对不对
+        C_CSM * dt * dt * std::sqrt(SS); // 不知道这样直接从三维改到二维对不对
 }
 
 AMREX_GPU_DEVICE
@@ -242,15 +242,15 @@ void compute_shear2(int i, int j, int k, amrex::Array4<amrex::Real> const& u,
     Real XX = u_x;
     Real YY = v_y;
     Real ZZ = w_z;
-    Real XY = 0.5 * (u_y + v_x);
-    Real XZ = 0.5 * (u_z + w_x);
-    Real YZ = 0.5 * (v_z + w_y);
+    Real XY = 0.5_rt * (u_y + v_x);
+    Real XZ = 0.5_rt * (u_z + w_x);
+    Real YZ = 0.5_rt * (v_z + w_y);
 
-    Real Smag = sqrt(XX * XX + XY * XY + XZ * XZ + XY * XY + YY * YY + YZ * YZ +
+    Real Smag = std::sqrt(XX * XX + XY * XY + XZ * XZ + XY * XY + YY * YY + YZ * YZ +
                      XZ * XZ + YZ * YZ + ZZ * ZZ);
 
     shear(i, j, k, 0) =
-        0.01 * dt * dt * Smag; // 不知道这样直接从三维改到二维对不对
+        0.01_rt * dt * dt * Smag; // 不知道这样直接从三维改到二维对不对
 }
 
 #endif
@@ -362,7 +362,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
             {i, j, k}, fab, phase_shift);
     }
 
-    Real rho1 = 0.0, ux1 = 0.0, uy1 = 0.0, uz1 = 0.0;
+    Real rho1 = 0.0_rt, ux1 = 0.0_rt, uy1 = 0.0_rt, uz1 = 0.0_rt;
     for (int q = 0; q < Q; ++q) {
         const Real fq = load_ddf_cached<UseOsiAddress>(
             x1, y1, z1, q, state, source_coordinates);
@@ -371,12 +371,12 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
         uy1 += fq * e[q][1];
         uz1 += fq * lattice_ez(q);
     }
-    const Real invrho = 1.0 / rho1;
+    const Real invrho = 1.0_rt / rho1;
     ux1 *= invrho;
     uy1 *= invrho;
     uz1 *= invrho;
 
-    Real ux = 0.0, uy = 0.0, uz = 0.0;
+    Real ux = 0.0_rt, uy = 0.0_rt, uz = 0.0_rt;
 
 #if AMREX_SPACEDIM == 3
     if (!is_periodic[2] && k == hi[2])
@@ -423,13 +423,13 @@ void collide(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
              amrex::Array4<amrex::Real> const& s,
              amrex::Array4<amrex::Real> const& Ft, amrex::Real tau_lev,
              amrex::Real dt, amrex::IntVect const& hi) {
-    Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0, ft = 0.0;
-    Real Ftx = 0.0, Fty = 0.0, Ftz = 0.0;
+    Real uxt = 0.0_rt, uyt = 0.0_rt, uzt = 0.0_rt, rhot = 0.0_rt, ft = 0.0_rt;
+    Real Ftx = 0.0_rt, Fty = 0.0_rt, Ftz = 0.0_rt;
 
-    s(i, j, k, 0) = 0.0;
+    s(i, j, k, 0) = 0.0_rt;
 
-    Real tauStar = tau_lev + 3.0 * s(i, j, k, 0) / cs2 / dt;
-    Real omega = 1.0 / tauStar;
+    Real tauStar = tau_lev + 3.0_rt * s(i, j, k, 0) / cs2 / dt;
+    Real omega = 1.0_rt / tauStar;
 
     for (int q = 0; q < Q; q++) {
         ft = fold(i, j, k, q);
@@ -443,22 +443,22 @@ void collide(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
     // Fty = Ft(i, j, k, 1);
     // Ftz = Ft(i, j, k, 2);
 
-    Ftx = 0.0;
-    Fty = 0.0;
-    Ftz = 0.0;
+    Ftx = 0.0_rt;
+    Fty = 0.0_rt;
+    Ftz = 0.0_rt;
 
     uxt /= rhot;
     uyt /= rhot;
     uzt /= rhot;
 
-    uxt += 0.5 * dt * Ftx / (rhot);
-    uyt += 0.5 * dt * Fty / (rhot);
-    uzt += 0.5 * dt * Ftz / (rhot);
+    uxt += 0.5_rt * dt * Ftx / (rhot);
+    uyt += 0.5_rt * dt * Fty / (rhot);
+    uzt += 0.5_rt * dt * Ftz / (rhot);
 
     // if((i >= 1) && (i < hi[0]) && (j >= 1) && (j < hi[1]))
     // {
     for (int q = 0; q < Q; q++) {
-        Real forceEx = (1 - 0.5 * omega) * dt *
+        Real forceEx = (1 - 0.5_rt * omega) * dt *
                        forceGuo({AMREX_D_DECL(uxt, uyt, uzt)}, {AMREX_D_DECL(Ftx, Fty, Ftz)}, q); // * cs2;
         fold(i, j, k, q) = (1 - omega) * fold(i, j, k, q) +
                            omega * feqQian(rhot, {AMREX_D_DECL(uxt, uyt, uzt)}, q) + forceEx;
@@ -474,10 +474,10 @@ void collide_cumulant(int i, int j, int k,
                       amrex::Array4<amrex::Real> const& s,
                       amrex::Array4<amrex::Real> const& Ft, amrex::Real tau_lev,
                       amrex::Real dt, amrex::IntVect const& hi) {
-    Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0, ft = 0.0;
-    Real Ftx = 0.0, Fty = 0.0, Ftz = 0.0;
+    Real uxt = 0.0_rt, uyt = 0.0_rt, uzt = 0.0_rt, rhot = 0.0_rt, ft = 0.0_rt;
+    Real Ftx = 0.0_rt, Fty = 0.0_rt, Ftz = 0.0_rt;
 
-    Real omega = 1.0 / tau_lev;
+    Real omega = 1.0_rt / tau_lev;
 
     for (int q = 0; q < Q; q++) {
         ft = fold(i, j, k, q);
@@ -491,40 +491,40 @@ void collide_cumulant(int i, int j, int k,
     //   Fty = Ft(i, j, k, 1);
     //   Ftz = Ft(i, j, k, 2);
 
-    Ftx = 0.0;
-    Fty = 0.0;
-    Ftz = 0.0;
+    Ftx = 0.0_rt;
+    Fty = 0.0_rt;
+    Ftz = 0.0_rt;
 
     uxt /= rhot;
     uyt /= rhot;
     uzt /= rhot;
 
-    uxt += 0.5 * dt * Ftx / (rhot);
-    uyt += 0.5 * dt * Fty / (rhot);
-    uzt += 0.5 * dt * Ftz / (rhot);
+    uxt += 0.5_rt * dt * Ftx / (rhot);
+    uyt += 0.5_rt * dt * Fty / (rhot);
+    uzt += 0.5_rt * dt * Ftz / (rhot);
 
     // 松弛因子
     const Real omega1 = omega;
-    const Real omega2 = 1.0;
-    const Real omega3 = 1.0;
-    const Real omega4 = 1.0;
-    const Real omega5 = 1.0;
-    const Real omega6 = 1.0;
-    const Real omega7 = 1.0;
-    const Real omega8 = 1.0;
-    const Real omega9 = 1.0;
-    const Real omega10 = 1.0;
+    const Real omega2 = 1.0_rt;
+    const Real omega3 = 1.0_rt;
+    const Real omega4 = 1.0_rt;
+    const Real omega5 = 1.0_rt;
+    const Real omega6 = 1.0_rt;
+    const Real omega7 = 1.0_rt;
+    const Real omega8 = 1.0_rt;
+    const Real omega9 = 1.0_rt;
+    const Real omega10 = 1.0_rt;
 
-    const Real omega_trm1((1.0) - omega1);
-    const Real omega_trm2((1.0) - omega2);
-    const Real omega_trm3((1.0) - omega3);
-    const Real omega_trm4((1.0) - omega4);
-    const Real omega_trm5((1.0) - omega5);
-    const Real omega_trm6((1.0) - omega6);
-    const Real omega_trm7((1.0) - omega7);
-    const Real omega_trm8((1.0) - omega8);
-    const Real omega_trm9((1.0) - omega9);
-    const Real omega_trm10((1.0) - omega10);
+    const Real omega_trm1((1.0_rt) - omega1);
+    const Real omega_trm2((1.0_rt) - omega2);
+    const Real omega_trm3((1.0_rt) - omega3);
+    const Real omega_trm4((1.0_rt) - omega4);
+    const Real omega_trm5((1.0_rt) - omega5);
+    const Real omega_trm6((1.0_rt) - omega6);
+    const Real omega_trm7((1.0_rt) - omega7);
+    const Real omega_trm8((1.0_rt) - omega8);
+    const Real omega_trm9((1.0_rt) - omega9);
+    const Real omega_trm10((1.0_rt) - omega10);
 
     // 取出分布函数
     const Real vC = fold(i, j, k, 0);
@@ -563,11 +563,11 @@ void collide_cumulant(int i, int j, int k,
     const Real velYY = velY * velY;
     const Real velZZ = velZ * velZ;
 
-    const Real velz_term = (-1.0) * uzt;
+    const Real velz_term = (-1.0_rt) * uzt;
     const Real sqr_velz_term = velz_term * velz_term;
-    const Real oneminus_velz = (1.0) - uzt;
+    const Real oneminus_velz = (1.0_rt) - uzt;
     const Real sqr_oneminus_velz = oneminus_velz * oneminus_velz;
-    const Real negoneminus_velz = (-1.0) - uzt;
+    const Real negoneminus_velz = (-1.0_rt) - uzt;
     const Real sqr_negoneminus_velz = negoneminus_velz * negoneminus_velz;
 
     const Real k_00_0 = vBSW + vSW + vTSW;
@@ -616,11 +616,11 @@ void collide_cumulant(int i, int j, int k,
     const Real k_22_2 = vBNE * sqr_negoneminus_velz + vNE * sqr_velz_term +
                         vTNE * sqr_oneminus_velz;
 
-    const Real vely_term = Real(-1.0) * velY;
+    const Real vely_term = Real(-1.0_rt) * velY;
     const Real sqr_vely_term = vely_term * vely_term;
-    const Real oneminus_vely = Real(1.0) - velY;
+    const Real oneminus_vely = Real(1.0_rt) - velY;
     const Real sqr_oneminus_vely = oneminus_vely * oneminus_vely;
-    const Real negoneminus_vely = Real(-1.0) - velY;
+    const Real negoneminus_vely = Real(-1.0_rt) - velY;
     const Real sqr_negoneminus_vely = negoneminus_vely * negoneminus_vely;
 
     const Real k_0_00 = k_00_0 + k_01_0 + k_02_0;
@@ -669,11 +669,11 @@ void collide_cumulant(int i, int j, int k,
     const Real k_2_22 = k_20_2 * sqr_negoneminus_vely + k_21_2 * sqr_vely_term +
                         k_22_2 * sqr_oneminus_vely;
 
-    const Real velx_term = Real(-1.0) * velX;
+    const Real velx_term = Real(-1.0_rt) * velX;
     const Real sqr_velx_term = velx_term * velx_term;
-    const Real oneminus_velx = Real(1.0) - velX;
+    const Real oneminus_velx = Real(1.0_rt) - velX;
     const Real sqr_oneminus_velx = oneminus_velx * oneminus_velx;
-    const Real negoneminus_velx = Real(-1.0) - velX;
+    const Real negoneminus_velx = Real(-1.0_rt) - velX;
     const Real sqr_negoneminus_velx = negoneminus_velx * negoneminus_velx;
 
     const Real k_000 = k_0_00 + k_1_00 + k_2_00;
@@ -724,7 +724,7 @@ void collide_cumulant(int i, int j, int k,
 
     // 从中心距空间转移到积累量空间
     const Real updated_rho = rhot;
-    const Real rho_inv = 1.0 / updated_rho;
+    const Real rho_inv = 1.0_rt / updated_rho;
     const Real sqr_k_110 = k_110 * k_110;
     const Real sqr_k_101 = k_101 * k_101;
     const Real sqr_k_011 = k_011 * k_011;
@@ -739,42 +739,42 @@ void collide_cumulant(int i, int j, int k,
     const Real C_012 = k_012;
     const Real C_020 = k_020;
     const Real C_021 = k_021;
-    const Real C_022 = k_022 - (k_020 * k_002 + 2.0 * sqr_k_011) * rho_inv;
+    const Real C_022 = k_022 - (k_020 * k_002 + 2.0_rt * sqr_k_011) * rho_inv;
     const Real C_100 = k_100;
     const Real C_101 = k_101;
     const Real C_102 = k_102;
     const Real C_110 = k_110;
     const Real C_111 = k_111;
-    const Real C_112 = k_112 - (k_002 * k_110 + 2.0 * k_101 * k_011) * rho_inv;
+    const Real C_112 = k_112 - (k_002 * k_110 + 2.0_rt * k_101 * k_011) * rho_inv;
     const Real C_120 = k_120;
-    const Real C_121 = k_121 - (k_020 * k_101 + 2.0 * k_011 * k_110) * rho_inv;
+    const Real C_121 = k_121 - (k_020 * k_101 + 2.0_rt * k_011 * k_110) * rho_inv;
     const Real C_122 =
-        k_122 - (k_002 * k_120 + k_020 * k_120 + 4.0 * k_011 * k_111 +
-                 2.0 * (k_101 * k_021 + k_110 * k_012)) *
+        k_122 - (k_002 * k_120 + k_020 * k_120 + 4.0_rt * k_011 * k_111 +
+                 2.0_rt * (k_101 * k_021 + k_110 * k_012)) *
                     rho_inv;
     const Real C_200 = k_200;
     const Real C_201 = k_201;
-    const Real C_202 = k_202 - (k_002 * k_200 + 2.0 * sqr_k_101) * rho_inv;
+    const Real C_202 = k_202 - (k_002 * k_200 + 2.0_rt * sqr_k_101) * rho_inv;
     const Real C_210 = k_210;
-    const Real C_211 = k_211 - (k_200 * k_011 + 2.0 * k_110 * k_101) * rho_inv;
+    const Real C_211 = k_211 - (k_200 * k_011 + 2.0_rt * k_110 * k_101) * rho_inv;
     const Real C_212 =
-        k_212 - (k_002 * k_210 + k_200 * k_210 + 4.0 * k_101 * k_111 +
-                 (2.0) * (k_011 * k_201 + k_110 * k_102)) *
+        k_212 - (k_002 * k_210 + k_200 * k_210 + 4.0_rt * k_101 * k_111 +
+                 (2.0_rt) * (k_011 * k_201 + k_110 * k_102)) *
                     rho_inv;
-    const Real C_220 = k_220 - (k_200 * k_020 + (2.0) * sqr_k_110) * rho_inv;
+    const Real C_220 = k_220 - (k_200 * k_020 + (2.0_rt) * sqr_k_110) * rho_inv;
     const Real C_221 =
-        k_221 - (k_020 * k_201 + k_200 * k_201 + (4.0) * k_110 * k_111 +
-                 (2.0) * (k_011 * k_210 + k_101 * k_120)) *
+        k_221 - (k_020 * k_201 + k_200 * k_201 + (4.0_rt) * k_110 * k_111 +
+                 (2.0_rt) * (k_011 * k_210 + k_101 * k_120)) *
                     rho_inv;
     const Real C_222 =
         k_222 -
-        ((4.0) * sqr_k_111 + k_200 * k_022 + k_020 * k_202 + k_002 * k_220 +
-         (4.0) * (k_011 * k_211 + k_101 * k_121 + k_110 * k_112) +
-         (2.0) * (k_120 * k_102 + k_210 * k_012 + k_201 * k_021)) *
+        ((4.0_rt) * sqr_k_111 + k_200 * k_022 + k_020 * k_202 + k_002 * k_220 +
+         (4.0_rt) * (k_011 * k_211 + k_101 * k_121 + k_110 * k_112) +
+         (2.0_rt) * (k_120 * k_102 + k_210 * k_012 + k_201 * k_021)) *
             rho_inv +
-        ((16.0) * k_110 * k_101 * k_011 +
-         (4.0) * (k_020 * sqr_k_101 + k_200 * sqr_k_011 + k_002 * sqr_k_110) +
-         (2.0) * k_200 * k_020 * k_002) *
+        ((16.0_rt) * k_110 * k_101 * k_011 +
+         (4.0_rt) * (k_020 * sqr_k_101 + k_200 * sqr_k_011 + k_002 * sqr_k_110) +
+         (2.0_rt) * k_200 * k_020 * k_002) *
             sqr_rho_inv;
 
     // 在积累量空间碰撞
@@ -787,24 +787,24 @@ void collide_cumulant(int i, int j, int k,
     const Real CS_011 = omega_trm1 * C_011;
 
     const Real Dxux =
-        (-0.5) * omega1 * rho_inv * ((2.0) * C_200 - C_020 - C_002) -
-        (0.5) * omega2 * rho_inv * (C_200 + C_020 + C_002 - C_000);
-    const Real Dyuy = Dxux + (1.5) * omega1 * rho_inv * (C_200 - C_020);
-    const Real Dzuz = Dxux + (1.5) * omega1 * rho_inv * (C_200 - C_002);
+        (-0.5_rt) * omega1 * rho_inv * ((2.0_rt) * C_200 - C_020 - C_002) -
+        (0.5_rt) * omega2 * rho_inv * (C_200 + C_020 + C_002 - C_000);
+    const Real Dyuy = Dxux + (1.5_rt) * omega1 * rho_inv * (C_200 - C_020);
+    const Real Dzuz = Dxux + (1.5_rt) * omega1 * rho_inv * (C_200 - C_002);
 
     const Real CS_200__m__CS020 = (omega_trm1) * (C_200 - C_020) -
-                                  (3.0) * updated_rho * ((1.0) - (0.5) * omega1) *
+                                  (3.0_rt) * updated_rho * ((1.0_rt) - (0.5_rt) * omega1) *
                                       (Dxux * velXX - Dyuy * velYY);
     const Real CS_200__m__CS002 = (omega_trm1) * (C_200 - C_002) -
-                                  (3.0) * updated_rho * ((1.0) - (0.5) * omega1) *
+                                  (3.0_rt) * updated_rho * ((1.0_rt) - (0.5_rt) * omega1) *
                                       (Dxux * velXX - Dzuz * velZZ);
     const Real CS_200__p__CS020__p__CS_002 =
         omega2 * C_000 + (omega_trm2) * (C_200 + C_020 + C_002) -
-        (3.0) * updated_rho * ((1.0) - (0.5) * omega2) *
+        (3.0_rt) * updated_rho * ((1.0_rt) - (0.5_rt) * omega2) *
             (Dxux * velXX + Dyuy * velYY + Dzuz * velZZ);
     const Real CS_200 =
         (CS_200__m__CS020 + CS_200__m__CS002 + CS_200__p__CS020__p__CS_002) /
-        (3.0);
+        (3.0_rt);
     const Real CS_020 = CS_200 - CS_200__m__CS020;
     const Real CS_002 = CS_200 - CS_200__m__CS002;
 
@@ -815,29 +815,29 @@ void collide_cumulant(int i, int j, int k,
     const Real CS_210__m__CS_012 = (omega_trm4) * (C_210 - C_012);
     const Real CS_201__m__CS_021 = (omega_trm4) * (C_201 - C_021);
 
-    const Real CS_120 = (0.5) * (CS_120__p__CS_102 + CS_120__m__CS_102);
-    const Real CS_102 = (0.5) * (CS_120__p__CS_102 - CS_120__m__CS_102);
-    const Real CS_012 = (0.5) * (CS_210__p__CS_012 - CS_210__m__CS_012);
-    const Real CS_210 = (0.5) * (CS_210__p__CS_012 + CS_210__m__CS_012);
-    const Real CS_201 = (0.5) * (CS_201__p__CS_021 + CS_201__m__CS_021);
-    const Real CS_021 = (0.5) * (CS_201__p__CS_021 - CS_201__m__CS_021);
+    const Real CS_120 = (0.5_rt) * (CS_120__p__CS_102 + CS_120__m__CS_102);
+    const Real CS_102 = (0.5_rt) * (CS_120__p__CS_102 - CS_120__m__CS_102);
+    const Real CS_012 = (0.5_rt) * (CS_210__p__CS_012 - CS_210__m__CS_012);
+    const Real CS_210 = (0.5_rt) * (CS_210__p__CS_012 + CS_210__m__CS_012);
+    const Real CS_201 = (0.5_rt) * (CS_201__p__CS_021 + CS_201__m__CS_021);
+    const Real CS_021 = (0.5_rt) * (CS_201__p__CS_021 - CS_201__m__CS_021);
     const Real CS_111 = (omega_trm5)*C_111;
 
     const Real CS_220__m__2CS_202__p__CS_022 =
-        (omega_trm6) * (C_220 - (2.0) * C_202 + C_022);
+        (omega_trm6) * (C_220 - (2.0_rt) * C_202 + C_022);
     const Real CS_220__p__CS_202__m__2CS_022 =
-        (omega_trm6) * (C_220 + C_202 - (2.0) * C_022);
+        (omega_trm6) * (C_220 + C_202 - (2.0_rt) * C_022);
     const Real CS_220__p__CS_202__p__CS_022 =
         (omega_trm7) * (C_220 + C_202 + C_022);
 
     const Real CS_220 =
         (CS_220__m__2CS_202__p__CS_022 + CS_220__p__CS_202__m__2CS_022 +
          CS_220__p__CS_202__p__CS_022) /
-        (3.0);
+        (3.0_rt);
     const Real CS_202 =
-        (CS_220__p__CS_202__p__CS_022 - CS_220__m__2CS_202__p__CS_022) / (3.0);
+        (CS_220__p__CS_202__p__CS_022 - CS_220__m__2CS_202__p__CS_022) / (3.0_rt);
     const Real CS_022 =
-        (CS_220__p__CS_202__p__CS_022 - CS_220__p__CS_202__m__2CS_022) / (3.0);
+        (CS_220__p__CS_202__p__CS_022 - CS_220__p__CS_202__m__2CS_022) / (3.0_rt);
 
     const Real CS_211 = (omega_trm8)*C_211;
     const Real CS_121 = (omega_trm8)*C_121;
@@ -849,9 +849,9 @@ void collide_cumulant(int i, int j, int k,
 
     // 从积累量空间转移回到中心距空间
     const Real KC_000 = CS_000;
-    const Real KC_100 = -1.0 * k_100; // CS_100;//三个一阶矩可能要考虑外力的作用？
+    const Real KC_100 = -1.0_rt * k_100; // CS_100;//三个一阶矩可能要考虑外力的作用？
     const Real KC_200 = CS_200;
-    const Real KC_001 = -1.0 * k_001; // CS_001;
+    const Real KC_001 = -1.0_rt * k_001; // CS_001;
     const Real KC_101 = CS_101;
     const Real KC_201 = CS_201;
     const Real KC_002 = CS_002;
@@ -859,286 +859,286 @@ void collide_cumulant(int i, int j, int k,
 
     const Real sqr_KC_101 = KC_101 * KC_101;
 
-    const Real KC_202 = CS_202 + (KC_002 * KC_200 + (2.0) * sqr_KC_101) * rho_inv;
-    const Real KC_010 = -1.0 * k_010; // CS_010 ;
+    const Real KC_202 = CS_202 + (KC_002 * KC_200 + (2.0_rt) * sqr_KC_101) * rho_inv;
+    const Real KC_010 = -1.0_rt * k_010; // CS_010 ;
     const Real KC_110 = CS_110;
     const Real KC_210 = CS_210;
     const Real KC_011 = CS_011;
     const Real KC_111 = CS_111;
     const Real KC_211 =
-        CS_211 + (KC_200 * KC_011 + (2.0) * KC_110 * KC_101) * rho_inv;
+        CS_211 + (KC_200 * KC_011 + (2.0_rt) * KC_110 * KC_101) * rho_inv;
     const Real KC_012 = CS_012;
     const Real KC_112 =
-        CS_112 + (KC_002 * KC_110 + (2.0) * KC_101 * KC_011) * rho_inv;
+        CS_112 + (KC_002 * KC_110 + (2.0_rt) * KC_101 * KC_011) * rho_inv;
     const Real KC_212 =
-        CS_212 + (KC_002 * KC_210 + KC_200 * KC_210 + (4.0) * KC_101 * KC_111 +
-                  (2.0) * (KC_011 * KC_201 + KC_110 * KC_102)) *
+        CS_212 + (KC_002 * KC_210 + KC_200 * KC_210 + (4.0_rt) * KC_101 * KC_111 +
+                  (2.0_rt) * (KC_011 * KC_201 + KC_110 * KC_102)) *
                      rho_inv;
     const Real KC_020 = CS_020;
     const Real KC_120 = CS_120;
 
     const Real sqr_KC_110 = KC_110 * KC_110;
 
-    const Real KC_220 = CS_220 + (KC_200 * KC_020 + (2.0) * sqr_KC_110) * rho_inv;
+    const Real KC_220 = CS_220 + (KC_200 * KC_020 + (2.0_rt) * sqr_KC_110) * rho_inv;
     const Real KC_021 = CS_021;
     const Real KC_121 =
-        CS_121 + (KC_020 * KC_101 + (2.0) * KC_011 * KC_110) * rho_inv;
+        CS_121 + (KC_020 * KC_101 + (2.0_rt) * KC_011 * KC_110) * rho_inv;
     const Real KC_221 =
-        CS_221 + (KC_020 * KC_201 + KC_200 * KC_201 + (4.0) * KC_110 * KC_111 +
-                  (2.0) * (KC_011 * KC_210 + KC_101 * KC_120)) *
+        CS_221 + (KC_020 * KC_201 + KC_200 * KC_201 + (4.0_rt) * KC_110 * KC_111 +
+                  (2.0_rt) * (KC_011 * KC_210 + KC_101 * KC_120)) *
                      rho_inv;
 
     const Real sqr_KC_011 = KC_011 * KC_011;
 
-    const Real KC_022 = CS_022 + (KC_020 * KC_002 + (2.0) * sqr_KC_011) * rho_inv;
+    const Real KC_022 = CS_022 + (KC_020 * KC_002 + (2.0_rt) * sqr_KC_011) * rho_inv;
     const Real KC_122 =
-        CS_122 + (KC_002 * KC_120 + KC_020 * KC_120 + (4.0) * KC_011 * KC_111 +
-                  (2.0) * (KC_101 * KC_021 + KC_110 * KC_012)) *
+        CS_122 + (KC_002 * KC_120 + KC_020 * KC_120 + (4.0_rt) * KC_011 * KC_111 +
+                  (2.0_rt) * (KC_101 * KC_021 + KC_110 * KC_012)) *
                      rho_inv;
 
     const Real sqr_KC_111 = KC_111 * KC_111;
 
     const Real KC_222 =
         CS_222 +
-        ((4.0) * sqr_KC_111 + KC_200 * KC_022 + KC_020 * KC_202 +
+        ((4.0_rt) * sqr_KC_111 + KC_200 * KC_022 + KC_020 * KC_202 +
          KC_002 * KC_220 +
-         (4.0) * (KC_011 * KC_211 + KC_101 * KC_121 + KC_110 * KC_112) +
-         (2.0) * (KC_120 * KC_102 + KC_210 * KC_012 + KC_201 * KC_021)) *
+         (4.0_rt) * (KC_011 * KC_211 + KC_101 * KC_121 + KC_110 * KC_112) +
+         (2.0_rt) * (KC_120 * KC_102 + KC_210 * KC_012 + KC_201 * KC_021)) *
             rho_inv -
-        ((16.0) * KC_110 * KC_101 * KC_011 +
-         (4.0) *
+        ((16.0_rt) * KC_110 * KC_101 * KC_011 +
+         (4.0_rt) *
              (KC_020 * sqr_KC_101 + KC_200 * sqr_KC_011 + KC_002 * sqr_KC_110) +
-         (2.0) * KC_200 * KC_020 * KC_002) *
+         (2.0_rt) * KC_200 * KC_020 * KC_002) *
             sqr_rho_inv;
 
     // 从中心距空间转移回到离散速度空间
-    const Real oneminus_sqr_velx = (1.0) - velXX;
+    const Real oneminus_sqr_velx = (1.0_rt) - velXX;
     const Real sqr_velx_plus_velX = velXX + velX;
     const Real sqr_velx_minus_velX = velXX - velX;
-    const Real velx_term_plus = (2.0) * velX + (1.0);
-    const Real velx_term_minus = (2.0) * velX - (1.0);
+    const Real velx_term_plus = (2.0_rt) * velX + (1.0_rt);
+    const Real velx_term_minus = (2.0_rt) * velX - (1.0_rt);
 
     const Real KC_1_00 =
-        KC_000 * oneminus_sqr_velx - KC_100 * (2.0) * velX - KC_200;
+        KC_000 * oneminus_sqr_velx - KC_100 * (2.0_rt) * velX - KC_200;
     const Real KC_0_00 =
         (KC_000 * sqr_velx_minus_velX + KC_100 * velx_term_minus + KC_200) *
-        (0.5);
+        (0.5_rt);
     const Real KC_2_00 =
-        (KC_000 * sqr_velx_plus_velX + KC_100 * velx_term_plus + KC_200) * (0.5);
+        (KC_000 * sqr_velx_plus_velX + KC_100 * velx_term_plus + KC_200) * (0.5_rt);
     const Real KC_1_01 =
-        KC_001 * oneminus_sqr_velx - KC_101 * (2.0) * velX - KC_201;
+        KC_001 * oneminus_sqr_velx - KC_101 * (2.0_rt) * velX - KC_201;
     const Real KC_0_01 =
         (KC_001 * sqr_velx_minus_velX + KC_101 * velx_term_minus + KC_201) *
-        (0.5);
+        (0.5_rt);
     const Real KC_2_01 =
-        (KC_001 * sqr_velx_plus_velX + KC_101 * velx_term_plus + KC_201) * (0.5);
+        (KC_001 * sqr_velx_plus_velX + KC_101 * velx_term_plus + KC_201) * (0.5_rt);
     const Real KC_1_02 =
-        KC_002 * oneminus_sqr_velx - KC_102 * (2.0) * velX - KC_202;
+        KC_002 * oneminus_sqr_velx - KC_102 * (2.0_rt) * velX - KC_202;
     const Real KC_0_02 =
         (KC_002 * sqr_velx_minus_velX + KC_102 * velx_term_minus + KC_202) *
-        (0.5);
+        (0.5_rt);
     const Real KC_2_02 =
-        (KC_002 * sqr_velx_plus_velX + KC_102 * velx_term_plus + KC_202) * (0.5);
+        (KC_002 * sqr_velx_plus_velX + KC_102 * velx_term_plus + KC_202) * (0.5_rt);
     const Real KC_1_10 =
-        KC_010 * oneminus_sqr_velx - KC_110 * (2.0) * velX - KC_210;
+        KC_010 * oneminus_sqr_velx - KC_110 * (2.0_rt) * velX - KC_210;
     const Real KC_0_10 =
         (KC_010 * sqr_velx_minus_velX + KC_110 * velx_term_minus + KC_210) *
-        (0.5);
+        (0.5_rt);
     const Real KC_2_10 =
-        (KC_010 * sqr_velx_plus_velX + KC_110 * velx_term_plus + KC_210) * (0.5);
+        (KC_010 * sqr_velx_plus_velX + KC_110 * velx_term_plus + KC_210) * (0.5_rt);
     const Real KC_1_11 =
-        KC_011 * oneminus_sqr_velx - KC_111 * (2.0) * velX - KC_211;
+        KC_011 * oneminus_sqr_velx - KC_111 * (2.0_rt) * velX - KC_211;
     const Real KC_0_11 =
         (KC_011 * sqr_velx_minus_velX + KC_111 * velx_term_minus + KC_211) *
-        (0.5);
+        (0.5_rt);
     const Real KC_2_11 =
-        (KC_011 * sqr_velx_plus_velX + KC_111 * velx_term_plus + KC_211) * (0.5);
+        (KC_011 * sqr_velx_plus_velX + KC_111 * velx_term_plus + KC_211) * (0.5_rt);
     const Real KC_1_12 =
-        KC_012 * oneminus_sqr_velx - KC_112 * (2.0) * velX - KC_212;
+        KC_012 * oneminus_sqr_velx - KC_112 * (2.0_rt) * velX - KC_212;
     const Real KC_0_12 =
         (KC_012 * sqr_velx_minus_velX + KC_112 * velx_term_minus + KC_212) *
-        (0.5);
+        (0.5_rt);
     const Real KC_2_12 =
-        (KC_012 * sqr_velx_plus_velX + KC_112 * velx_term_plus + KC_212) * (0.5);
+        (KC_012 * sqr_velx_plus_velX + KC_112 * velx_term_plus + KC_212) * (0.5_rt);
     const Real KC_1_20 =
-        KC_020 * oneminus_sqr_velx - KC_120 * (2.0) * velX - KC_220;
+        KC_020 * oneminus_sqr_velx - KC_120 * (2.0_rt) * velX - KC_220;
     const Real KC_0_20 =
         (KC_020 * sqr_velx_minus_velX + KC_120 * velx_term_minus + KC_220) *
-        (0.5);
+        (0.5_rt);
     const Real KC_2_20 =
-        (KC_020 * sqr_velx_plus_velX + KC_120 * velx_term_plus + KC_220) * (0.5);
+        (KC_020 * sqr_velx_plus_velX + KC_120 * velx_term_plus + KC_220) * (0.5_rt);
     const Real KC_1_21 =
-        KC_021 * oneminus_sqr_velx - KC_121 * (2.0) * velX - KC_221;
+        KC_021 * oneminus_sqr_velx - KC_121 * (2.0_rt) * velX - KC_221;
     const Real KC_0_21 =
         (KC_021 * sqr_velx_minus_velX + KC_121 * velx_term_minus + KC_221) *
-        (0.5);
+        (0.5_rt);
     const Real KC_2_21 =
-        (KC_021 * sqr_velx_plus_velX + KC_121 * velx_term_plus + KC_221) * (0.5);
+        (KC_021 * sqr_velx_plus_velX + KC_121 * velx_term_plus + KC_221) * (0.5_rt);
     const Real KC_1_22 =
-        KC_022 * oneminus_sqr_velx - KC_122 * (2.0) * velX - KC_222;
+        KC_022 * oneminus_sqr_velx - KC_122 * (2.0_rt) * velX - KC_222;
     const Real KC_0_22 =
         (KC_022 * sqr_velx_minus_velX + KC_122 * velx_term_minus + KC_222) *
-        (0.5);
+        (0.5_rt);
     const Real KC_2_22 =
-        (KC_022 * sqr_velx_plus_velX + KC_122 * velx_term_plus + KC_222) * (0.5);
+        (KC_022 * sqr_velx_plus_velX + KC_122 * velx_term_plus + KC_222) * (0.5_rt);
 
-    const Real oneminus_sqr_vely = (1.0) - velYY;
+    const Real oneminus_sqr_vely = (1.0_rt) - velYY;
     const Real sqr_vely_plus_velY = velYY + velY;
     const Real sqr_vely_minus_velY = velYY - velY;
-    const Real vely_term_plus = (2.0) * velY + (1.0);
-    const Real vely_term_minus = (2.0) * velY - (1.0);
+    const Real vely_term_plus = (2.0_rt) * velY + (1.0_rt);
+    const Real vely_term_minus = (2.0_rt) * velY - (1.0_rt);
 
     const Real KC_01_0 =
-        KC_0_00 * oneminus_sqr_vely - KC_0_10 * (2.0) * velY - KC_0_20;
+        KC_0_00 * oneminus_sqr_vely - KC_0_10 * (2.0_rt) * velY - KC_0_20;
     const Real KC_00_0 =
         (KC_0_00 * sqr_vely_minus_velY + KC_0_10 * vely_term_minus + KC_0_20) *
-        (0.5);
+        (0.5_rt);
     const Real KC_02_0 =
         (KC_0_00 * sqr_vely_plus_velY + KC_0_10 * vely_term_plus + KC_0_20) *
-        (0.5);
+        (0.5_rt);
     const Real KC_01_1 =
-        KC_0_01 * oneminus_sqr_vely - KC_0_11 * (2.0) * velY - KC_0_21;
+        KC_0_01 * oneminus_sqr_vely - KC_0_11 * (2.0_rt) * velY - KC_0_21;
     const Real KC_00_1 =
         (KC_0_01 * sqr_vely_minus_velY + KC_0_11 * vely_term_minus + KC_0_21) *
-        (0.5);
+        (0.5_rt);
     const Real KC_02_1 =
         (KC_0_01 * sqr_vely_plus_velY + KC_0_11 * vely_term_plus + KC_0_21) *
-        (0.5);
+        (0.5_rt);
     const Real KC_01_2 =
-        KC_0_02 * oneminus_sqr_vely - KC_0_12 * (2.0) * velY - KC_0_22;
+        KC_0_02 * oneminus_sqr_vely - KC_0_12 * (2.0_rt) * velY - KC_0_22;
     const Real KC_00_2 =
         (KC_0_02 * sqr_vely_minus_velY + KC_0_12 * vely_term_minus + KC_0_22) *
-        (0.5);
+        (0.5_rt);
     const Real KC_02_2 =
         (KC_0_02 * sqr_vely_plus_velY + KC_0_12 * vely_term_plus + KC_0_22) *
-        (0.5);
+        (0.5_rt);
     const Real KC_11_0 =
-        KC_1_00 * oneminus_sqr_vely - KC_1_10 * (2.0) * velY - KC_1_20;
+        KC_1_00 * oneminus_sqr_vely - KC_1_10 * (2.0_rt) * velY - KC_1_20;
     const Real KC_10_0 =
         (KC_1_00 * sqr_vely_minus_velY + KC_1_10 * vely_term_minus + KC_1_20) *
-        (0.5);
+        (0.5_rt);
     const Real KC_12_0 =
         (KC_1_00 * sqr_vely_plus_velY + KC_1_10 * vely_term_plus + KC_1_20) *
-        (0.5);
+        (0.5_rt);
     const Real KC_11_1 =
-        KC_1_01 * oneminus_sqr_vely - KC_1_11 * (2.0) * velY - KC_1_21;
+        KC_1_01 * oneminus_sqr_vely - KC_1_11 * (2.0_rt) * velY - KC_1_21;
     const Real KC_10_1 =
         (KC_1_01 * sqr_vely_minus_velY + KC_1_11 * vely_term_minus + KC_1_21) *
-        (0.5);
+        (0.5_rt);
     const Real KC_12_1 =
         (KC_1_01 * sqr_vely_plus_velY + KC_1_11 * vely_term_plus + KC_1_21) *
-        (0.5);
+        (0.5_rt);
     const Real KC_11_2 =
-        KC_1_02 * oneminus_sqr_vely - KC_1_12 * (2.0) * velY - KC_1_22;
+        KC_1_02 * oneminus_sqr_vely - KC_1_12 * (2.0_rt) * velY - KC_1_22;
     const Real KC_10_2 =
         (KC_1_02 * sqr_vely_minus_velY + KC_1_12 * vely_term_minus + KC_1_22) *
-        (0.5);
+        (0.5_rt);
     const Real KC_12_2 =
         (KC_1_02 * sqr_vely_plus_velY + KC_1_12 * vely_term_plus + KC_1_22) *
-        (0.5);
+        (0.5_rt);
     const Real KC_21_0 =
-        KC_2_00 * oneminus_sqr_vely - KC_2_10 * (2.0) * velY - KC_2_20;
+        KC_2_00 * oneminus_sqr_vely - KC_2_10 * (2.0_rt) * velY - KC_2_20;
     const Real KC_20_0 =
         (KC_2_00 * sqr_vely_minus_velY + KC_2_10 * vely_term_minus + KC_2_20) *
-        (0.5);
+        (0.5_rt);
     const Real KC_22_0 =
         (KC_2_00 * sqr_vely_plus_velY + KC_2_10 * vely_term_plus + KC_2_20) *
-        (0.5);
+        (0.5_rt);
     const Real KC_21_1 =
-        KC_2_01 * oneminus_sqr_vely - KC_2_11 * (2.0) * velY - KC_2_21;
+        KC_2_01 * oneminus_sqr_vely - KC_2_11 * (2.0_rt) * velY - KC_2_21;
     const Real KC_20_1 =
         (KC_2_01 * sqr_vely_minus_velY + KC_2_11 * vely_term_minus + KC_2_21) *
-        (0.5);
+        (0.5_rt);
     const Real KC_22_1 =
         (KC_2_01 * sqr_vely_plus_velY + KC_2_11 * vely_term_plus + KC_2_21) *
-        (0.5);
+        (0.5_rt);
     const Real KC_21_2 =
-        KC_2_02 * oneminus_sqr_vely - KC_2_12 * (2.0) * velY - KC_2_22;
+        KC_2_02 * oneminus_sqr_vely - KC_2_12 * (2.0_rt) * velY - KC_2_22;
     const Real KC_20_2 =
         (KC_2_02 * sqr_vely_minus_velY + KC_2_12 * vely_term_minus + KC_2_22) *
-        (0.5);
+        (0.5_rt);
     const Real KC_22_2 =
         (KC_2_02 * sqr_vely_plus_velY + KC_2_12 * vely_term_plus + KC_2_22) *
-        (0.5);
+        (0.5_rt);
 
-    const Real oneminus_sqr_velz = (1.0) - velZZ;
+    const Real oneminus_sqr_velz = (1.0_rt) - velZZ;
     const Real sqr_velz_plus_velZ = velZZ + velZ;
     const Real sqr_velz_minus_velZ = velZZ - velZ;
-    const Real velz_term_plus = (2.0) * velZ + (1.0);
-    const Real velz_term_minus = (2.0) * velZ - (1.0);
+    const Real velz_term_plus = (2.0_rt) * velZ + (1.0_rt);
+    const Real velz_term_minus = (2.0_rt) * velZ - (1.0_rt);
 
     fold(i, j, k, 9) =
-        KC_00_0 * oneminus_sqr_velz - KC_00_1 * (2.0) * velZ - KC_00_2;
+        KC_00_0 * oneminus_sqr_velz - KC_00_1 * (2.0_rt) * velZ - KC_00_2;
     fold(i, j, k, 26) =
         (KC_00_0 * sqr_velz_minus_velZ + KC_00_1 * velz_term_minus + KC_00_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 22) =
         (KC_00_0 * sqr_velz_plus_velZ + KC_00_1 * velz_term_plus + KC_00_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 3) =
-        KC_01_0 * oneminus_sqr_velz - KC_01_1 * (2.0) * velZ - KC_01_2;
+        KC_01_0 * oneminus_sqr_velz - KC_01_1 * (2.0_rt) * velZ - KC_01_2;
     fold(i, j, k, 17) =
         (KC_01_0 * sqr_velz_minus_velZ + KC_01_1 * velz_term_minus + KC_01_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 13) =
         (KC_01_0 * sqr_velz_plus_velZ + KC_01_1 * velz_term_plus + KC_01_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 7) =
-        KC_02_0 * oneminus_sqr_velz - KC_02_1 * (2.0) * velZ - KC_02_2;
+        KC_02_0 * oneminus_sqr_velz - KC_02_1 * (2.0_rt) * velZ - KC_02_2;
     fold(i, j, k, 24) =
         (KC_02_0 * sqr_velz_minus_velZ + KC_02_1 * velz_term_minus + KC_02_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 20) =
         (KC_02_0 * sqr_velz_plus_velZ + KC_02_1 * velz_term_plus + KC_02_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 2) =
-        KC_10_0 * oneminus_sqr_velz - KC_10_1 * (2.0) * velZ - KC_10_2;
+        KC_10_0 * oneminus_sqr_velz - KC_10_1 * (2.0_rt) * velZ - KC_10_2;
     fold(i, j, k, 16) =
         (KC_10_0 * sqr_velz_minus_velZ + KC_10_1 * velz_term_minus + KC_10_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 12) =
         (KC_10_0 * sqr_velz_plus_velZ + KC_10_1 * velz_term_plus + KC_10_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 0) =
-        KC_11_0 * oneminus_sqr_velz - KC_11_1 * (2.0) * velZ - KC_11_2;
+        KC_11_0 * oneminus_sqr_velz - KC_11_1 * (2.0_rt) * velZ - KC_11_2;
     fold(i, j, k, 6) =
         (KC_11_0 * sqr_velz_minus_velZ + KC_11_1 * velz_term_minus + KC_11_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 5) =
         (KC_11_0 * sqr_velz_plus_velZ + KC_11_1 * velz_term_plus + KC_11_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 1) =
-        KC_12_0 * oneminus_sqr_velz - KC_12_1 * (2.0) * velZ - KC_12_2;
+        KC_12_0 * oneminus_sqr_velz - KC_12_1 * (2.0_rt) * velZ - KC_12_2;
     fold(i, j, k, 15) =
         (KC_12_0 * sqr_velz_minus_velZ + KC_12_1 * velz_term_minus + KC_12_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 11) =
         (KC_12_0 * sqr_velz_plus_velZ + KC_12_1 * velz_term_plus + KC_12_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 10) =
-        KC_20_0 * oneminus_sqr_velz - KC_20_1 * (2.0) * velZ - KC_20_2;
+        KC_20_0 * oneminus_sqr_velz - KC_20_1 * (2.0_rt) * velZ - KC_20_2;
     fold(i, j, k, 25) =
         (KC_20_0 * sqr_velz_minus_velZ + KC_20_1 * velz_term_minus + KC_20_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 21) =
         (KC_20_0 * sqr_velz_plus_velZ + KC_20_1 * velz_term_plus + KC_20_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 4) =
-        KC_21_0 * oneminus_sqr_velz - KC_21_1 * (2.0) * velZ - KC_21_2;
+        KC_21_0 * oneminus_sqr_velz - KC_21_1 * (2.0_rt) * velZ - KC_21_2;
     fold(i, j, k, 18) =
         (KC_21_0 * sqr_velz_minus_velZ + KC_21_1 * velz_term_minus + KC_21_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 14) =
         (KC_21_0 * sqr_velz_plus_velZ + KC_21_1 * velz_term_plus + KC_21_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 8) =
-        KC_22_0 * oneminus_sqr_velz - KC_22_1 * (2.0) * velZ - KC_22_2;
+        KC_22_0 * oneminus_sqr_velz - KC_22_1 * (2.0_rt) * velZ - KC_22_2;
     fold(i, j, k, 23) =
         (KC_22_0 * sqr_velz_minus_velZ + KC_22_1 * velz_term_minus + KC_22_2) *
-        (0.5);
+        (0.5_rt);
     fold(i, j, k, 19) =
         (KC_22_0 * sqr_velz_plus_velZ + KC_22_1 * velz_term_plus + KC_22_2) *
-        (0.5);
+        (0.5_rt);
 }
 
 // 分布函数空间转换的函数
@@ -1230,9 +1230,9 @@ void collide_cumulant_opt(int i, int j, int k,
                           amrex::Real tau_lev, amrex::Real dt,
                           amrex::IntVect const& hi) {
     // 常用参数定义在前面
-    const Real quadricLimitP = 0.01;
-    const Real quadricLimitM = 0.01;
-    const Real quadricLimitD = 0.01;
+    const Real quadricLimitP = 0.01_rt;
+    const Real quadricLimitM = 0.01_rt;
+    const Real quadricLimitD = 0.01_rt;
 
     // 提取分布函数
     Real& f000 = fold(i, j, k, 0);
@@ -1294,10 +1294,10 @@ void collide_cumulant_opt(int i, int j, int k,
 
     // 计算宏观量
     Real ft, oneOverRho, Ftx, Fty, Ftz;
-    Real drho = 0.0;
-    Real vvx = 0.0;
-    Real vvy = 0.0;
-    Real vvz = 0.0;
+    Real drho = 0.0_rt;
+    Real vvx = 0.0_rt;
+    Real vvy = 0.0_rt;
+    Real vvz = 0.0_rt;
 
     for (int q = 0; q < Q; q++) {
         ft = fold(i, j, k, q);
@@ -1315,9 +1315,9 @@ void collide_cumulant_opt(int i, int j, int k,
     Fty = Ft(i, j, k, 1);
     Ftz = Ft(i, j, k, 2);
 
-    vvx += 0.5 * dt * Ftx * oneOverRho;
-    vvy += 0.5 * dt * Fty * oneOverRho;
-    vvz += 0.5 * dt * Ftz * oneOverRho;
+    vvx += 0.5_rt * dt * Ftx * oneOverRho;
+    vvy += 0.5_rt * dt * Fty * oneOverRho;
+    vvz += 0.5_rt * dt * Ftz * oneOverRho;
 
     Real vx2 = vvx * vvx;
     Real vy2 = vvy * vvy;
@@ -1354,7 +1354,7 @@ void collide_cumulant_opt(int i, int j, int k,
     forwardInverseChimeraWithK(fMPP, f0PP, fPPP, vvx, vx2, c3o1, c1o9);
 
     // LES在这里加
-    Real omega = 1.0 / tau_lev;
+    Real omega = 1.0_rt / tau_lev;
     Real OxxPyyPzz = c1o1;
     Real OxyyPxzz = c8o1 * (-c2o1 + omega) * (c1o1 + c2o1 * omega) /
                     (-c8o1 - c14o1 * omega + c7o1 * omega * omega);
@@ -1663,9 +1663,9 @@ void collide_cumulant_opt2(int i, int j, int k,
                            amrex::Real tau_lev, amrex::Real dt,
                            amrex::IntVect const& hi) {
     // 需要用到的一些常量参数
-    const Real quadricLimitP = 0.01;
-    const Real quadricLimitM = 0.01;
-    const Real quadricLimitD = 0.01;
+    const Real quadricLimitP = 0.01_rt;
+    const Real quadricLimitM = 0.01_rt;
+    const Real quadricLimitD = 0.01_rt;
 
     // 取出分布函数
     Real& f000 = fold(i, j, k, 0);
@@ -1725,8 +1725,8 @@ void collide_cumulant_opt2(int i, int j, int k,
     Real& m000 = fMMM;
 
     // 计算宏观量
-    Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0, ft = 0.0;
-    Real Ftx = 0.0, Fty = 0.0, Ftz = 0.0;
+    Real uxt = 0.0_rt, uyt = 0.0_rt, uzt = 0.0_rt, rhot = 0.0_rt, ft = 0.0_rt;
+    Real Ftx = 0.0_rt, Fty = 0.0_rt, Ftz = 0.0_rt;
 
     for (int q = 0; q < Q; q++) {
         ft = fold(i, j, k, q);
@@ -1737,7 +1737,7 @@ void collide_cumulant_opt2(int i, int j, int k,
     }
 
     Real drho = rhot;
-    Real oneOverRho = 1.0 / (drho + 1.0);
+    Real oneOverRho = 1.0_rt / (drho + 1.0_rt);
 
     Ftx = Ft(i, j, k, 0);
     Fty = Ft(i, j, k, 1);
@@ -1748,9 +1748,9 @@ void collide_cumulant_opt2(int i, int j, int k,
     uzt *= oneOverRho;
 
     // 这里不知道要不要修正一下
-    uxt += 0.5 * dt * Ftx * oneOverRho;
-    uyt += 0.5 * dt * Fty * oneOverRho;
-    uzt += 0.5 * dt * Ftz * oneOverRho;
+    uxt += 0.5_rt * dt * Ftx * oneOverRho;
+    uyt += 0.5_rt * dt * Fty * oneOverRho;
+    uzt += 0.5_rt * dt * Ftz * oneOverRho;
 
     const Real vvx = uxt;
     const Real vvy = uyt;
@@ -1832,7 +1832,7 @@ void collide_cumulant_opt2(int i, int j, int k,
     ////////////////////////////////////////////////////////////////////////////////////
     //! - Calculate modified omega with turbulent viscosity
     //!
-    const Real omega = 1.0 / tau_lev;
+    const Real omega = 1.0_rt / tau_lev;
     ////////////////////////////////////////////////////////////
     // 2.
     Real OxxPyyPzz = c1o1;
@@ -2260,10 +2260,10 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
     OSI::PhaseShift3 const& phase_shift,
     amrex::Real omega) noexcept {
     Real fq[Q];
-    Real rho = 0.0;
-    Real uxt = 0.0;
-    Real uyt = 0.0;
-    Real uzt = 0.0;
+    Real rho = 0.0_rt;
+    Real uxt = 0.0_rt;
+    Real uyt = 0.0_rt;
+    Real uzt = 0.0_rt;
 
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
@@ -2276,19 +2276,19 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
         uzt += ft * lattice_ez(q);
     }
 
-    const Real inv_rho = 1.0 / rho;
+    const Real inv_rho = 1.0_rt / rho;
     const Real ux = uxt * inv_rho;
     const Real uy = uyt * inv_rho;
     const Real uz = uzt * inv_rho;
     const Real velocity_sq = ux * ux + uy * uy + uz * uz;
-    const Real equilibrium_common = 1.0 - 1.5 * velocity_sq;
-    const Real keep = 1.0 - omega;
+    const Real equilibrium_common = 1.0_rt - 1.5_rt * velocity_sq;
+    const Real keep = 1.0_rt - omega;
 
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
         const Real eu = e[q][0] * ux + e[q][1] * uy + lattice_ez(q) * uz;
         const Real feq = w[q] * rho *
-                         (equilibrium_common + 3.0 * eu + 4.5 * eu * eu);
+                         (equilibrium_common + 3.0_rt * eu + 4.5_rt * eu * eu);
         const Real value = keep * fq[q] + omega * feq;
         store_ddf<UseOsiAddress>(
             i, j, k, q, value, state, fab, phase_shift);
@@ -2322,10 +2322,10 @@ void compute_macro_osi(
     amrex::Array4<amrex::Real> const& rho,
     amrex::Array4<amrex::Real> const& u, OSI::FabGeometry fab,
     OSI::PhaseShift3 phase_shift) noexcept {
-    Real rhot = 0.0;
-    Real uxt = 0.0;
-    Real uyt = 0.0;
-    Real uzt = 0.0;
+    Real rhot = 0.0_rt;
+    Real uxt = 0.0_rt;
+    Real uyt = 0.0_rt;
+    Real uzt = 0.0_rt;
 
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
@@ -2338,7 +2338,7 @@ void compute_macro_osi(
         uzt += ft * lattice_ez(q);
     }
 
-    const Real inv_rho = 1.0 / rhot;
+    const Real inv_rho = 1.0_rt / rhot;
     u(i, j, k, 0) = uxt * inv_rho;
     u(i, j, k, 1) = uyt * inv_rho;
 #if AMREX_SPACEDIM == 3
@@ -2374,17 +2374,17 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_bilinear_ddf_impl(
     const int sx = i - 2 * ic == 0 ? -1 : 1;
     const int sy = j - 2 * jc == 0 ? -1 : 1;
     const int sz = k - 2 * kc == 0 ? -1 : 1;
-    constexpr Real w000 = Real(27.0 / 64.0);
-    constexpr Real w100 = Real(9.0 / 64.0);
-    constexpr Real w110 = Real(3.0 / 64.0);
-    constexpr Real w111 = Real(1.0 / 64.0);
+    constexpr Real w000 = Real(27.0_rt / 64.0_rt);
+    constexpr Real w100 = Real(9.0_rt / 64.0_rt);
+    constexpr Real w110 = Real(3.0_rt / 64.0_rt);
+    constexpr Real w111 = Real(1.0_rt / 64.0_rt);
 
     for (int q = 0; q < Q; ++q) {
 #if AMREX_SPACEDIM == 2
-        const Real value = coarse(ic, jc, 0, q) * Real(9.0 / 16.0) +
-                           coarse(ic + sx, jc, 0, q) * Real(3.0 / 16.0) +
-                           coarse(ic, jc + sy, 0, q) * Real(3.0 / 16.0) +
-                           coarse(ic + sx, jc + sy, 0, q) * Real(1.0 / 16.0);
+        const Real value = coarse(ic, jc, 0, q) * Real(9.0_rt / 16.0_rt) +
+                           coarse(ic + sx, jc, 0, q) * Real(3.0_rt / 16.0_rt) +
+                           coarse(ic, jc + sy, 0, q) * Real(3.0_rt / 16.0_rt) +
+                           coarse(ic + sx, jc + sy, 0, q) * Real(1.0_rt / 16.0_rt);
 #else
         const Real value =
             coarse(ic, jc, kc, q) * w000 +
@@ -2453,11 +2453,11 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_cons_linear_children_ddf_im
                     const int k = 2 * kc + koff;
                     if (fine_work_box.contains(i, j, k)) {
                         const Real ox =
-                            ioff == 0 ? Real(-0.25) : Real(0.25);
+                            ioff == 0 ? Real(-0.25_rt) : Real(0.25_rt);
                         const Real oy =
-                            joff == 0 ? Real(-0.25) : Real(0.25);
+                            joff == 0 ? Real(-0.25_rt) : Real(0.25_rt);
                         const Real oz =
-                            koff == 0 ? Real(-0.25) : Real(0.25);
+                            koff == 0 ? Real(-0.25_rt) : Real(0.25_rt);
                         const Real value = center + ox * sx + oy * sy + oz * sz;
                         store_interpolated_ddf<UseOsiAddress>(
                             i, j, k, q, value, fine, fine_fab, fine_shift);
@@ -2496,8 +2496,8 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void interp_cell_quadratic_children_ddf_impl
     amrex::Box const& fine_work_box,
     OSI::FabGeometry fine_fab,
     OSI::PhaseShift3 fine_shift) noexcept {
-    constexpr Real quarter = Real(0.25);
-    constexpr Real half = Real(0.5);
+    constexpr Real quarter = Real(0.25_rt);
+    constexpr Real half = Real(0.5_rt);
 
     for (int q = 0; q < Q; ++q) {
         const Real center = coarse(ic, jc, kc, q);
@@ -2570,7 +2570,7 @@ AMREX_FORCE_INLINE
 void average_scale(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
                    amrex::Real scale) {
 
-    Real uxt = 0.0, uyt = 0.0, uzt = 0.0, rhot = 0.0, ft = 0.0, res = 0.0;
+    Real uxt = 0.0_rt, uyt = 0.0_rt, uzt = 0.0_rt, rhot = 0.0_rt, ft = 0.0_rt, res = 0.0_rt;
 
     for (int q = 0; q < Q; q++) {
         ft = fold(i, j, k, q);
@@ -2598,10 +2598,10 @@ void average_down_lbm(int i, int j, int k, amrex::Array4<amrex::Real> const& crs
     const int fi = i * ratio[0];
     const int fj = j * ratio[1];
     const int fk = k * AMREX_D_PICK(1, 1, ratio[2]);
-    const Real inv_children = Real(1.0) / Real(ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]));
+    const Real inv_children = Real(1.0_rt) / Real(ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]));
 
     for (int q = 0; q < Q; ++q) {
-        Real sum = 0.0;
+        Real sum = 0.0_rt;
         for (int kr = 0; kr < AMREX_D_PICK(1, 1, ratio[2]); ++kr) {
             for (int jr = 0; jr < ratio[1]; ++jr) {
                 for (int ir = 0; ir < ratio[0]; ++ir) {
@@ -2647,10 +2647,10 @@ void average_down_to_canonical(
                     continue;
                 }
                 Real fq[Q];
-                Real rho = 0.0;
-                Real ux = 0.0;
-                Real uy = 0.0;
-                Real uz = 0.0;
+                Real rho = 0.0_rt;
+                Real ux = 0.0_rt;
+                Real uy = 0.0_rt;
+                Real uz = 0.0_rt;
 
                 for (int q = 0; q < Q; ++q) {
                     fq[q] = load_ddf<UseOsiAddress>(
@@ -2677,7 +2677,7 @@ void average_down_to_canonical(
     }
 
     const Real inv_children =
-        Real(1.0) / Real(ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]));
+        Real(1.0_rt) / Real(ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]));
     for (int q = 0; q < Q; ++q) {
         coarse(i, j, k, q) = restricted[q] * inv_children;
     }
@@ -2714,14 +2714,14 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_to_canonical_half_warp(
     // 每 lane 保存 q=lane 与 q=lane+16，避免引入完整 Q 长度线程局部数组。
     const unsigned int mask = 0xffffu << ((threadIdx.x & 31) / 16 * 16);
     const int q0 = lane, q1 = lane + 16;
-    Real restricted0 = 0.0, restricted1 = 0.0;
+    Real restricted0 = 0.0_rt, restricted1 = 0.0_rt;
     for (int kr = 0; kr < 2; ++kr) {
         for (int jr = 0; jr < 2; ++jr) {
             for (int ir = 0; ir < 2; ++ir) {
                 const Real f0 = load_ddf<UseOsiAddress>(
                     2 * i + ir, 2 * j + jr, 2 * k + kr, q0,
                     fine, fine_fab, fine_shift);
-                Real f1 = 0.0;
+                Real f1 = 0.0_rt;
                 if (q1 < Q) {
                     f1 = load_ddf<UseOsiAddress>(
                         2 * i + ir, 2 * j + jr, 2 * k + kr, q1,
@@ -2757,9 +2757,9 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_to_canonical_half_warp(
             }
         }
     }
-    coarse(i, j, k, q0) = restricted0 * Real(0.125);
+    coarse(i, j, k, q0) = restricted0 * Real(0.125_rt);
     if (q1 < Q) {
-        coarse(i, j, k, q1) = restricted1 * Real(0.125);
+        coarse(i, j, k, q1) = restricted1 * Real(0.125_rt);
     }
 }
 #endif
@@ -2778,13 +2778,13 @@ void average_down_to_canonical_warp(
     const int fj = j * ratio[1];
     const int fk = k * AMREX_D_PICK(1, 1, ratio[2]);
     const int nchildren = ratio[0] * ratio[1] * AMREX_D_PICK(1, 1, ratio[2]);
-    const Real inv_children = Real(1.0) / Real(nchildren);
-    Real restricted = 0.0;
+    const Real inv_children = Real(1.0_rt) / Real(nchildren);
+    Real restricted = 0.0_rt;
 
     for (int kr = 0; kr < AMREX_D_PICK(1, 1, ratio[2]); ++kr) {
         for (int jr = 0; jr < ratio[1]; ++jr) {
             for (int ir = 0; ir < ratio[0]; ++ir) {
-                Real fq = 0.0;
+                Real fq = 0.0_rt;
                 if (q < Q) {
                     fq = load_ddf<UseOsiAddress>(
                         fi + ir, fj + jr, fk + kr, q, fine, fine_fab, fine_shift);
@@ -2793,9 +2793,9 @@ void average_down_to_canonical_warp(
                 Real value = fq;
                 if (apply_scale) {
                     const Real rho = warp_sum_32(fq);
-                    const Real ux = warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0)) / rho;
-                    const Real uy = warp_sum_32(q < Q ? fq * e[q][1] : Real(0.0)) / rho;
-                    const Real uz = warp_sum_32(q < Q ? fq * lattice_ez(q) : Real(0.0)) / rho;
+                    const Real ux = warp_sum_32(q < Q ? fq * e[q][0] : Real(0.0_rt)) / rho;
+                    const Real uy = warp_sum_32(q < Q ? fq * e[q][1] : Real(0.0_rt)) / rho;
+                    const Real uz = warp_sum_32(q < Q ? fq * lattice_ez(q) : Real(0.0_rt)) / rho;
                     if (q < Q) {
                         const Real feq = feqQian(rho, {AMREX_D_DECL(ux, uy, uz)}, q);
                         value = feq + (fq - feq) * scale;
@@ -2845,7 +2845,7 @@ AMREX_GPU_HOST_DEVICE // 自适应加密
 
     Real r_r = R * coarse_dx / dx;
 
-    Real dist = sqrt((i - x_r) * (i - x_r) + (j - y_r) * (j - y_r) +
+    Real dist = std::sqrt((i - x_r) * (i - x_r) + (j - y_r) * (j - y_r) +
                      (k - z_r) * (k - z_r));
 
     // 根据固体表面距离加密
@@ -2882,7 +2882,7 @@ AMREX_GPU_HOST_DEVICE // 自适应加密
 
     Real r_r = R * coarse_dx / dx[0];
 
-    Real dist = sqrt((i - x_r) * (i - x_r) + (j - y_r) * (j - y_r) +
+    Real dist = std::sqrt((i - x_r) * (i - x_r) + (j - y_r) * (j - y_r) +
                      (k - z_r) * (k - z_r));
 
     // 根据固体表面距离加密
@@ -2963,7 +2963,7 @@ AMREX_GPU_HOST_DEVICE // 论文风格: 目标层级映射到 refine tag
     constexpr int n_start = -2;
     constexpr int n_inc = 1;
 
-    amrex::Real epsilon = amrex::min(1.0, log2(vort(i, j, k, 1)));
+    amrex::Real epsilon = amrex::min(1.0_rt, std::log2(vort(i, j, k, 1)));
 
     // 原始写法 1：先映射目标层级，再判断当前层是否还需要继续细化。
     // int l_des = max_ref_level;
@@ -3004,7 +3004,7 @@ AMREX_GPU_HOST_DEVICE // 用于多复杂结构体固定区域加密
 
     //     Real r_r = R * dx_0 / dx[0];
 
-    //     Real dist = sqrt((i - x_r)*(i - x_r) + (j - y_r)*(j - y_r) + (k -
+    //     Real dist = std::sqrt((i - x_r)*(i - x_r) + (j - y_r)*(j - y_r) + (k -
     //     z_r)*(k - z_r));
 
     //     if(dist <= r_r+3 && dist >= r_r-1)
@@ -3052,18 +3052,18 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
 
         Real r_r = R * coarse_dx / dx[0];
         Real d_r = 2 * r_r;
-        Real dist = sqrt((i - x_r) * (i - x_r) + (j - y_r) * (j - y_r) +
+        Real dist = std::sqrt((i - x_r) * (i - x_r) + (j - y_r) * (j - y_r) +
                          (k - z_r) * (k - z_r));
         Real x_lo, x_hi, y_lo, y_hi, z_lo, z_hi;
 
         if (lev == 0) {
-            x_lo = (x_r - 1.5 * d_r);
-            y_lo = (y_r - 2.0 * d_r);
-            z_lo = (z_r - 2.0 * d_r);
+            x_lo = (x_r - 1.5_rt * d_r);
+            y_lo = (y_r - 2.0_rt * d_r);
+            z_lo = (z_r - 2.0_rt * d_r);
 
-            x_hi = (x_r + 5.0 * d_r);
-            y_hi = (y_r + 2.0 * d_r);
-            z_hi = (z_r + 2.0 * d_r);
+            x_hi = (x_r + 5.0_rt * d_r);
+            y_hi = (y_r + 2.0_rt * d_r);
+            z_hi = (z_r + 2.0_rt * d_r);
 
             if (i >= x_lo && i <= x_hi && j >= y_lo && j <= y_hi && k >= z_lo &&
                 k <= z_hi && dist >= r_r - 1) {
@@ -3071,13 +3071,13 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
             }
         }
         if (lev == 1) {
-            x_lo = (x_r - 1.2 * d_r);
-            y_lo = (y_r - 1.5 * d_r);
-            z_lo = (z_r - 1.5 * d_r);
+            x_lo = (x_r - 1.2_rt * d_r);
+            y_lo = (y_r - 1.5_rt * d_r);
+            z_lo = (z_r - 1.5_rt * d_r);
 
-            x_hi = (x_r + 4.0 * d_r);
-            y_hi = (y_r + 1.5 * d_r);
-            z_hi = (z_r + 1.5 * d_r);
+            x_hi = (x_r + 4.0_rt * d_r);
+            y_hi = (y_r + 1.5_rt * d_r);
+            z_hi = (z_r + 1.5_rt * d_r);
 
             if (i >= x_lo && i <= x_hi && j >= y_lo && j <= y_hi && k >= z_lo &&
                 k <= z_hi && dist >= r_r - 1) {
@@ -3085,13 +3085,13 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
             }
         }
         if (lev == 2) {
-            x_lo = (x_r - 1.0 * d_r);
-            y_lo = (y_r - 1.0 * d_r);
-            z_lo = (z_r - 1.0 * d_r);
+            x_lo = (x_r - 1.0_rt * d_r);
+            y_lo = (y_r - 1.0_rt * d_r);
+            z_lo = (z_r - 1.0_rt * d_r);
 
-            x_hi = (x_r + 2.5 * d_r);
-            y_hi = (y_r + 1.0 * d_r);
-            z_hi = (z_r + 1.0 * d_r);
+            x_hi = (x_r + 2.5_rt * d_r);
+            y_hi = (y_r + 1.0_rt * d_r);
+            z_hi = (z_r + 1.0_rt * d_r);
 
             if (i >= x_lo && i <= x_hi && j >= y_lo && j <= y_hi && k >= z_lo &&
                 k <= z_hi && dist >= r_r - 1) {
@@ -3099,13 +3099,13 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
             }
         }
         if (lev == 3) {
-            x_lo = (x_r - 0.7 * d_r);
-            y_lo = (y_r - 0.8 * d_r);
-            z_lo = (z_r - 0.8 * d_r);
+            x_lo = (x_r - 0.7_rt * d_r);
+            y_lo = (y_r - 0.8_rt * d_r);
+            z_lo = (z_r - 0.8_rt * d_r);
 
-            x_hi = (x_r + 1.5 * d_r);
-            y_hi = (y_r + 0.8 * d_r);
-            z_hi = (z_r + 0.8 * d_r);
+            x_hi = (x_r + 1.5_rt * d_r);
+            y_hi = (y_r + 0.8_rt * d_r);
+            z_hi = (z_r + 0.8_rt * d_r);
 
             if (dist >= r_r - 1 && dist <= r_r + 1) {
                 tag(i, j, k) = tagval;
@@ -3128,9 +3128,9 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
 // {
 //     r = fabs(r);
 //     if (r <= 0.5)
-//         return ((1.0 + sqrt(1.0 - 3.0 * r * r)) / 3.0);
+//         return ((1.0 + std::sqrt(1.0 - 3.0 * r * r)) / 3.0);
 //     else if (r <= 1.5)
-//         return ((5.0 - 3.0 * r - sqrt(1.0 - 3.0 * (1.0 - r) * (1.0 - r)))
+//         return ((5.0 - 3.0 * r - std::sqrt(1.0 - 3.0 * (1.0 - r) * (1.0 - r)))
 //         / 6.0);
 //     else
 //         return 0.0;
@@ -3153,19 +3153,19 @@ AMREX_GPU_HOST_DEVICE
 AMREX_FORCE_INLINE
 Real delta3p(amrex::Real r) {
     r = fabs(r);
-    if (r < 1.0)
-        return ((3.0 - 2.0 * r + sqrt(1.0 + 4.0 * r - 4.0 * r * r)) / 8.0);
-    else if (r < 2.0)
-        return ((5.0 - 2.0 * r - sqrt(-7.0 + 12.0 * r - 4.0 * r * r)) / 8.0);
+    if (r < 1.0_rt)
+        return ((3.0_rt - 2.0_rt * r + std::sqrt(1.0_rt + 4.0_rt * r - 4.0_rt * r * r)) / 8.0_rt);
+    else if (r < 2.0_rt)
+        return ((5.0_rt - 2.0_rt * r - std::sqrt(-7.0_rt + 12.0_rt * r - 4.0_rt * r * r)) / 8.0_rt);
     else
-        return 0.0;
+        return 0.0_rt;
 }
 
 template <typename P>
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
-    P const& p, amrex::Real& fx, amrex::Real& fy, amrex::Real& fz,
-    amrex::Real& tx, amrex::Real& ty, amrex::Real& tz, amrex::Real& x_local,
-    amrex::Real& y_local, amrex::Real& z_local, amrex::Real& area,
+    P const& p, amrex::ParticleReal& fx, amrex::ParticleReal& fy, amrex::ParticleReal& fz,
+    amrex::ParticleReal& tx, amrex::ParticleReal& ty, amrex::ParticleReal& tz, amrex::ParticleReal& x_local,
+    amrex::ParticleReal& y_local, amrex::ParticleReal& z_local, amrex::ParticleReal& area,
     amrex::Array4<amrex::Real> const& u, amrex::Array4<amrex::Real> const& rho,
     amrex::Array4<amrex::Real> const& Ft, amrex::Real const delta,
     amrex::RealVect const& uc, amrex::RealVect const& wc,
@@ -3180,10 +3180,10 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
 
     IB_weight = LP_dr * area;
 
-    uxt = 0.0;
-    uyt = 0.0;
-    uzt = 0.0;
-    rhot = 0.0;
+    uxt = 0.0_rt;
+    uyt = 0.0_rt;
+    uzt = 0.0_rt;
+    rhot = 0.0_rt;
 
     upx = uc[0] + wc[2] * (-y_local) + wc[1] * (z_local);
     upy = uc[1] + wc[2] * (x_local) + wc[0] * (-z_local);
@@ -3197,9 +3197,9 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
                 int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
                 int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
 
-                lx = xt - (xx + 0.5);
-                ly = yt - (yy + 0.5);
-                lz = zt - (zz + 0.5);
+                lx = xt - (xx + 0.5_rt);
+                ly = yt - (yy + 0.5_rt);
+                lz = zt - (zz + 0.5_rt);
 
                 IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz);
 
@@ -3232,9 +3232,9 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
                 int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
                 int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
 
-                lx = xt - (xx + 0.5);
-                ly = yt - (yy + 0.5);
-                lz = zt - (zz + 0.5);
+                lx = xt - (xx + 0.5_rt);
+                ly = yt - (yy + 0.5_rt);
+                lz = zt - (zz + 0.5_rt);
 
                 IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz) * IB_weight;
 
@@ -3248,9 +3248,9 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
 
 template <typename P>
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_wall_model(
-    P const& p, amrex::Real& fx, amrex::Real& fy, amrex::Real& fz,
-    amrex::Real& tx, amrex::Real& ty, amrex::Real& tz, amrex::Real& x_local,
-    amrex::Real& y_local, amrex::Real& z_local, amrex::Real& area,
+    P const& p, amrex::ParticleReal& fx, amrex::ParticleReal& fy, amrex::ParticleReal& fz,
+    amrex::ParticleReal& tx, amrex::ParticleReal& ty, amrex::ParticleReal& tz, amrex::ParticleReal& x_local,
+    amrex::ParticleReal& y_local, amrex::ParticleReal& z_local, amrex::ParticleReal& area,
     amrex::Array4<amrex::Real> const& u, amrex::Array4<amrex::Real> const& rho,
     amrex::Array4<amrex::Real> const& Ft, amrex::Real const delta,
     amrex::RealVect const& uc, amrex::RealVect const& wc,
@@ -3273,13 +3273,13 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_wall_model(
     amrex::RealVect normal = {x_local / distSum, y_local / distSum,
                               z_local / distSum};
 
-    xq = xc + x_local / delta + normal[0] * 0.25;
-    yq = yc + y_local / delta + normal[1] * 0.25;
-    zq = zc + z_local / delta + normal[2] * 0.25;
+    xq = xc + x_local / delta + normal[0] * 0.25_rt;
+    yq = yc + y_local / delta + normal[1] * 0.25_rt;
+    zq = zc + z_local / delta + normal[2] * 0.25_rt;
 
-    xRef = xc + x_local / delta + normal[0] * 2.5;
-    yRef = yc + y_local / delta + normal[1] * 2.5;
-    zRef = zc + z_local / delta + normal[2] * 2.5;
+    xRef = xc + x_local / delta + normal[0] * 2.5_rt;
+    yRef = yc + y_local / delta + normal[1] * 2.5_rt;
+    zRef = zc + z_local / delta + normal[2] * 2.5_rt;
 
     // 插值得到Ref点的速度，密度
     for (int x = -2; x <= 2; x++) {
@@ -3290,9 +3290,9 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_wall_model(
                 int yy = static_cast<int>(amrex::Math::floor(yRef)) + y;
                 int zz = static_cast<int>(amrex::Math::floor(zRef)) + z;
 
-                lx = xRef - (xx + 0.5);
-                ly = yRef - (yy + 0.5);
-                lz = zRef - (zz + 0.5);
+                lx = xRef - (xx + 0.5_rt);
+                ly = yRef - (yy + 0.5_rt);
+                lz = zRef - (zz + 0.5_rt);
 
                 IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz);
 
@@ -3319,13 +3319,13 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_wall_model(
     amrex::Real velNormal = std::abs(dotProduct);
     amrex::Real velTang = vTangSum;
 
-    amrex::Real tw = rhoRef * std::pow((velTang / 8.3), (2 / (1.0 + 1.0 / 7.0))) *
-                     std::pow((grid.viscosity / 2.5), (2.0 / 7.0 / (1.0 + 1.0 / 7.0)));
+    amrex::Real tw = rhoRef * std::pow((velTang / 8.3_rt), (2 / (1.0_rt + 1.0_rt / 7.0_rt))) *
+                     std::pow((grid.viscosity / 2.5_rt), (2.0_rt / 7.0_rt / (1.0_rt + 1.0_rt / 7.0_rt)));
 
     // 计算Q点剪切应力和体积力
     rhoRef = 2 * rhoRef / grid.dt_min;
-    amrex::Real fTang = 2.0 * tw / grid.dx_min;
-    amrex::Real fNormal = rhoRef * (velNormal - 0.0);
+    amrex::Real fTang = 2.0_rt * tw / grid.dx_min;
+    amrex::Real fNormal = rhoRef * (velNormal - 0.0_rt);
 
     // 力外推
     fxt = fNormal * normal[0] + fTang * tangent[0];
@@ -3342,9 +3342,9 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_wall_model(
                 int yy = static_cast<int>(amrex::Math::floor(yq)) + y;
                 int zz = static_cast<int>(amrex::Math::floor(zq)) + z;
 
-                lx = xq - (xx + 0.5);
-                ly = yq - (yy + 0.5);
-                lz = zq - (zz + 0.5);
+                lx = xq - (xx + 0.5_rt);
+                ly = yq - (yy + 0.5_rt);
+                lz = zq - (zz + 0.5_rt);
 
                 IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz) * IB_weight;
 
@@ -3358,7 +3358,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_wall_model(
 
 template <typename P>
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void
-pressure_interp(P const& p, amrex::Real& cp,
+pressure_interp(P const& p, amrex::ParticleReal& cp,
                 amrex::Array4<amrex::Real> const& rho,
                 amrex::Real const delta) {
     amrex::Real xt, yt, zt, lx, ly, lz;
@@ -3369,7 +3369,7 @@ pressure_interp(P const& p, amrex::Real& cp,
     yt = p.pos(1) / delta;
     zt = p.pos(2) / delta;
 
-    rhot = 0.0;
+    rhot = 0.0_rt;
 
     for (int x = -2; x <= 2; x++) {
         for (int y = -2; y <= 2; y++) {
@@ -3378,9 +3378,9 @@ pressure_interp(P const& p, amrex::Real& cp,
                 int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
                 int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
 
-                lx = xt - (xx + 0.5);
-                ly = yt - (yy + 0.5);
-                lz = zt - (zz + 0.5);
+                lx = xt - (xx + 0.5_rt);
+                ly = yt - (yy + 0.5_rt);
+                lz = zt - (zz + 0.5_rt);
 
                 IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz);
 
@@ -3390,7 +3390,7 @@ pressure_interp(P const& p, amrex::Real& cp,
     }
 
     amrex::Real rhotp = rhot * cs2;
-    amrex::Real m = 0.5 * rho0 * U0 * U0;
+    amrex::Real m = 0.5_rt * rho0 * U0 * U0;
     cp = (rhotp - p0) / m;
 }
 

@@ -127,9 +127,11 @@ InputConfig ReadInputConfig() {
 
 int main(int argc, char* argv[]) {
     amrex::Initialize(argc, argv);
+    amrex::Print() << "[Precision] Real=" << (sizeof(Real) == 4 ? "FLOAT" : "DOUBLE")
+                   << " bytes=" << sizeof(Real) << "\n";
 
     {
-        const Real start_time = amrex::second();
+        const double start_time = amrex::second();
 
         const InputConfig input = ReadInputConfig();
         const int max_step = input.max_step;
@@ -427,7 +429,7 @@ int main(int argc, char* argv[]) {
             lid.CompareDdfCheckpoint(ddf_reference_checkpoint);
         }
 
-        amrex::Real end_total = amrex::second() - start_time;
+        double end_total = amrex::second() - start_time;
         if (lid.Verbose()) {
             ParallelDescriptor::ReduceRealMax(end_total, ParallelDescriptor::IOProcessorNumber());
             amrex::Print() << "\nTotal Time: " << end_total << '\n';

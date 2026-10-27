@@ -2,12 +2,16 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include <limits>
 
 using namespace amrex;
 
 namespace {
 void near(Real value, Real expected, const char* label) {
-    if (!std::isfinite(value) || std::abs(value - expected) > 1.e-12) {
+    // 解析解和独立路径比较允许浮点舍入误差；双精度保持原判据。
+    const Real tolerance = sizeof(Real) == 8 ? Real(1.e-12) : Real(32) *
+        std::numeric_limits<Real>::epsilon() * std::max(Real(1), std::abs(expected));
+    if (!std::isfinite(value) || !std::isfinite(expected) || std::abs(value - expected) > tolerance) {
         std::cerr << label << ": got=" << value << " expected=" << expected << '\n';
         std::exit(1);
     }

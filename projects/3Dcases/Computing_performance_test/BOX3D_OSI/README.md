@@ -58,6 +58,41 @@ DIM_REFACTOR_BASELINE=/绝对路径/含app2d.ex和app3d.ex及git_head.txt的基�
 合并版本的验证见 [合并记录](docs/ai_changes/2026-10-20-merge-dimension-support.md)。
 现役配置、程序与较新实验范围见[当前交接状态](docs/current_status.md)，不把合并时的验收自动扩大到后续修改。
 
+## 单精度与双精度实验
+
+默认 `PRECISION=DOUBLE`；选择 `FLOAT` 会在编译期把场数据 `amrex::Real` 切换为单精度，
+适用于两种维度。不能通过运行时 inputs 切换。以下命令在本算例目录执行：
+
+```bash
+PRECISION=DOUBLE ./scripts/compile.sh
+PRECISION=FLOAT ./scripts/compile.sh
+# 默认提交入口；精度必须显式传给调度器
+./scripts/submit_guarded.sh -x 'all;PRECISION=FLOAT;'
+# 二维单精度
+DIM=2 PRECISION=FLOAT ./scripts/compile.sh
+./scripts/submit_guarded.sh -x 'all;DIM=2;PRECISION=FLOAT;'
+```
+
+单精度程序名为 `main{2,3}d.gnu.FLOAT.TPROF.MPI.CUDA.ex`，双精度沿用原名；
+AMReX 自动按维度和精度隔离对象目录，无须清理另一精度的产物。
+提交入口按所选精度选择程序，运行目录中的固定程序链接指向实际选择的文件；
+`manifest.txt` 记录精度和程序 SHA256，应用启动时打印实际 `Real` 类型与字节数。
+编译数据库只对应最后一次正常采集的维度、精度，切换后重新加载 clangd。
+`GEN_CCDB=0` 会跳过数据库更新，适合独立实验构建，不能据此判断 IDE 精度。
+
+数值核、格子常量使用 AMReX `_rt` 字面量，计时和性能统计的 `double` 保留。
+粒子属性继续使用独立的 `ParticleReal`（默认 double），此次没有切换粒子存储精度；
+粒子与场的接口按真实类型传递。该版本不声称所有粒子、几何或 host 表达式均为 FP32。
+现有 CUDA 编译器 `--use_fast_math` 设置保持不变。
+
+生产收敛条件、AMR 阈值和已有严格阶段诊断容差保持原值，不能把单精度的偏差自动视为通过。
+`tests/run_dimension_kernels_test.sh` 默认检查两种维度、两种精度：双精度沿用 `1e-12`，
+单精度解析解/独立路径比较采用 `32 * epsilon * max(1, abs(expected))` 的舍入容差；
+这只适用于该小规模内核测试，不能作为长程流场的误差验收阈值。
+跨精度 checkpoint 转换只按本次明确验证的范围使用，不承诺粒子/运动刚体完整重启。
+本次 GPU 验证、误差和限制见仓库根
+[精度切换记录](../../../../docs/ai_changes/2026-10-27-box3d-osi-precision.md)。
+
 ## 目录与构建关系
 
 ```text
