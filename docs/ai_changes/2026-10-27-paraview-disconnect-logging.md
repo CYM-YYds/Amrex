@@ -33,3 +33,20 @@ Output Messages 显示 Tag mismatch；用户关闭窗口，旧启动器未保存
 `projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/paraview_amr_gradient/lev2_disconnect/`。
 保留客户端/服务端日志、退出码、输入路径和复现脚本。未取得本次 Windows 断线前的服务日志，
 根因仍未确定；下一次正常连接即可自动留存服务端证据。
+
+## 后续：17:38 左右的加载崩溃
+
+服务日志 `pvserver_20261027_154220_n06QsS.log` 后续记录 rank0/PID1483711 的
+Segmentation fault (signal 11)，MPI 清理其余进程；此次没有之前的 Tag mismatch 序列。
+重启后的 `pvserver_20261027_173920_b9IL8Y.log` 当次检查只有连接和色标弃用警告。
+
+当前 `plt_..` 指向 `runs/20261020_195907_job615927/plt_259200`。该目录及顶层 Header
+存在，但 Level_0/1/2 的 Cell_H 全部缺失、Level_2 为空，输出不完整。在编译节点独立
+pvpython 中只构造读取器、设 lev1、读取速度并 UpdatePipeline，即复现段错误、退出码 139；
+未接入涡量、切片、渲染或 GUI 桥，也未修改用户窗口。它是一个可复现的加载崩溃来源，
+但因没有原次调用栈/操作 trace，不能断言此前所有断线都由此输入引起。
+
+另一读取器 `plt_003200*` 的 80 个 PlotFile 已检查顶层 Header、各层 Cell_H、
+FabOnDisk 文件存在性及文件长度是否超过引用偏移，未见同类缺失；这不是数值正确性证明。
+完整材料、输入审计、命令和退出码保留在原任务目录的 `load_failure/` 子目录。
+处置是停止加载该坏输入，恢复整份 PlotFile 或改用完整输出；未自动删除读取器或修改数据。
