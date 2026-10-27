@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '7'
+BRIDGE_VERSION = '8'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
@@ -374,6 +374,10 @@ def publication_vorticity(command):
     import math
     from paraview import servermanager
     source_name = command.get('source')
+    style = command.get('style', 'publication')
+    if style not in ('publication', 'reference'):
+        raise ValueError('style must be publication or reference')
+    reference_style = style == 'reference'
     matches = [s for (name, _), s in pvs.GetSources().items() if name == source_name]
     if len(matches) != 1:
         raise ValueError('source must identify exactly one registered slice')
@@ -429,6 +433,14 @@ def publication_vorticity(command):
     original_display.SetScalarBarVisibility(view, False)
     pvs.Hide(source, view)
     display = pvs.Show(scalar, view)
+    hidden_overlays = []
+    if reference_style:
+        for representation in list(view.Representations):
+            if (representation.GetProperty('Input') and representation.Visibility
+                    and representation.Input != scalar
+                    and representation.Input.GetXMLName() != 'TextSource'):
+                representation.Visibility = 0
+                hidden_overlays.append(representation.Input.GetGlobalIDAsString())
     display.Representation = 'Surface'
     display.Ambient = 1
     display.Diffuse = 0
@@ -447,13 +459,14 @@ def publication_vorticity(command):
     bar.ComponentTitle = ''
     bar.WindowLocation = 'Any Location'
     bar.Orientation = 'Horizontal'
-    bar.Position = [0.22, 0.045]
-    bar.ScalarBarLength = 0.56
-    bar.ScalarBarThickness = 24
-    bar.TitleFontFamily = 'Times'
-    bar.LabelFontFamily = 'Times'
-    bar.TitleFontSize = 24
-    bar.LabelFontSize = 22
+    bar.Position = [0.15, 0.025] if reference_style else [0.22, 0.045]
+    bar.ScalarBarLength = 0.70 if reference_style else 0.56
+    bar.ScalarBarThickness = 40 if reference_style else 24
+    font = 'Arial' if reference_style else 'Times'
+    bar.TitleFontFamily = font
+    bar.LabelFontFamily = font
+    bar.TitleFontSize = 36 if reference_style else 24
+    bar.LabelFontSize = 32 if reference_style else 22
     bar.TitleColor = [0, 0, 0]
     bar.LabelColor = [0, 0, 0]
     bar.TitleBold = 0
@@ -463,9 +476,10 @@ def publication_vorticity(command):
     bar.LabelItalic = 0
     bar.LabelShadow = 0
     bar.UseCustomLabels = 1
-    bar.CustomLabels = [lo + (hi-lo)*i/5 for i in range(6)]
-    bar.RangeLabelFormat = '%.2g'
-    bar.LabelFormat = '%.2g'
+    bar.AutomaticLabelFormat = 0 if reference_style else 1
+    bar.CustomLabels = [lo, hi] if reference_style else [lo + (hi-lo)*i/5 for i in range(6)]
+    bar.RangeLabelFormat = '{:.2f}' if reference_style else '%.2g'
+    bar.LabelFormat = '{:.2f}' if reference_style else '%.2g'
     bar.AddRangeLabels = 0
     view.BackgroundColorMode = 'Single Color'
     view.UseColorPaletteForBackground = 0
@@ -475,11 +489,13 @@ def publication_vorticity(command):
     bounds = list(source.GetDataInformation().GetBounds())
     center = [(bounds[2*i]+bounds[2*i+1])/2 for i in range(3)]
     span = max(bounds[2*i+1]-bounds[2*i] for i in range(3))
-    view.CameraFocalPoint = center
+    up = [0, 1, 0] if axis == 2 else [0, 0, 1]
+    camera_center = [center[i] - (0.072*span*up[i] if reference_style else 0) for i in range(3)]
+    view.CameraFocalPoint = camera_center
     # y 截面从负 y 方向看，使 x 向右、z 向上。
     direction = -1 if axis == 1 else 1
-    view.CameraPosition = [center[i] + (direction*2*span if i == axis else 0) for i in range(3)]
-    view.CameraViewUp = [0, 1, 0] if axis == 2 else [0, 0, 1]
+    view.CameraPosition = [camera_center[i] + (direction*2*span if i == axis else 0) for i in range(3)]
+    view.CameraViewUp = up
     view.CameraParallelScale = 0.72*span
     grid = view.AxesGrid
     grid.Visibility = 1
@@ -491,17 +507,29 @@ def publication_vorticity(command):
     for letter in 'XYZ':
         for kind in ('Title', 'Label'):
             setattr(grid, letter+kind+'Color', [0, 0, 0])
-            setattr(grid, letter+kind+'FontFamily', 'Times')
-            setattr(grid, letter+kind+'FontSize', 24 if kind == 'Title' else 22)
+            setattr(grid, letter+kind+'FontFamily', font)
+            setattr(grid, letter+kind+'FontSize', (36 if kind == 'Title' else 32)
+                    if reference_style else (24 if kind == 'Title' else 22))
             for flag in ('Bold', 'Italic', 'Shadow'):
                 setattr(grid, letter+kind+flag, 0)
         setattr(grid, letter+'AxisUseCustomLabels', 1)
         index = 'XYZ'.index(letter)
-        setattr(grid, letter+'AxisLabels', [bounds[2*index]+(bounds[2*index+1]-bounds[2*index])*i/5 for i in range(6)])
+        divisions = 10 if reference_style else 5
+        setattr(grid, letter+'AxisLabels', [bounds[2*index]+(bounds[2*index+1]-bounds[2*index])*i/divisions
+                                           for i in range(divisions+1)])
     # 独立二维文字避免高分辨率截图时 CubeAxes 轴标题被自动缩成不可读大小。
     plane_axes = [i for i in range(3) if i != axis]
-    for index, position in zip(plane_axes, ([0.48, 0.105], [0.065, 0.49])):
-        label_name = 'Publication_axis_' + str(index) + '_' + view.GetGlobalIDAsString()
+    labels = [(plane_axes[0], [0.48, 0.105], ''), (plane_axes[1], [0.065, 0.49], '')]
+    if reference_style:
+        labels = [(plane_axes[0], [0.48, 0.14], ''), (plane_axes[1], [0.035, 0.54], ''),
+                  (plane_axes[0], [0.48, 0.945], '_top'), (plane_axes[1], [0.93, 0.54], '_right')]
+    else:
+        for index, suffix in ((plane_axes[0], '_top'), (plane_axes[1], '_right')):
+            previous_label = pvs.FindSource('Publication_axis_' + str(index) + '_' + view.GetGlobalIDAsString() + suffix)
+            if previous_label is not None:
+                pvs.Hide(previous_label, view)
+    for index, position, suffix in labels:
+        label_name = 'Publication_axis_' + str(index) + '_' + view.GetGlobalIDAsString() + suffix
         label = pvs.FindSource(label_name)
         if label is None:
             label = pvs.Text(registrationName=label_name)
@@ -510,21 +538,22 @@ def publication_vorticity(command):
         label_display = pvs.Show(label, view)
         label_display.WindowLocation = 'Any Location'
         label_display.Position = position
-        label_display.FontFamily = 'Times'
-        label_display.FontSize = 24
+        label_display.FontFamily = font
+        label_display.FontSize = 36 if reference_style else 24
         label_display.Color = [0, 0, 0]
     pvs.SetActiveView(view)
     pvs.SetActiveSource(scalar)
     pvs.Render(view)
     if output:
-        pvs.SaveScreenshot(output, view, ImageResolution=[2400, 2400],
+        pvs.SaveScreenshot(output, view, ImageResolution=[2400, 2640] if reference_style else [2400, 2400],
                            FontScaling='Do not scale fonts',
                            location=servermanager.vtkPVSession.DATA_SERVER)
     return {'source': source_name, 'view': view.GetGlobalIDAsString(), 'time': view.ViewTime,
             'scalar': scalar.GetGlobalIDAsString(), 'vorticity_scale': scale,
             'scaled_range': data_range, 'color_range': list(limits), 'slice_normal': normal,
             'slice_origin': list(source.SliceType.Origin), 'output': output,
-            'image_resolution': [2400, 2400] if output else None,
+            'style': style, 'hidden_overlays': hidden_overlays,
+            'image_resolution': ([2400, 2640] if reference_style else [2400, 2400]) if output else None,
             'clipping': 'Values above color maximum saturate; no numerical smoothing applied'}
 
 

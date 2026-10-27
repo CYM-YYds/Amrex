@@ -181,6 +181,19 @@ output.SetBlock(0, grid)
         repeated = self.publication({'source': 'Vorticity_slice_y',
                                      'vorticity_scale': 20, 'color_range': [0, 50]})
         self.assertEqual(repeated['scalar'], styled['scalar'])
+        overlay = pvs.Show(image, pvs.GetActiveView())
+        reference = self.publication({'source': 'Vorticity_slice_y', 'style': 'reference',
+                                      'vorticity_scale': 20, 'color_range': [0, 50]})
+        self.assertEqual(reference['scalar'], styled['scalar'])
+        self.assertEqual(reference['scaled_range'], [40.0, 40.0])
+        self.assertEqual(overlay.Visibility, 0)
+        styled_source = next(s for s in pvs.GetSources().values()
+                             if s.GetGlobalIDAsString() == reference['scalar'])
+        styled_display = pvs.GetDisplayProperties(styled_source, pvs.GetActiveView())
+        bar = pvs.GetScalarBar(styled_display.LookupTable, pvs.GetActiveView())
+        self.assertEqual(list(bar.CustomLabels), [0, 50])
+        self.assertEqual(bar.TitleFontFamily, 'Arial')
+        self.assertAlmostEqual(pvs.GetActiveView().CameraFocalPoint[2], -0.576)
 
     def test_rejects_missing_source_before_creating_pipeline(self):
         before = set(pvs.GetSources())

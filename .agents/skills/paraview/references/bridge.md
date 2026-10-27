@@ -145,6 +145,19 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 可选 `--output` 导出 2400×2400 无损 PNG 到服务端共享路径，父目录需预先存在；
 不指定输出则只修改 GUI。重复执行复用同一切片的论文标量过滤器。
 
+需要白底、四边坐标、Arial 字体和底部端点色标的参考图样式时，增加 `--style reference`：
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current publication_vorticity \
+  --source Slice3 --style reference --vorticity-scale 1 --color-range 0 1 \
+  --output /absolute/shared/output/vorticity.png --timeout 600
+```
+
+该样式导出 2400×2640 PNG，隐藏目标视图内其他可见几何叠加（保留管线），
+刻度间隔为范围的 1/10。默认 `--style publication` 仍使用上述 Times 与方形画布。
+示例保留原始旋度，以 0–1 显示并对超出部分饱和，不代表除以最大值归一化。
+坐标标题按真实截面选择，y 法向截面为 x/H、z/H，不照抄二维参考图的 X、Y。
+
 桥仅支持 inspect 声明的操作，不接受任意 Python。所需能力未实现时，独立任务可转用
 批处理；必须留在当前窗口的操作按 [维护说明](maintenance.md#实现边界与验证) 扩展工具。
 

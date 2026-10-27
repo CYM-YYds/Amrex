@@ -83,7 +83,7 @@ def send(directory, action, color=None, timeout=60, options=None):
     command = {'id': uuid.uuid4().hex, 'action': action}
     if options:
         if set(options) - {'input', 'output', 'resolution', 'max_level', 'source',
-                           'slice_axis', 'slice_position', 'component', 'color_range', 'vorticity_scale', 'expected_sha256'}:
+                           'slice_axis', 'slice_position', 'component', 'color_range', 'vorticity_scale', 'expected_sha256', 'style'}:
             raise ValueError('未知桥接参数')
         command.update(options)
     if color is not None:
@@ -116,6 +116,7 @@ if __name__ == '__main__':
     parser.add_argument('--slice-position', type=float, help='物理坐标；默认几何中心')
     parser.add_argument('--component', choices=['Magnitude', 'X', 'Y', 'Z'], default='Magnitude')
     parser.add_argument('--vorticity-scale', type=float, default=1.0, help='论文色标的 H/Uref 乘数')
+    parser.add_argument('--style', choices=['publication', 'reference'], default='publication')
     parser.add_argument('--color-range', nargs=2, type=float, metavar=('MIN', 'MAX'),
                         help='显式设置涡量色标范围；默认使用当前切片数据范围')
     parser.add_argument('--timeout', type=float, default=60)
@@ -165,7 +166,7 @@ if __name__ == '__main__':
         if not args.source or args.color_range is None:
             parser.error('publication_vorticity requires --source and --color-range')
         options = {'source': args.source, 'color_range': args.color_range,
-                   'vorticity_scale': args.vorticity_scale}
+                   'vorticity_scale': args.vorticity_scale, 'style': args.style}
         if args.output:
             options['output'] = args.output
     elif args.action == 'add_vorticity_view':
