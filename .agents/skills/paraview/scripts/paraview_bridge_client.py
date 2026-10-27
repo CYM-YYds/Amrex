@@ -16,11 +16,11 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '9'
+BRIDGE_VERSION = '10'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
-                'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'reload_client']
+                'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'add_axis_title_view', 'reload_client']
 
 # 代码随 ProgrammableFilter 在数据所在 rank 执行；不依赖 Windows 上的仓库模块路径。
 # 仅在求导副本中解除细层覆盖，输出恢复原掩膜，避免改动输入或重复显示粗细层。
@@ -583,6 +583,147 @@ def publication_vorticity(command):
             'clipping': 'Values above color maximum saturate; no numerical smoothing applied'}
 
 
+def add_axis_title_view(command):
+    """复制显示配置到独立视图，仅在新视图用 Text 管线替代 Z 标题。"""
+    from paraview import servermanager
+    name = command.get('source', '')
+    matches = [s for (n, _), s in pvs.GetSources().items() if n == name]
+    if len(matches) != 1 or matches[0].GetXMLName() != 'Cut':
+        raise ValueError('source must identify exactly one Slice')
+    source = matches[0]
+    candidates = [(v, r) for v in pvs.GetViews() if v.GetXMLName() == 'RenderView'
+                  for r in v.Representations if r.GetProperty('Input') and r.Input == source and r.Visibility]
+    active = pvs.GetActiveView()
+    candidates = [pair for pair in candidates if pair[0] == active] or candidates
+    if len(candidates) != 1:
+        raise ValueError('Select the existing visible Slice view first')
+    old_view, old_display = candidates[0]
+    old_grid = old_view.AxesGrid
+    view_properties = ['ViewTime', 'Background', 'Background2', 'BackgroundColorMode',
+                       'UseColorPaletteForBackground', 'OrientationAxesVisibility', 'CameraPosition',
+                       'CameraFocalPoint', 'CameraViewUp', 'CameraParallelProjection', 'CameraParallelScale',
+                       'CenterOfRotation', 'InteractionMode']
+
+    def values(proxy, names):
+        return {key: proxy.GetProperty(key).GetData() for key in names
+                if proxy.GetProperty(key) is not None
+                and hasattr(proxy.GetProperty(key), 'GetData')
+                and not proxy.GetProperty(key).SMProperty.GetInformationOnly()
+                and not isinstance(proxy.GetProperty(key), servermanager.ProxyProperty)}
+
+    # 原视图只读取，轴配置逐项比较；新的颜色映射独立，避免改动共享 LUT。
+    def snapshot():
+        proxies = [old_view, old_grid, old_display]
+        if old_display.GetProperty('LookupTable') and old_display.LookupTable:
+            proxies.append(old_display.LookupTable)
+        return tuple(values(proxy, view_properties if proxy == old_view else proxy.ListProperties())
+                     for proxy in proxies)
+
+    before = snapshot()
+    def restore_original_lut():
+        # Show 的自动着色可能先重标定共享色带，立即恢复用户原值。
+        if len(before) > 3:
+            lut = old_display.LookupTable
+            for key, value in before[3].items():
+                if lut.GetProperty(key).GetData() != value:
+                    lut.GetProperty(key).SetData(value)
+
+    layout = pvs.CreateLayout(name=name + '_independent_axis_titles')
+    view = pvs.CreateView('RenderView')
+    created = []
+    try:
+        pvs.AssignViewToLayout(view=view, layout=layout, hint=0)
+        for key, value in before[0].items():
+            view.GetProperty(key).SetData(value)
+        for key, value in before[1].items():
+            view.AxesGrid.GetProperty(key).SetData(value)
+        title = str(old_grid.ZTitle).strip() or 'Z'
+        view.AxesGrid.ZTitle = ''
+        display = pvs.Show(source, view, UseSeparateColorMap=True)
+        restore_original_lut()
+        for key in ('Representation', 'Ambient', 'Diffuse', 'Opacity', 'DiffuseColor',
+                    'AmbientColor', 'LineWidth', 'PointSize', 'InterpolateScalarsBeforeMapping'):
+            if old_display.GetProperty(key) is not None:
+                setattr(display, key, old_display.GetProperty(key).GetData())
+        color = list(old_display.ColorArrayName)
+        if len(color) >= 2 and color[1]:
+            pvs.ColorBy(display, tuple(color), separate=True)
+            for key, value in values(old_display.LookupTable, old_display.LookupTable.ListProperties()).items():
+                if display.LookupTable.GetProperty(key) is not None:
+                    display.LookupTable.GetProperty(key).SetData(value)
+            original_bars = [r for r in old_view.Representations if r.GetProperty('Title')
+                             and r.GetProperty('LookupTable') and r.LookupTable == old_display.LookupTable and r.Visibility]
+            if original_bars:
+                bar = pvs.GetScalarBar(display.LookupTable, view)
+                bar_properties = ['Title', 'ComponentTitle', 'Orientation', 'WindowLocation',
+                                  'Position', 'ScalarBarLength', 'ScalarBarThickness', 'TitleColor',
+                                  'LabelColor', 'TitleFontFamily', 'LabelFontFamily', 'TitleFontSize',
+                                  'LabelFontSize', 'AutomaticLabelFormat', 'LabelFormat',
+                                  'RangeLabelFormat', 'UseCustomLabels', 'CustomLabels',
+                                  'DrawTickLabels', 'DrawAnnotations', 'DrawNanAnnotation']
+                for key, value in values(original_bars[0], bar_properties).items():
+                    if bar.GetProperty(key) is not None:
+                        bar.GetProperty(key).SetData(value)
+                bar.Visibility = 1
+        pvs.SetActiveView(view)
+        pvs.Render(view)
+        source.UpdatePipeline(time=view.ViewTime)
+        bounds = list(source.GetDataInformation().GetBounds())
+        renderer = view.GetClientSideObject().GetRenderer()
+        width, height = renderer.GetSize()
+        projected = []
+        for x in bounds[0:2]:
+            for y in bounds[2:4]:
+                for z in bounds[4:6]:
+                    renderer.SetWorldPoint(x, y, z, 1)
+                    renderer.WorldToDisplay()
+                    projected.append(renderer.GetDisplayPoint())
+        x0, x1 = min(p[0] for p in projected)/width, max(p[0] for p in projected)/width
+        ymid = (min(p[1] for p in projected)+max(p[1] for p in projected))/(2*height)
+        font = max(12, min(18, int(old_grid.ZLabelFontSize)))
+        text_width = 0.65*font*len(title)/width
+        gap = max(28, 2.5*int(old_grid.ZLabelFontSize))/width
+        positions = [[max(0.01, x0-gap-text_width), ymid-font/(2*height)],
+                     [min(0.99-text_width, x1+gap), ymid-font/(2*height)]]
+        for side, position in zip(('left', 'right'), positions):
+            label = pvs.Text(registrationName=name + '_Z_title_' + side + '_' + view.GetGlobalIDAsString())
+            created.append(label)
+            label.Text = title
+            label_display = pvs.Show(label, view)
+            label_display.WindowLocation = 'Any Location'
+            label_display.Position = position
+            label_display.FontFamily = 'Arial'
+            label_display.FontSize = font
+            label_display.Color = list(old_grid.ZTitleColor)
+        pvs.Render(view)
+        after = snapshot()
+        if before != after:
+            changes = [(i, key, value, after[i].get(key)) for i, item in enumerate(before)
+                       for key, value in item.items() if value != after[i].get(key)]
+            raise RuntimeError('Original view changed unexpectedly: ' + repr(changes))
+        pvs.SetActiveSource(created[0])
+        output = command.get('output')
+        if output:
+            if not isinstance(output, str) or not output.startswith('/') or not output.endswith('.png'):
+                raise ValueError('output must be an absolute PNG path')
+            pvs.SaveScreenshot(output, view, ImageResolution=list(view.ViewSize),
+                               location=servermanager.vtkPVSession.DATA_SERVER)
+        return {'source': name, 'original_view': old_view.GetGlobalIDAsString(),
+                'view': view.GetGlobalIDAsString(), 'layout': layout.GetGlobalIDAsString(),
+                'original_preserved': True, 'title': title, 'positions': positions,
+                'text_nodes': [s.GetGlobalIDAsString() for s in created], 'view_size': list(view.ViewSize),
+                'time': view.ViewTime, 'output': output}
+    except Exception:
+        restore_original_lut()
+        for proxy in reversed(created):
+            pvs.Delete(proxy)
+        pvs.Delete(view)
+        pvs.RemoveLayout(layout)
+        pvs.SetActiveView(old_view)
+        pvs.SetActiveSource(source)
+        raise
+
+
 class ParaViewBridge:
     def prepare_reload(self, command):
         """后台只读取固定仓库文件；SHA256必须与投递端期望一致。"""
@@ -775,6 +916,8 @@ class ParaViewBridge:
             return repair_vorticity_slice(command)
         if action == 'publication_vorticity':
             return publication_vorticity(command)
+        if action == 'add_axis_title_view':
+            return add_axis_title_view(command)
         if action == 'inspect':
             from paraview import servermanager
             connection = servermanager.ActiveConnection

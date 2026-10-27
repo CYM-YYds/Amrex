@@ -30,6 +30,35 @@ class VorticityTests(unittest.TestCase):
         # 每项测试拥有独立场景，避免名称、活动视图和 MPI 过滤器生命周期互相污染。
         pvs.ResetSession()
 
+    def test_axis_title_view_preserves_original(self):
+        client = Path(__file__).resolve().parents[1] / 'paraview_bridge_client.py'
+        action = runpy.run_path(str(client), init_globals={
+            '_PV_BRIDGE_DEFINITIONS_ONLY': True})['add_axis_title_view']
+        source = pvs.Wavelet()
+        section = pvs.Slice(registrationName='axis_test_slice', Input=source)
+        section.SliceType.Normal = [0, 1, 0]
+        view = pvs.CreateView('RenderView')
+        pvs.SetActiveView(view)
+        display = pvs.Show(section, view)
+        pvs.ColorBy(display, ('POINTS', 'RTData'))
+        display.SetScalarBarVisibility(view, True)
+        display.LookupTable.RescaleTransferFunction(0, 100)
+        view.AxesGrid.Visibility = 1
+        view.AxesGrid.ZTitle = 'Z custom'
+        pvs.ResetCamera(view)
+        pvs.Render(view)
+        camera = list(view.CameraPosition)
+        colors = list(display.LookupTable.RGBPoints)
+        result = action({'source': 'axis_test_slice'})
+        self.assertTrue(result['original_preserved'])
+        self.assertNotEqual(result['view'], view.GetGlobalIDAsString())
+        self.assertEqual(view.AxesGrid.ZTitle, 'Z custom')
+        self.assertEqual(list(view.CameraPosition), camera)
+        self.assertEqual(list(display.LookupTable.RGBPoints), colors)
+        self.assertEqual(display.Visibility, 1)
+        self.assertEqual(len(result['text_nodes']), 2)
+        self.assertEqual(pvs.GetActiveView().AxesGrid.ZTitle, '')
+
     def test_existing_slice_repair_preserves_plane_display_and_camera(self):
         image = pvs.Wavelet()
         image.WholeExtent = [-4, 4, -4, 4, -4, 4]

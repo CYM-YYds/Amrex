@@ -108,6 +108,19 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 
 ## 用户自行生成修复节点
 
+原生 Z 轴标题与刻度重叠时，可保留原页面，新增独立布局和两个 Text 管线标题：
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current add_axis_title_view \
+  --source Slice3 --timeout 600
+```
+
+先选中该 Slice 可见的目标视图。新视图复用切片，复制相机、轴与显示设置并使用独立色标；
+仅在新视图清空原生 Z 标题，新增左右 Text 标题。原视图、输入连接和色标保持原样。
+选中新增 `Slice3_Z_title_left_*` 或 `right_*`，在 Properties 修改 Text，在 Display
+修改 Position、Font Size 和颜色。标题位置按创建时的相机计算，之后缩放或旋转时可能需要
+手动移动。保存 `.pvsm` 可保留新布局和文字；此操作不重新计算涡量。
+
 下载 [repair_amr_gradient.py](../scripts/repair_amr_gradient.py) 为 Windows 普通文件即可，
 运行时不需要桥接、仓库路径或第二个脚本。它是用户直接操作的长期入口，不是一次性诊断。
 

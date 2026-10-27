@@ -105,7 +105,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', nargs='?', default='current')
     parser.add_argument('action', choices=['inspect', 'background', 'restore_background', 'export_centerline',
-                                         'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'client_manifest', 'client_status', 'reload_client', 'export_gradient_script'])
+                                         'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'add_axis_title_view', 'client_manifest', 'client_status', 'reload_client', 'export_gradient_script'])
     parser.add_argument('--color', nargs=3, type=float)
     parser.add_argument('--input')
     parser.add_argument('--output')
@@ -158,10 +158,12 @@ if __name__ == '__main__':
             parser.error('export_centerline requires --input and --output')
         options = {'input': args.input, 'output': args.output,
                    'resolution': args.resolution, 'max_level': args.max_level}
-    elif args.action == 'repair_vorticity_slice':
+    elif args.action in ('repair_vorticity_slice', 'add_axis_title_view'):
         if not args.source:
-            parser.error('repair_vorticity_slice requires --source')
+            parser.error(args.action + ' requires --source')
         options = {'source': args.source}
+        if args.action == 'add_axis_title_view' and args.output:
+            options['output'] = args.output
     elif args.action == 'publication_vorticity':
         if not args.source or args.color_range is None:
             parser.error('publication_vorticity requires --source and --color-range')
