@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '10'
+BRIDGE_VERSION = '12'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
@@ -585,12 +585,71 @@ def publication_vorticity(command):
 
 def add_axis_title_view(command):
     """复制显示配置到独立视图，仅在新视图用 Text 管线替代 Z 标题。"""
+    import math
     from paraview import servermanager
     name = command.get('source', '')
     matches = [s for (n, _), s in pvs.GetSources().items() if n == name]
     if len(matches) != 1 or matches[0].GetXMLName() != 'Cut':
         raise ValueError('source must identify exactly one Slice')
     source = matches[0]
+    reset_id = command.get('reset_view')
+    if reset_id:
+        target = next((v for v in pvs.GetViews() if v.GetGlobalIDAsString() == reset_id), None)
+        originals = [v for v in pvs.GetViews() if v != target and v.GetXMLName() == 'RenderView'
+                     and any(r.GetProperty('Input') and r.Input == source and r.Visibility
+                             for r in v.Representations)]
+        if target is None or len(originals) != 1:
+            raise ValueError('Reset requires one independent view and one original Slice view')
+        labels = [s for (n, _), s in pvs.GetSources().items()
+                  if n in [name + '_Z_title_' + side + '_' + reset_id for side in ('left', 'right')]]
+        if len(labels) != 2:
+            raise ValueError('Independent title nodes not found')
+        # 原页面也可能已被拖动；按切片几何居中，不能把当前原相机当作历史快照。
+        source.UpdatePipeline(time=target.ViewTime)
+        bounds = list(source.GetDataInformation().GetBounds())
+        center = [(bounds[2*i]+bounds[2*i+1])/2 for i in range(3)]
+        normal = list(source.SliceType.Normal)
+        length = math.sqrt(sum(v*v for v in normal))
+        diagonal = math.sqrt(sum((bounds[2*i+1]-bounds[2*i])**2 for i in range(3)))
+        target.CameraFocalPoint = center
+        target.CenterOfRotation = center
+        target.CameraPosition = [center[i]-2*diagonal*normal[i]/length for i in range(3)]
+        target.CameraViewUp = [0, 0, 1] if abs(normal[2]/length) < 0.9 else [0, 1, 0]
+        target.CameraParallelProjection = 1
+        target.CameraParallelScale = diagonal/2
+        pvs.SetActiveView(target)
+        pvs.Render(target)
+        renderer = target.GetClientSideObject().GetRenderer()
+        width, height = renderer.GetSize()
+        points = []
+        for x in bounds[:2]:
+            for y in bounds[2:4]:
+                for z in bounds[4:6]:
+                    renderer.SetWorldPoint(x, y, z, 1)
+                    renderer.WorldToDisplay()
+                    points.append(renderer.GetDisplayPoint())
+        x0, x1 = min(p[0] for p in points)/width, max(p[0] for p in points)/width
+        ymid = (min(p[1] for p in points)+max(p[1] for p in points))/(2*height)
+        for label in labels:
+            rep = pvs.GetDisplayProperties(label, target)
+            font = int(rep.FontSize)
+            gap = max(28, 2.5*int(target.AxesGrid.ZLabelFontSize))/width
+            tw = 0.65*font*len(str(label.Text))/width
+            left = '_left_' in next(n for (n, _), s in pvs.GetSources().items() if s == label)
+            rep.Position = [max(0.01, x0-gap-tw) if left else min(0.99-tw, x1+gap),
+                            ymid-font/(2*height)]
+        pvs.Render(target)
+        output = command.get('output')
+        size = list(target.ViewSize)
+        if output:
+            if not isinstance(output, str) or not output.startswith('/') or not output.endswith('.png'):
+                raise ValueError('output must be an absolute PNG path')
+            pvs.SaveScreenshot(output, target, ImageResolution=size,
+                               location=servermanager.vtkPVSession.DATA_SERVER)
+        return {'view': reset_id, 'camera_restored_from': 'slice_bounds',
+                'camera_position': list(target.CameraPosition),
+                'parallel_scale': target.CameraParallelScale, 'view_size': size,
+                'output_resolution': size, 'output': output}
     candidates = [(v, r) for v in pvs.GetViews() if v.GetXMLName() == 'RenderView'
                   for r in v.Representations if r.GetProperty('Input') and r.Input == source and r.Visibility]
     active = pvs.GetActiveView()

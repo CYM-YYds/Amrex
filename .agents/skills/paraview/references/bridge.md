@@ -121,6 +121,17 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 修改 Position、Font Size 和颜色。标题位置按创建时的相机计算，之后缩放或旋转时可能需要
 手动移动。保存 `.pvsm` 可保留新布局和文字；此操作不重新计算涡量。
 
+误移动独立页面后，使用其 inspect 返回的视图 ID 复位相机：
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current add_axis_title_view \
+  --source Slice3 --reset-view '<视图ID>' --output /absolute/shared/reset.png --timeout 600
+```
+
+复位按切片边界居中并正对截面，重新定位左右标题；不重建节点、不改色标或文字内容。
+可选 PNG 按当前视图尺寸导出，确保画布宽高比与屏幕一致；参考样式的 2400×2640
+竖版导出与横向 GUI 的图面占比和留白不同，不表示数据坐标比例被改变。
+
 下载 [repair_amr_gradient.py](../scripts/repair_amr_gradient.py) 为 Windows 普通文件即可，
 运行时不需要桥接、仓库路径或第二个脚本。它是用户直接操作的长期入口，不是一次性诊断。
 

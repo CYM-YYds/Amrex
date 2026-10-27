@@ -58,6 +58,16 @@ class VorticityTests(unittest.TestCase):
         self.assertEqual(display.Visibility, 1)
         self.assertEqual(len(result['text_nodes']), 2)
         self.assertEqual(pvs.GetActiveView().AxesGrid.ZTitle, '')
+        target = pvs.GetActiveView()
+        target.CameraPosition = [20, 30, 40]
+        target.CameraParallelScale = 9
+        reset = action({'source': 'axis_test_slice', 'reset_view': result['view']})
+        self.assertEqual(reset['camera_restored_from'], 'slice_bounds')
+        self.assertEqual(list(target.CameraFocalPoint), [0, 0, 0])
+        self.assertEqual(list(target.CameraViewUp), [0, 0, 1])
+        self.assertAlmostEqual(target.CameraParallelScale, math.sqrt(800)/2)
+        self.assertEqual(list(view.CameraPosition), camera)
+        self.assertEqual(list(display.LookupTable.RGBPoints), colors)
 
     def test_existing_slice_repair_preserves_plane_display_and_camera(self):
         image = pvs.Wavelet()

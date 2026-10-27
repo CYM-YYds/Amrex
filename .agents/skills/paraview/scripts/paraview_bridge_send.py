@@ -83,7 +83,7 @@ def send(directory, action, color=None, timeout=60, options=None):
     command = {'id': uuid.uuid4().hex, 'action': action}
     if options:
         if set(options) - {'input', 'output', 'resolution', 'max_level', 'source',
-                           'slice_axis', 'slice_position', 'component', 'color_range', 'vorticity_scale', 'expected_sha256', 'style'}:
+                           'slice_axis', 'slice_position', 'component', 'color_range', 'vorticity_scale', 'expected_sha256', 'style', 'reset_view'}:
             raise ValueError('未知桥接参数')
         command.update(options)
     if color is not None:
@@ -112,6 +112,7 @@ if __name__ == '__main__':
     parser.add_argument('--resolution', type=int, default=1024)
     parser.add_argument('--max-level', type=int, default=2)
     parser.add_argument('--source', help='现有管线中完整的注册名称，不作通配符展开')
+    parser.add_argument('--reset-view', help='复位已创建的独立标题视图 ID，按切片边界居中')
     parser.add_argument('--slice-axis', choices=['x', 'y', 'z'], default='y')
     parser.add_argument('--slice-position', type=float, help='物理坐标；默认几何中心')
     parser.add_argument('--component', choices=['Magnitude', 'X', 'Y', 'Z'], default='Magnitude')
@@ -162,6 +163,8 @@ if __name__ == '__main__':
         if not args.source:
             parser.error(args.action + ' requires --source')
         options = {'source': args.source}
+        if args.action == 'add_axis_title_view' and args.reset_view:
+            options['reset_view'] = args.reset_view
         if args.action == 'add_axis_title_view' and args.output:
             options['output'] = args.output
     elif args.action == 'publication_vorticity':
