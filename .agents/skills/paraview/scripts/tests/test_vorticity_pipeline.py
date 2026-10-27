@@ -1,5 +1,6 @@
 """真实 ParaView 旋度回归；普通仓库 Python 中跳过，使用编译节点 pvpython 执行。"""
 from pathlib import Path
+import builtins
 import math
 import os
 import runpy
@@ -20,6 +21,48 @@ class VorticityTests(unittest.TestCase):
             str(client), init_globals={'_PV_BRIDGE_DEFINITIONS_ONLY': True})['add_vorticity_view'])
         cls.publication = staticmethod(runpy.run_path(
             str(client), init_globals={'_PV_BRIDGE_DEFINITIONS_ONLY': True})['publication_vorticity'])
+        cls.amr_script = runpy.run_path(
+            str(client), init_globals={'_PV_BRIDGE_DEFINITIONS_ONLY': True})['AMR_CELL_VORTICITY_SCRIPT']
+
+    def test_covered_coarse_cells_do_not_corrupt_visible_curl(self):
+        import numpy as np
+        from vtkmodules.util.numpy_support import vtk_to_numpy, numpy_to_vtk
+        from vtkmodules.vtkCommonDataModel import vtkUniformGrid, vtkDataSetAttributes, vtkMultiBlockDataSet
+        # 单块粗层的解析旋转场；覆盖单元仍有有效速度，掩膜只能影响显示。
+        grid = vtkUniformGrid()
+        grid.SetDimensions(9, 9, 9)
+        grid.SetOrigin(10, -4, 2)
+        grid.SetSpacing(0.25, 0.25, 0.25)
+        k, j, i = np.mgrid[:8, :8, :8]
+        v = np.column_stack((-(-4+(j.ravel()+0.5)*0.25),
+                             10+(i.ravel()+0.5)*0.25, np.zeros(512)))
+        vector = numpy_to_vtk(v, deep=True)
+        vector.SetName('VelocityForVorticity')
+        grid.GetCellData().AddArray(vector)
+        flags = np.zeros((8,8,8), dtype=np.uint8)
+        flags[2:6,2:6,2:6] = vtkDataSetAttributes.REFINEDCELL
+        flags[0,0,0] = vtkDataSetAttributes.DUPLICATECELL
+        ghosts = numpy_to_vtk(flags.ravel(), deep=True)
+        ghosts.SetName('vtkGhostType')
+        grid.GetCellData().AddArray(ghosts)
+        blocks = vtkMultiBlockDataSet()
+        blocks.SetNumberOfBlocks(2)
+        blocks.SetBlock(0, grid)
+        source = pvs.TrivialProducer()
+        source.GetClientSideObject().SetOutput(blocks)
+        gradient = pvs.ProgrammableFilter(Input=source)
+        gradient.Script = self.amr_script
+        gradient.UpdatePipeline()
+        original = source.GetClientSideObject().GetOutputDataObject(0).GetBlock(0)
+        output = gradient.GetClientSideObject().GetOutputDataObject(0).GetBlock(0)
+        flags = vtk_to_numpy(original.GetCellData().GetArray('vtkGhostType')).copy()
+        self.assertEqual(int(np.count_nonzero(flags == 8)), 64)
+        np.testing.assert_array_equal(
+            vtk_to_numpy(output.GetCellData().GetArray('vtkGhostType')), flags)
+        vorticity = vtk_to_numpy(output.GetCellData().GetArray('Vorticity'))
+        np.testing.assert_allclose(vorticity, np.tile([0, 0, 2], (512, 1)), atol=1e-12)
+        pvs.Delete(gradient)
+        pvs.Delete(source)
 
     def test_solid_body_rotation_and_original_view_preserved(self):
         # 解析场 u=(-y,x,0) 的旋度应为 (0,0,2)，避免只检查过滤器名字或成功退出。
@@ -80,7 +123,8 @@ class VorticityTests(unittest.TestCase):
         source.Level = 2
         source.CellArrayStatus = ['ux', 'uy', 'uz']
         result = self.add_view({'source': 'real_vorticity_input'})
-        self.assertTrue(all(math.isfinite(v) for v in result['vorticity_range']))
+        # ProgrammableFilter 会向 __main__ 导入 VTK 的 all；此处不能触发 MPI 全局归约。
+        self.assertTrue(builtins.all(math.isfinite(v) for v in result['vorticity_range']))
         self.assertGreater(result['vorticity_range'][1], 0)
         print('REAL_AMREX_VORTICITY', result)
 

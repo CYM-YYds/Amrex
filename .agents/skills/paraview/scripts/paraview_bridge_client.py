@@ -16,11 +16,55 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '5'
+BRIDGE_VERSION = '6'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
                 'add_vorticity_view', 'publication_vorticity', 'reload_client']
+
+# 代码随 ProgrammableFilter 在数据所在 rank 执行；不依赖 Windows 上的仓库模块路径。
+# 仅在求导副本中解除细层覆盖，输出恢复原掩膜，避免改动输入或重复显示粗细层。
+AMR_CELL_VORTICITY_SCRIPT = '''
+from vtkmodules.vtkCommonDataModel import vtkDataObject, vtkDataSetAttributes
+from vtkmodules.vtkFiltersGeneral import vtkGradientFilter
+from vtkmodules.util.numpy_support import vtk_to_numpy, numpy_to_vtk
+
+def differentiate(block):
+    work = block.NewInstance()
+    work.ShallowCopy(block)
+    ghosts = block.GetCellData().GetArray('vtkGhostType')
+    if block.IsA('vtkUniformGrid') and ghosts is not None:
+        flags = vtk_to_numpy(ghosts)
+        cleared = numpy_to_vtk(flags & (255 ^ vtkDataSetAttributes.REFINEDCELL), deep=True)
+        cleared.SetName('vtkGhostType')
+        work.GetCellData().AddArray(cleared)
+    gradient = vtkGradientFilter()
+    gradient.SetInputData(work)
+    gradient.SetInputScalars(vtkDataObject.FIELD_ASSOCIATION_CELLS, 'VelocityForVorticity')
+    gradient.SetComputeGradient(False)
+    gradient.SetComputeVorticity(True)
+    gradient.SetVorticityArrayName('Vorticity')
+    gradient.Update()
+    result = block.NewInstance()
+    result.ShallowCopy(gradient.GetOutput())
+    if ghosts is not None:
+        result.GetCellData().AddArray(ghosts)
+    return result
+
+source = self.GetInputDataObject(0, 0)
+output = self.GetOutputDataObject(0)
+output.ShallowCopy(source)
+if source.IsA('vtkCompositeDataSet'):
+    iterator = source.NewIterator()
+    iterator.InitTraversal()
+    while not iterator.IsDoneWithTraversal():
+        block = iterator.GetCurrentDataObject()
+        if block is not None:
+            output.SetDataSet(iterator, differentiate(block))
+        iterator.GoToNextItem()
+else:
+    output.ShallowCopy(differentiate(source))
+'''
 
 # 跨启动脚本和交互 Shell 共用唯一实例，也保留停止后可能被系统消息引用的回调。
 if not hasattr(builtins, '_amrex_paraview_bridge_runtime'):
@@ -174,14 +218,19 @@ def add_vorticity_view(command):
         vector.AttributeType = attribute_type
         vector.ResultArrayName = 'VelocityForVorticity'
         vector.Function = 'ux*iHat + uy*jHat + uz*kHat'
-        gradient = pvs.Gradient(registrationName='Vorticity_3D', Input=vector)
-        created.append(gradient)
-        gradient.ScalarArray = [association, 'VelocityForVorticity']
-        gradient.ComputeGradient = 0
-        gradient.ComputeDivergence = 0
-        gradient.ComputeVorticity = 1
-        gradient.VorticityArrayName = 'Vorticity'
-        gradient.ComputeQCriterion = 0
+        if association == 'CELLS' and source.GetXMLName() in ('AMReXBoxLibGridReader', 'AMReXGridReader'):
+            gradient = pvs.ProgrammableFilter(registrationName='Vorticity_3D', Input=vector)
+            created.append(gradient)
+            gradient.Script = AMR_CELL_VORTICITY_SCRIPT
+        else:
+            gradient = pvs.Gradient(registrationName='Vorticity_3D', Input=vector)
+            created.append(gradient)
+            gradient.ScalarArray = [association, 'VelocityForVorticity']
+            gradient.ComputeGradient = 0
+            gradient.ComputeDivergence = 0
+            gradient.ComputeVorticity = 1
+            gradient.VorticityArrayName = 'Vorticity'
+            gradient.ComputeQCriterion = 0
         gradient.UpdatePipeline(time=current_time)
         arrays = gradient.PointData if association == 'POINTS' else gradient.CellData
         if 'Vorticity' not in arrays.keys() or arrays['Vorticity'].GetNumberOfComponents() != 3:
@@ -258,7 +307,7 @@ def add_vorticity_view(command):
                 'gradient': gradient.GetGlobalIDAsString(),
                 'slice': section.GetGlobalIDAsString(), 'view': view.GetGlobalIDAsString(),
                 'definition': 'curl(ux,uy,uz), physical coordinates; uses native cell arrays when available and computes the three-dimensional gradient before slicing',
-                'limitations': 'Block-local derivatives near AMR interfaces remain a visualization approximation'}
+                'limitations': 'AMReX cell derivatives use stored covered coarse velocities with refinement blanking temporarily cleared and restored on output; missing block halos and coarse/fine discretization remain limitations'}
     except Exception:
         for proxy in reversed(created):
             pvs.Delete(proxy)
@@ -626,6 +675,7 @@ class ParaViewBridge:
                     'sources': [list(key) for key in pvs.GetSources()],
                     'source_details': [
                         {'name': name, 'id': key, 'type': source.GetXMLName(),
+                         'level': int(source.Level) if source.GetProperty('Level') else None,
                          'files': list(source.FileNames) if source.GetProperty('FileNames') else []}
                         for (name, key), source in pvs.GetSources().items() if source is not None],
                     'views': [v.GetXMLName() for v in pvs.GetViews()]}
