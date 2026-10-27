@@ -113,6 +113,10 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 
 ## 故障处理与验证边界
 
+- 服务端断线：启动器自动将服务 stdout/stderr 同时写入共享仓库
+  `.tools/paraview-mpi/logs/pvserver_日期时间_随机后缀.log`，路径也显示在启动窗口中；
+  关闭 Windows 窗口后日志仍保留。版本预检不生成日志，日志不自动清理。
+  该日志不包含 Windows 客户端 Output Messages，仍需区分双方最先发生的错误。
 - PS1 窗口立即关闭：在已打开的 PowerShell 中用 `pwsh -NoExit -File "本机实际路径/connect_paraview.ps1"` 保留完整报错。
 - 版本预检得到空值：重新下载 PS1；当前实现读 EXE 版本资源，缺失时用同目录 pvpython，不能依赖 GUI `paraview.exe --version` 的管道输出。
 - PythonQt 缺失：确认使用最新桥客户端，且在 ParaView GUI 内加载，而非普通 Python。

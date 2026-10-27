@@ -38,6 +38,7 @@ fi
 CLEAN_ENV=(env -u LD_LIBRARY_PATH -u PYTHONPATH -u PYTHONHOME -u DISPLAY
     -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH -u PV_PLUGIN_PATH
     QT_QPA_PLATFORM=offscreen "PATH=${PV_PREFIX}/bin:${PATH}")
+SERVER_COMMAND=("${CLEAN_ENV[@]}" "$PVSERVER" --force-offscreen-rendering "${SERVER_ARGS[@]}")
 if (( PROCESSES > 1 )); then
     MPIEXEC="${PV_PREFIX}/bin/mpiexec"
     if [[ ! -x "$MPIEXEC" ]]; then
@@ -67,6 +68,16 @@ if (( PROCESSES > 1 )); then
     if [[ " ${SERVER_ARGS[*]} " == *' --version '* ]]; then
         exec "${CLEAN_ENV[@]}" "$PVSERVER" --version
     fi
-    exec "${CLEAN_ENV[@]}" "$MPIEXEC" -n "$PROCESSES" "$PVSERVER" --force-offscreen-rendering "${SERVER_ARGS[@]}"
+    SERVER_COMMAND=("${CLEAN_ENV[@]}" "$MPIEXEC" -n "$PROCESSES" "$PVSERVER" --force-offscreen-rendering "${SERVER_ARGS[@]}")
 fi
-exec "${CLEAN_ENV[@]}" "$PVSERVER" --force-offscreen-rendering "${SERVER_ARGS[@]}"
+# 服务日志保存在共享仓库；窗口关闭后仍可查看，不把 tee 的退出码当作服务退出码。
+# 版本预检不创建日志；正式服务继续使用 exec，保留原来的退出码与信号路径。
+if [[ " ${SERVER_ARGS[*]} " != *' --version '* ]]; then
+    LOG_DIR="${PARAVIEW_SERVER_LOG_DIR:-${REPO_DIR}/.tools/paraview-mpi/logs}"
+    mkdir -p -- "$LOG_DIR"
+    LOG_FILE=$(mktemp "${LOG_DIR}/pvserver_$(date +%Y%m%d_%H%M%S)_XXXXXX.log")
+    exec > >(tee -- "$LOG_FILE") 2>&1
+    printf 'ParaView server log: %s\nHost: %s; processes: %s; prefix: %s\n' \
+        "$LOG_FILE" "$(hostname -s)" "$PROCESSES" "$PV_PREFIX"
+fi
+exec "${SERVER_COMMAND[@]}"

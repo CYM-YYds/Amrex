@@ -35,8 +35,27 @@ class RoutingTests(unittest.TestCase):
                           'printf "%s\\n" "$@" > "$MPI_CAPTURE"\nshift 2\nexec "$@"')
         env = dict(os.environ, PATH=str(directory)+':'+os.environ['PATH'],
                    CAPTURE=str(directory/'server-args'), MPI_CAPTURE=str(directory/'mpi-args'),
+                   PARAVIEW_SERVER_LOG_DIR=str(directory/'server logs'),
                    LD_LIBRARY_PATH='/invalid/libs', PYTHONPATH='/invalid/python', DISPLAY=':invalid')
         return prefix, env
+
+    def test_server_log_keeps_both_streams_and_failure_exit_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            prefix, env = self.server_environment(directory)
+            self.make_command(prefix/'bin', 'pvserver',
+                              'echo server-output; echo server-error >&2; exit 23')
+            result = subprocess.run(['bash', str(SCRIPTS/'run_paraview_server.sh'),
+                                     '--prefix', str(prefix), '--processes', '4'],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 23)
+            logs = list((directory/'server logs').glob('*.log'))
+            self.assertEqual(len(logs), 1)
+            contents = logs[0].read_text()
+            self.assertIn('server-output', contents)
+            self.assertIn('server-error', contents)
+            self.assertIn('server-output', result.stdout)
+            self.assertIn('server-error', result.stdout)
 
     def test_parallel_server_uses_matching_launcher_and_preserves_arguments(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -71,6 +90,7 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse((directory/'mpi-args').exists())
             self.assertEqual((directory/'server-args').read_text().strip(), '--version')
+            self.assertFalse((directory/'server logs').exists())
 
     def test_single_process_retains_serial_compatibility_and_rejects_bad_count(self):
         with tempfile.TemporaryDirectory() as tmp:
