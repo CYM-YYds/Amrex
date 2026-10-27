@@ -1,0 +1,92 @@
+"""ParaView GUI：选中原生 Gradient 后运行，生成独立的 AMR 修复节点。
+
+此文件由 paraview_bridge_send.py 的 export_gradient_script 生成，请勿手改生成文件。
+算法来源为桥客户端的 AMR_CELL_VORTICITY_SCRIPT；运行时无需桥接或其他本机文件。
+"""
+import builtins as _builtins
+import math
+
+from paraview import simple as pvs
+
+
+AMR_CELL_VORTICITY_SCRIPT = "\nfrom vtkmodules.vtkCommonDataModel import vtkDataObject, vtkDataSetAttributes\nfrom vtkmodules.vtkFiltersGeneral import vtkGradientFilter\nfrom vtkmodules.util.numpy_support import vtk_to_numpy, numpy_to_vtk\n\ndef differentiate(block):\n    work = block.NewInstance()\n    work.ShallowCopy(block)\n    ghosts = block.GetCellData().GetArray('vtkGhostType')\n    if block.IsA('vtkUniformGrid') and ghosts is not None:\n        flags = vtk_to_numpy(ghosts)\n        cleared = numpy_to_vtk(flags & (255 ^ vtkDataSetAttributes.REFINEDCELL), deep=True)\n        cleared.SetName('vtkGhostType')\n        work.GetCellData().AddArray(cleared)\n    gradient = vtkGradientFilter()\n    gradient.SetInputData(work)\n    gradient.SetInputScalars(vtkDataObject.FIELD_ASSOCIATION_CELLS, 'VelocityForVorticity')\n    gradient.SetComputeGradient(False)\n    gradient.SetComputeVorticity(True)\n    gradient.SetVorticityArrayName('Vorticity')\n    gradient.Update()\n    result = block.NewInstance()\n    result.ShallowCopy(gradient.GetOutput())\n    if ghosts is not None:\n        result.GetCellData().AddArray(ghosts)\n    return result\n\nsource = self.GetInputDataObject(0, 0)\noutput = self.GetOutputDataObject(0)\noutput.ShallowCopy(source)\nif source.IsA('vtkCompositeDataSet'):\n    iterator = source.NewIterator()\n    iterator.InitTraversal()\n    while not iterator.IsDoneWithTraversal():\n        block = iterator.GetCurrentDataObject()\n        if block is not None and block.IsA('vtkDataSet'):\n            output.SetDataSet(iterator, differentiate(block))\n        iterator.GoToNextItem()\nelif source.IsA('vtkDataSet'):\n    output.ShallowCopy(differentiate(source))\n"
+
+
+def create_corrected_gradient(original=None):
+    """复用原 Gradient 的三维单元数组和输出设置，保留其所有消费者。"""
+    original = original if original is not None else pvs.GetActiveSource()
+    if original is None or original.GetXMLName() != 'Gradient':
+        raise ValueError('请先在 Pipeline Browser 中选中已创建并 Apply 的原生 Gradient 节点。')
+    association, array_name = list(original.ScalarArray)
+    if association != 'CELLS':
+        raise ValueError('本修复用于 Cell Data。请在原 Gradient 中选择单元数组后 Apply，再运行脚本。')
+    if len(original.GetProperty('Input')) != 1:
+        raise ValueError('原 Gradient 必须只有一个输入。')
+    source = original.GetProperty('Input')[0]
+    previous_source = pvs.GetActiveSource()
+    view = pvs.GetActiveView()
+    current_time = view.ViewTime if view is not None else pvs.GetAnimationScene().AnimationTime
+    source.UpdatePipeline(time=current_time)
+    bounds = list(source.GetDataInformation().GetBounds())
+    if _builtins.any(not math.isfinite(v) for v in bounds) or _builtins.any(
+            bounds[2*i] >= bounds[2*i+1] for i in range(3)):
+        raise ValueError('需要三维数据；请在 Slice 之前的三维速度上创建 Gradient。')
+    if array_name not in source.CellData.keys():
+        raise ValueError('原 Gradient 选择的单元数组不存在：' + array_name)
+    settings = [('ComputeGradient', 'ResultArrayName'),
+                ('ComputeDivergence', 'DivergenceArrayName'),
+                ('ComputeVorticity', 'VorticityArrayName'),
+                ('ComputeQCriterion', 'QCriterionArrayName')]
+    enabled = [(flag, name) for flag, name in settings if int(getattr(original, flag))]
+    if not enabled:
+        raise ValueError('原 Gradient 至少应开启 Gradient、Divergence、Vorticity 或 Q Criterion 中的一项。')
+    if _builtins.any(flag != 'ComputeGradient' for flag, _ in enabled) and (
+            source.CellData[array_name].GetNumberOfComponents() != 3):
+        raise ValueError('旋度、散度和 Q Criterion 需要三分量单元向量。')
+
+    # 仅替换原生过滤器的设置区；掩膜解除、差分和恢复仍来自唯一算法模板。
+    original_settings = """    gradient.SetInputScalars(vtkDataObject.FIELD_ASSOCIATION_CELLS, 'VelocityForVorticity')
+    gradient.SetComputeGradient(False)
+    gradient.SetComputeVorticity(True)
+    gradient.SetVorticityArrayName('Vorticity')"""
+    if AMR_CELL_VORTICITY_SCRIPT.count(original_settings) != 1:
+        raise RuntimeError('算法模板已变化，请重新生成此脚本。')
+    calls = ["    gradient.SetInputScalars(vtkDataObject.FIELD_ASSOCIATION_CELLS, " + repr(array_name) + ")"]
+    for flag, name in settings:
+        calls.append('    gradient.Set' + flag + '(' + repr(_builtins.bool(int(getattr(original, flag)))) + ')')
+        calls.append('    gradient.Set' + name + '(' + repr(str(getattr(original, name))) + ')')
+    for name in ('FasterApproximation', 'ContributingCellOption', 'ReplacementValueOption'):
+        prop = original.GetProperty(name)
+        if prop is not None:
+            calls.append('    gradient.Set' + name + '(' + repr(int(prop.SMProperty.GetElement(0))) + ')')
+    script = AMR_CELL_VORTICITY_SCRIPT.replace(original_settings, '\n'.join(calls))
+
+    registered = {name for name, _ in pvs.GetSources()}
+    original_name = next((name for (name, _), proxy in pvs.GetSources().items()
+                          if proxy.GetGlobalIDAsString() == original.GetGlobalIDAsString()), 'Gradient')
+    label = original_name + '_AMR_fixed'
+    suffix = 2
+    while label in registered:
+        label = original_name + '_AMR_fixed_' + str(suffix)
+        suffix += 1
+    fixed = pvs.ProgrammableFilter(registrationName=label, Input=source)
+    try:
+        fixed.Script = script
+        fixed.UpdatePipeline(time=current_time)
+        for _, name in enabled:
+            output_name = str(getattr(original, name))
+            if output_name not in fixed.CellData.keys():
+                raise RuntimeError('未生成预期数组：' + output_name)
+            if not _builtins.all(math.isfinite(v) for v in fixed.CellData[output_name].GetRange(-1)):
+                raise RuntimeError('输出数组范围非有限：' + output_name)
+        pvs.SetActiveSource(fixed)
+    except Exception:
+        pvs.Delete(fixed)
+        pvs.SetActiveSource(previous_source)
+        raise
+    print('已生成 ' + label + '；现在可选中它添加 Slice、Contour 等过滤器。')
+    return fixed
+
+
+if not globals().get('_AMR_GRADIENT_DEFINITIONS_ONLY', False):
+    repaired_gradient = create_corrected_gradient()

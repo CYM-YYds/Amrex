@@ -106,6 +106,28 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 已修复的切片不再直接连接原生 Gradient，无需再次执行修复。保存新的 `.pvsm` 状态文件
 才能在重开场景后保留该连接；加载修复前的旧状态仍会使用原管线。
 
+## 用户自行生成修复节点
+
+下载 [repair_amr_gradient.py](../scripts/repair_amr_gradient.py) 为 Windows 普通文件即可，
+运行时不需要桥接、仓库路径或第二个脚本。它是用户直接操作的长期入口，不是一次性诊断。
+
+1. 在三维数据上创建普通 Gradient，选择 **Cell Data** 数组，勾选需要的 Gradient、Vorticity、
+   Divergence 或 Q Criterion 并 Apply。
+2. 在 Pipeline Browser 选中该 Gradient，打开 **View → Python Shell**，用 **Run Script**
+   加载下载文件；也可执行（替换实际文件路径）：
+
+   ```python
+   exec(open(r'D:\OneDrive\Desktop\repair_amr_gradient.py', encoding='utf-8').read())
+   ```
+
+3. 新节点例如 `Gradient1_AMR_fixed` 会被选中，后续自行添加 Slice、Contour 等。
+
+新节点复用原 Gradient 的输入数组、输出勾选项及数组名，解除覆盖后重新计算，再恢复掩膜。
+它与旧 Gradient 并列连接三维输入，旧节点及已有切片不变；脚本不自动显示数据或改相机、色标。
+修复节点的类型为 Programmable Filter；如需调整计算勾选项，修改原 Gradient 后重新生成。
+重复执行生成唯一新名称。当前范围为三维单元数据，细块缺失 ghost 的限制同前。
+脚本需在 ParaView 的 Python Shell 执行，不能用普通系统 Python。保存新的 `.pvsm` 可保留结果。
+
 已有涡量切片可使用 `publication_vorticity` 原位排版：
 
 ```bash

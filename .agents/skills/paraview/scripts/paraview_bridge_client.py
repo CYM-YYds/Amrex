@@ -59,10 +59,10 @@ if source.IsA('vtkCompositeDataSet'):
     iterator.InitTraversal()
     while not iterator.IsDoneWithTraversal():
         block = iterator.GetCurrentDataObject()
-        if block is not None:
+        if block is not None and block.IsA('vtkDataSet'):
             output.SetDataSet(iterator, differentiate(block))
         iterator.GoToNextItem()
-else:
+elif source.IsA('vtkDataSet'):
     output.ShallowCopy(differentiate(source))
 '''
 

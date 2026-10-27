@@ -58,6 +58,16 @@ pv_bridge.stop()
 - 新增桥操作先核对已有能力和 ParaView API，再实现并更新能力声明；不以任意 Python 投递绕过协议。涡量须在三维速度上计算后再切片，单元速度优先，兼容旧读取器时才 ExtractBlock。
 - AMR 单元涡量修复的唯一求导实现为客户端的 `AMR_CELL_VORTICITY_SCRIPT`，新视图与现有
   切片操作共同复用。具体掩膜处理、限制和操作见 [GUI 桥接](bridge.md)。
+- 用户单文件 `scripts/repair_amr_gradient.py` 由该算法与 `templates/repair_amr_gradient.py.in`
+  生成，`后处理脚本/repair_amr_gradient.py` 为兼容软链。它独立分发，不依赖运行时桥接；
+  设置区继承所选 Gradient 的输出选项，不维护第二套掩膜差分算法。改源后从仓库根重新生成：
+
+  ```bash
+  .venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current export_gradient_script \
+    --output .agents/skills/paraview/scripts/repair_amr_gradient.py
+  ```
+
+  生成物同步回归会比较完整文件；不要直接手改生成物。
 
 验证按修改范围选择：纯文档检查路径、链接和 skill 格式；修改执行机制时检查相应语言语法，
 并运行现有回归：

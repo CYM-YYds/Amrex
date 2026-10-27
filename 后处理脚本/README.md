@@ -2,6 +2,10 @@
 
 当前 ParaView 连接、桥接、AMR 涡量修复和日志获取统一见 [ParaView skill](../.agents/skills/paraview/SKILL.md)。下文介绍两项独立的二维提取与 CSV 比较工具，不代表整个目录仅有这两个脚本。
 
+手动修复入口：[repair_amr_gradient.py](repair_amr_gradient.py)。在 ParaView 中选中普通 Gradient，
+通过 Python Shell 的 Run Script 运行，即生成独立的 `Gradient1_AMR_fixed` 等节点供后续操作；
+不自动改动现有 Slice 或视图。具体步骤与限制见 [GUI 桥接说明](../.agents/skills/paraview/references/bridge.md#用户自行生成修复节点)。
+
 ## 📁 脚本文件清单
 
 本节介绍 **2 项提取与比较工具**：

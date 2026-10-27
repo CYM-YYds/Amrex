@@ -25,6 +25,18 @@ def client_manifest():
             'source_sha256': hashlib.sha256(source).hexdigest()}
 
 
+def gradient_script_source():
+    """将唯一求导算法打包为可单文件运行的 GUI 工具，避免维护第二份算法。"""
+    directory = Path(__file__).parent
+    source = (directory / 'paraview_bridge_client.py').read_text()
+    algorithm = next(ast.literal_eval(node.value) for node in ast.parse(source).body
+                     if isinstance(node, ast.Assign) and any(
+                         isinstance(target, ast.Name) and target.id == 'AMR_CELL_VORTICITY_SCRIPT'
+                         for target in node.targets))
+    template = (directory.parent / 'templates/repair_amr_gradient.py.in').read_text()
+    return template.replace('__AMR_CELL_VORTICITY_SCRIPT_LITERAL__', repr(algorithm))
+
+
 def client_status(reply, expected):
     """连接状态与源码版本分开报告，不能把旧客户端误报为连接断开。"""
     if not reply.get('ok'):
@@ -93,7 +105,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', nargs='?', default='current')
     parser.add_argument('action', choices=['inspect', 'background', 'restore_background', 'export_centerline',
-                                         'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'client_manifest', 'client_status', 'reload_client'])
+                                         'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'client_manifest', 'client_status', 'reload_client', 'export_gradient_script'])
     parser.add_argument('--color', nargs=3, type=float)
     parser.add_argument('--input')
     parser.add_argument('--output')
@@ -108,6 +120,12 @@ if __name__ == '__main__':
                         help='显式设置涡量色标范围；默认使用当前切片数据范围')
     parser.add_argument('--timeout', type=float, default=60)
     args = parser.parse_args()
+    if args.action == 'export_gradient_script':
+        if not args.output:
+            parser.error('export_gradient_script requires --output')
+        Path(args.output).write_text(gradient_script_source(), encoding='utf-8')
+        print(args.output)
+        raise SystemExit(0)
     if args.action == 'client_manifest':
         print(json.dumps(client_manifest(), indent=2))
         raise SystemExit(0)
