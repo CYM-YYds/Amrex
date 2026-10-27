@@ -515,7 +515,7 @@ A-B 修复 `f_old`，OSI 修复当前 phase 的 `osi_state`；锁步参考态采
 检查范围见 [粗细层传输说明](#11-静态-coarse-fine-传输)。
 
 即使 BoxArray 不变，细层 ghost 填充和 fine-to-coarse restriction 也跨越两个具有不同
-phase 的 level。当前实现使用稀疏 canonical staging 隔离跨层数据布局：
+phase 的 level。当前实现使用按传输范围构造的 canonical staging 隔离跨层数据布局：
 
 ```text
 coarse raw（当前 phase）-> ParallelCopyOsi -> coarse_stage（canonical）
@@ -531,7 +531,8 @@ fine raw（当前 phase）-> 融合 scaling/restriction，直接读取子单元
 -> ParallelCopyOsi -> coarse 当前 phase raw 地址
 ```
 
-该 staging 只覆盖插值所需粗层源区或稀疏界面限制结果；二维一次处理Q=9、三维一次处理Q=27。
+插值 staging 覆盖所需粗层源区，界面平均结果区覆盖稀疏界面；完整 valid 平均则使用
+coarsen(fine valid) 的局部结果区。二维一次处理Q=9、三维一次处理Q=27。
 界面平均与完整 valid 平均都通过 `RestrictDdfToCoarse<UseOsiAddress, StoreScaledFine>`
 直接读取当前细层数据，不再为 OSI 完整解码细层和粗层。界面任务只覆盖稀疏界面，
 完整 valid 任务覆盖所有 fine valid 盒粗化后的父单元，不能互换任务范围。
@@ -545,8 +546,8 @@ mode 1/2 按 coarse parent 派发并裁剪到目标盒。
 插值准备阶段的物理域外延拓仍按需要填充的 Box 启动。
 
 CUDA 界面平均使用 `average_down_cache[coarse_lev].block_tags` 合并所有本地 interface Box 提交。
-两种布局共用映射和数值函数，`load_ddf<UseOsiAddress>` 在编译期选择直接读取或 OSI 地址映射；
-结果都先写入 canonical interface buffer，再分别用 `ParallelCopy` 或 `ParallelCopyOsi` 写回粗层。
+界面及完整 valid 平均的两种布局共用映射和数值函数，`load_ddf<UseOsiAddress>` 在编译期选择直接读取或 OSI 地址映射；
+结果先写入各自范围的 canonical buffer，再分别用 `ParallelCopy` 或 `ParallelCopyOsi` 写回粗层。
 映射由编译期 Q 确定：Q27 每 16 lane 处理一个父单元、128 线程/block，每 block 最多 8 个父单元；
 Q19 每线程处理一个父单元、128 线程/block。默认模型仍为三维 Q27、二维 Q9，不提供运行时 Q19 切换。
 Q27 半 warp 每 lane 保存 q=lane 及 q=lane+16 两槽，分别对每个细子单元归约 rho/动量、缩放后累加，
@@ -558,12 +559,14 @@ CPU 的两种平均范围保持逐盒提交，共用 `average_down_to_canonical`
 `AverageDownValidLevel(..., DdfLayout)` 创建函数局部的 coarsen(fine valid) canonical 结果区，
 复用 `BuildRestrictionWork` 与共同执行器，再按布局写回，保留 uncovered 粗单元。
 AB 完整平均使用 `StoreScaledFine=true`，同时将各子单元缩放后的 DDF 写入 `f_new` valid，
-保留原实现的双缓冲状态行为；接口平均及 OSI 不写此辅助区。
+保留原实现的双缓冲状态行为；界面平均及 OSI 不写此辅助区。
 完整平均的临时搬运计划、任务、结果在 GPU/MPI 完成后才释放，不进入持久界面缓存。
 平均后的边界修复仍调用既有薄面批量任务。
 
-上述任务分别由 `BuildInterpolationCache`/`BuildAverageCache` 派生，
-`ClearOsiTransferCaches`在任一侧布局/存储改变前使其失效，随后由既有粗细缓存重建流程恢复。
+正常推进的持久任务分别由 `BuildInterpolationCache`/`BuildAverageCache` 派生，
+`ClearOsiTransferCaches` 在任一侧布局/存储改变前使其失效，随后由既有粗细缓存重建流程恢复。
+初始化和完整 valid 平均复用相同建表函数，但任务及暂存区由当前调用持有；
+调用返回或替换底层存储前先完成 GPU/MPI 同步，不依赖持久缓存失效来管理其生命周期。
 缩放任务持有stage的Array4；计算标签保存几何与本地索引，执行时取得当前数组和共享
 `FabPhaseCache`偏移，phase变化不触发几何重建，也不缓存独立相位副本。
 正式实现没有映射实验开关，默认格子仍为三维Q27、二维Q9；选择Q19编译时自动使用标量映射，
