@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '8'
+BRIDGE_VERSION = '9'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
@@ -370,7 +370,7 @@ def repair_vorticity_slice(command):
 
 
 def publication_vorticity(command):
-    """为已有涡量切片添加可追溯的无量纲标量及论文排版，不重新求导或平滑。"""
+    """为已有涡量切片添加可追溯的显示标量与排版，不重新求导或平滑。"""
     import math
     from paraview import servermanager
     source_name = command.get('source')
@@ -404,10 +404,12 @@ def publication_vorticity(command):
         raise ValueError('output must be an absolute server PNG path')
     # 只使用已有可见视图，避免无意修改同一切片的隐藏预览。
     candidates = [(v, d) for v in pvs.GetViews() if v.GetXMLName() == 'RenderView'
-                  for d in v.Representations if d.GetProperty('Input') and d.Input == visible_source]
+                  for d in v.Representations if d.GetProperty('Input') and d.Input in ([source] + publications)]
     candidates = [(v, d) for v, d in candidates if d.Visibility]
     active = pvs.GetActiveView()
     candidates = [pair for pair in candidates if pair[0] == active] or candidates
+    if len(candidates) > 1 and len({v.GetGlobalIDAsString() for v, _ in candidates}) == 1:
+        candidates = [next((pair for pair in candidates if pair[1].Input == visible_source), candidates[0])]
     if len(candidates) != 1:
         raise ValueError('Select the visible Vorticity slice view first')
     view, original_display = candidates[0]
@@ -424,6 +426,7 @@ def publication_vorticity(command):
     scalar.AttributeType = 'Cell Data' if association == 'CELLS' else 'Point Data'
     scalar.ResultArrayName = 'PublicationVorticityMagnitude'
     scalar.Function = 'mag(Vorticity)*' + repr(float(scale))
+    scalar.GetProperty('Function').SMProperty.SetUncheckedElement(0, str(scalar.Function))
     scalar.UpdatePipeline(time=view.ViewTime)
     values = scalar.CellData if association == 'CELLS' else scalar.PointData
     data_range = list(values['PublicationVorticityMagnitude'].GetRange())
@@ -528,6 +531,7 @@ def publication_vorticity(command):
             previous_label = pvs.FindSource('Publication_axis_' + str(index) + '_' + view.GetGlobalIDAsString() + suffix)
             if previous_label is not None:
                 pvs.Hide(previous_label, view)
+    label_displays = []
     for index, position, suffix in labels:
         label_name = 'Publication_axis_' + str(index) + '_' + view.GetGlobalIDAsString() + suffix
         label = pvs.FindSource(label_name)
@@ -541,18 +545,40 @@ def publication_vorticity(command):
         label_display.FontFamily = font
         label_display.FontSize = 36 if reference_style else 24
         label_display.Color = [0, 0, 0]
+        label_displays.append(label_display)
+    # GUI 使用窗口适配的小字号；导出临时采用固定高清字号，之后恢复 GUI，避免标签挤占窗口。
+    def reference_text_scale(scale):
+        bar.TitleFontSize = max(8, round(36*scale))
+        bar.LabelFontSize = max(8, round(32*scale))
+        bar.ScalarBarThickness = max(8, round(40*scale))
+        for letter in 'XYZ':
+            setattr(grid, letter+'TitleFontSize', max(8, round(36*scale)))
+            setattr(grid, letter+'LabelFontSize', max(8, round(32*scale)))
+        for label_display in label_displays:
+            label_display.FontSize = max(8, round(36*scale))
+    gui_text_scale = min(1.0, max(0.35, min(view.ViewSize[0]/2400, view.ViewSize[1]/2640))) if reference_style else 1.0
+    if reference_style:
+        reference_text_scale(gui_text_scale)
     pvs.SetActiveView(view)
     pvs.SetActiveSource(scalar)
     pvs.Render(view)
     if output:
-        pvs.SaveScreenshot(output, view, ImageResolution=[2400, 2640] if reference_style else [2400, 2400],
-                           FontScaling='Do not scale fonts',
-                           location=servermanager.vtkPVSession.DATA_SERVER)
+        try:
+            if reference_style:
+                reference_text_scale(1.0)
+            pvs.SaveScreenshot(output, view, ImageResolution=[2400, 2640] if reference_style else [2400, 2400],
+                               FontScaling='Do not scale fonts',
+                               location=servermanager.vtkPVSession.DATA_SERVER)
+        finally:
+            if reference_style:
+                reference_text_scale(gui_text_scale)
+                pvs.Render(view)
     return {'source': source_name, 'view': view.GetGlobalIDAsString(), 'time': view.ViewTime,
             'scalar': scalar.GetGlobalIDAsString(), 'vorticity_scale': scale,
             'scaled_range': data_range, 'color_range': list(limits), 'slice_normal': normal,
             'slice_origin': list(source.SliceType.Origin), 'output': output,
             'style': style, 'hidden_overlays': hidden_overlays,
+            'gui_view_size': list(view.ViewSize), 'gui_text_scale': gui_text_scale,
             'image_resolution': ([2400, 2640] if reference_style else [2400, 2400]) if output else None,
             'clipping': 'Values above color maximum saturate; no numerical smoothing applied'}
 
@@ -760,12 +786,21 @@ class ParaViewBridge:
                     'source_details': [
                         {'name': name, 'id': key, 'type': source.GetXMLName(),
                          'level': int(source.Level) if source.GetProperty('Level') else None,
+                         'function': str(source.Function) if source.GetProperty('Function') else None,
+                         'unchecked_function': source.GetProperty('Function').SMProperty.GetUncheckedElement(0)
+                                               if source.GetProperty('Function') and source.GetProperty('Function').SMProperty.GetNumberOfUncheckedElements() else None,
                          'inputs': [source.GetProperty('Input').SMProperty.GetProxy(i).GetGlobalIDAsString()
                                     for i in range(source.GetProperty('Input').SMProperty.GetNumberOfProxies())]
                                    if source.GetProperty('Input') else [],
                          'files': list(source.FileNames) if source.GetProperty('FileNames') else []}
                         for (name, key), source in pvs.GetSources().items() if source is not None],
-                    'views': [v.GetXMLName() for v in pvs.GetViews()]}
+                    'views': [v.GetXMLName() for v in pvs.GetViews()],
+                    'view_details': [
+                        {'id': v.GetGlobalIDAsString(), 'size': list(v.ViewSize),
+                         'visible_sources': [r.GetProperty('Input').SMProperty.GetProxy(0).GetGlobalIDAsString()
+                                             for r in v.Representations if r.GetProperty('Input')
+                                             and r.GetProperty('Input').SMProperty.GetNumberOfProxies() and r.Visibility]}
+                        for v in pvs.GetViews() if v.GetXMLName() == 'RenderView']}
         if action not in ('background', 'restore_background'):
             raise ValueError('Unsupported action: ' + str(action))
         view = pvs.GetActiveView()

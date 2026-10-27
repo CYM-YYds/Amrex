@@ -194,6 +194,31 @@ output.SetBlock(0, grid)
         self.assertEqual(list(bar.CustomLabels), [0, 50])
         self.assertEqual(bar.TitleFontFamily, 'Arial')
         self.assertAlmostEqual(pvs.GetActiveView().CameraFocalPoint[2], -0.576)
+        self.assertLess(bar.TitleFontSize, 36)
+        # 导出时可用高清字号，但返回 GUI 后必须恢复窗口字号。
+        import tempfile
+        import struct
+        with tempfile.TemporaryDirectory() as tmp:
+            output = str(Path(tmp) / 'reference.png')
+            before_font = bar.TitleFontSize
+            pvs.Hide(styled_source, pvs.GetActiveView())
+            original_slice = pvs.FindSource('Vorticity_slice_y')
+            pvs.Show(original_slice, pvs.GetActiveView())
+            overlay.Visibility = 1
+            styled_source.Function = 'normmag(Vorticity)*20.0'
+            styled_source.GetProperty('Function').SMProperty.SetUncheckedElement(0, 'normmag(Vorticity)*20.0')
+            exported = self.publication({'source': 'Vorticity_slice_y', 'style': 'reference',
+                                         'vorticity_scale': 20, 'color_range': [0, 50], 'output': output})
+            self.assertEqual(exported['image_resolution'], [2400, 2640])
+            self.assertEqual(struct.unpack('>II', Path(output).read_bytes()[16:24]), (2400, 2640))
+            self.assertEqual(bar.TitleFontSize, before_font)
+            self.assertEqual(exported['scaled_range'], [40.0, 40.0])
+            self.assertEqual(styled_display.Visibility, 1)
+            self.assertEqual(pvs.GetDisplayProperties(original_slice, pvs.GetActiveView()).Visibility, 0)
+            self.assertEqual(overlay.Visibility, 0)
+            self.assertEqual(str(styled_source.Function), 'mag(Vorticity)*20.0')
+            self.assertEqual(styled_source.GetProperty('Function').SMProperty.GetUncheckedElement(0),
+                             'mag(Vorticity)*20.0')
 
     def test_rejects_missing_source_before_creating_pipeline(self):
         before = set(pvs.GetSources())
