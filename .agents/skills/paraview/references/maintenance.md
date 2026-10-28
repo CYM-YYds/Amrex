@@ -121,3 +121,6 @@ Gradient 输出关联与有限值检查。明确实际覆盖的 AMR 层级、GUI
 2026-10-27 的证据见 [AMR 涡量对照](../../../../docs/ai_changes/2026-10-27-paraview-amr-vorticity.md)、
 [断线诊断与日志](../../../../docs/ai_changes/2026-10-27-paraview-disconnect-logging.md)及
 [现有切片修复](../../../../docs/ai_changes/2026-10-27-paraview-existing-slice-repair.md)；不把会话快照当作当前在线状态。
+
+2026-10-28 的协议来源、投递互斥、出图失败恢复及单进程/4 rank 验证见
+[桥接可靠性与收尾记录](../../../../docs/ai_changes/2026-10-28-paraview-bridge-reliability.md)。
