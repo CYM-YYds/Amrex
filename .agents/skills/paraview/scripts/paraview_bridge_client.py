@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '14'
+BRIDGE_VERSION = '15'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
@@ -549,11 +549,6 @@ def publication_vorticity(command):
         if image_size:
             # 横画布保留左右留白，标题与色标围绕真实的正方形图面排布。
             fraction = image_size[1]/(1.44*image_size[0])
-            left, right = 0.5-fraction/2, 0.5+fraction/2
-            labels = [(plane_axes[0], [0.49, 0.14], ''),
-                      (plane_axes[1], [left-0.04, 0.54], ''),
-                      (plane_axes[0], [0.49, 0.945], '_top'),
-                      (plane_axes[1], [right+0.025, 0.54], '_right')]
             bar.Position = [0.5-0.35*fraction, 0.025]
             bar.ScalarBarLength = 0.70*fraction
     else:
@@ -592,6 +587,53 @@ def publication_vorticity(command):
     pvs.SetActiveView(view)
     pvs.SetActiveSource(scalar)
     pvs.Render(view)
+    title_alignment = None
+    if reference_style and image_size:
+        from vtkmodules.vtkRenderingCore import vtkTextProperty, vtkTextRenderer
+        # 用图框的屏幕投影和字体包围盒定位；四边统一为图框到文字边缘 40 像素。
+        renderer = view.GetClientSideObject().GetRenderer()
+        width, height = renderer.GetSize()
+        projected = []
+        for x in bounds[:2]:
+            for y in bounds[2:4]:
+                for z in bounds[4:6]:
+                    renderer.SetWorldPoint(x, y, z, 1)
+                    renderer.WorldToDisplay()
+                    projected.append(renderer.GetDisplayPoint())
+        left, right = min(p[0] for p in projected), max(p[0] for p in projected)
+        bottom, top = min(p[1] for p in projected), max(p[1] for p in projected)
+        gap = 40
+        boxes = []
+        for side, rep in zip(('bottom', 'left', 'top', 'right'), label_displays):
+            prop = vtkTextProperty()
+            prop.SetFontFamilyToArial()
+            prop.SetFontSize(int(rep.FontSize))
+            prop.SetJustificationToLeft()
+            prop.SetVerticalJustificationToBottom()
+            box = [0, 0, 0, 0]
+            if not vtkTextRenderer.GetInstance().GetBoundingBox(
+                    prop, str(rep.Input.Text), box, renderer.GetRenderWindow().GetDPI()):
+                raise RuntimeError('Could not measure axis title')
+            if rep.GetProperty('Justification') is not None:
+                rep.Justification = 'Left'
+            if rep.GetProperty('VerticalJustification') is not None:
+                rep.VerticalJustification = 'Bottom'
+            x = (left+right)/2-(box[0]+box[1])/2
+            y = (bottom+top)/2-(box[2]+box[3])/2
+            if side == 'bottom':
+                y = bottom-gap-box[3]
+            elif side == 'top':
+                y = top+gap-box[2]
+            elif side == 'left':
+                x = left-gap-box[1]
+            else:
+                x = right+gap-box[0]
+            rep.Position = [x/width, y/height]
+            boxes.append([x+box[0], x+box[1], y+box[2], y+box[3]])
+        title_alignment = {'frame_pixels': [left, right, bottom, top],
+                           'edge_gap_pixels': gap, 'text_boxes_pixels': boxes,
+                           'order': ['bottom', 'left', 'top', 'right']}
+        pvs.Render(view)
     if output:
         try:
             if reference_style and not image_size:
@@ -616,6 +658,7 @@ def publication_vorticity(command):
             'camera_parallel_scale': view.CameraParallelScale,
             'camera_focal_point': list(view.CameraFocalPoint),
             'axis_title_positions': [list(d.Position) for d in label_displays],
+            'title_alignment': title_alignment,
             'colorbar': {'position': list(bar.Position), 'length': bar.ScalarBarLength,
                          'thickness': bar.ScalarBarThickness, 'title_font_size': bar.TitleFontSize,
                          'label_font_size': bar.LabelFontSize},

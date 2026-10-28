@@ -265,6 +265,18 @@ output.SetBlock(0, grid)
             self.assertEqual(list(view.ViewSize), [2066, 1066])
             self.assertEqual(list(pvs.GetLayout(view).PreviewMode), [0, 0])
             self.assertEqual(fixed['image_resolution'], [2066, 1066])
+            alignment = fixed['title_alignment']
+            left, right, bottom, top = alignment['frame_pixels']
+            boxes = alignment['text_boxes_pixels']
+            gap = alignment['edge_gap_pixels']
+            self.assertAlmostEqual(bottom-boxes[0][3], gap)
+            self.assertAlmostEqual(left-boxes[1][1], gap)
+            self.assertAlmostEqual(boxes[2][2]-top, gap)
+            self.assertAlmostEqual(boxes[3][0]-right, gap)
+            for i in (0, 2):
+                self.assertAlmostEqual((boxes[i][0]+boxes[i][1])/2, (left+right)/2)
+            for i in (1, 3):
+                self.assertAlmostEqual((boxes[i][2]+boxes[i][3])/2, (bottom+top)/2)
             self.assertEqual(struct.unpack('>II', Path(output).read_bytes()[16:24]), (2066, 1066))
             # 返回后的预览直接再次截图，必须与正式导出逐字节相同。
             preview = str(Path(tmp) / 'preview.png')
