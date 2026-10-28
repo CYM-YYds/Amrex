@@ -15,6 +15,7 @@ REPO=$(git -C "$CASE" rev-parse --show-toplevel)
 OUT="$CASE/runs/temporary/a5_threshold_probe/job${CCS_JOB_ID:?}"
 mkdir "$OUT"
 RESTART_ROOT="${PROBE_RESTART_ROOT:-}"
+RESTART_CASE="${PROBE_RESTART_CASE:-A}"
 END_STEP="${PROBE_END_STEP:-3200}"
 [[ "$END_STEP" =~ ^[1-9][0-9]*$ ]] && (( END_STEP % 128 == 0 )) || {
     echo "PROBE_END_STEP 必须为正整数且为 128 的倍数" >&2; exit 1;
@@ -25,16 +26,17 @@ SNAPSHOT="$CASE"
 APP="$CASE/main3d.gnu.FLOAT.TPROF.MPI.CUDA.ex"
 RANK_SCRIPT="$CASE/scripts/run_rank.sh"
 if [[ -n "$RESTART_ROOT" ]]; then
+    case "$RESTART_CASE" in A|B|C) ;; *) echo "PROBE_RESTART_CASE 必须为 A、B 或 C" >&2; exit 1;; esac
     RESTART_ROOT=$(realpath "$RESTART_ROOT")
-    RESTART_CHECKPOINT="$RESTART_ROOT/A/chk00003200"
-    [[ -f "$RESTART_CHECKPOINT/Header" ]] || { echo "缺少第一轮 A checkpoint" >&2; exit 1; }
+    RESTART_CHECKPOINT="$RESTART_ROOT/$RESTART_CASE/chk00003200"
+    [[ -f "$RESTART_CHECKPOINT/Header" ]] || { echo "缺少第一轮 $RESTART_CASE checkpoint" >&2; exit 1; }
     BEGIN_STEP=$(sed -n '3p' "$RESTART_CHECKPOINT/Header")
     [[ "$BEGIN_STEP" == 3200 ]] && (( END_STEP > BEGIN_STEP )) || exit 1
     # 续跑读取第一轮冻结程序与输入，不混入之后的工作树改动。
-    names=(A)
+    names=("$RESTART_CASE")
     SNAPSHOT="$RESTART_ROOT"
     APP="$SNAPSHOT/application.ex"
-    RANK_SCRIPT="$SNAPSHOT/A/run_rank.sh"
+    RANK_SCRIPT="$SNAPSHOT/$RESTART_CASE/run_rank.sh"
     cp "$SNAPSHOT/source.diff" "$OUT/application_source.diff"
     cp "$SNAPSHOT/git_head.txt" "$OUT/application_git_head.txt"
 fi
@@ -57,7 +59,7 @@ sha256sum "$OUT/application.ex" "$OUT/inputs" > "$OUT/fingerprints.sha256"
 nvidia-smi > "$OUT/gpu.txt"
 awk 'NF >= 2 {print $1 " slots=" $2}' "${CCS_ALLOC_FILE:?}" > "$OUT/hostfile"
 printf 'case\texit_code\n' > "$OUT/status.tsv"
-printf 'restart_root=%s\nbegin_step=%s\nend_step=%s\n' "$RESTART_ROOT" "$BEGIN_STEP" "$END_STEP" > "$OUT/stage.txt"
+printf 'restart_root=%s\ncases=%s\nbegin_step=%s\nend_step=%s\n' "$RESTART_ROOT" "${names[*]}" "$BEGIN_STEP" "$END_STEP" > "$OUT/stage.txt"
 common=(max_step="$END_STEP" stop_time="$((END_STEP / 128))"
     lbm.reynolds_number=1000 lbm.stream_mode=1 lbm.interp_mode=0
     amr.n_cell=128 128 128 amr.max_level=2 amr.regrid_int=32

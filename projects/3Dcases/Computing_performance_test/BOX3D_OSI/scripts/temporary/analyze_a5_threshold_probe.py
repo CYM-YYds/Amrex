@@ -30,7 +30,11 @@ def main():
         final = []
         threshold_checks = []
         limits = {"A": (0.0625, 0.125), "B": (0.125, 0.25), "C": (0.25, 0.5)}[name]
-        for line in text.splitlines():
+        # 运行中日志可能只写入半行；不把尚未写完的计数当作不一致。
+        lines = text.splitlines()
+        if text and not text.endswith("\n"):
+            lines = lines[:-1]
+        for line in lines:
             if line.startswith("REFINEMENT_VORT "):
                 vort.append(fields(line))
             elif line.startswith("REFINEMENT_CDF ") and vort:
