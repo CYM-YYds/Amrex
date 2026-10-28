@@ -263,7 +263,7 @@ output.SetBlock(0, grid)
                                      'image_size': [2066, 1066], 'output': output})
             view = pvs.GetActiveView()
             self.assertEqual(list(view.ViewSize), [2066, 1066])
-            self.assertEqual(list(pvs.GetLayout(view).PreviewMode), [2066, 1066])
+            self.assertEqual(list(pvs.GetLayout(view).PreviewMode), [0, 0])
             self.assertEqual(fixed['image_resolution'], [2066, 1066])
             self.assertEqual(struct.unpack('>II', Path(output).read_bytes()[16:24]), (2066, 1066))
             # 返回后的预览直接再次截图，必须与正式导出逐字节相同。

@@ -194,10 +194,11 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
   --vorticity-scale 1 --color-range 0 1 --output /absolute/shared/output/vorticity.png --timeout 600
 ```
 
-要求目标布局仅含一个视图。使用 ParaView 原生 `layout.PreviewMode` 锁定分辨率；窗口变小
-时由原生预览适配。导出使用相同尺寸和预览字号，不临时放大文字，也不更改相机或文字位置。
-横画布的左右留白保留，标题、底部色标按图面位置安排。保存 `.pvsm` 保留布局；GUI 的
-View → Preview 菜单可退出或更改预览尺寸。未指定 `--image-size` 时保留历史导出行为。
+要求目标布局仅含一个视图。GUI 中退出 PreviewMode，恢复正常铺满视图区；以当前实际
+ViewSize 作为排版和导出的共同尺寸。`--image-size` 在批处理中设置布局尺寸，GUI 中只作为
+请求记录，不强制缩放窗口；回执同时给出 requested_image_size 与 matched_view_size。
+导出不临时放大文字，也不更改相机或文字位置。横画布的左右留白保留，标题、底部色标
+按图面位置安排。未指定 `--image-size` 时保留历史导出行为。
 
 桥仅支持 inspect 声明的操作，不接受任意 Python。所需能力未实现时，独立任务可转用
 批处理；必须留在当前窗口的操作按 [维护说明](maintenance.md#实现边界与验证) 扩展工具。

@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '13'
+BRIDGE_VERSION = '14'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
@@ -379,6 +379,7 @@ def publication_vorticity(command):
         raise ValueError('style must be publication or reference')
     reference_style = style == 'reference'
     image_size = command.get('image_size')
+    requested_image_size = image_size
     if image_size is not None and (not isinstance(image_size, (list, tuple)) or len(image_size) != 2
             or any(type(v) is not int or not 256 <= v <= 8192 for v in image_size)):
         raise ValueError('image_size must contain two integers between 256 and 8192')
@@ -423,8 +424,15 @@ def publication_vorticity(command):
         layout = pvs.GetLayout(view)
         if layout is None or len([v for v in pvs.GetViews() if pvs.GetLayout(v) == layout]) != 1:
             raise ValueError('Fixed preview requires a single-view layout')
-        layout.PreviewMode = list(image_size)
-        layout.SetSize(*image_size)
+        # GUI 恢复普通视图；以真实可用像素导出，不再开启会缩小画面的预览模式。
+        layout.PreviewMode = [0, 0]
+        layout.UpdateVTKObjects()
+        if 'PythonQt' in sys.modules:
+            from PythonQt import QtCore
+            QtCore.QCoreApplication.processEvents()
+            image_size = list(view.ViewSize)
+        else:
+            layout.SetSize(*image_size)
     normal = list(source.SliceType.Normal)
     axis = max(range(3), key=lambda i: abs(normal[i]))
     if abs(abs(normal[axis]) - 1) > 1e-8 or any(abs(normal[i]) > 1e-8 for i in range(3) if i != axis):
@@ -602,7 +610,8 @@ def publication_vorticity(command):
             'style': style, 'hidden_overlays': hidden_overlays,
             'gui_view_size': list(view.ViewSize), 'gui_text_scale': gui_text_scale,
             'image_resolution': (list(image_size) if image_size else ([2400, 2640] if reference_style else [2400, 2400])) if output else None,
-            'fixed_preview': list(image_size) if image_size else None,
+            'requested_image_size': list(requested_image_size) if requested_image_size else None,
+            'matched_view_size': list(image_size) if image_size else None,
             'preview_mode': list(pvs.GetLayout(view).PreviewMode),
             'camera_parallel_scale': view.CameraParallelScale,
             'camera_focal_point': list(view.CameraFocalPoint),

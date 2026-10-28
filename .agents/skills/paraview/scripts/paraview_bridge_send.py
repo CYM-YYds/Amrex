@@ -111,7 +111,7 @@ if __name__ == '__main__':
     parser.add_argument('--output')
     parser.add_argument('--resolution', type=int, default=1024)
     parser.add_argument('--image-size', nargs=2, type=int, metavar=('WIDTH', 'HEIGHT'),
-                        help='固定 publication_vorticity 预览与导出的共同像素尺寸')
+                        help='按正常 GUI 视图尺寸导出；批处理时使用指定尺寸')
     parser.add_argument('--view-id', help='明确指定 publication_vorticity 目标视图 ID')
     parser.add_argument('--max-level', type=int, default=2)
     parser.add_argument('--source', help='现有管线中完整的注册名称，不作通配符展开')
