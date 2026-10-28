@@ -10,7 +10,7 @@ PRECISION="${PRECISION:-FLOAT}"
 [[ "$PRECISION" == DOUBLE || "$PRECISION" == FLOAT ]] || { echo "错误: PRECISION 必须为 DOUBLE 或 FLOAT" >&2; exit 1; }
 export AMREX_BUILD_DIM="$DIM" AMREX_BUILD_PRECISION="$PRECISION"
 export LOG_DIR="${LOG_DIR:-${CASE_DIR}/logs/compile}"
-# 只合并维度、精度相同且完整的数据库；切换配置时重新采集全部算例源文件。
+# 只合并维度、场精度及当前单精度粒子配置一致且完整的数据库。
 if [[ "${GEN_CCDB:-1}" == 1 ]]; then
     export CCDB_REQUIRE_FULL=1
     if "${REPO_DIR}/.venv/bin/python" - "$CASE_DIR" "$DIM" "$PRECISION" <<'PYCODE'
@@ -26,7 +26,9 @@ try:
         f'-DAMREX_SPACEDIM={dimension}' in row.get('arguments', row.get('command', '').split())
         for row in rows) and all(
         ('-DBL_USE_FLOAT' in row.get('arguments', row.get('command', '').split()))
-        == (precision == 'FLOAT') for row in rows)
+        == (precision == 'FLOAT') for row in rows) and all(
+        '-DAMREX_SINGLE_PRECISION_PARTICLES' in row.get('arguments', row.get('command', '').split())
+        for row in rows)
 except (OSError, ValueError, KeyError):
     valid = False
 sys.exit(0 if valid else 1)

@@ -61,7 +61,9 @@ DIM_REFACTOR_BASELINE=/绝对路径/含app2d.ex和app3d.ex及git_head.txt的基�
 ## 单精度与双精度实验
 
 默认 `PRECISION=FLOAT`，场数据 `amrex::Real` 使用单精度；可显式选择 `DOUBLE`，
-适用于两种维度。不能通过运行时 inputs 切换。以下命令在本算例目录执行：
+适用于两种维度。粒子独立设置 `USE_SINGLE_PRECISION_PARTICLES = TRUE`，标记点和辅助点的
+坐标、浮点属性均使用单精度；即使选择 `PRECISION=DOUBLE`，粒子仍保持单精度。
+不能通过运行时 inputs 切换。以下命令在本算例目录执行：
 
 ```bash
 # 默认单精度编译与提交
@@ -76,14 +78,16 @@ DIM=2 ./scripts/compile.sh
 ```
 
 单精度程序名为 `main{2,3}d.gnu.FLOAT.TPROF.MPI.CUDA.ex`，双精度沿用原名；
-AMReX 自动按维度和精度隔离对象目录，无须清理另一精度的产物。
+AMReX 自动按维度和场精度隔离对象目录；本算例额外用
+`tmp_build_dir/particles_float/` 与 `particles_double/` 隔离粒子精度，避免混用旧对象。
+无须清理另一精度的产物。
 提交入口按所选精度选择程序，运行目录中的固定程序链接指向实际选择的文件；
 `manifest.txt` 记录精度和程序 SHA256，应用启动时打印实际 `Real` 类型与字节数。
 编译数据库只对应最后一次正常采集的维度、精度，切换后重新加载 clangd。
 `GEN_CCDB=0` 会跳过数据库更新，适合独立实验构建，不能据此判断 IDE 精度。
 
 数值核、格子常量使用 AMReX `_rt` 字面量，计时和性能统计的 `double` 保留。
-粒子属性继续使用独立的 `ParticleReal`（默认 double），此次没有切换粒子存储精度；
+粒子属性继续使用独立的 `ParticleReal`，本算例通过 AMReX 开关将其设为 float；
 粒子与场的接口按真实类型传递。该版本不声称所有粒子、几何或 host 表达式均为 FP32。
 现有 CUDA 编译器 `--use_fast_math` 设置保持不变。
 

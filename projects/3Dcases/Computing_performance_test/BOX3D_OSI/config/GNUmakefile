@@ -21,6 +21,10 @@ COMP    = gcc
 BL_NO_FORT = TRUE
 USE_MPI   = TRUE
 USE_PARTICLES = TRUE
+# 标记点和辅助点统一使用单精度粒子存储。
+USE_SINGLE_PRECISION_PARTICLES = TRUE
+# AMReX 默认对象目录不区分粒子精度，分开保存以免复用不兼容接口。
+TMP_BUILD_DIR ?= tmp_build_dir/particles_$(if $(filter TRUE,$(USE_SINGLE_PRECISION_PARTICLES)),float,double)
 USE_OMP   = FALSE
 USE_CUDA  = TRUE
 USE_HIP   = FALSE
