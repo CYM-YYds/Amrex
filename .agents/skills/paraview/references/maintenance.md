@@ -52,13 +52,15 @@ pv_bridge.stop()
 
 源码职责与交付方式：
 
+- `scripts/paraview_protocol.py`：动作、命令字段、能力列表与默认桥目录的唯一声明，
+  不依赖 ParaView；投递器按文件位置加载，打包器将其嵌入 Windows 客户端。
 - `scripts/paraview_bridge_runtime.py`：SSH、命令队列、GUI 主线程调度、计时器、热更新、
   状态诊断和背景备份生命周期；通过明确导入调用操作层。
 - `scripts/paraview_operations.py`：中心线、AMR 旋度与背景操作。
   不启动桥接、线程或计时器；独立批处理直接加载此模块。
 - `scripts/paraview_publication.py`：涡量切片的论文/参考图排版（`publication_vorticity`）与
   独立标题视图（`add_axis_title_view`），不依赖操作层其他函数。出图版式的改动只落在此文件。
-- `scripts/build_paraview_client.py`：静态打包运行层与上述两个操作模块，生成
+- `scripts/build_paraview_client.py`：静态打包运行层、协议声明与上述两个操作模块，生成
   `scripts/paraview_bridge_client.py`，并生成独立的 `scripts/repair_amr_gradient.py`。客户端是**生成的单文件交付物，不手动编辑**；
   Windows 的下载路径、单文件加载方式、源码哈希和热更新协议保持兼容。
 
@@ -73,12 +75,23 @@ pv_bridge.stop()
 修改运行层。算法变更时仍需按下文同步独立 Gradient 工具并执行对应回归。
 
 - 唯一实现位于本 skill 的 `scripts/`；`后处理脚本/connect_paraview.ps1` 和 `paraview_bridge_client.py` 是兼容软链。Windows 下载应得到普通脚本文件，保留旧入口兼容性。
+- 投递器使用会话级 `sender.lock` 覆盖检查、写入及等待回传；竞争调用立即拒绝，
+  进程退出由内核释放锁，锁文件保留。超时释放投递锁但不取消命令，未决命令仍禁止覆盖。
 - 桥客户端在 GUI 主线程调用 ParaView API，后台只处理 SSH；builtins 持有唯一实例与原生回调。重载须先结束旧线程，不创建多个所有者，不清除 closed 事件来重启旧实例。
 - `run_paraview_server.sh` 检查执行节点和 MPI 能力，使用同一安装的启动器；版本探测不启动多 rank 服务。PS1 的版本预检使用 EXE 资源或 pvpython，启动能力从客户端 manifest 读取，不重复维护能力常量。
 - `paraview_batch_export.py` 直接加载操作模块，复用 `export_centerline`，不加载桥接运行层。修改中心线算法须维护两种入口的共同实现。
-- 热更新只接收固定仓库源码及匹配 SHA256。该哈希来自投递端读取的同一仓库文件，防的是版本漂移与下载不全，
+- Windows 启动器只维护一处仓库根路径；客户端路径和共享桥目录来自远端 manifest，
+  通过 `PV_BRIDGE_CLIENT_SOURCE` / `PV_BRIDGE_ROOT` 传给 GUI。投递器同样读取 `PV_BRIDGE_ROOT`；
+  自定义目录时两端须一致。手动加载或旧启动器保留原固定源码路径作为兼容默认值。
+- 热更新只接收启动配置指定的仓库源码及匹配 SHA256，不接收命令指定的源码路径。该哈希来自投递端读取的同一仓库文件，防的是版本漂移与下载不全，
   不是防篡改；信任边界是仓库与共享桥接目录的写权限，而不是文件协议本身。热更新在 GUI 主线程替换命令实现，保留连接、视图及状态；传输、计时器或状态协议不兼容时提高 `RUNTIME_UPDATE_PROTOCOL`，要求正常启动。热更新后的状态以实时 inspect 为准，不重写旧启动回执。
-- 新增桥操作先核对已有能力和 ParaView API，再实现；同步运行层的 `OPERATIONS`、`CAPABILITIES` 与投递器的 `BRIDGE_ACTIONS`，`test_sender_cli` 会检查三者一致。不以任意 Python 投递绕过协议。涡量须在三维速度上计算后再切片，单元速度优先，兼容旧读取器时才 ExtractBlock。
+- `publication_vorticity` 在修改前保存视图、布局、显示、色标及已有出图节点的属性；
+  Python 异常时原位恢复并回收本次新增对象，保留既有对象身份及未 Apply 的属性值。
+  恢复不完整会明确报错；服务端崩溃、断线及已经写出的 PNG 不在该恢复保证内。
+- 新增桥操作先核对已有能力和 ParaView API，再实现；在协议模块 `BRIDGE_ACTIONS` 声明字段，
+  并在运行层 `OPERATIONS` 注册实现；`CAPABILITIES` 自动派生，`test_sender_cli` 检查声明与实际分发一致。
+  不以任意 Python 投递绕过协议。涡量须在三维速度上计算后再切片，单元速度优先，
+  兼容旧读取器时才 ExtractBlock。
 - AMR 单元涡量修复的唯一求导实现为操作模块的 `AMR_CELL_VORTICITY_SCRIPT`，新视图与现有
   切片操作共同复用。具体掩膜处理、限制和操作见 [GUI 桥接](bridge.md)。
 - 用户单文件 `scripts/repair_amr_gradient.py` 由该算法与 `templates/repair_amr_gradient.py.in`

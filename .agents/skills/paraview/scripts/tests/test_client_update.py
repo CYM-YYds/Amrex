@@ -66,6 +66,21 @@ class ClientUpdateTests(unittest.TestCase):
         self.assertEqual(self.bridge.execute({'action': 'inspect'})['version'], 'test-next')
         self.assertFalse(self.bridge.execute(self.command())['updated'])
 
+    def test_reload_uses_launcher_source_and_ignores_command_path(self):
+        import shlex
+        source_path = '/configured repository/paraview_bridge_client.py'
+        requests = []
+        def remote(command):
+            requests.append(command)
+            return self.target
+        self.bridge.remote = remote
+        with patch.dict(os.environ, {'PV_BRIDGE_CLIENT_SOURCE': source_path}):
+            source = self.bridge.prepare_reload({
+                'expected_sha256': hashlib.sha256(self.target).hexdigest(),
+                'client_source': '/untrusted/command/path'})
+        self.assertEqual(source, self.target)
+        self.assertEqual(requests, ['cat ' + shlex.quote(source_path)])
+
     def test_incomplete_download_is_rejected_before_execution(self):
         original_class = self.bridge.__class__
         with self.assertRaisesRegex(ValueError, 'changed or download'):

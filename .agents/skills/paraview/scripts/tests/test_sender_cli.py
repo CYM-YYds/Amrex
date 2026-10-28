@@ -43,12 +43,10 @@ class SenderCliTests(unittest.TestCase):
         values = {}
         for node in tree.body:
             if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
-                if node.targets[0].id == 'CAPABILITIES':
-                    values['capabilities'] = set(ast.literal_eval(node.value))
-                elif node.targets[0].id == 'OPERATIONS':
+                if node.targets[0].id == 'OPERATIONS':
                     values['operations'] = {key.value for key in node.value.keys}
         self_handled = {'inspect', 'background', 'restore_background', 'reload_client'}
-        self.assertEqual(values['operations'] | self_handled, values['capabilities'])
+        self.assertEqual(values['operations'] | self_handled, set(self.sender.CAPABILITIES))
         self.assertFalse(values['operations'] & self_handled)
 
     def test_actions_without_options_send_none(self):

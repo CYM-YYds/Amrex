@@ -2,6 +2,8 @@
 import argparse
 import ast
 import hashlib
+import os
+import fcntl
 import json
 from pathlib import Path
 import re
@@ -10,29 +12,12 @@ import time
 import uuid
 
 
-BRIDGE_ROOT = Path('/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge')
-
-# 经桥投递的动作及其命令行选项：required 缺失即报错，defaults 总是携带，
-# optional 仅在给出时携带。键名同时是 argparse 属性名与命令 JSON 字段名。
-# 与客户端 CAPABILITIES 的一致性由 test_action_registry 保证。
-BRIDGE_ACTIONS = {
-    'inspect': {},
-    'background': {},
-    'restore_background': {},
-    'export_centerline': {'required': ('input', 'output'),
-                          'defaults': ('resolution', 'max_level')},
-    'add_vorticity_view': {'required': ('source',), 'defaults': ('slice_axis', 'component'),
-                           'optional': ('color_range', 'slice_position')},
-    'repair_vorticity_slice': {'required': ('source',)},
-    'publication_vorticity': {'required': ('source', 'color_range'),
-                              'defaults': ('vorticity_scale', 'style'),
-                              'optional': ('image_size', 'view_id', 'output')},
-    'add_axis_title_view': {'required': ('source',), 'optional': ('reset_view', 'output')},
-}
-# reload_client 由 run_client_status 专用流程投递，只携带期望哈希。
-RELOAD_OPTIONS = ('expected_sha256',)
-BRIDGE_OPTION_KEYS = frozenset(key for spec in BRIDGE_ACTIONS.values()
-                               for group in spec.values() for key in group) | set(RELOAD_OPTIONS)
+# 按文件位置加载，兼容算例工具通过 runpy 调用，不修改全局 sys.path。
+_protocol = runpy.run_path(str(Path(__file__).with_name('paraview_protocol.py')))
+BRIDGE_ACTIONS = _protocol['BRIDGE_ACTIONS']
+BRIDGE_OPTION_KEYS = _protocol['BRIDGE_OPTION_KEYS']
+CAPABILITIES = _protocol['CAPABILITIES']
+BRIDGE_ROOT = Path(os.environ.get('PV_BRIDGE_ROOT', _protocol['DEFAULT_BRIDGE_ROOT']))
 
 
 def client_manifest():
@@ -45,10 +30,12 @@ def client_manifest():
     for node in ast.parse(source).body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                if isinstance(target, ast.Name) and target.id in ('BRIDGE_VERSION', 'CAPABILITIES'):
+                if isinstance(target, ast.Name) and target.id == 'BRIDGE_VERSION':
                     values[target.id] = ast.literal_eval(node.value)
-    return {'version': values['BRIDGE_VERSION'], 'capabilities': values['CAPABILITIES'],
-            'source_sha256': hashlib.sha256(source).hexdigest()}
+    return {'version': values['BRIDGE_VERSION'], 'capabilities': CAPABILITIES,
+            'source_sha256': hashlib.sha256(source).hexdigest(),
+            'bridge_root': str(BRIDGE_ROOT),
+            'client_source': str(Path(__file__).with_name('paraview_bridge_client.py').resolve())}
 
 
 def client_status(reply, expected):
@@ -86,32 +73,38 @@ def resolve_directory(directory):
 def send(directory, action, color=None, timeout=60, options=None):
     path = resolve_directory(directory)
     if not path.is_dir():
-        raise ValueError('会话目录不存在；请确认 SSH 目标与当前主机共享 /tmp')
-    # 单槽协议：上条命令未返回前拒绝覆盖，超时也不自动重发。
-    command_file = path / 'command.json'
-    result_file = path / 'result.json'
-    if command_file.exists():
-        previous = json.loads(command_file.read_text())
-        if not result_file.exists() or json.loads(result_file.read_text())['id'] != previous['id']:
-            raise RuntimeError('上一条命令尚未返回，请先检查 result.json 和客户端')
-    command = {'id': uuid.uuid4().hex, 'action': action}
-    if options:
-        if set(options) - BRIDGE_OPTION_KEYS:
-            raise ValueError('未知桥接参数')
-        command.update(options)
-    if color is not None:
-        command['color'] = color
-    temporary = path / 'command.tmp'
-    temporary.write_text(json.dumps(command), encoding='utf-8')
-    temporary.replace(command_file)
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if result_file.exists():
-            result = json.loads(result_file.read_text())
-            if result['id'] == command['id']:
-                return result
-        time.sleep(0.2)
-    raise TimeoutError('等待回传超时；命令可能稍后执行，请勿重复投递，先查看 result.json')
+        raise ValueError('会话目录不存在；请确认 SSH 目标可访问该共享会话目录')
+    # 锁文件保留；删除会让两个进程分别锁住不同 inode，破坏互斥。
+    with (path / 'sender.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('当前会话已有投递器运行，请等待其返回') from None
+        # 单槽协议：上条命令未返回前拒绝覆盖，超时也不自动重发。
+        command_file = path / 'command.json'
+        result_file = path / 'result.json'
+        if command_file.exists():
+            previous = json.loads(command_file.read_text())
+            if not result_file.exists() or json.loads(result_file.read_text())['id'] != previous['id']:
+                raise RuntimeError('上一条命令尚未返回，请先检查 result.json 和客户端')
+        command = {'id': uuid.uuid4().hex, 'action': action}
+        if options:
+            if set(options) - BRIDGE_OPTION_KEYS:
+                raise ValueError('未知桥接参数')
+            command.update(options)
+        if color is not None:
+            command['color'] = color
+        temporary = path / 'command.tmp'
+        temporary.write_text(json.dumps(command), encoding='utf-8')
+        temporary.replace(command_file)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if result_file.exists():
+                result = json.loads(result_file.read_text())
+                if result['id'] == command['id']:
+                    return result
+            time.sleep(0.2)
+        raise TimeoutError('等待回传超时；命令可能稍后执行，请勿重复投递，先查看 result.json')
 
 
 LOCAL_ACTIONS = ('client_manifest', 'client_status', 'reload_client')

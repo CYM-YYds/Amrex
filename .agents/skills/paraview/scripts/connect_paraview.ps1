@@ -21,13 +21,11 @@ $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $My
 $BRIDGE_SCRIPT = Join-Path $scriptRoot "paraview_bridge_client.py"
 $REMOTE_HOST = "27.18.114.25"
 $SSH_PORT = 6022
-$REMOTE_BRIDGE_SCRIPT = "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py"
-$REMOTE_SERVER_SCRIPT = "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/run_paraview_server.sh"
-$REMOTE_BRIDGE_ROOT = "/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge"
 # 每次启动使用独立编号，自检不会把旧会话当作本次启动成功。
 $BRIDGE_LAUNCH_ID = [Guid]::NewGuid().ToString("N")
 $BRIDGE_STARTUP_SECONDS = 180
 $REMOTE_REPO_ROOT = "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex"
+$REMOTE_SERVER_SCRIPT = "$REMOTE_REPO_ROOT/.agents/skills/paraview/scripts/run_paraview_server.sh"
 $REMOTE_PYTHON = "$REMOTE_REPO_ROOT/.venv/bin/python"
 $REMOTE_SENDER = "$REMOTE_REPO_ROOT/.agents/skills/paraview/scripts/paraview_bridge_send.py"
 
@@ -210,6 +208,9 @@ try {
 $manifestOutput = & ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" "'$REMOTE_PYTHON' '$REMOTE_SENDER' current client_manifest"
 if ($LASTEXITCODE -ne 0) { throw "Cannot read repository client manifest; existing bridge was retained." }
 $bridgeManifest = ($manifestOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop
+$REMOTE_BRIDGE_ROOT = $bridgeManifest.bridge_root
+$REMOTE_BRIDGE_SCRIPT = $bridgeManifest.client_source
+if (-not $REMOTE_BRIDGE_ROOT -or -not $REMOTE_BRIDGE_SCRIPT) { throw "Repository manifest is missing bridge paths." }
 $BRIDGE_EXPECTED_VERSION = $bridgeManifest.version
 $BRIDGE_REQUIRED_CAPABILITIES = @($bridgeManifest.capabilities)
 $bridgeDownload = "$BRIDGE_SCRIPT.download"
@@ -298,6 +299,7 @@ if ($resolvedParaViewPath) {
     # 原生参数需要保留脚本路径两侧引号，兼容含空格的 Windows 路径。
     $bridgeEnvironment = @{
         PV_BRIDGE_ROOT = $REMOTE_BRIDGE_ROOT
+        PV_BRIDGE_CLIENT_SOURCE = $REMOTE_BRIDGE_SCRIPT
         PV_BRIDGE_SCRIPT = $BRIDGE_SCRIPT
         PV_BRIDGE_LAUNCH_ID = $BRIDGE_LAUNCH_ID
         PV_BRIDGE_SSH_PORT = "$SSH_PORT"

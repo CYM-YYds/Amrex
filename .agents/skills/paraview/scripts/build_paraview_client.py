@@ -9,6 +9,7 @@ DIRECTORY = Path(__file__).resolve().parent
 
 # 运行层按名字导入、由打包器嵌入客户端的操作模块。
 OPERATION_MODULES = ('paraview_operations', 'paraview_publication')
+BUNDLED_MODULES = ('paraview_protocol', *OPERATION_MODULES)
 
 
 def client_source():
@@ -17,21 +18,22 @@ def client_source():
     body = ast.parse(runtime).body
     lines = runtime.splitlines(keepends=True)
     replacements = []
-    for module in OPERATION_MODULES:
+    for module in BUNDLED_MODULES:
         imports = [node for node in body if isinstance(node, ast.ImportFrom) and node.module == module]
         if len(imports) != 1:
             raise ValueError('运行层必须有且仅有一个 %s 导入' % module)
         source = (DIRECTORY / (module + '.py')).read_text(encoding='utf-8')
         exported = {n.name for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)}
-        exported.add('AMR_CELL_VORTICITY_SCRIPT')
+        exported.update(target.id for node in ast.parse(source).body if isinstance(node, ast.Assign)
+                        for target in node.targets if isinstance(target, ast.Name))
         if any(alias.name not in exported or alias.asname for alias in imports[0].names):
             raise ValueError('运行层导入了未知操作或别名')
-        replacements.append((imports[0], ['# 以下操作由 %s.py 自动嵌入。\n' % module, source, '\n']))
+        replacements.append((imports[0], ['# 以下定义由 %s.py 自动嵌入。\n' % module, source, '\n']))
     # 自后向前替换，行号不受前面替换影响。
     for node, text in sorted(replacements, key=lambda item: -item[0].lineno):
         lines[node.lineno-1:node.end_lineno] = text
     source = ('# 自动生成，请勿手改。修改 paraview_bridge_runtime.py 或 '
-              + ' / '.join(m + '.py' for m in OPERATION_MODULES) + '，\n'
+              + ' / '.join(m + '.py' for m in BUNDLED_MODULES) + '，\n'
               '# 再运行 .venv/bin/python .agents/skills/paraview/scripts/build_paraview_client.py\n'
               + ''.join(lines))
     compile(source, 'paraview_bridge_client.py', 'exec')

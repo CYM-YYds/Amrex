@@ -12,7 +12,7 @@ class GradientPackagingTests(unittest.TestCase):
         bundle = (scripts / 'paraview_bridge_client.py').read_text()
         self.assertEqual(bundle, builder['client_source']())
         tree = ast.parse(bundle)
-        modules = builder['OPERATION_MODULES']
+        modules = builder['BUNDLED_MODULES']
         self.assertFalse(any(isinstance(n, ast.ImportFrom) and n.module in modules
                              for n in ast.walk(tree)))
         # 每个操作的函数体在独立模块与单文件交付物中必须完全相同。
@@ -27,7 +27,7 @@ class GradientPackagingTests(unittest.TestCase):
         scripts = Path(__file__).resolve().parents[1]
         builder = runpy.run_path(str(scripts / 'build_paraview_client.py'))
         seen = {}
-        for module in builder['OPERATION_MODULES']:
+        for module in builder['BUNDLED_MODULES']:
             for node in ast.parse((scripts / (module + '.py')).read_text()).body:
                 if isinstance(node, (ast.FunctionDef, ast.Assign)):
                     names = [node.name] if isinstance(node, ast.FunctionDef) else [

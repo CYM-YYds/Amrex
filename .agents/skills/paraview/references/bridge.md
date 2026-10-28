@@ -56,7 +56,8 @@ Windows 端也可运行 PS1 的 `-BridgeStatus` 或 `-UpdateBridge`，均不创�
 PS1 本身更新后须重新下载，它不会更新自身；正常启动时会下载最新桥客户端。
 
 `current` 指向最后注册的窗口，不自动退回旧会话。多个窗口时先核对 inspect 中的输入和 URI，
-或使用客户端打印的完整会话目录替代 `current`。命令须串行；超时不代表取消，先在
+或使用客户端打印的完整会话目录替代 `current`。命令须串行；投递器用会话锁拒绝并发调用，
+不自动排队或重发。超时不代表取消，先在
 `/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge/` 对应 `session-UUID` 中
 核对 `command.json` 与同 ID 的 `result.json`，不能盲目重发。
 

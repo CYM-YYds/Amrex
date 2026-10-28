@@ -14,16 +14,16 @@ import uuid
 from types import SimpleNamespace
 
 from paraview import simple as pvs
+from paraview_protocol import DEFAULT_BRIDGE_ROOT, CAPABILITIES
 from paraview_operations import (AMR_CELL_VORTICITY_SCRIPT, export_centerline,
                                  add_vorticity_view, repair_vorticity_slice, update_background)
 from paraview_publication import publication_vorticity, add_axis_title_view
 
 
-BRIDGE_VERSION = '17'
+BRIDGE_VERSION = '18'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
-CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
-                'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'add_axis_title_view', 'reload_client']
+
 
 
 # 经操作层执行的动作；inspect、背景与热更新由运行层自身处理。
@@ -122,7 +122,8 @@ class ParaViewBridge:
         if not isinstance(expected, str) or len(expected) != 64 or any(
                 c not in '0123456789abcdef' for c in expected):
             raise ValueError('reload_client requires a lowercase SHA256')
-        source = self.remote('cat ' + shlex.quote(REMOTE_CLIENT_SOURCE))
+        source_path = os.environ.get('PV_BRIDGE_CLIENT_SOURCE', REMOTE_CLIENT_SOURCE)
+        source = self.remote('cat ' + shlex.quote(source_path))
         if hashlib.sha256(source).hexdigest() != expected:
             raise ValueError('Repository client changed or download is incomplete; refresh status before retrying')
         tree = ast.parse(source)
@@ -175,8 +176,7 @@ class ParaViewBridge:
                 'preserved_views': after['views']}
 
     def __init__(self):
-        self.root = os.environ.get('PV_BRIDGE_ROOT',
-            '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge')
+        self.root = os.environ.get('PV_BRIDGE_ROOT', DEFAULT_BRIDGE_ROOT)
         self.directory = self.root + '/session-' + uuid.uuid4().hex
         self.launch_id = os.environ.get('PV_BRIDGE_LAUNCH_ID') or uuid.uuid4().hex
         if len(self.launch_id) != 32 or any(c not in '0123456789abcdef' for c in self.launch_id):

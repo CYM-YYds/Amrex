@@ -285,6 +285,73 @@ output.SetBlock(0, grid)
                                FontScaling='Do not scale fonts')
             self.assertEqual(Path(output).read_bytes(), Path(preview).read_bytes())
 
+    def test_publication_failure_restores_existing_objects_and_layout(self):
+        from unittest.mock import patch
+        image = pvs.Wavelet()
+        vector = pvs.Calculator(Input=image)
+        vector.ResultArrayName = 'velocity'
+        vector.Function = '-coordsY*iHat + coordsX*jHat'
+        gradient = pvs.Gradient(Input=vector)
+        gradient.ScalarArray = ['POINTS', 'velocity']
+        gradient.ComputeVorticity = 1
+        section = pvs.Slice(registrationName='publication_failure_slice', Input=gradient)
+        section.SliceType.Normal = [0, 1, 0]
+        layout = pvs.CreateLayout()
+        view = pvs.CreateView('RenderView')
+        pvs.AssignViewToLayout(view=view, layout=layout)
+        pvs.SetActiveView(view)
+        display = pvs.Show(section, view)
+        pvs.ColorBy(display, ('POINTS', 'Vorticity'))
+        display.SetScalarBarVisibility(view, True)
+        pvs.ResetCamera(view)
+        pvs.Render(view)
+        command = {'source': 'publication_failure_slice', 'color_range': [0, 10],
+                   'style': 'reference', 'image_size': [800, 600], 'output': '/unused.png'}
+
+        def snapshot():
+            manager = pvs.servermanager.ProxyManager()
+            return (set(pvs.GetSources()),
+                    {group: set(manager.GetProxiesInGroup(group)) for group in
+                     ('representations', 'scalar_bars', 'lookup_tables', 'piecewise_functions')},
+                    list(view.CameraPosition), list(view.CameraFocalPoint), view.CameraParallelScale,
+                    list(view.Background), view.BackgroundColorMode,
+                    list(layout.PreviewMode), list(layout.GetSize()), list(view.ViewSize),
+                    [(r.GetGlobalIDAsString(), r.Visibility,
+                      r.LookupTable.GetGlobalIDAsString() if r.GetProperty('LookupTable') and r.LookupTable else None)
+                     for r in view.Representations],
+                    list(display.LookupTable.RGBPoints), list(view.AxesGrid.XAxisLabels),
+                    pvs.GetActiveSource(), pvs.GetActiveView())
+
+        # 首次出图失败应回收新建的标量、标题、显示对象和色带。
+        before = snapshot()
+        with patch.object(pvs, 'SaveScreenshot', side_effect=OSError('injected export failure')):
+            with self.assertRaisesRegex(OSError, 'injected export failure'):
+                self.publication(command)
+        self.assertEqual(snapshot(), before)
+        # 已成功排版的对象须原位恢复，不能删除旧标量或把旧标题当新建对象清理。
+        self.publication(dict(command, output=None))
+        scalar = pvs.GetActiveSource()
+        scalar_display = pvs.GetDisplayProperties(scalar, view)
+        custom_lut = pvs.GetColorTransferFunction('rollback_custom')
+        scalar_display.LookupTable = custom_lut
+        scalar.Function = 'mag(Vorticity)*3.0'
+        scalar.GetProperty('Function').SMProperty.SetUncheckedElement(0, 'mag(Vorticity)*4.0')
+        before = snapshot()
+        with patch.object(pvs, 'SaveScreenshot', side_effect=OSError('injected export failure')):
+            with self.assertRaisesRegex(OSError, 'injected export failure'):
+                self.publication(dict(command, vorticity_scale=20))
+        self.assertEqual(snapshot(), before)
+        self.assertEqual(str(scalar.Function), 'mag(Vorticity)*3.0')
+        self.assertEqual(scalar.GetProperty('Function').SMProperty.GetUncheckedElement(0),
+                         'mag(Vorticity)*4.0')
+        self.assertIn(scalar, pvs.GetSources().values())
+        # 在数据验证阶段失败也不能先改布局。
+        section.SliceType.Normal = [1, 1, 0]
+        before = snapshot()
+        with self.assertRaisesRegex(ValueError, 'axis-aligned'):
+            self.publication(command)
+        self.assertEqual(snapshot(), before)
+
     def test_rejects_missing_source_before_creating_pipeline(self):
         before = set(pvs.GetSources())
         with self.assertRaisesRegex(ValueError, 'exactly one'):
