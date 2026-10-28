@@ -12,6 +12,28 @@ import uuid
 
 BRIDGE_ROOT = Path('/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge')
 
+# 经桥投递的动作及其命令行选项：required 缺失即报错，defaults 总是携带，
+# optional 仅在给出时携带。键名同时是 argparse 属性名与命令 JSON 字段名。
+# 与客户端 CAPABILITIES 的一致性由 test_action_registry 保证。
+BRIDGE_ACTIONS = {
+    'inspect': {},
+    'background': {},
+    'restore_background': {},
+    'export_centerline': {'required': ('input', 'output'),
+                          'defaults': ('resolution', 'max_level')},
+    'add_vorticity_view': {'required': ('source',), 'defaults': ('slice_axis', 'component'),
+                           'optional': ('color_range', 'slice_position')},
+    'repair_vorticity_slice': {'required': ('source',)},
+    'publication_vorticity': {'required': ('source', 'color_range'),
+                              'defaults': ('vorticity_scale', 'style'),
+                              'optional': ('image_size', 'view_id', 'output')},
+    'add_axis_title_view': {'required': ('source',), 'optional': ('reset_view', 'output')},
+}
+# reload_client 由 run_client_status 专用流程投递，只携带期望哈希。
+RELOAD_OPTIONS = ('expected_sha256',)
+BRIDGE_OPTION_KEYS = frozenset(key for spec in BRIDGE_ACTIONS.values()
+                               for group in spec.values() for key in group) | set(RELOAD_OPTIONS)
+
 
 def client_manifest():
     """只解析固定客户端的常量，不启动ParaView或执行客户端代码。"""
@@ -27,18 +49,6 @@ def client_manifest():
                     values[target.id] = ast.literal_eval(node.value)
     return {'version': values['BRIDGE_VERSION'], 'capabilities': values['CAPABILITIES'],
             'source_sha256': hashlib.sha256(source).hexdigest()}
-
-
-def gradient_script_source():
-    """将唯一求导算法打包为可单文件运行的 GUI 工具，避免维护第二份算法。"""
-    directory = Path(__file__).parent
-    source = (directory / 'paraview_operations.py').read_text()
-    algorithm = next(ast.literal_eval(node.value) for node in ast.parse(source).body
-                     if isinstance(node, ast.Assign) and any(
-                         isinstance(target, ast.Name) and target.id == 'AMR_CELL_VORTICITY_SCRIPT'
-                         for target in node.targets))
-    template = (directory.parent / 'templates/repair_amr_gradient.py.in').read_text()
-    return template.replace('__AMR_CELL_VORTICITY_SCRIPT_LITERAL__', repr(algorithm))
 
 
 def client_status(reply, expected):
@@ -86,8 +96,7 @@ def send(directory, action, color=None, timeout=60, options=None):
             raise RuntimeError('上一条命令尚未返回，请先检查 result.json 和客户端')
     command = {'id': uuid.uuid4().hex, 'action': action}
     if options:
-        if set(options) - {'input', 'output', 'resolution', 'max_level', 'source',
-                           'slice_axis', 'slice_position', 'component', 'color_range', 'vorticity_scale', 'expected_sha256', 'style', 'reset_view', 'image_size', 'view_id'}:
+        if set(options) - BRIDGE_OPTION_KEYS:
             raise ValueError('未知桥接参数')
         command.update(options)
     if color is not None:
@@ -105,11 +114,13 @@ def send(directory, action, color=None, timeout=60, options=None):
     raise TimeoutError('等待回传超时；命令可能稍后执行，请勿重复投递，先查看 result.json')
 
 
-if __name__ == '__main__':
+LOCAL_ACTIONS = ('client_manifest', 'client_status', 'reload_client')
+
+
+def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', nargs='?', default='current')
-    parser.add_argument('action', choices=['inspect', 'background', 'restore_background', 'export_centerline',
-                                         'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'add_axis_title_view', 'client_manifest', 'client_status', 'reload_client', 'export_gradient_script'])
+    parser.add_argument('action', choices=[*BRIDGE_ACTIONS, *LOCAL_ACTIONS])
     parser.add_argument('--color', nargs=3, type=float)
     parser.add_argument('--input')
     parser.add_argument('--output')
@@ -128,71 +139,65 @@ if __name__ == '__main__':
     parser.add_argument('--color-range', nargs=2, type=float, metavar=('MIN', 'MAX'),
                         help='显式设置涡量色标范围；默认使用当前切片数据范围')
     parser.add_argument('--timeout', type=float, default=60)
-    args = parser.parse_args()
-    if args.action == 'export_gradient_script':
-        if not args.output:
-            parser.error('export_gradient_script requires --output')
-        Path(args.output).write_text(gradient_script_source(), encoding='utf-8')
-        print(args.output)
-        raise SystemExit(0)
+    return parser
+
+
+def bridge_options(parser, args):
+    """按 BRIDGE_ACTIONS 把命令行参数拼成命令字段；缺少必填项时由 parser 报错。"""
+    spec = BRIDGE_ACTIONS[args.action]
+    values = {key: getattr(args, key) for group in spec.values() for key in group}
+    required = spec.get('required', ())
+    if any(values[key] in (None, '') for key in required):
+        parser.error(args.action + ' requires ' + ' and '.join(
+            '--' + key.replace('_', '-') for key in required))
+    skipped = {key for key in spec.get('optional', ()) if values[key] in (None, '')}
+    return {key: value for key, value in values.items() if key not in skipped} or None
+
+
+def print_json(value):
+    print(json.dumps(value, ensure_ascii=False, indent=2))
+
+
+def run_client_status(args):
+    """client_status 只查询；reload_client 在旧版本且支持热更新时才更新并复查。"""
+    expected = client_manifest()
+    try:
+        status = client_status(send(args.directory, 'inspect', timeout=args.timeout), expected)
+    except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+        print_json({'ok': False, 'status': 'bridge_unreachable', 'error': str(exc),
+                    'expected': expected})
+        return 1
+    if args.action == 'client_status' or not status['ok'] or status['status'] == 'ready':
+        print_json(status)
+        return 0 if status['ok'] else 1
+    if not status['can_hot_update']:
+        print_json(dict(status, ok=False, error='This older client needs one local reload or a normal launcher restart; the data connection is still live.'))
+        return 1
+    reply = send(args.directory, 'reload_client', timeout=args.timeout,
+                 options={'expected_sha256': expected['source_sha256']})
+    if reply['ok']:
+        verification = client_status(send(args.directory, 'inspect', timeout=args.timeout), expected)
+        reply['verification'] = verification
+        reply['ok'] = verification['ok'] and verification['status'] == 'ready'
+    print_json(reply)
+    return 0 if reply['ok'] else 1
+
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
     if args.action == 'client_manifest':
         print(json.dumps(client_manifest(), indent=2))
-        raise SystemExit(0)
+        return 0
     if args.action in ('client_status', 'reload_client'):
-        expected = client_manifest()
-        try:
-            status = client_status(send(args.directory, 'inspect', timeout=args.timeout), expected)
-        except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
-            print(json.dumps({'ok': False, 'status': 'bridge_unreachable', 'error': str(exc),
-                              'expected': expected}, ensure_ascii=False, indent=2))
-            raise SystemExit(1)
-        if args.action == 'client_status' or not status['ok'] or status['status'] == 'ready':
-            print(json.dumps(status, ensure_ascii=False, indent=2))
-            raise SystemExit(0 if status['ok'] else 1)
-        if not status['can_hot_update']:
-            print(json.dumps(dict(status, ok=False, error='This older client needs one local reload or a normal launcher restart; the data connection is still live.'), ensure_ascii=False, indent=2))
-            raise SystemExit(1)
-        reply = send(args.directory, 'reload_client', timeout=args.timeout,
-                     options={'expected_sha256': expected['source_sha256']})
-        if reply['ok']:
-            verification = client_status(send(args.directory, 'inspect', timeout=args.timeout), expected)
-            reply['verification'] = verification
-            reply['ok'] = verification['ok'] and verification['status'] == 'ready'
-        print(json.dumps(reply, ensure_ascii=False, indent=2))
-        raise SystemExit(0 if reply['ok'] else 1)
-    options = None
-    if args.action == 'export_centerline':
-        if not args.input or not args.output:
-            parser.error('export_centerline requires --input and --output')
-        options = {'input': args.input, 'output': args.output,
-                   'resolution': args.resolution, 'max_level': args.max_level}
-    elif args.action in ('repair_vorticity_slice', 'add_axis_title_view'):
-        if not args.source:
-            parser.error(args.action + ' requires --source')
-        options = {'source': args.source}
-        if args.action == 'add_axis_title_view' and args.reset_view:
-            options['reset_view'] = args.reset_view
-        if args.action == 'add_axis_title_view' and args.output:
-            options['output'] = args.output
-    elif args.action == 'publication_vorticity':
-        if not args.source or args.color_range is None:
-            parser.error('publication_vorticity requires --source and --color-range')
-        options = {'source': args.source, 'color_range': args.color_range,
-                   'vorticity_scale': args.vorticity_scale, 'style': args.style}
-        if args.image_size:
-            options['image_size'] = args.image_size
-        if args.view_id:
-            options['view_id'] = args.view_id
-        if args.output:
-            options['output'] = args.output
-    elif args.action == 'add_vorticity_view':
-        if not args.source:
-            parser.error('add_vorticity_view requires --source')
-        options = {'source': args.source, 'slice_axis': args.slice_axis, 'component': args.component}
-        if args.color_range is not None:
-            options['color_range'] = args.color_range
-        if args.slice_position is not None:
-            options['slice_position'] = args.slice_position
-    reply = send(args.directory, args.action, args.color, timeout=args.timeout, options=options)
-    print(json.dumps(reply, ensure_ascii=False, indent=2))
-    raise SystemExit(0 if reply['ok'] else 1)
+        return run_client_status(args)
+    reply = send(args.directory, args.action, args.color, timeout=args.timeout,
+                 options=bridge_options(parser, args))
+    print_json(reply)
+    return 0 if reply['ok'] else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
+
+

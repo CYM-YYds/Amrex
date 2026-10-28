@@ -1,12 +1,15 @@
-"""从桥接运行层和操作层生成 Windows 可单文件加载的客户端。"""
+"""生成并校验交付给 Windows 的单文件：桥客户端与独立 AMR Gradient 修复脚本。"""
 import argparse
 import ast
 from pathlib import Path
 
 
+DIRECTORY = Path(__file__).resolve().parent
+
+
 def client_source():
     """静态打包，不导入 ParaView、不启动 GUI，也不复制维护操作算法。"""
-    directory = Path(__file__).resolve().parent
+    directory = DIRECTORY
     runtime = (directory / 'paraview_bridge_runtime.py').read_text(encoding='utf-8')
     operations = (directory / 'paraview_operations.py').read_text(encoding='utf-8')
     imports = [node for node in ast.parse(runtime).body
@@ -29,17 +32,38 @@ def client_source():
     return source
 
 
+def gradient_script_source():
+    """将唯一求导算法打包为可单文件运行的 GUI 工具，避免维护第二份算法。"""
+    source = (DIRECTORY / 'paraview_operations.py').read_text(encoding='utf-8')
+    algorithm = next(ast.literal_eval(node.value) for node in ast.parse(source).body
+                     if isinstance(node, ast.Assign) and any(
+                         isinstance(target, ast.Name) and target.id == 'AMR_CELL_VORTICITY_SCRIPT'
+                         for target in node.targets))
+    template = (DIRECTORY.parent / 'templates/repair_amr_gradient.py.in').read_text(encoding='utf-8')
+    return template.replace('__AMR_CELL_VORTICITY_SCRIPT_LITERAL__', repr(algorithm))
+
+
+def deliverables():
+    """交付物文件名到期望内容的映射；打包与检查共用，避免两处各列一遍。"""
+    return {'paraview_bridge_client.py': client_source(),
+            'repair_amr_gradient.py': gradient_script_source()}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true', help='只检查生成物是否同步')
     args = parser.parse_args()
-    target = Path(__file__).with_name('paraview_bridge_client.py')
-    expected = client_source().encode('utf-8')
-    if args.check:
-        if target.read_bytes() != expected:
-            parser.exit(1, '客户端生成物未同步，请先运行打包命令。\n')
-    else:
-        target.write_bytes(expected)
+    stale = []
+    for name, content in deliverables().items():
+        target = DIRECTORY / name
+        expected = content.encode('utf-8')
+        if args.check:
+            if target.read_bytes() != expected:
+                stale.append(name)
+        else:
+            target.write_bytes(expected)
+    if stale:
+        parser.exit(1, '生成物未同步：' + ', '.join(stale) + '；请先运行打包命令。\n')
 
 
 if __name__ == '__main__':

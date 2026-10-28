@@ -23,9 +23,9 @@ class GradientPackagingTests(unittest.TestCase):
 
     def test_standalone_artifact_matches_current_algorithm_and_template(self):
         scripts = Path(__file__).resolve().parents[1]
-        sender = runpy.run_path(str(scripts / 'paraview_bridge_send.py'))
+        builder = runpy.run_path(str(scripts / 'build_paraview_client.py'))
         self.assertEqual((scripts / 'repair_amr_gradient.py').read_text(),
-                         sender['gradient_script_source']())
+                         builder['gradient_script_source']())
 
 
 if __name__ == '__main__':

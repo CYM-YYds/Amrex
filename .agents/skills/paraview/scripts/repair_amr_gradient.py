@@ -1,7 +1,7 @@
 """ParaView GUI：选中原生 Gradient 后运行，生成独立的 AMR 修复节点。
 
-此文件由 paraview_bridge_send.py 的 export_gradient_script 生成，请勿手改生成文件。
-算法来源为桥客户端的 AMR_CELL_VORTICITY_SCRIPT；运行时无需桥接或其他本机文件。
+此文件由 build_paraview_client.py 生成，请勿手改生成文件。
+算法来源为操作模块的 AMR_CELL_VORTICITY_SCRIPT；运行时无需桥接或其他本机文件。
 """
 import builtins as _builtins
 import math

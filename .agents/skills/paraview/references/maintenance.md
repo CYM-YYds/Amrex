@@ -57,7 +57,7 @@ pv_bridge.stop()
 - `scripts/paraview_operations.py`：中心线、AMR 旋度、相机、标题排版、导出与背景操作。
   不启动桥接、线程或计时器；独立批处理直接加载此模块。
 - `scripts/build_paraview_client.py`：静态打包两层源码，生成
-  `scripts/paraview_bridge_client.py`。客户端是**生成的单文件交付物，不手动编辑**；
+  `scripts/paraview_bridge_client.py`，并生成独立的 `scripts/repair_amr_gradient.py`。客户端是**生成的单文件交付物，不手动编辑**；
   Windows 的下载路径、单文件加载方式、源码哈希和热更新协议保持兼容。
 
 修改源码后运行：
@@ -80,14 +80,8 @@ pv_bridge.stop()
   切片操作共同复用。具体掩膜处理、限制和操作见 [GUI 桥接](bridge.md)。
 - 用户单文件 `scripts/repair_amr_gradient.py` 由该算法与 `templates/repair_amr_gradient.py.in`
   生成，`后处理脚本/repair_amr_gradient.py` 为兼容软链。它独立分发，不依赖运行时桥接；
-  设置区继承所选 Gradient 的输出选项，不维护第二套掩膜差分算法。改源后从仓库根重新生成：
-
-  ```bash
-  .venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current export_gradient_script \
-    --output .agents/skills/paraview/scripts/repair_amr_gradient.py
-  ```
-
-  生成物同步回归会比较完整文件；不要直接手改生成物。
+  设置区继承所选 Gradient 的输出选项，不维护第二套掩膜差分算法。它与桥客户端由同一个
+  `build_paraview_client.py` 生成并检查，改源后运行上述打包命令即可；不要直接手改生成物。
 
 验证按修改范围选择：纯文档检查路径、链接和 skill 格式；修改执行机制时检查相应语言语法，
 并运行现有回归：
