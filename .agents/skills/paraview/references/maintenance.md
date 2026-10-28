@@ -76,8 +76,9 @@ pv_bridge.stop()
 - 桥客户端在 GUI 主线程调用 ParaView API，后台只处理 SSH；builtins 持有唯一实例与原生回调。重载须先结束旧线程，不创建多个所有者，不清除 closed 事件来重启旧实例。
 - `run_paraview_server.sh` 检查执行节点和 MPI 能力，使用同一安装的启动器；版本探测不启动多 rank 服务。PS1 的版本预检使用 EXE 资源或 pvpython，启动能力从客户端 manifest 读取，不重复维护能力常量。
 - `paraview_batch_export.py` 直接加载操作模块，复用 `export_centerline`，不加载桥接运行层。修改中心线算法须维护两种入口的共同实现。
-- 热更新只接收固定仓库源码及匹配 SHA256，在 GUI 主线程替换命令实现，保留连接、视图及状态；传输、计时器或状态协议不兼容时提高 `RUNTIME_UPDATE_PROTOCOL`，要求正常启动。热更新后的状态以实时 inspect 为准，不重写旧启动回执。
-- 新增桥操作先核对已有能力和 ParaView API，再实现并更新能力声明；不以任意 Python 投递绕过协议。涡量须在三维速度上计算后再切片，单元速度优先，兼容旧读取器时才 ExtractBlock。
+- 热更新只接收固定仓库源码及匹配 SHA256。该哈希来自投递端读取的同一仓库文件，防的是版本漂移与下载不全，
+  不是防篡改；信任边界是仓库与共享桥接目录的写权限，而不是文件协议本身。热更新在 GUI 主线程替换命令实现，保留连接、视图及状态；传输、计时器或状态协议不兼容时提高 `RUNTIME_UPDATE_PROTOCOL`，要求正常启动。热更新后的状态以实时 inspect 为准，不重写旧启动回执。
+- 新增桥操作先核对已有能力和 ParaView API，再实现；同步运行层的 `OPERATIONS`、`CAPABILITIES` 与投递器的 `BRIDGE_ACTIONS`，`test_sender_cli` 会检查三者一致。不以任意 Python 投递绕过协议。涡量须在三维速度上计算后再切片，单元速度优先，兼容旧读取器时才 ExtractBlock。
 - AMR 单元涡量修复的唯一求导实现为操作模块的 `AMR_CELL_VORTICITY_SCRIPT`，新视图与现有
   切片操作共同复用。具体掩膜处理、限制和操作见 [GUI 桥接](bridge.md)。
 - 用户单文件 `scripts/repair_amr_gradient.py` 由该算法与 `templates/repair_amr_gradient.py.in`
@@ -99,3 +100,11 @@ bash -n .agents/skills/paraview/scripts/run_paraview_server.sh
 修改数据管线需在编译节点用真实 PlotFile 检查输出；修改旋度还需解析旋转场回归、
 Gradient 输出关联与有限值检查。明确实际覆盖的 AMR 层级、GUI/MPI 组合，不能凭编译、
 截图或一次导出成功宣称数值等价。
+
+## 历史验证记录
+
+历史验证按日期查 [6.2.0 收尾记录](../../../../docs/ai_changes/2026-10-19-paraview-knowledge-closeout.md)
+和后续 [MPI 验收记录](../../../../docs/ai_changes/2026-10-20-paraview-mpi-install.md)。
+2026-10-27 的证据见 [AMR 涡量对照](../../../../docs/ai_changes/2026-10-27-paraview-amr-vorticity.md)、
+[断线诊断与日志](../../../../docs/ai_changes/2026-10-27-paraview-disconnect-logging.md)及
+[现有切片修复](../../../../docs/ai_changes/2026-10-27-paraview-existing-slice-repair.md)；不把会话快照当作当前在线状态。

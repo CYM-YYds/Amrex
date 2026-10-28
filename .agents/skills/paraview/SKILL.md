@@ -12,7 +12,7 @@ ParaView 在编译节点 **whshare-agent-1** 运行，不在登录节点执行�
 Python 和 MPI，CSV 分析与绘图仍用仓库 `.venv/bin/python`。以下命令从仓库根执行。
 
 - **独立处理共享数据**：用 `pvbatch`，不要求 Windows 在线。先读 [远端批处理](references/batch.md)，包含现有中心线入口和其他 Python 管线的执行方法。
-- **操作用户当前窗口**：用 GUI 控制桥。先读 [GUI 桥接](references/bridge.md)，包含本机启动、状态查询、可用命令与排错。远端不能直接启动用户 Windows 上的 PS1。
+- **操作用户当前窗口**：用 GUI 控制桥。先读 [GUI 桥接](references/bridge.md)，包含本机启动、状态查询、可用命令与排错；涡量切片出图排版见 [涡量切片出图](references/publication.md)。远端不能直接启动用户 Windows 上的 PS1。
 - 用户指定方式时按指定方式执行；未指定且无需保留 GUI 管线时用批处理。
 
 ## 最小入口
