@@ -60,17 +60,19 @@ DIM_REFACTOR_BASELINE=/绝对路径/含app2d.ex和app3d.ex及git_head.txt的基�
 
 ## 单精度与双精度实验
 
-默认 `PRECISION=DOUBLE`；选择 `FLOAT` 会在编译期把场数据 `amrex::Real` 切换为单精度，
+默认 `PRECISION=FLOAT`，场数据 `amrex::Real` 使用单精度；可显式选择 `DOUBLE`，
 适用于两种维度。不能通过运行时 inputs 切换。以下命令在本算例目录执行：
 
 ```bash
+# 默认单精度编译与提交
+./scripts/compile.sh
+./scripts/submit_guarded.sh
+# 显式选择双精度；提交时也须将选择传给调度器
 PRECISION=DOUBLE ./scripts/compile.sh
-PRECISION=FLOAT ./scripts/compile.sh
-# 默认提交入口；精度必须显式传给调度器
-./scripts/submit_guarded.sh -x 'all;PRECISION=FLOAT;'
-# 二维单精度
-DIM=2 PRECISION=FLOAT ./scripts/compile.sh
-./scripts/submit_guarded.sh -x 'all;DIM=2;PRECISION=FLOAT;'
+./scripts/submit_guarded.sh -x 'all;PRECISION=DOUBLE;'
+# 二维默认单精度
+DIM=2 ./scripts/compile.sh
+./scripts/submit_guarded.sh -x 'all;DIM=2;'
 ```
 
 单精度程序名为 `main{2,3}d.gnu.FLOAT.TPROF.MPI.CUDA.ex`，双精度沿用原名；
@@ -90,7 +92,8 @@ AMReX 自动按维度和精度隔离对象目录，无须清理另一精度的�
 单精度解析解/独立路径比较采用 `32 * epsilon * max(1, abs(expected))` 的舍入容差；
 这只适用于该小规模内核测试，不能作为长程流场的误差验收阈值。
 跨精度 checkpoint 转换只按本次明确验证的范围使用，不承诺粒子/运动刚体完整重启。
-本次 GPU 验证、误差和限制见仓库根
+默认值变更见[单精度默认记录](docs/ai_changes/2026-10-28-default-float.md)。
+精度切换的初版 GPU 验证、误差和限制见仓库根
 [精度切换记录](../../../../docs/ai_changes/2026-10-27-box3d-osi-precision.md)。
 
 ## 目录与构建关系

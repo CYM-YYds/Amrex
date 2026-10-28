@@ -20,7 +20,7 @@ DIM="${DIM:-3}"
 [[ "$DIM" == 2 || "$DIM" == 3 ]] || { echo "错误: DIM 必须为 2 或 3" >&2; exit 1; }
 INPUT_NAME=inputs
 if [[ "$DIM" == 2 ]]; then INPUT_NAME=inputs.2d; fi
-PRECISION="${PRECISION:-DOUBLE}"
+PRECISION="${PRECISION:-FLOAT}"
 [[ "$PRECISION" == DOUBLE || "$PRECISION" == FLOAT ]] || { echo "错误: PRECISION 必须为 DOUBLE 或 FLOAT" >&2; exit 1; }
 PRECISION_SUFFIX=""
 if [[ "$PRECISION" == FLOAT ]]; then PRECISION_SUFFIX=.FLOAT; fi

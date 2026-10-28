@@ -6,7 +6,7 @@ CASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_DIR="$(git -C "$CASE_DIR" rev-parse --show-toplevel)"
 DIM="${DIM:-3}"
 [[ "$DIM" == 2 || "$DIM" == 3 ]] || { echo "错误: DIM 必须为 2 或 3" >&2; exit 1; }
-PRECISION="${PRECISION:-DOUBLE}"
+PRECISION="${PRECISION:-FLOAT}"
 [[ "$PRECISION" == DOUBLE || "$PRECISION" == FLOAT ]] || { echo "错误: PRECISION 必须为 DOUBLE 或 FLOAT" >&2; exit 1; }
 export AMREX_BUILD_DIM="$DIM" AMREX_BUILD_PRECISION="$PRECISION"
 export LOG_DIR="${LOG_DIR:-${CASE_DIR}/logs/compile}"

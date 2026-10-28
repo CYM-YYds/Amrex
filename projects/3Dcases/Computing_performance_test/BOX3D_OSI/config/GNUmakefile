@@ -10,7 +10,7 @@ TINY_PROFILE = TRUE
 DIM ?= 3
 
 # 场数据与数值核使用同一精度，统计计时仍保留 double。
-PRECISION ?= DOUBLE
+PRECISION ?= FLOAT
 ifneq ($(PRECISION),DOUBLE)
 ifneq ($(PRECISION),FLOAT)
 $(error PRECISION must be DOUBLE or FLOAT)
