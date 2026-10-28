@@ -50,13 +50,33 @@ pv_bridge.stop()
 
 ## 实现边界与验证
 
+源码职责与交付方式：
+
+- `scripts/paraview_bridge_runtime.py`：SSH、命令队列、GUI 主线程调度、计时器、热更新、
+  状态诊断和背景备份生命周期；通过明确导入调用操作层。
+- `scripts/paraview_operations.py`：中心线、AMR 旋度、相机、标题排版、导出与背景操作。
+  不启动桥接、线程或计时器；独立批处理直接加载此模块。
+- `scripts/build_paraview_client.py`：静态打包两层源码，生成
+  `scripts/paraview_bridge_client.py`。客户端是**生成的单文件交付物，不手动编辑**；
+  Windows 的下载路径、单文件加载方式、源码哈希和热更新协议保持兼容。
+
+修改源码后运行：
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/build_paraview_client.py
+.venv/bin/python .agents/skills/paraview/scripts/build_paraview_client.py --check
+```
+
+打包测试检查源码与交付物一致，manifest 查询也会拒绝未同步的生成物。正常修改排版不需
+修改运行层。算法变更时仍需按下文同步独立 Gradient 工具并执行对应回归。
+
 - 唯一实现位于本 skill 的 `scripts/`；`后处理脚本/connect_paraview.ps1` 和 `paraview_bridge_client.py` 是兼容软链。Windows 下载应得到普通脚本文件，保留旧入口兼容性。
 - 桥客户端在 GUI 主线程调用 ParaView API，后台只处理 SSH；builtins 持有唯一实例与原生回调。重载须先结束旧线程，不创建多个所有者，不清除 closed 事件来重启旧实例。
 - `run_paraview_server.sh` 检查执行节点和 MPI 能力，使用同一安装的启动器；版本探测不启动多 rank 服务。PS1 的版本预检使用 EXE 资源或 pvpython，启动能力从客户端 manifest 读取，不重复维护能力常量。
-- `paraview_batch_export.py` 只加载桥模块定义，复用 `export_centerline`，不启动计时器、SSH 或会话注册。修改中心线算法须维护两种入口的共同实现。
+- `paraview_batch_export.py` 直接加载操作模块，复用 `export_centerline`，不加载桥接运行层。修改中心线算法须维护两种入口的共同实现。
 - 热更新只接收固定仓库源码及匹配 SHA256，在 GUI 主线程替换命令实现，保留连接、视图及状态；传输、计时器或状态协议不兼容时提高 `RUNTIME_UPDATE_PROTOCOL`，要求正常启动。热更新后的状态以实时 inspect 为准，不重写旧启动回执。
 - 新增桥操作先核对已有能力和 ParaView API，再实现并更新能力声明；不以任意 Python 投递绕过协议。涡量须在三维速度上计算后再切片，单元速度优先，兼容旧读取器时才 ExtractBlock。
-- AMR 单元涡量修复的唯一求导实现为客户端的 `AMR_CELL_VORTICITY_SCRIPT`，新视图与现有
+- AMR 单元涡量修复的唯一求导实现为操作模块的 `AMR_CELL_VORTICITY_SCRIPT`，新视图与现有
   切片操作共同复用。具体掩膜处理、限制和操作见 [GUI 桥接](bridge.md)。
 - 用户单文件 `scripts/repair_amr_gradient.py` 由该算法与 `templates/repair_amr_gradient.py.in`
   生成，`后处理脚本/repair_amr_gradient.py` 为兼容软链。它独立分发，不依赖运行时桥接；

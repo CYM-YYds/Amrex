@@ -17,9 +17,8 @@ def main():
     parser.add_argument('--max-level', type=int, default=2)
     args = parser.parse_args()
     started = time.monotonic()
-    # 只加载定义，复用同一导出函数，不启动计时器、SSH 或会话注册。
-    definitions = runpy.run_path(str(Path(__file__).with_name('paraview_bridge_client.py')),
-                                init_globals={'_PV_BRIDGE_DEFINITIONS_ONLY': True})
+    # 直接加载操作层，不加载桥接运行层、计时器或会话注册。
+    definitions = runpy.run_path(str(Path(__file__).with_name('paraview_operations.py')))
     value = definitions['export_centerline']({'input': args.input, 'output': args.output,
                                             'resolution': args.resolution, 'max_level': args.max_level})
     from paraview.simple import GetParaViewVersion

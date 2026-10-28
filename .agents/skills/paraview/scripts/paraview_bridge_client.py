@@ -1,3 +1,5 @@
+# 自动生成，请勿手改。修改 paraview_bridge_runtime.py / paraview_operations.py，
+# 再运行 .venv/bin/python .agents/skills/paraview/scripts/build_paraview_client.py
 """在本机 ParaView Python Shell 加载；通过 SSH 接收有限的界面操作。"""
 import builtins
 import ctypes
@@ -14,16 +16,12 @@ import uuid
 from types import SimpleNamespace
 
 from paraview import simple as pvs
+# 以下操作由 paraview_operations.py 自动嵌入。
+"""ParaView 数据管线、相机与排版操作；不启动桥接、线程或计时器。"""
+import sys
+from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '15'
-RUNTIME_UPDATE_PROTOCOL = 1
-REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
-CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
-                'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'add_axis_title_view', 'reload_client']
-
-# 代码随 ProgrammableFilter 在数据所在 rank 执行；不依赖 Windows 上的仓库模块路径。
-# 仅在求导副本中解除细层覆盖，输出恢复原掩膜，避免改动输入或重复显示粗细层。
 AMR_CELL_VORTICITY_SCRIPT = '''
 from vtkmodules.vtkCommonDataModel import vtkDataObject, vtkDataSetAttributes
 from vtkmodules.vtkFiltersGeneral import vtkGradientFilter
@@ -65,57 +63,6 @@ if source.IsA('vtkCompositeDataSet'):
 elif source.IsA('vtkDataSet'):
     output.ShallowCopy(differentiate(source))
 '''
-
-# 跨启动脚本和交互 Shell 共用唯一实例，也保留停止后可能被系统消息引用的回调。
-if not hasattr(builtins, '_amrex_paraview_bridge_runtime'):
-    builtins._amrex_paraview_bridge_runtime = SimpleNamespace(bridge=None, timer_callbacks=[])
-_runtime = builtins._amrex_paraview_bridge_runtime
-_pv_timer_callbacks = _runtime.timer_callbacks
-
-
-class WindowsGuiTimer:
-    """封装原生定时器的回调引用、重入保护和停止生命周期。"""
-    def __init__(self, tick):
-        if threading.current_thread() is not threading.main_thread():
-            raise RuntimeError('Load this script in the ParaView GUI Python Shell')
-        from ctypes import wintypes
-        self.active = True
-        self.busy = False
-        self.owner = threading.get_ident()
-        self.user32 = ctypes.WinDLL('user32', use_last_error=True)
-        callback_type = ctypes.WINFUNCTYPE(None, wintypes.HWND, wintypes.UINT,
-                                          ctypes.c_size_t, wintypes.DWORD)
-        self.user32.SetTimer.argtypes = [wintypes.HWND, ctypes.c_size_t,
-                                        wintypes.UINT, callback_type]
-        self.user32.SetTimer.restype = ctypes.c_size_t
-        self.user32.KillTimer.argtypes = [wintypes.HWND, ctypes.c_size_t]
-        self.user32.KillTimer.restype = wintypes.BOOL
-
-        def dispatch(hwnd, message, timer_id, timestamp):
-            if not self.active or self.busy:
-                return
-            self.busy = True
-            try:
-                if threading.get_ident() != self.owner:
-                    raise RuntimeError('Timer callback arrived on another thread')
-                tick()
-            except BaseException:
-                traceback.print_exc()
-                self.stop()
-            finally:
-                self.busy = False
-
-        self.callback = callback_type(dispatch)
-        self.timer_id = self.user32.SetTimer(None, 0, 200, self.callback)
-        if not self.timer_id:
-            raise ctypes.WinError(ctypes.get_last_error())
-        _pv_timer_callbacks.append(self.callback)
-
-    def stop(self):
-        if self.active:
-            self.active = False
-            self.user32.KillTimer(None, self.timer_id)
-
 
 def export_centerline(command):
     # 复用已有 AMReX 读取器与标准过滤器，不执行远端传入的 Python 代码。
@@ -171,7 +118,6 @@ def export_centerline(command):
         raise
     finally:
         pvs.SetActiveSource(previous)
-
 
 def add_vorticity_view(command):
     """先对三维速度求旋度，再切片显示；新布局不改用户原有视图。"""
@@ -315,7 +261,6 @@ def add_vorticity_view(command):
         pvs.SetActiveView(previous_view)
         raise
 
-
 def repair_vorticity_slice(command):
     """只替换指定切片的旋度输入，复用求导修复并保留已有显示对象。"""
     name = command.get('source', '')
@@ -367,7 +312,6 @@ def repair_vorticity_slice(command):
         section.Input = old
         pvs.Delete(fixed)
         raise
-
 
 def publication_vorticity(command):
     """为已有涡量切片添加可追溯的显示标量与排版，不重新求导或平滑。"""
@@ -664,7 +608,6 @@ def publication_vorticity(command):
                          'label_font_size': bar.LabelFontSize},
             'clipping': 'Values above color maximum saturate; no numerical smoothing applied'}
 
-
 def add_axis_title_view(command):
     """复制显示配置到独立视图，仅在新视图用 Text 管线替代 Z 标题。"""
     import math
@@ -863,6 +806,94 @@ def add_axis_title_view(command):
         pvs.SetActiveView(old_view)
         pvs.SetActiveSource(source)
         raise
+
+
+def update_background(command, backgrounds):
+    """背景操作；备份由桥接实例唯一持有并跨热更新保留。"""
+    action = command.get('action')
+    view = pvs.GetActiveView()
+    if view is None or view.GetXMLName() != 'RenderView':
+        raise ValueError('Select a Render View first')
+    key = view.GetGlobalIDAsString()
+    if action == 'background':
+        color = command.get('color')
+        if (not isinstance(color, list) or len(color) != 3
+                or any(type(c) not in (int, float) or not 0 <= c <= 1 for c in color)):
+            raise ValueError('color requires three numbers in [0, 1]')
+        if key not in backgrounds:
+            backgrounds[key] = (list(view.Background),
+                                    view.GetProperty('BackgroundColorMode').SMProperty.GetElement(0))
+        view.BackgroundColorMode = 'Single Color'
+        view.Background = color
+    elif key in backgrounds:
+        color, mode = backgrounds[key]
+        view.Background = color
+        # 按底层枚举整数恢复，避免属性字符串表示带引号而无法赋回。
+        view.GetProperty('BackgroundColorMode').SMProperty.SetElement(0, mode)
+        view.UpdateVTKObjects()
+        del backgrounds[key]
+    pvs.Render(view)
+    return {'view': key, 'background': list(view.Background)}
+
+# 以下为 paraview_bridge_runtime.py 的桥接运行逻辑。
+
+
+BRIDGE_VERSION = '16'
+RUNTIME_UPDATE_PROTOCOL = 1
+REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
+CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
+                'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'add_axis_title_view', 'reload_client']
+
+
+# 跨启动脚本和交互 Shell 共用唯一实例，也保留停止后可能被系统消息引用的回调。
+if not hasattr(builtins, '_amrex_paraview_bridge_runtime'):
+    builtins._amrex_paraview_bridge_runtime = SimpleNamespace(bridge=None, timer_callbacks=[])
+_runtime = builtins._amrex_paraview_bridge_runtime
+_pv_timer_callbacks = _runtime.timer_callbacks
+
+
+class WindowsGuiTimer:
+    """封装原生定时器的回调引用、重入保护和停止生命周期。"""
+    def __init__(self, tick):
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError('Load this script in the ParaView GUI Python Shell')
+        from ctypes import wintypes
+        self.active = True
+        self.busy = False
+        self.owner = threading.get_ident()
+        self.user32 = ctypes.WinDLL('user32', use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(None, wintypes.HWND, wintypes.UINT,
+                                          ctypes.c_size_t, wintypes.DWORD)
+        self.user32.SetTimer.argtypes = [wintypes.HWND, ctypes.c_size_t,
+                                        wintypes.UINT, callback_type]
+        self.user32.SetTimer.restype = ctypes.c_size_t
+        self.user32.KillTimer.argtypes = [wintypes.HWND, ctypes.c_size_t]
+        self.user32.KillTimer.restype = wintypes.BOOL
+
+        def dispatch(hwnd, message, timer_id, timestamp):
+            if not self.active or self.busy:
+                return
+            self.busy = True
+            try:
+                if threading.get_ident() != self.owner:
+                    raise RuntimeError('Timer callback arrived on another thread')
+                tick()
+            except BaseException:
+                traceback.print_exc()
+                self.stop()
+            finally:
+                self.busy = False
+
+        self.callback = callback_type(dispatch)
+        self.timer_id = self.user32.SetTimer(None, 0, 200, self.callback)
+        if not self.timer_id:
+            raise ctypes.WinError(ctypes.get_last_error())
+        _pv_timer_callbacks.append(self.callback)
+
+    def stop(self):
+        if self.active:
+            self.active = False
+            self.user32.KillTimer(None, self.timer_id)
 
 
 class ParaViewBridge:
@@ -1087,29 +1118,7 @@ class ParaViewBridge:
                         for v in pvs.GetViews() if v.GetXMLName() == 'RenderView']}
         if action not in ('background', 'restore_background'):
             raise ValueError('Unsupported action: ' + str(action))
-        view = pvs.GetActiveView()
-        if view is None or view.GetXMLName() != 'RenderView':
-            raise ValueError('Select a Render View first')
-        key = view.GetGlobalIDAsString()
-        if action == 'background':
-            color = command.get('color')
-            if (not isinstance(color, list) or len(color) != 3
-                    or any(type(c) not in (int, float) or not 0 <= c <= 1 for c in color)):
-                raise ValueError('color requires three numbers in [0, 1]')
-            if key not in self.backgrounds:
-                self.backgrounds[key] = (list(view.Background),
-                                        view.GetProperty('BackgroundColorMode').SMProperty.GetElement(0))
-            view.BackgroundColorMode = 'Single Color'
-            view.Background = color
-        elif key in self.backgrounds:
-            color, mode = self.backgrounds[key]
-            view.Background = color
-            # 按底层枚举整数恢复，避免属性字符串表示带引号而无法赋回。
-            view.GetProperty('BackgroundColorMode').SMProperty.SetElement(0, mode)
-            view.UpdateVTKObjects()
-            del self.backgrounds[key]
-        pvs.Render(view)
-        return {'view': key, 'background': list(view.Background)}
+        return update_background(command, self.backgrounds)
 
     def stop(self):
         # 停止接收命令；保留远端结果，便于诊断。背景须在停止前恢复。

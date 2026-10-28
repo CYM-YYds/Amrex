@@ -183,6 +183,10 @@ ParaView 独立批处理使用应用自带的 `pvbatch` 解释器读取数据；
 可用 `$paraview` 调用，包含当前 GUI 桥接与独立批处理。批处理入口自动跳转编译节点
 `whshare-agent-1`，不在登录节点运行 ParaView。
 
+ParaView 源码将桥接运行层（`paraview_bridge_runtime.py`）与可视化操作层
+（`paraview_operations.py`）分开；`build_paraview_client.py` 生成 Windows 单文件客户端，
+具体维护与打包命令见 [实现与维护](.agents/skills/paraview/references/maintenance.md)。
+
 从仓库根调用：
 
 ```bash

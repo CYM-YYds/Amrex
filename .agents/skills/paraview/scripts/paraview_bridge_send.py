@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import runpy
 import time
 import uuid
 
@@ -15,6 +16,9 @@ BRIDGE_ROOT = Path('/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge'
 def client_manifest():
     """只解析固定客户端的常量，不启动ParaView或执行客户端代码。"""
     source = Path(__file__).with_name('paraview_bridge_client.py').read_bytes()
+    builder = runpy.run_path(str(Path(__file__).with_name('build_paraview_client.py')))
+    if source != builder['client_source']().encode('utf-8'):
+        raise RuntimeError('客户端生成物未同步，请先运行 build_paraview_client.py')
     values = {}
     for node in ast.parse(source).body:
         if isinstance(node, ast.Assign):
@@ -28,7 +32,7 @@ def client_manifest():
 def gradient_script_source():
     """将唯一求导算法打包为可单文件运行的 GUI 工具，避免维护第二份算法。"""
     directory = Path(__file__).parent
-    source = (directory / 'paraview_bridge_client.py').read_text()
+    source = (directory / 'paraview_operations.py').read_text()
     algorithm = next(ast.literal_eval(node.value) for node in ast.parse(source).body
                      if isinstance(node, ast.Assign) and any(
                          isinstance(target, ast.Name) and target.id == 'AMR_CELL_VORTICITY_SCRIPT'

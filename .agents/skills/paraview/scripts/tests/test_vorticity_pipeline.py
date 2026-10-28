@@ -16,7 +16,7 @@ except ImportError:
 class VorticityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        client = Path(__file__).resolve().parents[1] / 'paraview_bridge_client.py'
+        client = Path(__file__).resolve().parents[1] / 'paraview_operations.py'
         cls.add_view = staticmethod(runpy.run_path(
             str(client), init_globals={'_PV_BRIDGE_DEFINITIONS_ONLY': True})['add_vorticity_view'])
         cls.publication = staticmethod(runpy.run_path(
@@ -31,7 +31,7 @@ class VorticityTests(unittest.TestCase):
         pvs.ResetSession()
 
     def test_axis_title_view_preserves_original(self):
-        client = Path(__file__).resolve().parents[1] / 'paraview_bridge_client.py'
+        client = Path(__file__).resolve().parents[1] / 'paraview_operations.py'
         action = runpy.run_path(str(client), init_globals={
             '_PV_BRIDGE_DEFINITIONS_ONLY': True})['add_axis_title_view']
         source = pvs.Wavelet()
