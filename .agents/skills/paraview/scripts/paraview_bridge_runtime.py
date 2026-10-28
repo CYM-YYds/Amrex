@@ -17,10 +17,10 @@ from paraview import simple as pvs
 from paraview_protocol import DEFAULT_BRIDGE_ROOT, CAPABILITIES
 from paraview_operations import (AMR_CELL_VORTICITY_SCRIPT, export_centerline,
                                  add_vorticity_view, repair_vorticity_slice, update_background)
-from paraview_publication import publication_vorticity, add_axis_title_view
+from paraview_publication import publication_vorticity, add_axis_title_view, align_publication
 
 
-BRIDGE_VERSION = '18'
+BRIDGE_VERSION = '19'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 
@@ -31,7 +31,8 @@ REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.a
 OPERATIONS = {'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
               'repair_vorticity_slice': repair_vorticity_slice,
               'publication_vorticity': publication_vorticity,
-              'add_axis_title_view': add_axis_title_view}
+              'add_axis_title_view': add_axis_title_view,
+              'align_publication': align_publication}
 
 
 # 跨启动脚本和交互 Shell 共用唯一实例，也保留停止后可能被系统消息引用的回调。

@@ -284,6 +284,28 @@ output.SetBlock(0, grid)
             pvs.SaveScreenshot(preview, view, ImageResolution=[2066, 1066],
                                FontScaling='Do not scale fonts')
             self.assertEqual(Path(output).read_bytes(), Path(preview).read_bytes())
+            # 用户编辑文字与色标高度后，仅对齐不得重置这些设置、相机或色带。
+            titles = [pvs.FindSource('Publication_axis_' + str(i) + '_' + view.GetGlobalIDAsString() + suffix)
+                      for i, suffix in ((0, ''), (2, ''), (0, '_top'), (2, '_right'))]
+            for i, title in enumerate(titles):
+                title.Text = 'Custom axis ' + str(i)
+            bar.Position = [0.1, 0.065]
+            bar.ScalarBarLength = 0.3
+            camera = list(view.CameraPosition)
+            rgb = list(styled_display.LookupTable.RGBPoints)
+            names = set(pvs.GetSources())
+            publication_module = Path(__file__).resolve().parents[1] / 'paraview_publication.py'
+            align = runpy.run_path(str(publication_module))['align_publication']
+            aligned = align({'source': 'Vorticity_slice_y', 'view_id': view.GetGlobalIDAsString()})
+            self.assertEqual(aligned['titles'], ['Custom axis '+str(i) for i in range(4)])
+            self.assertEqual(aligned['titles'], aligned['before']['titles'])
+            self.assertEqual(bar.Position[1], 0.065)
+            frame = aligned['title_alignment']['frame_pixels']
+            self.assertAlmostEqual(bar.Position[0]*view.ViewSize[0], frame[0])
+            self.assertAlmostEqual(bar.ScalarBarLength*view.ViewSize[0], frame[1]-frame[0])
+            self.assertEqual(list(view.CameraPosition), camera)
+            self.assertEqual(list(styled_display.LookupTable.RGBPoints), rgb)
+            self.assertEqual(set(pvs.GetSources()), names)
 
     def test_publication_failure_restores_existing_objects_and_layout(self):
         from unittest.mock import patch

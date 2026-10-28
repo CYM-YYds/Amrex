@@ -18,6 +18,7 @@ BRIDGE_ACTIONS = {
                               'defaults': ('vorticity_scale', 'style'),
                               'optional': ('image_size', 'view_id', 'output')},
     'add_axis_title_view': {'required': ('source',), 'optional': ('reset_view', 'output')},
+    'align_publication': {'required': ('source',), 'optional': ('view_id', 'output')},
 }
 # reload_client 由 run_client_status 专用流程投递，只携带期望哈希。
 RELOAD_OPTIONS = ('expected_sha256',)

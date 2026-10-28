@@ -1,5 +1,20 @@
 # 涡量切片出图
 
+## 保留手动编辑，只更新对齐
+
+已修改标题、字体或色标位置时，不要重跑会应用标准样式的 `publication_vorticity`。
+使用已有四边标题和水平色标：
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current align_publication \
+  --source Slice3 --view-id '<目标视图ID>' --timeout 180
+```
+
+保留文字内容、字体、相机、色带、色标标题与竖直位置；重新按文字包围盒居中四边标题，
+距图框统一 40 像素，将水平色条左右端点对齐图框。色标标题及数字可能伸出色条端点，
+对齐目标是彩色条，不是全部注释的总包围盒。可选 `--output /absolute/shared/check.png`
+按当前视图尺寸导出。操作不新建管线；失败恢复本次属性改动。
+
 对已有涡量切片做论文/参考图排版，或为 Z 轴标题新建独立页面；连接、状态与热更新见 [GUI 桥接](bridge.md)。
 
 ## 独立 Z 轴标题视图

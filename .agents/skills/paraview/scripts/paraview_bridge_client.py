@@ -37,6 +37,7 @@ BRIDGE_ACTIONS = {
                               'defaults': ('vorticity_scale', 'style'),
                               'optional': ('image_size', 'view_id', 'output')},
     'add_axis_title_view': {'required': ('source',), 'optional': ('reset_view', 'output')},
+    'align_publication': {'required': ('source',), 'optional': ('view_id', 'output')},
 }
 # reload_client 由 run_client_status 专用流程投递，只携带期望哈希。
 RELOAD_OPTIONS = ('expected_sha256',)
@@ -463,6 +464,114 @@ def _publication_edit(view):
         raise
 
 
+
+def _align_axis_titles(view, bounds, label_displays):
+    """按当前字体与图框投影对齐标题，不修改文字内容或相机。"""
+    from vtkmodules.vtkRenderingCore import vtkTextProperty, vtkTextRenderer
+    # 用图框的屏幕投影和字体包围盒定位；四边统一为图框到文字边缘 40 像素。
+    renderer = view.GetClientSideObject().GetRenderer()
+    width, height = renderer.GetSize()
+    projected = []
+    for x in bounds[:2]:
+        for y in bounds[2:4]:
+            for z in bounds[4:6]:
+                renderer.SetWorldPoint(x, y, z, 1)
+                renderer.WorldToDisplay()
+                projected.append(renderer.GetDisplayPoint())
+    left, right = min(p[0] for p in projected), max(p[0] for p in projected)
+    bottom, top = min(p[1] for p in projected), max(p[1] for p in projected)
+    gap = 40
+    boxes = []
+    for side, rep in zip(('bottom', 'left', 'top', 'right'), label_displays):
+        prop = vtkTextProperty()
+        prop.SetFontFamilyAsString(str(rep.FontFamily).strip("'\""))
+        prop.SetBold(int(rep.Bold))
+        prop.SetItalic(int(rep.Italic))
+        prop.SetShadow(int(rep.Shadow))
+        prop.SetFontSize(int(rep.FontSize))
+        prop.SetJustificationToLeft()
+        prop.SetVerticalJustificationToBottom()
+        box = [0, 0, 0, 0]
+        if not vtkTextRenderer.GetInstance().GetBoundingBox(
+                prop, str(rep.Input.Text), box, renderer.GetRenderWindow().GetDPI()):
+            raise RuntimeError('Could not measure axis title')
+        if rep.GetProperty('Justification') is not None:
+            rep.Justification = 'Left'
+        if rep.GetProperty('VerticalJustification') is not None:
+            rep.VerticalJustification = 'Bottom'
+        x = (left+right)/2-(box[0]+box[1])/2
+        y = (bottom+top)/2-(box[2]+box[3])/2
+        if side == 'bottom':
+            y = bottom-gap-box[3]
+        elif side == 'top':
+            y = top+gap-box[2]
+        elif side == 'left':
+            x = left-gap-box[1]
+        else:
+            x = right+gap-box[0]
+        rep.Position = [x/width, y/height]
+        boxes.append([x+box[0], x+box[1], y+box[2], y+box[3]])
+    title_alignment = {'frame_pixels': [left, right, bottom, top],
+                       'edge_gap_pixels': gap, 'text_boxes_pixels': boxes,
+                       'order': ['bottom', 'left', 'top', 'right']}
+    pvs.Render(view)
+    return title_alignment
+
+
+def align_publication(command):
+    """只对齐已有标题和水平色标，保留用户文字、字体、相机、色带及色标高度。"""
+    from paraview import servermanager
+    matches = [s for (name, _), s in pvs.GetSources().items() if name == command.get('source')]
+    if len(matches) != 1 or matches[0].GetXMLName() != 'Cut':
+        raise ValueError('source must identify one existing Slice')
+    source = matches[0]
+    view = next((v for v in pvs.GetViews() if v.GetGlobalIDAsString() == command.get('view_id')), None)
+    view = view if command.get('view_id') else pvs.GetActiveView()
+    if view is None or view.GetXMLName() != 'RenderView':
+        raise ValueError('Select the existing publication view')
+    identity = view.GetGlobalIDAsString()
+    axis = max(range(3), key=lambda i: abs(source.SliceType.Normal[i]))
+    axes = [i for i in range(3) if i != axis]
+    titles = [pvs.FindSource('Publication_axis_' + str(i) + '_' + identity + suffix)
+              for i, suffix in ((axes[0], ''), (axes[1], ''), (axes[0], '_top'), (axes[1], '_right'))]
+    if any(t is None for t in titles):
+        raise ValueError('Existing four publication titles are required')
+    displays = [next((r for r in view.Representations if r.GetProperty('Input') and r.Input == t
+                     and r.Visibility), None) for t in titles]
+    scalars = [r for r in view.Representations if r.GetProperty('Input') and r.Visibility
+               and r.Input.GetXMLName() == 'Calculator' and r.Input.Input == source]
+    if any(r is None for r in displays) or len(scalars) != 1:
+        raise ValueError('Select the view with existing visible publication scalar and titles')
+    bars = [r for r in view.Representations if r.GetProperty('LookupTable')
+            and r.GetProperty('Title') and r.Visibility and r.LookupTable == scalars[0].LookupTable]
+    if len(bars) != 1 or str(bars[0].Orientation).strip("'\"") != 'Horizontal':
+        raise ValueError('One existing horizontal scalar bar is required')
+    bar = bars[0]
+    output = command.get('output')
+    if output and (not isinstance(output, str) or not output.startswith('/') or not output.endswith('.png')):
+        raise ValueError('output must be an absolute PNG path')
+    before = {'titles': [str(t.Text) for t in titles], 'bar_position': list(bar.Position),
+              'bar_length': bar.ScalarBarLength, 'bar_title': str(bar.Title)}
+    with _publication_edit(view):
+        source.UpdatePipeline(time=view.ViewTime)
+        pvs.Render(view)
+        alignment = _align_axis_titles(view, list(source.GetDataInformation().GetBounds()), displays)
+        width = int(view.ViewSize[0])
+        left, right = alignment['frame_pixels'][:2]
+        bar.WindowLocation = 'Any Location'
+        bar.Position = [left/width, before['bar_position'][1]]
+        bar.ScalarBarLength = (right-left)/width
+        pvs.Render(view)
+        if output:
+            pvs.SaveScreenshot(output, view, ImageResolution=list(view.ViewSize),
+                               FontScaling='Do not scale fonts',
+                               location=servermanager.vtkPVSession.DATA_SERVER)
+    return {'view': identity, 'time': view.ViewTime, 'view_size': list(view.ViewSize),
+            'before': before, 'titles': [str(t.Text) for t in titles], 'title_alignment': alignment,
+            'bar_position': list(bar.Position), 'bar_length': bar.ScalarBarLength,
+            'bar_width_pixels': bar.ScalarBarLength*width, 'output': output}
+
+
 def publication_vorticity(command):
     """为已有涡量切片添加可追溯的显示标量与排版，不重新求导或平滑。"""
     import math
@@ -683,51 +792,7 @@ def publication_vorticity(command):
         pvs.Render(view)
         title_alignment = None
         if reference_style and image_size:
-            from vtkmodules.vtkRenderingCore import vtkTextProperty, vtkTextRenderer
-            # 用图框的屏幕投影和字体包围盒定位；四边统一为图框到文字边缘 40 像素。
-            renderer = view.GetClientSideObject().GetRenderer()
-            width, height = renderer.GetSize()
-            projected = []
-            for x in bounds[:2]:
-                for y in bounds[2:4]:
-                    for z in bounds[4:6]:
-                        renderer.SetWorldPoint(x, y, z, 1)
-                        renderer.WorldToDisplay()
-                        projected.append(renderer.GetDisplayPoint())
-            left, right = min(p[0] for p in projected), max(p[0] for p in projected)
-            bottom, top = min(p[1] for p in projected), max(p[1] for p in projected)
-            gap = 40
-            boxes = []
-            for side, rep in zip(('bottom', 'left', 'top', 'right'), label_displays):
-                prop = vtkTextProperty()
-                prop.SetFontFamilyToArial()
-                prop.SetFontSize(int(rep.FontSize))
-                prop.SetJustificationToLeft()
-                prop.SetVerticalJustificationToBottom()
-                box = [0, 0, 0, 0]
-                if not vtkTextRenderer.GetInstance().GetBoundingBox(
-                        prop, str(rep.Input.Text), box, renderer.GetRenderWindow().GetDPI()):
-                    raise RuntimeError('Could not measure axis title')
-                if rep.GetProperty('Justification') is not None:
-                    rep.Justification = 'Left'
-                if rep.GetProperty('VerticalJustification') is not None:
-                    rep.VerticalJustification = 'Bottom'
-                x = (left+right)/2-(box[0]+box[1])/2
-                y = (bottom+top)/2-(box[2]+box[3])/2
-                if side == 'bottom':
-                    y = bottom-gap-box[3]
-                elif side == 'top':
-                    y = top+gap-box[2]
-                elif side == 'left':
-                    x = left-gap-box[1]
-                else:
-                    x = right+gap-box[0]
-                rep.Position = [x/width, y/height]
-                boxes.append([x+box[0], x+box[1], y+box[2], y+box[3]])
-            title_alignment = {'frame_pixels': [left, right, bottom, top],
-                               'edge_gap_pixels': gap, 'text_boxes_pixels': boxes,
-                               'order': ['bottom', 'left', 'top', 'right']}
-            pvs.Render(view)
+            title_alignment = _align_axis_titles(view, bounds, label_displays)
         # 导出分辨率：显式尺寸优先，否则按样式取固定画布。
         export_resolution = list(image_size) if image_size else ([2400, 2640] if reference_style else [2400, 2400])
         if output:
@@ -962,7 +1027,7 @@ def add_axis_title_view(command):
 
 
 
-BRIDGE_VERSION = '18'
+BRIDGE_VERSION = '19'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 
@@ -973,7 +1038,8 @@ REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.a
 OPERATIONS = {'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
               'repair_vorticity_slice': repair_vorticity_slice,
               'publication_vorticity': publication_vorticity,
-              'add_axis_title_view': add_axis_title_view}
+              'add_axis_title_view': add_axis_title_view,
+              'align_publication': align_publication}
 
 
 # 跨启动脚本和交互 Shell 共用唯一实例，也保留停止后可能被系统消息引用的回调。
