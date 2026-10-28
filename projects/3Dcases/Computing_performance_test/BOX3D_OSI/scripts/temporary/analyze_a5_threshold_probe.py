@@ -73,9 +73,9 @@ def main():
         guard = directory / "exit_status.json"
         if guard.exists():
             summary["guard"] = json.loads(guard.read_text())
-        checkpoint = directory / "chk00003200" / "Header"
-        if checkpoint.exists():
-            header = checkpoint.read_text().splitlines()
+        checkpoints = [p.read_text().splitlines() for p in directory.glob("chk*/Header")]
+        if checkpoints:
+            header = max(checkpoints, key=lambda value: int(value[2]))
             summary["checkpoint"] = dict(step=int(header[2]), time=float(header[3]),
                                          finest_level=int(header[4]))
         if snapshots:
