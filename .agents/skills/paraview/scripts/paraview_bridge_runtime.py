@@ -15,8 +15,8 @@ from types import SimpleNamespace
 
 from paraview import simple as pvs
 from paraview_operations import (AMR_CELL_VORTICITY_SCRIPT, export_centerline,
-                                 add_vorticity_view, repair_vorticity_slice,
-                                 publication_vorticity, add_axis_title_view, update_background)
+                                 add_vorticity_view, repair_vorticity_slice, update_background)
+from paraview_publication import publication_vorticity, add_axis_title_view
 
 
 BRIDGE_VERSION = '17'

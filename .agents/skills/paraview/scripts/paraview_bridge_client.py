@@ -1,4 +1,4 @@
-# 自动生成，请勿手改。修改 paraview_bridge_runtime.py / paraview_operations.py，
+# 自动生成，请勿手改。修改 paraview_bridge_runtime.py 或 paraview_operations.py / paraview_publication.py，
 # 再运行 .venv/bin/python .agents/skills/paraview/scripts/build_paraview_client.py
 """在本机 ParaView Python Shell 加载；通过 SSH 接收有限的界面操作。"""
 import builtins
@@ -17,8 +17,7 @@ from types import SimpleNamespace
 
 from paraview import simple as pvs
 # 以下操作由 paraview_operations.py 自动嵌入。
-"""ParaView 数据管线、相机与排版操作；不启动桥接、线程或计时器。"""
-import sys
+"""ParaView 数据管线与背景操作；不启动桥接、线程或计时器。出图排版见 paraview_publication.py。"""
 from paraview import simple as pvs
 
 
@@ -312,6 +311,44 @@ def repair_vorticity_slice(command):
         section.Input = old
         pvs.Delete(fixed)
         raise
+
+
+def update_background(command, backgrounds):
+    """背景操作；备份由桥接实例唯一持有并跨热更新保留。"""
+    action = command.get('action')
+    view = pvs.GetActiveView()
+    if view is None or view.GetXMLName() != 'RenderView':
+        raise ValueError('Select a Render View first')
+    key = view.GetGlobalIDAsString()
+    if action == 'background':
+        color = command.get('color')
+        if (not isinstance(color, list) or len(color) != 3
+                or any(type(c) not in (int, float) or not 0 <= c <= 1 for c in color)):
+            raise ValueError('color requires three numbers in [0, 1]')
+        if key not in backgrounds:
+            backgrounds[key] = (list(view.Background),
+                                    view.GetProperty('BackgroundColorMode').SMProperty.GetElement(0))
+        view.BackgroundColorMode = 'Single Color'
+        view.Background = color
+    elif key in backgrounds:
+        color, mode = backgrounds[key]
+        view.Background = color
+        # 按底层枚举整数恢复，避免属性字符串表示带引号而无法赋回。
+        view.GetProperty('BackgroundColorMode').SMProperty.SetElement(0, mode)
+        view.UpdateVTKObjects()
+        del backgrounds[key]
+    pvs.Render(view)
+    return {'view': key, 'background': list(view.Background)}
+
+# 以下操作由 paraview_publication.py 自动嵌入。
+"""论文/参考图风格的涡量切片排版与独立标题视图；不启动桥接、线程或计时器。
+
+与 paraview_operations.py 同样由 build_paraview_client.py 嵌入客户端，
+独立成模块是为了让出图版式的改动不与数据管线操作混在一起。
+"""
+import sys
+from paraview import simple as pvs
+
 
 def publication_vorticity(command):
     """为已有涡量切片添加可追溯的显示标量与排版，不重新求导或平滑。"""
@@ -809,35 +846,6 @@ def add_axis_title_view(command):
         pvs.SetActiveSource(source)
         raise
 
-
-def update_background(command, backgrounds):
-    """背景操作；备份由桥接实例唯一持有并跨热更新保留。"""
-    action = command.get('action')
-    view = pvs.GetActiveView()
-    if view is None or view.GetXMLName() != 'RenderView':
-        raise ValueError('Select a Render View first')
-    key = view.GetGlobalIDAsString()
-    if action == 'background':
-        color = command.get('color')
-        if (not isinstance(color, list) or len(color) != 3
-                or any(type(c) not in (int, float) or not 0 <= c <= 1 for c in color)):
-            raise ValueError('color requires three numbers in [0, 1]')
-        if key not in backgrounds:
-            backgrounds[key] = (list(view.Background),
-                                    view.GetProperty('BackgroundColorMode').SMProperty.GetElement(0))
-        view.BackgroundColorMode = 'Single Color'
-        view.Background = color
-    elif key in backgrounds:
-        color, mode = backgrounds[key]
-        view.Background = color
-        # 按底层枚举整数恢复，避免属性字符串表示带引号而无法赋回。
-        view.GetProperty('BackgroundColorMode').SMProperty.SetElement(0, mode)
-        view.UpdateVTKObjects()
-        del backgrounds[key]
-    pvs.Render(view)
-    return {'view': key, 'background': list(view.Background)}
-
-# 以下为 paraview_bridge_runtime.py 的桥接运行逻辑。
 
 
 BRIDGE_VERSION = '17'

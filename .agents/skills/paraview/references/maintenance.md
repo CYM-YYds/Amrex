@@ -54,9 +54,11 @@ pv_bridge.stop()
 
 - `scripts/paraview_bridge_runtime.py`：SSH、命令队列、GUI 主线程调度、计时器、热更新、
   状态诊断和背景备份生命周期；通过明确导入调用操作层。
-- `scripts/paraview_operations.py`：中心线、AMR 旋度、相机、标题排版、导出与背景操作。
+- `scripts/paraview_operations.py`：中心线、AMR 旋度与背景操作。
   不启动桥接、线程或计时器；独立批处理直接加载此模块。
-- `scripts/build_paraview_client.py`：静态打包两层源码，生成
+- `scripts/paraview_publication.py`：涡量切片的论文/参考图排版（`publication_vorticity`）与
+  独立标题视图（`add_axis_title_view`），不依赖操作层其他函数。出图版式的改动只落在此文件。
+- `scripts/build_paraview_client.py`：静态打包运行层与上述两个操作模块，生成
   `scripts/paraview_bridge_client.py`，并生成独立的 `scripts/repair_amr_gradient.py`。客户端是**生成的单文件交付物，不手动编辑**；
   Windows 的下载路径、单文件加载方式、源码哈希和热更新协议保持兼容。
 
