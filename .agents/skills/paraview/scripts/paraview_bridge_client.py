@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 
 
-BRIDGE_VERSION = '12'
+BRIDGE_VERSION = '13'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
@@ -378,6 +378,10 @@ def publication_vorticity(command):
     if style not in ('publication', 'reference'):
         raise ValueError('style must be publication or reference')
     reference_style = style == 'reference'
+    image_size = command.get('image_size')
+    if image_size is not None and (not isinstance(image_size, (list, tuple)) or len(image_size) != 2
+            or any(type(v) is not int or not 256 <= v <= 8192 for v in image_size)):
+        raise ValueError('image_size must contain two integers between 256 and 8192')
     matches = [s for (name, _), s in pvs.GetSources().items() if name == source_name]
     if len(matches) != 1:
         raise ValueError('source must identify exactly one registered slice')
@@ -406,6 +410,8 @@ def publication_vorticity(command):
     candidates = [(v, d) for v in pvs.GetViews() if v.GetXMLName() == 'RenderView'
                   for d in v.Representations if d.GetProperty('Input') and d.Input in ([source] + publications)]
     candidates = [(v, d) for v, d in candidates if d.Visibility]
+    if command.get('view_id'):
+        candidates = [(v, d) for v, d in candidates if v.GetGlobalIDAsString() == command['view_id']]
     active = pvs.GetActiveView()
     candidates = [pair for pair in candidates if pair[0] == active] or candidates
     if len(candidates) > 1 and len({v.GetGlobalIDAsString() for v, _ in candidates}) == 1:
@@ -413,6 +419,12 @@ def publication_vorticity(command):
     if len(candidates) != 1:
         raise ValueError('Select the visible Vorticity slice view first')
     view, original_display = candidates[0]
+    if image_size:
+        layout = pvs.GetLayout(view)
+        if layout is None or len([v for v in pvs.GetViews() if pvs.GetLayout(v) == layout]) != 1:
+            raise ValueError('Fixed preview requires a single-view layout')
+        layout.PreviewMode = list(image_size)
+        layout.SetSize(*image_size)
     normal = list(source.SliceType.Normal)
     axis = max(range(3), key=lambda i: abs(normal[i]))
     if abs(abs(normal[axis]) - 1) > 1e-8 or any(abs(normal[i]) > 1e-8 for i in range(3) if i != axis):
@@ -441,7 +453,7 @@ def publication_vorticity(command):
         for representation in list(view.Representations):
             if (representation.GetProperty('Input') and representation.Visibility
                     and representation.Input != scalar
-                    and representation.Input.GetXMLName() != 'TextSource'):
+                    and (image_size or representation.Input.GetXMLName() != 'TextSource')):
                 representation.Visibility = 0
                 hidden_overlays.append(representation.Input.GetGlobalIDAsString())
     display.Representation = 'Surface'
@@ -526,6 +538,16 @@ def publication_vorticity(command):
     if reference_style:
         labels = [(plane_axes[0], [0.48, 0.14], ''), (plane_axes[1], [0.035, 0.54], ''),
                   (plane_axes[0], [0.48, 0.945], '_top'), (plane_axes[1], [0.93, 0.54], '_right')]
+        if image_size:
+            # 横画布保留左右留白，标题与色标围绕真实的正方形图面排布。
+            fraction = image_size[1]/(1.44*image_size[0])
+            left, right = 0.5-fraction/2, 0.5+fraction/2
+            labels = [(plane_axes[0], [0.49, 0.14], ''),
+                      (plane_axes[1], [left-0.04, 0.54], ''),
+                      (plane_axes[0], [0.49, 0.945], '_top'),
+                      (plane_axes[1], [right+0.025, 0.54], '_right')]
+            bar.Position = [0.5-0.35*fraction, 0.025]
+            bar.ScalarBarLength = 0.70*fraction
     else:
         for index, suffix in ((plane_axes[0], '_top'), (plane_axes[1], '_right')):
             previous_label = pvs.FindSource('Publication_axis_' + str(index) + '_' + view.GetGlobalIDAsString() + suffix)
@@ -564,13 +586,13 @@ def publication_vorticity(command):
     pvs.Render(view)
     if output:
         try:
-            if reference_style:
+            if reference_style and not image_size:
                 reference_text_scale(1.0)
-            pvs.SaveScreenshot(output, view, ImageResolution=[2400, 2640] if reference_style else [2400, 2400],
+            pvs.SaveScreenshot(output, view, ImageResolution=list(image_size) if image_size else ([2400, 2640] if reference_style else [2400, 2400]),
                                FontScaling='Do not scale fonts',
                                location=servermanager.vtkPVSession.DATA_SERVER)
         finally:
-            if reference_style:
+            if reference_style and not image_size:
                 reference_text_scale(gui_text_scale)
                 pvs.Render(view)
     return {'source': source_name, 'view': view.GetGlobalIDAsString(), 'time': view.ViewTime,
@@ -579,7 +601,15 @@ def publication_vorticity(command):
             'slice_origin': list(source.SliceType.Origin), 'output': output,
             'style': style, 'hidden_overlays': hidden_overlays,
             'gui_view_size': list(view.ViewSize), 'gui_text_scale': gui_text_scale,
-            'image_resolution': ([2400, 2640] if reference_style else [2400, 2400]) if output else None,
+            'image_resolution': (list(image_size) if image_size else ([2400, 2640] if reference_style else [2400, 2400])) if output else None,
+            'fixed_preview': list(image_size) if image_size else None,
+            'preview_mode': list(pvs.GetLayout(view).PreviewMode),
+            'camera_parallel_scale': view.CameraParallelScale,
+            'camera_focal_point': list(view.CameraFocalPoint),
+            'axis_title_positions': [list(d.Position) for d in label_displays],
+            'colorbar': {'position': list(bar.Position), 'length': bar.ScalarBarLength,
+                         'thickness': bar.ScalarBarThickness, 'title_font_size': bar.TitleFontSize,
+                         'label_font_size': bar.LabelFontSize},
             'clipping': 'Values above color maximum saturate; no numerical smoothing applied'}
 
 

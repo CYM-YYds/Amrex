@@ -186,6 +186,19 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 示例保留原始旋度，以 0–1 显示并对超出部分饱和，不代表除以最大值归一化。
 坐标标题按真实截面选择，y 法向截面为 x/H、z/H，不照抄二维参考图的 X、Y。
 
+需要 GUI 预览与导出使用同一画布和字号时，指定共同尺寸：
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current publication_vorticity \
+  --source Slice3 --view-id '<目标视图ID>' --style reference --image-size 2066 1066 \
+  --vorticity-scale 1 --color-range 0 1 --output /absolute/shared/output/vorticity.png --timeout 600
+```
+
+要求目标布局仅含一个视图。使用 ParaView 原生 `layout.PreviewMode` 锁定分辨率；窗口变小
+时由原生预览适配。导出使用相同尺寸和预览字号，不临时放大文字，也不更改相机或文字位置。
+横画布的左右留白保留，标题、底部色标按图面位置安排。保存 `.pvsm` 保留布局；GUI 的
+View → Preview 菜单可退出或更改预览尺寸。未指定 `--image-size` 时保留历史导出行为。
+
 桥仅支持 inspect 声明的操作，不接受任意 Python。所需能力未实现时，独立任务可转用
 批处理；必须留在当前窗口的操作按 [维护说明](maintenance.md#实现边界与验证) 扩展工具。
 

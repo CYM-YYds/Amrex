@@ -83,7 +83,7 @@ def send(directory, action, color=None, timeout=60, options=None):
     command = {'id': uuid.uuid4().hex, 'action': action}
     if options:
         if set(options) - {'input', 'output', 'resolution', 'max_level', 'source',
-                           'slice_axis', 'slice_position', 'component', 'color_range', 'vorticity_scale', 'expected_sha256', 'style', 'reset_view'}:
+                           'slice_axis', 'slice_position', 'component', 'color_range', 'vorticity_scale', 'expected_sha256', 'style', 'reset_view', 'image_size', 'view_id'}:
             raise ValueError('未知桥接参数')
         command.update(options)
     if color is not None:
@@ -110,6 +110,9 @@ if __name__ == '__main__':
     parser.add_argument('--input')
     parser.add_argument('--output')
     parser.add_argument('--resolution', type=int, default=1024)
+    parser.add_argument('--image-size', nargs=2, type=int, metavar=('WIDTH', 'HEIGHT'),
+                        help='固定 publication_vorticity 预览与导出的共同像素尺寸')
+    parser.add_argument('--view-id', help='明确指定 publication_vorticity 目标视图 ID')
     parser.add_argument('--max-level', type=int, default=2)
     parser.add_argument('--source', help='现有管线中完整的注册名称，不作通配符展开')
     parser.add_argument('--reset-view', help='复位已创建的独立标题视图 ID，按切片边界居中')
@@ -172,6 +175,10 @@ if __name__ == '__main__':
             parser.error('publication_vorticity requires --source and --color-range')
         options = {'source': args.source, 'color_range': args.color_range,
                    'vorticity_scale': args.vorticity_scale, 'style': args.style}
+        if args.image_size:
+            options['image_size'] = args.image_size
+        if args.view_id:
+            options['view_id'] = args.view_id
         if args.output:
             options['output'] = args.output
     elif args.action == 'add_vorticity_view':

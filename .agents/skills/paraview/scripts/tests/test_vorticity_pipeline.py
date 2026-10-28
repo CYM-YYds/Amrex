@@ -258,6 +258,19 @@ output.SetBlock(0, grid)
             self.assertEqual(str(styled_source.Function), 'mag(Vorticity)*20.0')
             self.assertEqual(styled_source.GetProperty('Function').SMProperty.GetUncheckedElement(0),
                              'mag(Vorticity)*20.0')
+            fixed = self.publication({'source': 'Vorticity_slice_y', 'style': 'reference',
+                                     'vorticity_scale': 20, 'color_range': [0, 50],
+                                     'image_size': [2066, 1066], 'output': output})
+            view = pvs.GetActiveView()
+            self.assertEqual(list(view.ViewSize), [2066, 1066])
+            self.assertEqual(list(pvs.GetLayout(view).PreviewMode), [2066, 1066])
+            self.assertEqual(fixed['image_resolution'], [2066, 1066])
+            self.assertEqual(struct.unpack('>II', Path(output).read_bytes()[16:24]), (2066, 1066))
+            # 返回后的预览直接再次截图，必须与正式导出逐字节相同。
+            preview = str(Path(tmp) / 'preview.png')
+            pvs.SaveScreenshot(preview, view, ImageResolution=[2066, 1066],
+                               FontScaling='Do not scale fonts')
+            self.assertEqual(Path(output).read_bytes(), Path(preview).read_bytes())
 
     def test_rejects_missing_source_before_creating_pipeline(self):
         before = set(pvs.GetSources())
