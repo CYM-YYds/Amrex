@@ -7,7 +7,7 @@
 相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
 [当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
 
-更新时间：2026-10-22。
+更新时间：2026-10-28。
 
 
 ## 二维与三维统一入口
@@ -132,7 +132,7 @@ BOX3D_OSI/
 ├── runs/                       # 独立实验目录：输入、命令、证据与输出
 ├── logs/                       # 编译和调度日志
 ├── tmp_build_dir/              # 构建中间文件
-└── main{2,3}d.gnu.TPROF.MPI.CUDA.ex # 两个维度的可执行文件
+└── main{2,3}d.gnu[.FLOAT].TPROF.MPI.CUDA.ex # 默认单精度含 .FLOAT，双精度不含
 ```
 
 其他 `chk*`、`data*` 目录属于历史结果，不能当作待删除构建残留。
@@ -147,7 +147,7 @@ BOX3D_OSI/
 
 | 文件 | 负责的工作与代表入口 |
 | --- | --- |
-| [main.cpp](src/main.cpp) | 读取启动配置、构造 Geometry/AmrInfo/驱动对象；初始化或重启；安排 regrid、`Cycle2`、输出与停止条件 |
+| [main.cpp](src/main.cpp) | `main` 初始化 AMReX 并报告精度；`RunSimulation` 组织配置、初始化、regrid、`Cycle2`、输出与停止，初始化/单步/输出拆为同文件辅助函数 |
 | [AmrCoreLBM.H](src/AmrCoreLBM.H) | 声明 RuntimeParams、PerfStats、RunMode/DdfLayout；拥有 DDF、phase、宏观场、mask、粗细层与通信缓存 |
 | [AmrCoreLBM.cpp](src/AmrCoreLBM.cpp) | 构造与参数读取、`ComputeMacroLevel`、PlotFile、`WriteCheckpoint`/`ReadCheckpoint`、粒子接口 |
 | [AmrCoreLBM_amr.cpp](src/AmrCoreLBM_amr.cpp) | `MakeNewLevel*`/`RemakeLevel`/`ClearLevel`/`ErrorEst` 等 AMReX 回调；`RefineMesh`、覆盖 mask、插值/平均缓存、模板覆盖检查 |
@@ -375,7 +375,9 @@ OSI/A-B 检查。默认 `periodic`；也可设置 `BOX3D_FIXED_GRID_BOUNDARY`，
 blocking_factor=16、max_grid_size=128、grid_eff=0.7，regrid 间隔 32；
 `stream_mode=1`、`collide_mode=1`、`interp_mode=0`；OSI 同层通信、插值搬运及接口平均统一使用 direct 路径；
 device-direct 关闭，host-staging 分块为 2 MiB；最多 128000 步，PlotFile 间隔
-3200、checkpoint 间隔 32000，收敛容差为 `1e-4`。这些是配置值，不表示长程已经完成。
+3200、checkpoint 间隔 32000，收敛容差为 `1e-4`。当前 `WriteOutputsIfNeeded` 实际调用速度与涡量输出，
+密度独立输出调用仍被注释；不能仅按 inputs 中的输出说明推断所有文件都产生。
+这些是配置值与源码行为，不表示长程已经完成。
 
 三维使用 `state_error_6`，当前阈值映射仍取编译期最高层号 3，不能把 inputs 的
 `lbm.err` 当作三维实际阈值；机制与覆盖比例定义见
@@ -391,7 +393,8 @@ PlotFile 写入时失败；完整运行状态、覆盖结果和未解决事项�
 
 正常 A-B/OSI 粗到细插值共用按布局缓存的批量缩放/插值任务；CUDA 界面平均合并各
 interface Box 启动，与完整 valid 平均共用内核，并按编译期Q选择映射：Q27半warp/父单元、Q19单线程/父单元，
-均为128线程/block；二维Q9保持整warp/父单元、256线程/block。
+均为128线程/block。二维Q9当前走非Q27的标量核分支，但父单元仍按32线程分组、256线程/block；
+同组线程会处理同一父单元，存在重复写入风险，当前二维CUDA平均路径的数值验收为 pending。
 正式默认模型仍为三维Q27、二维Q9，不提供运行时Q19切换开关。
 持久任务随既有粗细缓存重建/失效，执行时取得当前数组与 OSI 相位。共用数值核按布局选择 DDF 寻址，结果按布局搬运；
 重网格临时插值与正常推进共用任务建表和执行器，但分别管理临时/持久生命周期。
