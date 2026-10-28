@@ -36,6 +36,21 @@ class SenderCliTests(unittest.TestCase):
         capabilities = set(self.sender.client_manifest()['capabilities'])
         self.assertEqual(set(self.sender.BRIDGE_ACTIONS) | {'reload_client'}, capabilities)
 
+    def test_runtime_dispatch_covers_every_capability(self):
+        """运行层分发表加上自处理动作，必须恰好等于对外声明的能力。"""
+        import ast
+        tree = ast.parse((SCRIPTS / 'paraview_bridge_runtime.py').read_text(encoding='utf-8'))
+        values = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+                if node.targets[0].id == 'CAPABILITIES':
+                    values['capabilities'] = set(ast.literal_eval(node.value))
+                elif node.targets[0].id == 'OPERATIONS':
+                    values['operations'] = {key.value for key in node.value.keys}
+        self_handled = {'inspect', 'background', 'restore_background', 'reload_client'}
+        self.assertEqual(values['operations'] | self_handled, values['capabilities'])
+        self.assertFalse(values['operations'] & self_handled)
+
     def test_actions_without_options_send_none(self):
         for action in ('inspect', 'restore_background'):
             code, sent = self.run_cli('current', action)

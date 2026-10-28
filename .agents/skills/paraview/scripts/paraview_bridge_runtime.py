@@ -19,11 +19,19 @@ from paraview_operations import (AMR_CELL_VORTICITY_SCRIPT, export_centerline,
                                  publication_vorticity, add_axis_title_view, update_background)
 
 
-BRIDGE_VERSION = '16'
+BRIDGE_VERSION = '17'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 CAPABILITIES = ['inspect', 'background', 'restore_background', 'export_centerline',
                 'add_vorticity_view', 'repair_vorticity_slice', 'publication_vorticity', 'add_axis_title_view', 'reload_client']
+
+
+# 经操作层执行的动作；inspect、背景与热更新由运行层自身处理。
+# 与 CAPABILITIES 的一致性由 test_action_registry 保证。
+OPERATIONS = {'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
+              'repair_vorticity_slice': repair_vorticity_slice,
+              'publication_vorticity': publication_vorticity,
+              'add_axis_title_view': add_axis_title_view}
 
 
 # 跨启动脚本和交互 Shell 共用唯一实例，也保留停止后可能被系统消息引用的回调。
@@ -75,6 +83,35 @@ class WindowsGuiTimer:
         if self.active:
             self.active = False
             self.user32.KillTimer(None, self.timer_id)
+
+
+def inspect_state(source_sha256):
+    """当前连接、管线与视图快照；不修改任何对象。"""
+    from paraview import servermanager
+    connection = servermanager.ActiveConnection
+    uri = connection.Session.GetURI() if connection is not None else None
+    return {'capabilities': CAPABILITIES, 'version': BRIDGE_VERSION,
+            'source_sha256': source_sha256,
+            'connection_uri': uri,
+            'sources': [list(key) for key in pvs.GetSources()],
+            'source_details': [
+                {'name': name, 'id': key, 'type': source.GetXMLName(),
+                 'level': int(source.Level) if source.GetProperty('Level') else None,
+                 'function': str(source.Function) if source.GetProperty('Function') else None,
+                 'unchecked_function': source.GetProperty('Function').SMProperty.GetUncheckedElement(0)
+                                       if source.GetProperty('Function') and source.GetProperty('Function').SMProperty.GetNumberOfUncheckedElements() else None,
+                 'inputs': [source.GetProperty('Input').SMProperty.GetProxy(i).GetGlobalIDAsString()
+                            for i in range(source.GetProperty('Input').SMProperty.GetNumberOfProxies())]
+                           if source.GetProperty('Input') else [],
+                 'files': list(source.FileNames) if source.GetProperty('FileNames') else []}
+                for (name, key), source in pvs.GetSources().items() if source is not None],
+            'views': [v.GetXMLName() for v in pvs.GetViews()],
+            'view_details': [
+                {'id': v.GetGlobalIDAsString(), 'size': list(v.ViewSize),
+                 'visible_sources': [r.GetProperty('Input').SMProperty.GetProxy(0).GetGlobalIDAsString()
+                                     for r in v.Representations if r.GetProperty('Input')
+                                     and r.GetProperty('Input').SMProperty.GetNumberOfProxies() and r.Visibility]}
+                for v in pvs.GetViews() if v.GetXMLName() == 'RenderView']}
 
 
 class ParaViewBridge:
@@ -261,42 +298,10 @@ class ParaViewBridge:
         action = command.get('action')
         if action == 'reload_client':
             return self.reload_client(command)
-        if action == 'export_centerline':
-            return export_centerline(command)
-        if action == 'add_vorticity_view':
-            return add_vorticity_view(command)
-        if action == 'repair_vorticity_slice':
-            return repair_vorticity_slice(command)
-        if action == 'publication_vorticity':
-            return publication_vorticity(command)
-        if action == 'add_axis_title_view':
-            return add_axis_title_view(command)
         if action == 'inspect':
-            from paraview import servermanager
-            connection = servermanager.ActiveConnection
-            uri = connection.Session.GetURI() if connection is not None else None
-            return {'capabilities': CAPABILITIES, 'version': BRIDGE_VERSION,
-                    'source_sha256': getattr(self, 'source_sha256', None),
-                    'connection_uri': uri,
-                    'sources': [list(key) for key in pvs.GetSources()],
-                    'source_details': [
-                        {'name': name, 'id': key, 'type': source.GetXMLName(),
-                         'level': int(source.Level) if source.GetProperty('Level') else None,
-                         'function': str(source.Function) if source.GetProperty('Function') else None,
-                         'unchecked_function': source.GetProperty('Function').SMProperty.GetUncheckedElement(0)
-                                               if source.GetProperty('Function') and source.GetProperty('Function').SMProperty.GetNumberOfUncheckedElements() else None,
-                         'inputs': [source.GetProperty('Input').SMProperty.GetProxy(i).GetGlobalIDAsString()
-                                    for i in range(source.GetProperty('Input').SMProperty.GetNumberOfProxies())]
-                                   if source.GetProperty('Input') else [],
-                         'files': list(source.FileNames) if source.GetProperty('FileNames') else []}
-                        for (name, key), source in pvs.GetSources().items() if source is not None],
-                    'views': [v.GetXMLName() for v in pvs.GetViews()],
-                    'view_details': [
-                        {'id': v.GetGlobalIDAsString(), 'size': list(v.ViewSize),
-                         'visible_sources': [r.GetProperty('Input').SMProperty.GetProxy(0).GetGlobalIDAsString()
-                                             for r in v.Representations if r.GetProperty('Input')
-                                             and r.GetProperty('Input').SMProperty.GetNumberOfProxies() and r.Visibility]}
-                        for v in pvs.GetViews() if v.GetXMLName() == 'RenderView']}
+            return inspect_state(getattr(self, 'source_sha256', None))
+        if action in OPERATIONS:
+            return OPERATIONS[action](command)
         if action not in ('background', 'restore_background'):
             raise ValueError('Unsupported action: ' + str(action))
         return update_background(command, self.backgrounds)

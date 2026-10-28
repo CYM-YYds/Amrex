@@ -559,11 +559,13 @@ def publication_vorticity(command):
                            'edge_gap_pixels': gap, 'text_boxes_pixels': boxes,
                            'order': ['bottom', 'left', 'top', 'right']}
         pvs.Render(view)
+    # 导出分辨率：显式尺寸优先，否则按样式取固定画布。
+    export_resolution = list(image_size) if image_size else ([2400, 2640] if reference_style else [2400, 2400])
     if output:
         try:
             if reference_style and not image_size:
                 reference_text_scale(1.0)
-            pvs.SaveScreenshot(output, view, ImageResolution=list(image_size) if image_size else ([2400, 2640] if reference_style else [2400, 2400]),
+            pvs.SaveScreenshot(output, view, ImageResolution=export_resolution,
                                FontScaling='Do not scale fonts',
                                location=servermanager.vtkPVSession.DATA_SERVER)
         finally:
@@ -576,7 +578,7 @@ def publication_vorticity(command):
             'slice_origin': list(source.SliceType.Origin), 'output': output,
             'style': style, 'hidden_overlays': hidden_overlays,
             'gui_view_size': list(view.ViewSize), 'gui_text_scale': gui_text_scale,
-            'image_resolution': (list(image_size) if image_size else ([2400, 2640] if reference_style else [2400, 2400])) if output else None,
+            'image_resolution': export_resolution if output else None,
             'requested_image_size': list(requested_image_size) if requested_image_size else None,
             'matched_view_size': list(image_size) if image_size else None,
             'preview_mode': list(pvs.GetLayout(view).PreviewMode),
