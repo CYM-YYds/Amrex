@@ -211,6 +211,30 @@ void AmrCoreLBM::PrintMeshInfo() {
         amrex::Print() << "╚════════════════════════════════════════════════════════╝" << std::endl;
 
         printGridSummary(amrex::OutStream(), 0, finest_level);
+        // 复用最近一次建网格时的原始标记数；细层覆盖换算到父层尺度。
+        // 重启或未执行常规打标时没有历史标记数，不用当前流场重新打标替代。
+        for (int lev = 1; lev <= finest_level; ++lev) {
+            amrex::Long refinement_volume = 1;
+            for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+                refinement_volume *= refRatio(lev - 1)[dir];
+            }
+            const amrex::Long covered_cells = boxArray(lev).numPts() / refinement_volume;
+            amrex::Print() << "  refinement level=" << lev
+                           << " parent_covered_cells=" << covered_cells;
+            if (lev - 1 < regrid_tag_counts.size() &&
+                regrid_tag_counts[lev - 1] >= 0 && covered_cells > 0) {
+                const amrex::Long tagged_cells = regrid_tag_counts[lev - 1];
+                const double tagged_fraction =
+                    static_cast<double>(tagged_cells) / static_cast<double>(covered_cells);
+                amrex::Print() << " raw_tag_cells=" << tagged_cells
+                               << " tagged_coverage_pct=" << 100.0 * tagged_fraction
+                               << " redundant_coverage_pct=" << 100.0 * (1.0 - tagged_fraction)
+                               << '\n';
+            } else {
+                amrex::Print() << " tagged_coverage_pct=N/A redundant_coverage_pct=N/A"
+                               << " (raw tags unavailable)\n";
+            }
+        }
         for (int i = 0; i <= finest_level; ++i) {
             amrex::Print() << std::setw(15) << std::left << "  blocking_factor[" << i << "]"
                            << std::setw(10) << std::right << blocking_factor[i] << std::endl;
