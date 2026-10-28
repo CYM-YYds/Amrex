@@ -297,7 +297,7 @@ void WriteOutputsIfNeeded(AmrCoreLBM& lid, int step, Real cur_time) {
         lid.ComputeVorticity(cur_time);
         lid.WriteVelocityFile(step, cur_time);
         // lid.WriteDensityFile(step, cur_time);
-        // lid.WriteVorticityFile(step, cur_time);
+        lid.WriteVorticityFile(step, cur_time);
         // lid.ComputeCp(max_ref_level, step);
         // lid.WriteMultiParticleFile(step, cur_time);
         // lid.WriteVelocityFile(step, cur_time, max_ref_level);

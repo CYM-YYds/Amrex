@@ -2616,13 +2616,13 @@ void average_down_lbm(int i, int j, int k, amrex::Array4<amrex::Real> const& crs
 // 界面/完整 valid 平均共用数值核；可选保留 AB 完整平均对 f_new 的缩放写入。
 template <bool UseOsiAddress, bool StoreScaledFine = false>
 AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void average_down_to_canonical(
-    int i, int j, int k, amrex::Array4<amrex::Real> const& coarse,
-    amrex::Array4<amrex::Real const> const& fine,
-    amrex::IntVect const& ratio, OSI::FabGeometry fine_fab,
-    OSI::PhaseShift3 fine_shift, amrex::Real scale,
-    bool apply_scale, amrex::Array4<Real> scaled_fine = {}) noexcept {
+    AMREX_FORCE_INLINE void
+    average_down_to_canonical(
+        int i, int j, int k, amrex::Array4<amrex::Real> const& coarse,
+        amrex::Array4<amrex::Real const> const& fine,
+        amrex::IntVect const& ratio, OSI::FabGeometry fine_fab,
+        OSI::PhaseShift3 fine_shift, amrex::Real scale,
+        bool apply_scale, amrex::Array4<Real> scaled_fine = {}) noexcept {
     Real restricted[Q]{};
     const int fi = i * ratio[0];
     const int fj = j * ratio[1];
@@ -2766,14 +2766,14 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void average_down_to_canonical_half_warp(
 
 template <bool UseOsiAddress, bool StoreScaledFine = false>
 AMREX_GPU_DEVICE
-AMREX_FORCE_INLINE
-void average_down_to_canonical_warp(
-    int i, int j, int k, int q,
-    amrex::Array4<amrex::Real> const& coarse,
-    amrex::Array4<amrex::Real const> const& fine,
-    amrex::IntVect const& ratio, OSI::FabGeometry fine_fab,
-    OSI::PhaseShift3 fine_shift, amrex::Real scale,
-    bool apply_scale, amrex::Array4<Real> scaled_fine = {}) noexcept {
+    AMREX_FORCE_INLINE void
+    average_down_to_canonical_warp(
+        int i, int j, int k, int q,
+        amrex::Array4<amrex::Real> const& coarse,
+        amrex::Array4<amrex::Real const> const& fine,
+        amrex::IntVect const& ratio, OSI::FabGeometry fine_fab,
+        OSI::PhaseShift3 fine_shift, amrex::Real scale,
+        bool apply_scale, amrex::Array4<Real> scaled_fine = {}) noexcept {
     const int fi = i * ratio[0];
     const int fj = j * ratio[1];
     const int fk = k * AMREX_D_PICK(1, 1, ratio[2]);
@@ -2815,7 +2815,6 @@ void average_down_to_canonical_warp(
         coarse(i, j, k, q) = restricted * inv_children;
     }
 }
-
 
 #endif
 

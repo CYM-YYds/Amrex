@@ -175,14 +175,9 @@ void AmrCoreLBM::RestrictDdfToCoarse(
                     i, j, k, threadIdx.x % restriction_group_size,
                     outputs[tag.output_local_index], fines[tag.fine_local_index],
                     tag.fab, shift, scale, is_scale, scaled_fine);
-#elif Q == 19
+#else
                 average_down_to_canonical<UseOsiAddress, StoreScaledFine>(
                     i, j, k, outputs[tag.output_local_index], fines[tag.fine_local_index],
-                    ratio, tag.fab, shift, scale, is_scale, scaled_fine);
-#else
-                average_down_to_canonical_warp<UseOsiAddress, StoreScaledFine>(
-                    i, j, k, threadIdx.x % restriction_group_size,
-                    outputs[tag.output_local_index], fines[tag.fine_local_index],
                     ratio, tag.fab, shift, scale, is_scale, scaled_fine);
 #endif
             });
@@ -229,12 +224,11 @@ void AmrCoreLBM::AverageDownLayoutLevel(int fine_lev, bool is_scale) {
         ScopedPerfTimer fused_timer(perf_stats.average_fused, detail);
         RestrictDdfToCoarse<UseOsiAddress>(
             fine_lev, interface_result, cache.fine_box_indices, cache.block_tags, is_scale);
-
     }
     ScopedPerfTimer copyback_timer(perf_stats.average_copyback, detail);
     if constexpr (UseOsiAddress) {
         ParallelCopyOsi(cache.copy, osi_fab_phase_cache.at(coarse_lev).data(osi_phase.at(coarse_lev)),
-                       {&perf_stats.osi_mpi_pack, &perf_stats.osi_mpi_wait, &perf_stats.osi_mpi_unpack});
+                        {&perf_stats.osi_mpi_pack, &perf_stats.osi_mpi_wait, &perf_stats.osi_mpi_unpack});
     } else {
         f_old.at(coarse_lev).ParallelCopy(interface_result, 0, 0, Q);
     }
@@ -414,18 +408,19 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
                         state_lev.nGrowVect() == IntVect(nghost));
     const auto states = state_lev.arrays();
     const auto masks = has_fine_level ? covered_mask[lev].const_arrays()
-                                     : MultiArray4<const int>{};
+                                      : MultiArray4<const int>{};
     const auto& cache = boundary_work_cache[lev];
     const auto& tags = repair_after_average ? cache.repair_tags : cache.advance_tags;
     perf_stats.boundary_full_cells += cache.full_cells;
     perf_stats.boundary_launch_cells += repair_after_average
-        ? cache.repair_cells : cache.advance_cells;
+                                            ? cache.repair_cells
+                                            : cache.advance_cells;
 
     if (use_osi) {
         const auto* phase_shifts = osi_fab_phase_cache.at(lev).data(phase);
         amrex::ParallelFor(
             tags, [=] AMREX_GPU_DEVICE(int i, int j, int k,
-                                      const BoundaryWorkTag& tag) noexcept {
+                                       const BoundaryWorkTag& tag) noexcept {
                 if (has_fine_level &&
                     (repair_after_average ? masks[tag.local_index](i, j, k) == 0
                                           : masks[tag.local_index](i, j, k) != 0)) {
@@ -438,7 +433,7 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
     } else {
         amrex::ParallelFor(
             tags, [=] AMREX_GPU_DEVICE(int i, int j, int k,
-                                      const BoundaryWorkTag& tag) noexcept {
+                                       const BoundaryWorkTag& tag) noexcept {
                 if (has_fine_level &&
                     (repair_after_average ? masks[tag.local_index](i, j, k) == 0
                                           : masks[tag.local_index](i, j, k) != 0)) {
@@ -486,7 +481,9 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout, int send_subset) {
     // GPU 上两种布局均按完整 Fab 发射 kernel，确保碰撞 cell 集合只由
     // n 决定，与 DDF 的存储布局无关。
     MFItInfo collision_info;
-    if (send_subset == 0) { collision_info.DisableDeviceSync().UseDefaultStream(); }
+    if (send_subset == 0) {
+        collision_info.DisableDeviceSync().UseDefaultStream();
+    }
     for (MFIter mfi(state_lev, collision_info); mfi.isValid(); ++mfi) {
         if (send_subset >= 0 &&
             osi_fillboundary_cache.at(lev).send_fabs.at(mfi.index()) != send_subset) {
@@ -545,14 +542,18 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout, int send_subset) {
         }
     }
     // 延后子集留在 stream 0，由通信后的同 stream 消费和阶段同步保证完成。
-    if (send_subset != 0) { amrex::Gpu::streamSynchronize(); }
+    if (send_subset != 0) {
+        amrex::Gpu::streamSynchronize();
+    }
     // 重叠子集这里只累计提交时间，其 GPU 执行在通信区间中完成；
     // collide/comm 不再表示独立 GPU 内核成本，端到端比较使用 total。
     const double collide_elapsed = amrex::second() - collide_start;
     perf_stats.collide += collide_elapsed;
     perf_stats.collide_level.at(lev) += collide_elapsed;
     // 两个互斥子集共同计为一次推进，发射 cell 数分别累加。
-    if (send_subset != 1) { ++perf_stats.collide_level_calls.at(lev); }
+    if (send_subset != 1) {
+        ++perf_stats.collide_level_calls.at(lev);
+    }
     perf_stats.collide_level_launch_cells.at(lev) += level_launch_cells;
 }
 
