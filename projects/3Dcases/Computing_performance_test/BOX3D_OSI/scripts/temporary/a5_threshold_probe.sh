@@ -12,16 +12,27 @@
 set -euo pipefail
 CASE=$(cd "$(dirname "$0")/../.." && pwd)
 REPO=$(git -C "$CASE" rev-parse --show-toplevel)
-OUT="$CASE/runs/temporary/a5_threshold_probe/job${CCS_JOB_ID:?}"
+OUTPUT_ROOT="${PROBE_OUTPUT_ROOT:-$CASE/runs/temporary/a5_threshold_probe}"
+mkdir -p "$OUTPUT_ROOT"
+OUT="$OUTPUT_ROOT/job${CCS_JOB_ID:?}"
 mkdir "$OUT"
 RESTART_ROOT="${PROBE_RESTART_ROOT:-}"
 RESTART_CASE="${PROBE_RESTART_CASE:-A}"
+SNAPSHOT_ROOT="${PROBE_SNAPSHOT_ROOT:-}"
+PLOT_INT="${PROBE_PLOT_INT:--1}"
 END_STEP="${PROBE_END_STEP:-3200}"
 [[ "$END_STEP" =~ ^[1-9][0-9]*$ ]] && (( END_STEP % 128 == 0 )) || {
     echo "PROBE_END_STEP 必须为正整数且为 128 的倍数" >&2; exit 1;
 }
 BEGIN_STEP=0
-names=(A B C)
+read -r -a names <<< "${PROBE_CASES:-A B C}"
+for name in "${names[@]}"; do
+    case "$name" in A|B|C) ;; *) echo "PROBE_CASES 仅支持 A、B、C" >&2; exit 1;; esac
+done
+[[ "$PLOT_INT" =~ ^-?[0-9]+$ ]] || exit 1
+if (( PLOT_INT > 0 )); then
+    (( END_STEP % PLOT_INT == 0 )) || { echo "终点必须对齐输出间隔" >&2; exit 1; }
+fi
 SNAPSHOT="$CASE"
 APP="$CASE/main3d.gnu.FLOAT.TPROF.MPI.CUDA.ex"
 RANK_SCRIPT="$CASE/scripts/run_rank.sh"
@@ -37,15 +48,20 @@ if [[ -n "$RESTART_ROOT" ]]; then
     SNAPSHOT="$RESTART_ROOT"
     APP="$SNAPSHOT/application.ex"
     RANK_SCRIPT="$SNAPSHOT/$RESTART_CASE/run_rank.sh"
-    cp "$SNAPSHOT/source.diff" "$OUT/application_source.diff"
-    cp "$SNAPSHOT/git_head.txt" "$OUT/application_git_head.txt"
+elif [[ -n "$SNAPSHOT_ROOT" ]]; then
+    # 从静止重跑也能沿用先前冻结的程序与配置。
+    SNAPSHOT=$(realpath "$SNAPSHOT_ROOT")
+    APP="$SNAPSHOT/application.ex"
+    RANK_SCRIPT="$SNAPSHOT/${names[0]}/run_rank.sh"
 fi
 source /home/HPCBase/tools/module-5.2.0/init/profile.sh
 module use /home/HPCBase/modulefiles/
 module purge
 module load mpi/hmpi/1.2.0_bs2.4.0_sp1 compilers/cuda/12.8.0 compilers/gcc/11.3.0
-if [[ -n "$RESTART_ROOT" ]]; then
+if [[ -n "$RESTART_ROOT" || -n "$SNAPSHOT_ROOT" ]]; then
     cp "$SNAPSHOT/inputs" "$OUT/inputs"
+    cp "$SNAPSHOT/source.diff" "$OUT/application_source.diff"
+    cp "$SNAPSHOT/git_head.txt" "$OUT/application_git_head.txt"
 else
     cp "$SNAPSHOT/config/inputs" "$OUT/inputs"
 fi
@@ -59,14 +75,15 @@ sha256sum "$OUT/application.ex" "$OUT/inputs" > "$OUT/fingerprints.sha256"
 nvidia-smi > "$OUT/gpu.txt"
 awk 'NF >= 2 {print $1 " slots=" $2}' "${CCS_ALLOC_FILE:?}" > "$OUT/hostfile"
 printf 'case\texit_code\n' > "$OUT/status.tsv"
-printf 'restart_root=%s\ncases=%s\nbegin_step=%s\nend_step=%s\n' "$RESTART_ROOT" "${names[*]}" "$BEGIN_STEP" "$END_STEP" > "$OUT/stage.txt"
+printf 'restart_root=%s\nsnapshot=%s\ncases=%s\nbegin_step=%s\nend_step=%s\nplot_int=%s\n' "$RESTART_ROOT" "$SNAPSHOT" "${names[*]}" "$BEGIN_STEP" "$END_STEP" "$PLOT_INT" > "$OUT/stage.txt"
 common=(max_step="$END_STEP" stop_time="$((END_STEP / 128))"
     lbm.reynolds_number=1000 lbm.stream_mode=1 lbm.interp_mode=0
     amr.n_cell=128 128 128 amr.max_level=2 amr.regrid_int=32
     amr.max_grid_size=128 128 128
     amr.blocking_factor_x=16 16 16 amr.blocking_factor_y=16 16 16 amr.blocking_factor_z=16 16 16
     amr.n_error_buf=1 1 1 amr.grid_eff=0.7
-    amr.plot_int=-1 checkpoint.begin_step="$BEGIN_STEP" checkpoint.chk_int="$END_STEP"
+    amr.plot_file=plt_ amr.plot_int="$PLOT_INT" amr.begin_plot=0
+    checkpoint.begin_step="$BEGIN_STEP" checkpoint.chk_int="$END_STEP"
     checkpoint.chk_prefix=chk checkpoint.keep_latest_only=false
     verification.convergence_enabled=false verification.refinement_diagnostics=true
     verification.regrid_valid_check=true verification.final_state_check=true
