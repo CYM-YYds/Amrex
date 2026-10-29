@@ -83,49 +83,60 @@ def reference_errors(simulation, reference, *, outside="error"):
 
 
 def plot_profiles(profiles, references, output, *, title="Centerline velocity comparison",
-                  reference_source="none", reference_labels=None, xlim=(-0.4, 1.05), ylim=(0, 1),
-                  xlabel=r"$u_x/U_{lid}$", ylabel=r"$z/H$", figsize=(6.4, 6.4),
-                  linewidth=1.8, markersize=6.5, dpi=220):
+                  reference_source="none", reference_labels=None, xlim=(-1, 1), ylim=(0, 1),
+                  xlabel=r"$u_x/U_{lid}$", ylabel=r"$z/H$", figsize=(6.4, 5.8),
+                  linewidth=0.9, markersize=8, dpi=220):
     """共用绘图实现；曲线、来源、步数和各自标度由调用方传入，不绑定作业号或 Re。"""
     # 延迟加载绘图库，使提取入口复用数据校验时不依赖绘图环境。
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=figsize)
-    colors = ["#222222", "#0072B2", "#009E73", "#CC79A7"]
-    for index, profile in enumerate(profiles):
-        points = profile["points"]
-        ax.plot(points[:, 1], points[:, 0], linestyle=profile.get("linestyle", "-"),
-                color=profile.get("color", colors[index % len(colors)]), lw=linewidth,
-                label=profile["label"])
-    for index, (name, points) in enumerate(references.items()):
-        label = (reference_labels or {}).get(name, {
-            "AMR_triangle": "Jaber et al. (AMR)",
-            "Cortes_and_Miller_circle": "Cortes & Miller",
-        }.get(name, name.replace("_", " ")))
-        experimental = name.startswith("Experimental")
-        ax.plot(points[:, 1], points[:, 0], linestyle="none",
-                marker="o" if name.startswith("Cortes") else "^",
-                color=["#D55E00", "#0072B2", "#009E73"][index % 3], ms=markersize,
-                markeredgewidth=1.1, fillstyle="full" if experimental else "none", label=label)
-    ax.set(xlabel=xlabel, ylabel=ylabel, xlim=xlim, ylim=ylim, title=title)
-    ax.grid(color="0.9", linewidth=0.6)
-    ax.set_axisbelow(True)
-    ax.tick_params(direction="in", top=True, right=True)
-    ax.legend(fontsize=9, loc="best", frameon=False)
-    # 图内只保留步数与归一化；完整输入路径、出处和误差存入同名 JSON。
-    steps = "; ".join(f'{p["label"]}: n={p["step"]}' for p in profiles)
-    scales = list(dict.fromkeys(
-        f'H={p["normalization"]["H"]:g}, U_lid={p["normalization"]["U_lid"]:g}, '
-        f'z0={p["normalization"].get("z_origin", 0):g}' for p in profiles))
-    footer = steps + "\n" + "; ".join(scales)
-    fig.text(0.5, 0.02, footer, ha="center", va="bottom", fontsize=8, color="0.35")
-    fig.tight_layout(rect=(0, 0.09, 1, 1))
-    output = Path(output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output, dpi=dpi)
-    plt.close(fig)
+    # 局部字体配置，避免改变调用方的其他图表样式。
+    with plt.rc_context({"font.family": "serif", "font.serif": ["STIXGeneral"],
+                         "mathtext.fontset": "stix", "font.size": 12}):
+        fig, ax = plt.subplots(figsize=figsize)
+        colors = ["black"]
+        linestyles = ["-", "--", "-.", ":"]
+        for index, profile in enumerate(profiles):
+            points = profile["points"]
+            ax.plot(points[:, 1], points[:, 0], linestyle=profile.get("linestyle", linestyles[index % len(linestyles)]),
+                    color=profile.get("color", colors[index % len(colors)]), lw=linewidth,
+                    label=profile["label"])
+        for index, (name, points) in enumerate(references.items()):
+            label = (reference_labels or {}).get(name, {
+                "AMR_triangle": "Jaber et al. (AMR)",
+                "Cortes_and_Miller_circle": "Cortes & Miller",
+            }.get(name, name.replace("_", " ")))
+            experimental = name.startswith("Experimental")
+            ax.plot(points[:, 1], points[:, 0], linestyle="none",
+                    marker="o" if name.startswith("Cortes") else "^",
+                    color="black", ms=markersize,
+                    markeredgewidth=0.6, fillstyle="full" if experimental else "none", label=label)
+        ax.set(xlabel=xlabel, ylabel=ylabel, xlim=xlim, ylim=ylim, title=title)
+        ax.grid(False)
+        ax.tick_params(direction="in", top=True, right=True, width=0.7)
+        ax.xaxis.set_major_locator(plt.MultipleLocator(0.5))
+        ax.yaxis.set_major_locator(plt.MultipleLocator(0.2))
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda value, _: f"{value:g}"))
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda value, _: f"{value:g}"))
+        ax.set_title(title, fontsize=14, fontweight="bold", pad=12)
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.8)
+        ax.legend(fontsize=11, loc="lower right", frameon=False, markerfirst=False,
+                  handlelength=1.8, labelspacing=0.35)
+        # 页脚只保留可复核的步数与标度；完整来源和误差保存在同名 JSON。
+        steps = "; ".join(f'{p["label"]}: n={p["step"]}' for p in profiles)
+        scales = list(dict.fromkeys(
+            f'H={p["normalization"]["H"]:g}, U_lid={p["normalization"]["U_lid"]:g}' for p in profiles))
+        fig.text(0.5, 0.015, steps + "; " + "; ".join(scales),
+                 ha="center", va="bottom", fontsize=8, color="0.35")
+        fig.tight_layout(rect=(0, 0.04, 1, 1))
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output, dpi=dpi)
+        plt.close(fig)
+
 
 
 def main():
@@ -142,13 +153,13 @@ def main():
     parser.add_argument("--allow-unmasked", action="store_true", help="显式接受没有有效性掩码的旧 CSV")
     parser.add_argument("--outside-reference", choices=["error", "exclude"], default="error")
     parser.add_argument("--title", default="Centerline velocity comparison")
-    parser.add_argument("--xlim", nargs=2, type=float, default=(-0.4, 1.05))
+    parser.add_argument("--xlim", nargs=2, type=float, default=(-1, 1))
     parser.add_argument("--ylim", nargs=2, type=float, default=(0, 1))
     parser.add_argument("--xlabel", default=r"$u_x/U_{lid}$")
     parser.add_argument("--ylabel", default=r"$z/H$")
-    parser.add_argument("--figsize", nargs=2, type=float, default=(6.4, 6.4), metavar=("WIDTH", "HEIGHT"))
-    parser.add_argument("--linewidth", type=float, default=1.8)
-    parser.add_argument("--markersize", type=float, default=6.5)
+    parser.add_argument("--figsize", nargs=2, type=float, default=(6.4, 5.8), metavar=("WIDTH", "HEIGHT"))
+    parser.add_argument("--linewidth", type=float, default=0.9)
+    parser.add_argument("--markersize", type=float, default=8)
     parser.add_argument("--dpi", type=int, default=220)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
