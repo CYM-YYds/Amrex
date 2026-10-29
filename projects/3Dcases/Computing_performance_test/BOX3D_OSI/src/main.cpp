@@ -209,6 +209,8 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
                   << std::endl;
         std::cout << "step" << step
                   << " perf(s): osi_detail_timing=" << lid.params().perf_osi_detail_timing
+                  << " uniform_reduce_sync=" << lid.useUniformReducedSync()
+                  << " uniform_nomask_collision=" << lid.useUniformNoMaskCollision()
                   << " interp=" << perf.interp
                   << " collide=" << perf.collide
                   << " stream=" << perf.stream

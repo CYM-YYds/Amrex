@@ -135,7 +135,9 @@ void AmrCoreLBM::FillBoundaryOsi(int lev, const std::function<void()>& during_tr
 
     if (ParallelDescriptor::NProcs() == 1) {
         launch_local_copy();
-        amrex::Gpu::streamSynchronize();
+        if (!useUniformReducedSync()) {
+            amrex::Gpu::streamSynchronize();
+        }
         return;
     }
 

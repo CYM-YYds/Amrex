@@ -17,7 +17,7 @@ module purge
 module load mpi/hmpi/1.2.0_bs2.4.0_sp1 compilers/cuda/12.8.0 compilers/gcc/11.3.0
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REPO_DIR="$(git -C "$CASE_DIR" rev-parse --show-toplevel)"
-EXP="$CASE_DIR/runs/temporary/uniform_dispatch/round1"
+EXP="${UNIFORM_EXPERIMENT_DIR:-$CASE_DIR/runs/temporary/uniform_dispatch/round1}"
 if [[ ${UNIFORM_KERNEL_EXPERIMENT:-0} == 1 ]]; then
     EXP="$CASE_DIR/runs/temporary/uniform_kernels/round1"
 fi
@@ -36,7 +36,8 @@ nvidia-smi > "$OUT/gpu.txt"
 hostname > "$OUT/node.txt"
 module list > "$OUT/modules.txt" 2>&1
 printf 'case\tranks\texit_code\n' > "$OUT/status.tsv"
-common=(max_step=64 stop_time=2500000 amr.n_cell=32 32 32 amr.max_level=0
+common=(max_step=64 stop_time=2500000
+    amr.n_cell="${UNIFORM_CHECK_CELLS:-32}" "${UNIFORM_CHECK_CELLS:-32}" "${UNIFORM_CHECK_CELLS:-32}" amr.max_level=0
     amr.max_grid_size=16 amr.blocking_factor_x=8 amr.blocking_factor_y=8 amr.blocking_factor_z=8
     amr.regrid_int=16 amr.plot_int=-1 checkpoint.chk_int=-1 checkpoint.begin_step=0
     checkpoint.chk_prefix=chk checkpoint.keep_latest_only=false checkpoint.write_particles=false
@@ -155,6 +156,7 @@ for variant in base new; do
         verification.regrid_fixture=true "${extra[@]}"
 done
 "$REPO_DIR/.venv/bin/python" "$OUT/analyze.py" "$OUT" --checks-only
+[[ ${UNIFORM_CHECKS_ONLY:-0} == 1 ]] && exit 0
 # 同一程序、同一节点、交替AB/BA；另设 regrid=0 隔离伪重网格的影响。
 for spec in '64 32 1 32' '128 128 1 32' '128 32 1 32' '128 64 2 32' '128 128 1 0'; do
     read -r cells box ranks regrid <<< "$spec"

@@ -118,7 +118,7 @@ void AmrCoreLBM::AverageDownValid(const std::function<void()>& before_repair) {
 }
 
 void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复当前状态的物理边界条件。
-    ScopedPerfTimer timer(perf_stats.boundary);
+    ScopedPerfTimer timer(perf_stats.boundary, !useUniformReducedSync());
     const DdfLayout layout =
         streamMode() == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
 
@@ -300,7 +300,7 @@ void AmrCoreLBM::FillForceGhostLevel(int lev, amrex::Real time) {
 }
 
 void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
-    ScopedPerfTimer timer(perf_stats.comm);
+    ScopedPerfTimer timer(perf_stats.comm, !useUniformReducedSync());
     if (layout == DdfLayout::Osi) {
         FillBoundaryOsi(lev);
         return;
@@ -315,7 +315,7 @@ void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
     if (layout == DdfLayout::Osi && osi_collide_comm_overlap &&
         osi_fillboundary_cache.at(lev).overlap_collision) {
         Collide(lev, nghost, layout, 1);
-        ScopedPerfTimer comm_timer(perf_stats.comm);
+        ScopedPerfTimer comm_timer(perf_stats.comm, !useUniformReducedSync());
         FillBoundaryOsi(lev, [&]() { Collide(lev, nghost, layout, 0); });
     } else {
         Collide(lev, nghost, layout);
@@ -323,6 +323,10 @@ void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
     }
     Stream(lev, nghost, layout);
     Boundary(lev, layout);
+    if (useUniformReducedSync()) {
+        // phase、本地复制和边界在默认 stream 有序执行，步末等待覆盖它们。
+        amrex::Gpu::streamSynchronize();
+    }
 }
 
 void AmrCoreLBM::AdvanceLevel(int lev) {
@@ -347,7 +351,7 @@ void AmrCoreLBM::AdvanceLevel(int lev) {
         Collide(lev, nghost, DdfLayout::Osi, overlap ? 1 : -1);
         Collide(lev, nghost, DdfLayout::Canonical);
         if (overlap) {
-            ScopedPerfTimer comm_timer(perf_stats.comm);
+            ScopedPerfTimer comm_timer(perf_stats.comm, !useUniformReducedSync());
             FillBoundaryOsi(lev, [&]() {
                 Collide(lev, nghost, DdfLayout::Osi, 0);
                 CompareOsiReferenceStage(lev, "Collision", f_old.at(lev), 0);
@@ -445,13 +449,22 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
 }
 
 void AmrCoreLBM::Boundary(int lev, DdfLayout layout) {
-    ScopedPerfTimer timer(perf_stats.boundary);
+    ScopedPerfTimer timer(perf_stats.boundary, !useUniformReducedSync());
     amrex::MultiFab& state =
         layout == DdfLayout::Osi ? osi_state.at(lev) : f_new.at(lev);
     ApplyPhysicalBoundaryLevel(lev, state, layout, false);
 }
 
 void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout, int send_subset) {
+    if (useUniformNoMaskCollision()) {
+        CollideLayoutLevel<false>(lev, n, layout, send_subset);
+    } else {
+        CollideLayoutLevel<true>(lev, n, layout, send_subset);
+    }
+}
+
+template <bool UseMask>
+void AmrCoreLBM::CollideLayoutLevel(int lev, int n, DdfLayout layout, int send_subset) {
     const double collide_start = amrex::second();
 
     const bool use_osi = layout == DdfLayout::Osi;
@@ -467,7 +480,7 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout, int send_subset) {
     amrex::Real tau_lev = tau[lev];
     const amrex::Real omega_lev = 1.0 / tau_lev;
     const Box collision_domain = Geom(lev).growPeriodicDomain(n);
-    const bool has_fine_level = lev < finest_level;
+    const bool has_fine_level = UseMask && lev < finest_level;
     const std::uint64_t phase = use_osi ? osi_phase.at(lev) : 0;
     long long level_launch_cells = 0;
 
@@ -508,41 +521,62 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout, int send_subset) {
             has_fine_level ? interface_mask[lev].const_array(mfi)
                            : Array4<const int>{};
 
-        // 模式判断停留在 host 启动层，避免把运行时分支和另一种存储路径的
-        // 寄存器需求带入同一个 GPU kernel。
-        if (use_osi) {
-            const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
-            amrex::ParallelFor(
-                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    if (has_fine_level && covered(i, j, k) != 0 &&
-                        interface(i, j, k) == 0) {
-                        return;
-                    }
-                    collide_bgk_register_osi(
-                        i, j, k, state, fab, phase_shift, omega_lev);
-                });
-        } else if (collide_mode == 0) {
-            amrex::ParallelFor(
-                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    if (has_fine_level && covered(i, j, k) != 0 &&
-                        interface(i, j, k) == 0) {
-                        return;
-                    }
-                    collide(i, j, k, state, s, Ft, tau_lev, dt, hi);
-                });
+        // host 侧编译期分派使无 mask 闭包不捕获掩码参数；碰撞公式仍共用。
+        if constexpr (!UseMask) {
+            if (use_osi) {
+                const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        collide_bgk_register_osi(
+                            i, j, k, state, fab, phase_shift, omega_lev);
+                    });
+            } else if (collide_mode == 0) {
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        collide(i, j, k, state, s, Ft, tau_lev, dt, hi);
+                    });
+            } else {
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        collide_bgk_register(i, j, k, state, omega_lev);
+                    });
+            }
         } else {
-            amrex::ParallelFor(
-                bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    if (has_fine_level && covered(i, j, k) != 0 &&
-                        interface(i, j, k) == 0) {
-                        return;
-                    }
-                    collide_bgk_register(i, j, k, state, omega_lev);
-                });
+            if (use_osi) {
+                const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        if (has_fine_level && covered(i, j, k) != 0 &&
+                            interface(i, j, k) == 0) {
+                            return;
+                        }
+                        collide_bgk_register_osi(
+                            i, j, k, state, fab, phase_shift, omega_lev);
+                    });
+            } else if (collide_mode == 0) {
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        if (has_fine_level && covered(i, j, k) != 0 &&
+                            interface(i, j, k) == 0) {
+                            return;
+                        }
+                        collide(i, j, k, state, s, Ft, tau_lev, dt, hi);
+                    });
+            } else {
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        if (has_fine_level && covered(i, j, k) != 0 &&
+                            interface(i, j, k) == 0) {
+                            return;
+                        }
+                        collide_bgk_register(i, j, k, state, omega_lev);
+                    });
+            }
         }
     }
     // 延后子集留在 stream 0，由通信后的同 stream 消费和阶段同步保证完成。
-    if (send_subset != 0) {
+    // 普通子集已有 MFIter 的多 stream 等待；AMR/诊断保留原显式等待。
+    if (send_subset != 0 && !useUniformReducedSync()) {
         amrex::Gpu::streamSynchronize();
     }
     // 重叠子集这里只累计提交时间，其 GPU 执行在通信区间中完成；
@@ -560,14 +594,14 @@ void AmrCoreLBM::Collide(int lev, int n, DdfLayout layout, int send_subset) {
 void AmrCoreLBM::Stream(int lev, int n, DdfLayout layout) {
     if (layout == DdfLayout::Osi) {
         // OSI 的逻辑迁移由 phase 提交完成，不搬运体积级 DDF。
-        ScopedPerfTimer timer(perf_stats.stream);
+        ScopedPerfTimer timer(perf_stats.stream, !useUniformReducedSync());
         ++osi_phase.at(lev);
         // 当前 stream 上更新，后续边界、通信和粗细层传输读取同一份偏移。
         osi_fab_phase_cache.at(lev).update(osi_phase.at(lev));
         return;
     }
 
-    ScopedPerfTimer timer(perf_stats.stream);
+    ScopedPerfTimer timer(perf_stats.stream, !useUniformReducedSync());
     AMREX_ALWAYS_ASSERT(n >= 1);
     AMREX_ALWAYS_ASSERT(n - 1 <= 1);
 
@@ -605,7 +639,7 @@ void AmrCoreLBM::SwapLevel(int lev, int n, DdfLayout layout) {
         return;
     }
 
-    ScopedPerfTimer timer(perf_stats.swap);
+    ScopedPerfTimer timer(perf_stats.swap, !useUniformReducedSync());
     amrex::MultiFab& f_old_lev = f_old[lev];
     amrex::MultiFab& f_new_lev = f_new[lev];
 

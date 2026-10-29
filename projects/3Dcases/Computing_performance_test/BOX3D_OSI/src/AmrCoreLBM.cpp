@@ -321,6 +321,7 @@ void AmrCoreLBM::ReadParameters() {
         ParmParse pp_performance("performance");
         pp_performance.query("report_int", params_.perf_report_int);
         pp_performance.query("osi_detail_timing", params_.perf_osi_detail_timing);
+        pp_performance.query("uniform_reduce_sync", params_.uniform_reduce_sync);
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
             params_.perf_report_int > 0,
             "performance.report_int must be positive");
@@ -516,6 +517,7 @@ void AmrCoreLBM::ReadParameters() {
 
     {
         ParmParse pp("lbm");
+        pp.query("uniform_nomask_collision", params_.uniform_nomask_collision);
         pp.query("collide_mode", collide_mode);
         if (collide_mode < 0 || collide_mode > 1) {
             amrex::Abort("lbm.collide_mode must be 0 or 1");

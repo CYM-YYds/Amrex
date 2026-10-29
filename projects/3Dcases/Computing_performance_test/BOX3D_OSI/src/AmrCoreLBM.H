@@ -162,6 +162,8 @@ class AmrCoreLBM : public amrex::AmrCore {
         int begin_plot = 0;
         int perf_report_int = 1000;
         bool perf_osi_detail_timing = true; // OSI 嵌套细分计时会引入额外同步。
+        bool uniform_reduce_sync = true; // 固定单层合并阶段等待，保留步末同步。
+        bool uniform_nomask_collision = true; // 固定单层使用编译期无 mask 碰撞核。
         int chk_int = -1;
         int begin_step = 0;
         std::string chk_prefix = "chk";
@@ -292,6 +294,14 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool osiReferenceEnabled() const {
         return run_mode == RunMode::OsiLockstep;
     }
+    // 实际策略只由配置派生，不缓存；AMR、细分计时和锁步诊断保留阶段同步。
+    bool useUniformReducedSync() const noexcept {
+        return max_level == 0 && params_.uniform_reduce_sync &&
+               !params_.perf_osi_detail_timing && !osiReferenceEnabled();
+    }
+    bool useUniformNoMaskCollision() const noexcept {
+        return max_level == 0 && params_.uniform_nomask_collision;
+    }
     bool canonicalStateEnabled() const noexcept {
         return run_mode == RunMode::CanonicalAB ||
                run_mode == RunMode::OsiLockstep;
@@ -355,6 +365,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     void Collide(int lev, int n,
                  DdfLayout layout = DdfLayout::Canonical,
                  int send_subset = -1);
+    // 编译期选择 mask，复用同一碰撞公式；CUDA 设备 lambda 要求该模板为 public。
+    template <bool UseMask>
+    void CollideLayoutLevel(int lev, int n, DdfLayout layout, int send_subset);
     void Stream(int lev, int n,
                 DdfLayout layout = DdfLayout::Canonical);
     void SwapLevel(int lev, int n,

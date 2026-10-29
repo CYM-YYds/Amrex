@@ -183,6 +183,14 @@ OSI 相位和数值核继续共用现有机制。`performance.uniform_grid_path=
 启动日志的 `[Advance] path=uniform/amr` 表示实际选择。
 实现范围与短测结果见[单层调度记录](docs/ai_changes/2026-10-29-uniform-grid-dispatch.md)。
 
+固定单层另默认启用两个独立开关：`lbm.uniform_nomask_collision=1` 使用编译期无mask碰撞，
+`performance.uniform_reduce_sync=1` 将重复阶段等待合并到推进末尾，保留MFIter多stream及MPI依赖。
+两者在 `max_level>0` 时均不生效；细分计时或OSI锁步验证开启时，减少同步也不生效。
+`perf(s)` 的 `uniform_nomask_collision`、`uniform_reduce_sync` 表示实际生效状态。
+减少同步时comm/stream/boundary/swap为未测量，端到端total包含步末GPU等待。
+各开关可独立设为0做对照；完整恢复原调度与核选择需将上述两项及 `uniform_grid_path` 都设为0。
+接入范围与组合回归见[同步与无mask接入记录](docs/ai_changes/2026-10-29-uniform-kernels-integration.md)。
+
 多层现役入口是 `Cycle2`。每个 coarse step 先处理需要的 regrid，再进入多层递归；
 同文件中的 Rohde/Jaber 等其他周期函数不在当前主调用路径上。
 
@@ -269,7 +277,8 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 重叠仅用于有远端发送源且有剩余块的 OSI rank/level；设为 0 可用同一程序对照原顺序。
 单 rank、A-B 或没有可重叠块的场景保持原顺序。
 
-关闭细分计时保留 `comm/interp/average` 等主阶段计时，`osi_*` 为 0 表示未测量；
+关闭细分计时通常保留 `comm/interp/average` 等主阶段计时；固定单层的减少同步策略
+会另外关闭comm/stream/boundary/swap计时，具体以实际生效开关为准。`osi_*` 为 0 表示未测量；
 `perf(s)` 的 `osi_detail_timing` 字段给出实际开关。开启细分计时会同步 GPU、限制重叠，
 只适合定位成本。重叠时 `comm` 区间包含剩余 GPU 碰撞，`collide` 包含该子集的提交时间；
 两者不是独立 GPU 成本，不直接相加，端到端收益使用 `total`。
