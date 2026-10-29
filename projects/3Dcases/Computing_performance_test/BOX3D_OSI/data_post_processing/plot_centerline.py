@@ -5,7 +5,6 @@ import argparse
 import csv
 import hashlib
 import json
-import textwrap
 from collections import defaultdict
 from pathlib import Path
 
@@ -85,7 +84,7 @@ def reference_errors(simulation, reference, *, outside="error"):
 
 def plot_profiles(profiles, references, output, *, title="Centerline velocity comparison",
                   reference_source="none", reference_labels=None, xlim=(-0.4, 1.05), ylim=(0, 1),
-                  xlabel=r"$u_x/U_{lid}$", ylabel=r"$z/H$", figsize=(9.4, 7.5),
+                  xlabel=r"$u_x/U_{lid}$", ylabel=r"$z/H$", figsize=(6.4, 6.4),
                   linewidth=1.8, markersize=6.5, dpi=220):
     """共用绘图实现；曲线、来源、步数和各自标度由调用方传入，不绑定作业号或 Re。"""
     # 延迟加载绘图库，使提取入口复用数据校验时不依赖绘图环境。
@@ -94,26 +93,35 @@ def plot_profiles(profiles, references, output, *, title="Centerline velocity co
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=figsize)
-    colors = ["#2ca02c", "#1f77b4", "#9467bd", "#d62728"]
+    colors = ["#222222", "#0072B2", "#009E73", "#CC79A7"]
     for index, profile in enumerate(profiles):
         points = profile["points"]
         ax.plot(points[:, 1], points[:, 0], linestyle=profile.get("linestyle", "-"),
                 color=profile.get("color", colors[index % len(colors)]), lw=linewidth,
-                label=f'{profile["label"]} (step {profile["step"]}, {len(points)} pts)')
+                label=profile["label"])
     for index, (name, points) in enumerate(references.items()):
-        label = (reference_labels or {}).get(name, name)
+        label = (reference_labels or {}).get(name, {
+            "AMR_triangle": "Jaber et al. (AMR)",
+            "Cortes_and_Miller_circle": "Cortes & Miller",
+        }.get(name, name.replace("_", " ")))
         experimental = name.startswith("Experimental")
-        ax.plot(points[:, 1], points[:, 0], "-" + ("o" if name.startswith("Cortes") else "^"),
-                color=["#d62728", "#1f77b4", "#222222"][index % 3], lw=linewidth, ms=markersize,
-                fillstyle="full" if experimental else "none", label=f"{label} ({len(points)} pts)")
+        ax.plot(points[:, 1], points[:, 0], linestyle="none",
+                marker="o" if name.startswith("Cortes") else "^",
+                color=["#D55E00", "#0072B2", "#009E73"][index % 3], ms=markersize,
+                markeredgewidth=1.1, fillstyle="full" if experimental else "none", label=label)
     ax.set(xlabel=xlabel, ylabel=ylabel, xlim=xlim, ylim=ylim, title=title)
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.02, 1))
-    sources = "; ".join(f'{p["label"]}: {p["source"]}, step {p["step"]}, {p["normalization"]}' for p in profiles)
-    footer = textwrap.fill(f"Inputs: {sources}; reference: {reference_source}", width=145)
-    fig.text(0.5, 0.015, footer, ha="center", fontsize=7)
-    bottom = min(0.36, 0.035 + 0.016 * len(footer.splitlines()))
-    fig.tight_layout(rect=(0, bottom, 1, 1))
+    ax.grid(color="0.9", linewidth=0.6)
+    ax.set_axisbelow(True)
+    ax.tick_params(direction="in", top=True, right=True)
+    ax.legend(fontsize=9, loc="best", frameon=False)
+    # 图内只保留步数与归一化；完整输入路径、出处和误差存入同名 JSON。
+    steps = "; ".join(f'{p["label"]}: n={p["step"]}' for p in profiles)
+    scales = list(dict.fromkeys(
+        f'H={p["normalization"]["H"]:g}, U_lid={p["normalization"]["U_lid"]:g}, '
+        f'z0={p["normalization"].get("z_origin", 0):g}' for p in profiles))
+    footer = steps + "\n" + "; ".join(scales)
+    fig.text(0.5, 0.02, footer, ha="center", va="bottom", fontsize=8, color="0.35")
+    fig.tight_layout(rect=(0, 0.09, 1, 1))
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, dpi=dpi)
@@ -138,7 +146,7 @@ def main():
     parser.add_argument("--ylim", nargs=2, type=float, default=(0, 1))
     parser.add_argument("--xlabel", default=r"$u_x/U_{lid}$")
     parser.add_argument("--ylabel", default=r"$z/H$")
-    parser.add_argument("--figsize", nargs=2, type=float, default=(9.4, 7.5), metavar=("WIDTH", "HEIGHT"))
+    parser.add_argument("--figsize", nargs=2, type=float, default=(6.4, 6.4), metavar=("WIDTH", "HEIGHT"))
     parser.add_argument("--linewidth", type=float, default=1.8)
     parser.add_argument("--markersize", type=float, default=6.5)
     parser.add_argument("--dpi", type=int, default=220)
