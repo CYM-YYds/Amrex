@@ -13,10 +13,12 @@ def fields(line):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run", type=Path)
+    parser.add_argument("--cases", nargs="+", default=["A", "B", "C"])
+    parser.add_argument("--threshold-case", choices=["A", "B", "C"], help="效率扫描共用的阈值组")
     args = parser.parse_args()
     records = []
     checks = {}
-    for name in ("A", "B", "C"):
+    for name in args.cases:
         directory = args.run / name
         if not (directory / "run.log").exists():
             continue
@@ -29,7 +31,7 @@ def main():
         finite = []
         final = []
         threshold_checks = []
-        limits = {"A": (0.0625, 0.125), "B": (0.125, 0.25), "C": (0.25, 0.5)}[name]
+        limits = {"A": (0.0625, 0.125), "B": (0.125, 0.25), "C": (0.25, 0.5)}[args.threshold_case or name]
         # 运行中日志可能只写入半行；不把尚未写完的计数当作不一致。
         lines = text.splitlines()
         if text and not text.endswith("\n"):
@@ -84,11 +86,19 @@ def main():
                                          finest_level=int(header[4]))
         if snapshots:
             time, last = snapshots[-1]
+            summary["first_regrid_time"] = snapshots[0][0]
+            summary["first_regrid_levels"] = snapshots[0][1]
             summary["last_regrid_time"] = time
             summary["levels"] = {}
             for lev, item in last.items():
                 value = dict(item)
                 value["coverage"] = int(item["valid_cells"])/(128*2**lev)**3
+                if lev > 0:
+                    domain = (128*2**(lev-1))**3
+                    value["raw_tag_domain_pct"] = 100*int(last[lev-1]["tag_cells"])/domain
+                    value["extra_coverage_domain_pct"] = 100*value["coverage"]-value["raw_tag_domain_pct"]
+                value["coverage_min"] = min(int(s[lev]["valid_cells"])/(128*2**lev)**3 for _, s in snapshots)
+                value["coverage_max"] = max(int(s[lev]["valid_cells"])/(128*2**lev)**3 for _, s in snapshots)
                 summary["levels"][lev] = value
             summary["last_raw_vorticity"] = {
                 lev: next((v for v in reversed(vort) if int(v["lev"]) == lev), None)

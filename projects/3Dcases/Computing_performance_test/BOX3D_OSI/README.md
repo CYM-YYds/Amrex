@@ -440,3 +440,5 @@ OSI 已移除 canonical 通信、插值搬运与接口平均写回回退。旧�
 A-B 参考态和 checkpoint/诊断需要的 canonical 数据仍保留。
 
 本轮更新网格限制后的 A/B 阈值 128000 步实验，以[配置与提交记录](docs/ai_changes/2026-10-29-a5-128000-launch.md)中的冻结输入、运行日志和参考数据为准；不以本页历史概览替代实际配置。
+
+A 组从 128000 步续跑的 `grid_eff=0.7/0.85/0.9` 对照结果见[网格聚类效率实验记录](docs/ai_changes/2026-10-29-a5-grid-eff-restart.md)。

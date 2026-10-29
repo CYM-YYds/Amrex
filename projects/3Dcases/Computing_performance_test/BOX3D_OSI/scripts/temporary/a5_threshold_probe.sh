@@ -18,6 +18,7 @@ OUT="$OUTPUT_ROOT/job${CCS_JOB_ID:?}"
 mkdir "$OUT"
 RESTART_ROOT="${PROBE_RESTART_ROOT:-}"
 RESTART_CASE="${PROBE_RESTART_CASE:-A}"
+RESTART_STEP="${PROBE_RESTART_STEP:-3200}"
 SNAPSHOT_ROOT="${PROBE_SNAPSHOT_ROOT:-}"
 PLOT_INT="${PROBE_PLOT_INT:--1}"
 END_STEP="${PROBE_END_STEP:-3200}"
@@ -44,11 +45,13 @@ RANK_SCRIPT="$CASE/scripts/run_rank.sh"
 if [[ -n "$RESTART_ROOT" ]]; then
     case "$RESTART_CASE" in A|B|C) ;; *) echo "PROBE_RESTART_CASE 必须为 A、B 或 C" >&2; exit 1;; esac
     RESTART_ROOT=$(realpath "$RESTART_ROOT")
-    RESTART_CHECKPOINT="$RESTART_ROOT/$RESTART_CASE/chk00003200"
-    [[ -f "$RESTART_CHECKPOINT/Header" ]] || { echo "缺少第一轮 $RESTART_CASE checkpoint" >&2; exit 1; }
+    [[ "$RESTART_STEP" =~ ^[1-9][0-9]*$ ]] || exit 1
+    RESTART_NAME=$(printf 'chk%08d' "$RESTART_STEP")
+    RESTART_CHECKPOINT="$RESTART_ROOT/$RESTART_CASE/$RESTART_NAME"
+    [[ -f "$RESTART_CHECKPOINT/Header" ]] || { echo "缺少 $RESTART_CASE checkpoint: $RESTART_CHECKPOINT" >&2; exit 1; }
     BEGIN_STEP=$(sed -n '3p' "$RESTART_CHECKPOINT/Header")
-    [[ "$BEGIN_STEP" == 3200 ]] && (( END_STEP > BEGIN_STEP )) || exit 1
-    # 续跑读取第一轮冻结程序与输入，不混入之后的工作树改动。
+    [[ "$BEGIN_STEP" == "$RESTART_STEP" ]] && (( END_STEP > BEGIN_STEP )) || exit 1
+    # 续跑读取指定历史运行的冻结程序与输入，不混入之后的工作树改动。
     names=("$RESTART_CASE")
     SNAPSHOT="$RESTART_ROOT"
     APP="$SNAPSHOT/application.ex"
@@ -58,6 +61,17 @@ elif [[ -n "$SNAPSHOT_ROOT" ]]; then
     SNAPSHOT=$(realpath "$SNAPSHOT_ROOT")
     APP="$SNAPSHOT/application.ex"
     RANK_SCRIPT="$SNAPSHOT/${names[0]}/run_rank.sh"
+fi
+# 同一检查点的聚类效率扫描复用阈值算例入口，不改变原有 A/B/C 阈值对照。
+grid_effs=()
+if [[ -n "${PROBE_GRID_EFFS:-}" ]]; then
+    [[ -n "$RESTART_ROOT" ]] || { echo "效率扫描需要共同的重启检查点" >&2; exit 1; }
+    read -r -a grid_effs <<< "$PROBE_GRID_EFFS"
+    names=()
+    for eff in "${grid_effs[@]}"; do
+        [[ "$eff" =~ ^0\.[0-9]*[1-9][0-9]*$ ]] || { echo "grid_eff 必须在 (0,1) 内" >&2; exit 1; }
+        names+=("${RESTART_CASE}_eff${eff/./p}")
+    done
 fi
 source /home/HPCBase/tools/module-5.2.0/init/profile.sh
 module use /home/HPCBase/modulefiles/
@@ -77,6 +91,9 @@ cp "$0" "$OUT/submit.sh"
 git -C "$CASE" rev-parse HEAD > "$OUT/git_head.txt"
 git -C "$CASE" diff > "$OUT/source.diff"
 sha256sum "$OUT/application.ex" "$OUT/inputs" > "$OUT/fingerprints.sha256"
+if [[ -n "$RESTART_ROOT" ]]; then
+    find "$RESTART_CHECKPOINT" -type f -print0 | sort -z | xargs -0 sha256sum > "$OUT/restart_fingerprints.sha256"
+fi
 nvidia-smi > "$OUT/gpu.txt"
 awk 'NF >= 2 {print $1 " slots=" $2}' "${CCS_ALLOC_FILE:?}" > "$OUT/hostfile"
 printf 'case\texit_code\n' > "$OUT/status.tsv"
@@ -96,8 +113,15 @@ common=(max_step="$END_STEP" stop_time="$((END_STEP / 128))"
     verification.regrid_valid_check=true verification.final_state_check=true
     performance.report_int="$REPORT_INT" performance.osi_detail_timing=0)
 failed=0
-for name in "${names[@]}"; do
-    case "$name" in
+for index in "${!names[@]}"; do
+    name="${names[$index]}"
+    threshold_case="$name"
+    grid_eff=0.7
+    if (( ${#grid_effs[@]} > 0 )); then
+        threshold_case="$RESTART_CASE"
+        grid_eff="${grid_effs[$index]}"
+    fi
+    case "$threshold_case" in
         A) thresholds=(0.0625 0.125 0.25 0.5);;
         B) thresholds=(0.125 0.25 0.5 1);;
         C) thresholds=(0.25 0.5 1 2);;
@@ -107,12 +131,14 @@ for name in "${names[@]}"; do
     ln -s ../application.ex main3d.gnu.TPROF.MPI.CUDA.ex
     cp "$RANK_SCRIPT" run_rank.sh
     if [[ -n "$RESTART_ROOT" ]]; then
-        ln -s "$RESTART_CHECKPOINT" chk00003200
+        ln -s "$RESTART_CHECKPOINT" "$RESTART_NAME"
     fi
     args=("${common[@]}" lbm.err="${thresholds[0]}" "${thresholds[@]:1}")
     # 复用公共提交入口的覆盖变量，供短回归与正式运行记录额外参数。
     read -r -a extra_args <<< "${AMREX_RUN_ARGS:-}"
     args+=("${extra_args[@]}")
+    # 扫描值放在公共参数之后，确保覆盖默认的 0.7。
+    if (( ${#grid_effs[@]} > 0 )); then args+=(amr.grid_eff="$grid_eff"); fi
     ln -s ../inputs inputs
     printf 'case=%s\nprecision=FLOAT\nexecutable=%s\n' "$name" "$OUT/application.ex" > manifest.txt
     cat "$OUT/fingerprints.sha256" >> manifest.txt
