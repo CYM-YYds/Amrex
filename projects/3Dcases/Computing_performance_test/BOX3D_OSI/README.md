@@ -176,19 +176,28 @@ ghost 填充和重构迁移统一采用自定义数值插值核。AMReX 仍提�
 
 ## 实际推进调用链
 
-`main.cpp` 的现役入口是 `Cycle2`。每个 coarse step 先处理需要的 regrid，
-然后进入多层递归；同文件中的 Rohde/Jaber 等其他周期函数不在当前主调用路径上。
+`main.cpp` 根据配置中的最高层编号选择调度。`amr.max_level=0` 默认直接调用
+`AdvanceLevel(0)`，跳过重网格外围工作与多层递归；初始化、输出、收敛、checkpoint、
+OSI 相位和数值核继续共用现有机制。`performance.uniform_grid_path=0` 可回到原调度做对照，
+默认为 1；该开关在 `max_level>0` 时不启用单层路径，即使当前还没有细层。
+启动日志的 `[Advance] path=uniform/amr` 表示实际选择。
+实现范围与短测结果见[单层调度记录](docs/ai_changes/2026-10-29-uniform-grid-dispatch.md)。
+
+多层现役入口是 `Cycle2`。每个 coarse step 先处理需要的 regrid，再进入多层递归；
+同文件中的 Rohde/Jaber 等其他周期函数不在当前主调用路径上。
 
 ```text
 main coarse-step 循环
-  ├─ regrid 步：AverageDownValid → RepairCurrentStatePhysicalBoundary → RefineMesh
-  └─ Cycle2(lev, time)
-       ├─ 有细层时：FillGhostLevel(lev, time, scale) 填 lev+1 的 ghost
-       ├─ AdvanceLevel(lev)
-       │    ├─ 串行路径：Collide → CommunicateLevel → Stream → Boundary
-       │    ├─ OSI 重叠路径：发送源碰撞 → FillBoundaryOsi(剩余碰撞回调) → Stream → Boundary
-       │    └─ SwapLevel
-       └─ 有细层时：Cycle2(lev+1) 两次 → AverageDownInterfaceLevel(lev+1)
+  ├─ max_level=0 且 uniform_grid_path=1：AdvanceLevel(0)
+  └─ 其余配置：
+       ├─ regrid 步：AverageDownValid → RepairCurrentStatePhysicalBoundary → RefineMesh
+       └─ Cycle2(lev, time)
+            ├─ 有细层时：FillGhostLevel(lev, time, scale) 填 lev+1 的 ghost
+            ├─ AdvanceLevel(lev)
+            │    ├─ 串行路径：Collide → CommunicateLevel → Stream → Boundary
+            │    ├─ OSI 重叠路径：发送源碰撞 → FillBoundaryOsi(剩余碰撞回调) → Stream → Boundary
+            │    └─ SwapLevel
+            └─ 有细层时：Cycle2(lev+1) 两次 → AverageDownInterfaceLevel(lev+1)
 ```
 
 两个 fine substeps 共用父层在本次调用开始时的 ghost 填充。

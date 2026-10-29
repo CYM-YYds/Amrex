@@ -160,11 +160,6 @@ void InitializeSimulation(AmrCoreLBM& lid, Real cur_time) {
 void RegridIfNeeded(AmrCoreLBM& lid, OsiAbVerification& verification,
                     int step, Real cur_time) {
     const bool verification_enabled = lid.osiReferenceEnabled();
-    // 检测器只在显式配置的目标步骤介入生产生命周期。
-    if (verification_enabled) {
-        verification.BeforeRegrid(lid, step);
-    }
-
     if (step >= 0 && lid.params().regrid_int > 0 && step % lid.params().regrid_int == 0) {
         // mode 1 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
         // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
@@ -330,6 +325,11 @@ void RunSimulation() {
     }
 
     const int runtime_max_level = input.max_level;
+    // 配置禁止细层时选择固定单层调度；当前尚无细层的 AMR 仍须保留重网格。
+    // 开关只用于同程序回退对照，不拥有独立的流场、相位或缓存。
+    bool uniform_grid_path = true;
+    amrex::ParmParse("performance").query("uniform_grid_path", uniform_grid_path);
+    uniform_grid_path = uniform_grid_path && runtime_max_level == 0;
     const auto& prob_lo = input.prob_lo;
     const auto& prob_hi = input.prob_hi;
     const auto& periodic_input = input.is_periodic;
@@ -373,6 +373,8 @@ void RunSimulation() {
     InitializeSimulation(lid, cur_time);
 
     const bool verification_enabled = lid.osiReferenceEnabled();
+    amrex::Print() << "[Advance] path=" << (uniform_grid_path ? "uniform" : "amr")
+                   << " max_level=" << runtime_max_level << '\n';
 
     PerformanceWindow window;
     lid.ResetPerfStats();
@@ -380,16 +382,25 @@ void RunSimulation() {
     for (int step = start_step; step <= max_step && cur_time < stop_time; step++) {
         amrex::Print() << "STEP " << step << "starts ..." << std::endl;
         auto start_time_compute_time = std::chrono::high_resolution_clock::now();
-        auto start_time_regrid_time = std::chrono::high_resolution_clock::now();
-        RegridIfNeeded(lid, verification, step, cur_time);
-
-        auto end_time_regrid_time = std::chrono::high_resolution_clock::now();
-        window.regrid_time += std::chrono::duration<float, std::milli>(end_time_regrid_time - start_time_regrid_time).count();
+        // 步入口验证同时覆盖两条路径；单层不执行伪重网格及缓存重建。
+        if (verification_enabled) {
+            verification.BeforeRegrid(lid, step);
+        }
+        if (!uniform_grid_path) {
+            auto start_time_regrid_time = std::chrono::high_resolution_clock::now();
+            RegridIfNeeded(lid, verification, step, cur_time);
+            auto end_time_regrid_time = std::chrono::high_resolution_clock::now();
+            window.regrid_time += std::chrono::duration<float, std::milli>(end_time_regrid_time - start_time_regrid_time).count();
+        }
         window.weighted_updates_window += lid.ComputeWeightedLatticeUpdatesPerCoarseStep();
         ++window.stats_steps;
 
         auto start_time_JaberCycle = std::chrono::high_resolution_clock::now();
-        Cycle2(0, cur_time, lid, verification);
+        if (uniform_grid_path) {
+            lid.AdvanceLevel(0);
+        } else {
+            Cycle2(0, cur_time, lid, verification);
+        }
         if (verification_enabled) {
             verification.AfterAdvance(lid, 0, step);
         }
