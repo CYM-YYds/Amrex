@@ -61,6 +61,16 @@ PS1 本身更新后须重新下载，它不会更新自身；正常启动时会�
 `/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge/` 对应 `session-UUID` 中
 核对 `command.json` 与同 ID 的 `result.json`，不能盲目重发。
 
+## 时间轴诊断
+
+`inspect` 的 `timekeeper` 给出全局当前时间和可选时间值，`view_details.view_time` 给出各视图
+当前时间，`source_details.time_properties` 给出每个源实际暴露的时间属性（包括 TimestepValues）。
+该查询只读，不调整时间、读取器配置或管线。未连接时 timekeeper 为 null。
+
+若全局同时出现 0/1/2/3 与 25/50/75/100，应分别核对各读取器及 PlotFile Header，不能直接把
+下拉选项解释为统一帧索引。不同数据源可提供不同时间标度，时间轴合并后同一全局时间不保证
+对应相同求解器步数；做 A/B 比较前先统一实际时间标度。
+
 ## FXAA 渲染警告
 
 出现 `vtkOpenGLFXAAFilter` 无法取得 shader program 的警告时，先用 `inspect` 查看各视图

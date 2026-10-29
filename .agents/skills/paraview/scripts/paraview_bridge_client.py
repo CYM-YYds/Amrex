@@ -1076,7 +1076,7 @@ def add_axis_title_view(command):
 
 
 
-BRIDGE_VERSION = '20'
+BRIDGE_VERSION = '21'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 
@@ -1150,6 +1150,8 @@ def inspect_state(source_sha256):
     return {'capabilities': CAPABILITIES, 'version': BRIDGE_VERSION,
             'source_sha256': source_sha256,
             'connection_uri': uri,
+            'timekeeper': {'time': float(pvs.GetTimeKeeper().Time),
+                           'timestep_values': list(pvs.GetTimeKeeper().TimestepValues)} if connection is not None else None,
             'sources': [list(key) for key in pvs.GetSources()],
             'source_details': [
                 {'name': name, 'id': key, 'type': source.GetXMLName(),
@@ -1160,12 +1162,14 @@ def inspect_state(source_sha256):
                  'inputs': [source.GetProperty('Input').SMProperty.GetProxy(i).GetGlobalIDAsString()
                             for i in range(source.GetProperty('Input').SMProperty.GetNumberOfProxies())]
                            if source.GetProperty('Input') else [],
-                 'files': list(source.FileNames) if source.GetProperty('FileNames') else []}
+                 'files': list(source.FileNames) if source.GetProperty('FileNames') else [],
+                 'time_properties': {key: str(source.GetProperty(key)) for key in source.ListProperties()
+                                     if 'Time' in key or 'Timestep' in key}}
                 for (name, key), source in pvs.GetSources().items() if source is not None],
             'views': [v.GetXMLName() for v in pvs.GetViews()],
             'view_details': [
                 {'id': v.GetGlobalIDAsString(), 'size': list(v.ViewSize),
-                 'fxaa': render_diagnostics(v),
+                 'fxaa': render_diagnostics(v), 'view_time': float(v.ViewTime),
                  'visible_sources': [r.GetProperty('Input').SMProperty.GetProxy(0).GetGlobalIDAsString()
                                      for r in v.Representations if r.GetProperty('Input')
                                      and r.GetProperty('Input').SMProperty.GetNumberOfProxies() and r.Visibility]}

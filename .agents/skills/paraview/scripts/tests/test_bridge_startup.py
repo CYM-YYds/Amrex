@@ -31,7 +31,8 @@ class StartupTests(unittest.TestCase):
         uri = 'cs://localhost:11115'
         connection = types.SimpleNamespace(Session=types.SimpleNamespace(GetURI=lambda: uri))
         pvs = types.SimpleNamespace(GetSources=lambda: {('sample', '12'): None},
-                                    GetViews=lambda: [], GetActiveSource=lambda: None)
+                                    GetViews=lambda: [], GetActiveSource=lambda: None,
+                                    GetTimeKeeper=lambda: types.SimpleNamespace(Time=100, TimestepValues=[25, 50, 75, 100]))
         modules = {'paraview': types.SimpleNamespace(simple=pvs,
                    servermanager=types.SimpleNamespace(ActiveConnection=connection)),
                    'PythonQt': types.SimpleNamespace(QtCore=types.SimpleNamespace(QTimer=Timer))}
@@ -120,7 +121,8 @@ class StartupTests(unittest.TestCase):
         source = CLIENT.read_text().split('# 首次迁移时兼容')[0]
         def broken_sources(): raise RuntimeError('GUI failed')
         modules = {'paraview': types.SimpleNamespace(
-            simple=types.SimpleNamespace(GetSources=broken_sources),
+            simple=types.SimpleNamespace(GetSources=broken_sources,
+                GetTimeKeeper=lambda: types.SimpleNamespace(Time=100, TimestepValues=[25, 50, 75, 100])),
             servermanager=types.SimpleNamespace(ActiveConnection=None))}
         with patch.dict(sys.modules, modules):
             namespace = {}

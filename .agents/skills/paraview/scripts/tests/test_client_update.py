@@ -23,7 +23,8 @@ class ClientUpdateTests(unittest.TestCase):
         self.original = CLIENT.read_bytes()
         self.local.write_bytes(self.original)
         self.pvs = types.SimpleNamespace(GetSources=lambda: {('existing_source', '7'): None},
-                                         GetViews=lambda: [])
+                                         GetViews=lambda: [],
+                                         GetTimeKeeper=lambda: types.SimpleNamespace(Time=100, TimestepValues=[25, 50, 75, 100]))
         connection = types.SimpleNamespace(Session=types.SimpleNamespace(GetURI=lambda: 'cs://localhost:11115'))
         self.modules = patch.dict(sys.modules, {'paraview': types.SimpleNamespace(
             simple=self.pvs, servermanager=types.SimpleNamespace(ActiveConnection=connection))})
