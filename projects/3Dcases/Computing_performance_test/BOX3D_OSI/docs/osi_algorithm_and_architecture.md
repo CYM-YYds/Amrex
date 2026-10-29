@@ -394,12 +394,15 @@ twisted(Addr(fab,q,target_phase,i,j,k),q) =
 
 ### 判据打标、建块与覆盖统计
 
-三维 `ErrorEst()` 调用 `state_error_6`，二维调用 `state_error_3`。
-当前三维以 valid 单元的涡量模 W 打标：
+2026-10-29 核对：当前工作树二维/三维 `ErrorEst()` 均调用 `state_error_3`，
+以 valid 单元的涡量模 `vort(...,1) >= lbm.err[lev]` 打标；近壁强制打标代码仍被注释。
+三维选择器为用户未提交修改，本轮 A/B 冻结实验也采用此选择，不能用 HEAD 的选择器解释这些日志。
+
+已提交 HEAD 的三维选择器仍为 `state_error_6`，该备选函数保留在代码中，记 W 为 valid 单元的涡量模，其历史映射为：
 `min(1, log2(W)) >= -2 - (max_ref_level - lev)`，编译期 `max_ref_level=3`，
 所以 level 0→1、1→2 的阈值分别是 0.03125、0.0625。
 运行时 `amr.max_level=2` 限制实际层数，不会改变上述映射；`lbm.err` 数值不参与
-当前三维比较，但其数组长度仍用于 ErrorEst 的层级入口检查。统一层号含义属于待决数值变更。
+`state_error_6` 比较，但其数组长度仍用于 ErrorEst 的层级入口检查。不能把该映射与 `state_error_3` 的阈值直接混用。
 
 AMReX 26.06 在 ErrorEst 后按顺序缓冲 tags、按
 `max(1, blocking_factor[lev+1]/ref_ratio[lev])` 粗化 tags，再执行投影、
@@ -408,6 +411,8 @@ TagBox::coarsen 在每个分组内取最大 tag（CLEAR=0、BUF=1、SET=2），�
 当前 ratio=2：BF32 对应父层 16³ 分组，BF16 对应 8³ 分组；这是标记图的粒度约束，
 不是把流场粗化，也不保证一个原始 tag 单独生成一个细块。
 grid_eff=0.7 约束的是处理后的聚类效率，不保证细网格内 70% 的原始父单元满足涡量判据。
+给定同一套处理后的标签，max_grid_size 在聚类后主要限制盒尺寸；减小它通常只是切分已有覆盖，不自动减少覆盖体积。
+提高 grid_eff 可能减少额外覆盖，但增加盒数、ghost、插值和块间搬运成本，最终应以足够精度下的总成本判断。
 
 `verification.refinement_diagnostics=true`（默认关闭）在缓冲和投影前统计
 实际用于 ErrorEst 的 valid 涡量和原始 tag，含 covered 粗单元、不含 ghost；
@@ -420,7 +425,27 @@ grid_eff=0.7 约束的是处理后的聚类效率，不保证细网格内 70% �
 `F=1-T/C` 以实际覆盖为分母。T=0 时 E 未定义，C=0 时 F 未定义。
 二者是计数指标，不是原始 tag 与最终覆盖的空间集合差，也不证明额外覆盖没有精度收益；
 不跨层直接累加不同分辨率的单元数。实验结果统一见
-[当前交接状态](current_status.md#2026-10-21加密覆盖与续跑终态)。
+[当前交接状态](current_status.md#2026-10-29a5-阈值实验与聚类效率对照)。
+
+### 性能与显存统计口径
+
+`main.cpp` 的 `solv` 是推进周期耗时，`total` 加上重网格及其验证成本；两者均不包含初始化和随后输出文件的耗时。
+累计耗时须累加完整统计窗口，末窗口 MLUPS 不等于全程平均。与论文对照前须核对采样区间和计时范围。
+`ComputeWeightedLatticeUpdatesPerCoarseStep()` 统计按子步加权、扣除细层覆盖的 valid 单元，不含 ghost；
+`collide_level.launch_cells` 是发射范围计数，可能包含 ghost 和 kernel 内提前返回的 covered 内部单元，不能当作实际碰撞单元数。
+碰撞累计秒数同时受工作量和单元成本影响，不能单独反推冗余加密或实现吞吐率。
+
+AMReX 26.06 的主 `CArena` 默认初始预留约设备份额的 75%（可被配置/环境覆盖），
+从空闲表分配数组，释放后通常留在池中复用；空间不足时向设备扩充，默认 hunk 为 8 MiB，大请求取更大值。
+`max space allocated` 是向设备申请的池容量高水位；`max space used` 是已对齐的活动分配总量高水位，
+不是按 8 MiB 档位统计。源码按 MiB 换算后以整数输出，日志虽标 MB，数值实际为 MiB。
+启动预留完成后会清零实际使用峰值计数；主池使用峰值不等于整个 GPU/进程的峰值，也不含主机 pinned 内存。
+
+检查点恢复时 `stored_old`、`canonical` 和 `osi_state` 会暂时并存；相同大网格重启可能产生共同的早期峰值。
+相同峰值不证明后续常驻量相同，也不能仅凭预留池大小解释实际使用峰值相同。
+现有 A 组 grid_eff 日志没有峰值发生时刻，重启阶段主导峰值仍是待定位的解释，不能写成已证实结论。
+来源：[CArena 分配与统计](../../../../../amrex-26.06/Src/Base/AMReX_CArena.cpp)、
+[Arena 初始化](../../../../../amrex-26.06/Src/Base/AMReX_Arena.cpp)及 [ReadCheckpoint](../src/AmrCoreLBM.cpp)。
 
 ### 布局与 phase 的保留/迁移
 

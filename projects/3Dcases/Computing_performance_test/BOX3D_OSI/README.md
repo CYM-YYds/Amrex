@@ -7,13 +7,14 @@
 相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
 [当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
 
-更新时间：2026-10-28。
+更新时间：2026-10-29。
 
 
 ## 二维与三维统一入口
 
-默认三维，现有 `config/inputs`（Re=3200）、三维 `state_error_6` 加密判据、
-监护脚本和历史运行均保留。二维使用 dev 已验证的 `state_error_3` 判据与
+默认三维。2026-10-29 核对的工作树三维输入为 Re=1000，ErrorEst 选择 `state_error_3`；
+该选择器及输入数值属于用户尚未提交的修改，与 HEAD 的历史默认值不同。
+本轮实验复现使用已冻结的程序和输入，见[当前交接状态](docs/current_status.md)。二维使用 `state_error_3` 与
 [config/inputs.2d](config/inputs.2d)（Re=1000）。维度由构建宏唯一决定：
 
 ```bash
@@ -270,8 +271,8 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 [较早的计时开关实验](docs/ai_changes/2026-10-15-osi-optional-detail-timing.md)只代表当时版本。
 
 中心线、收敛和性能图已分别收敛为参数化入口；中心线绘图通过参数指定数据、步数、归一化、
-参考数据和输出路径。ParaView 提取入口仍保留 Re=1000/3200、U_lid=0.05 和按运行目录命名输出的
-专用约定。完整用法见[后处理入口索引](data_post_processing/README.md)。
+参考数据和输出路径。ParaView 提取入口读取运行快照中的 Re 与几何，不限制 Re=1000/3200；
+支持 `--output-dir`，默认 `--lid-velocity=0.05`，提取与参考绘图分开执行。完整用法见[后处理入口索引](data_post_processing/README.md)。
 收敛入口支持日志、已有CSV、受限格式PlotFile；日志仍按绝对step去重，后传入文件覆盖同一步，
 缺少必需采样字段会报错。CSV/PlotFile没有正式状态时不推断已收敛，阈值必须显式给定。
 该示例使用保留的历史CSV，不依赖已缺失的完整历史提交日志。
@@ -375,17 +376,19 @@ OSI/A-B 检查。默认 `periodic`；也可设置 `BOX3D_FIXED_GRID_BOUNDARY`，
 
 ## 当前配置与验证边界
 
-当前三维 `config/inputs`：Re=3200，域长 1，基础网格 `128³`，最高 level=2，
-blocking_factor=16、max_grid_size=128、grid_eff=0.7，regrid 间隔 32；
+当前工作树三维 `config/inputs`：Re=1000，域长 1，基础网格 `128³`，最高 level=2，
+blocking_factor=16、max_grid_size 逐层为 128/256/512（第4项1024未使用）、grid_eff=0.7，regrid 间隔 32；
 `stream_mode=1`、`collide_mode=1`、`interp_mode=0`；OSI 同层通信、插值搬运及接口平均统一使用 direct 路径；
 device-direct 关闭，host-staging 分块为 2 MiB；最多 128000 步，PlotFile 间隔
 12800、checkpoint 间隔 32000，收敛容差为 `1e-4`。`verification.convergence_stop=false` 时仍输出真实收敛判定，
 但不因达标提前退出；设为 true 则恢复达标即停。当前 `WriteOutputsIfNeeded` 实际调用速度与涡量输出，
 密度独立输出调用仍被注释；不能仅按 inputs 中的输出说明推断所有文件都产生。
-这些是配置值与源码行为，不表示长程已经完成。
+这些是工作树配置与源码行为；其中 Re、块尺寸、阈值和三维判据选择器尚未提交。
+冻结 A/B 长跑已完成，但两组末次正式收敛检查均未通过，见[本轮完成记录](docs/ai_changes/2026-10-29-a5-128000-launch.md#完成状态与后处理复核)。
 
-三维使用 `state_error_6`，当前阈值映射仍取编译期最高层号 3，不能把 inputs 的
-`lbm.err` 当作三维实际阈值；机制与覆盖比例定义见
+当前工作树及本轮冻结实验均由 `state_error_3` 比较涡量模与 `lbm.err[lev]`。
+HEAD 中三维原选择器仍是 `state_error_6`；该函数使用编译期层号映射、不读取 `lbm.err` 数值。
+两种判据不能只按阈值倍率与论文等同；机制与覆盖比例定义见
 [加密判据与建块](docs/osi_algorithm_and_architecture.md#判据打标建块与覆盖统计)。
 BF32/BF16 的同起点 3200 步测量均已成功，但先前 BF16 的 32000 步续跑在首次
 PlotFile 写入时失败；完整运行状态、覆盖结果和未解决事项见
@@ -439,6 +442,6 @@ OSI 已移除 canonical 通信、插值搬运与接口平均写回回退。旧�
 值 0 会明确报错；新输入无需设置。插值工作区、完整 valid restriction、
 A-B 参考态和 checkpoint/诊断需要的 canonical 数据仍保留。
 
-本轮更新网格限制后的 A/B 阈值 128000 步实验，以[配置与提交记录](docs/ai_changes/2026-10-29-a5-128000-launch.md)中的冻结输入、运行日志和参考数据为准；不以本页历史概览替代实际配置。
+A/B 阈值 128000 步实验的完成状态、参考精度和后处理边界见[冻结实验记录](docs/ai_changes/2026-10-29-a5-128000-launch.md)。
 
 A 组从 128000 步续跑的 `grid_eff=0.7/0.85/0.9` 对照结果见[网格聚类效率实验记录](docs/ai_changes/2026-10-29-a5-grid-eff-restart.md)。

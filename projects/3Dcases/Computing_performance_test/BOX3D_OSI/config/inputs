@@ -55,8 +55,8 @@ amr.blocking_factor_x = 16  16  16  16
 amr.blocking_factor_y = 16  16  16  16
 amr.blocking_factor_z = 16  16  16  16
 
-# 二维 state_error_3 使用各层涡量阈值；当前三维 state_error_6 不使用这些数值。
-# 仍需保留足够层级项，供 ErrorEst() 的数组长度检查使用；三维判据见 Kernels.H。
+# state_error_3 使用 lbm.err[lev]；state_error_6 使用自身层级映射，不读取该数值。
+# 实际选择以 ErrorEst() 调用为准；数组长度须覆盖层级，判据实现见 Kernels.H。
 lbm.err = 0.64  1.28  2.56  5.12
 
 # OSI 在多层 AMR、多 Fab/MPI、全周期和六面非周期边界下均有实现。
@@ -95,10 +95,10 @@ performance.osi_detail_timing = 0
 
 # =============================================================================
 # 7. PlotFile 输出
-# 每 amr.plot_int 个 coarse step 输出速度、密度、Q 和 Vorticity；
+# 每 amr.plot_int 个 coarse step 输出速度、Q 和 Vorticity；密度独立输出未启用。
 # step 小于 amr.begin_plot 时不输出。
 # =============================================================================
-# 输出相对于本次独立运行目录；速度、密度和涡量文件会共享此前缀。
+# 输出相对于本次独立运行目录；启用的速度和涡量文件共享此前缀。
 amr.plot_file  = plt_
 amr.plot_int   = 12800
 amr.begin_plot = 0
@@ -118,7 +118,7 @@ checkpoint.write_particles = false
 # =============================================================================
 # 9. Level 0 速度场收敛监测
 # trend_int：只输出速度变化趋势，不参与停止判定。
-# check_int：执行正式判定；相对 L2 变化连续 required 次低于 tolerance 后停止。
+# check_int：正式判定相对 L2 变化是否连续 required 次低于 tolerance；是否停止由 convergence_stop 控制。
 # 两个间隔都以本次启动后的步数 step - begin_step 计算。
 # =============================================================================
 verification.convergence_enabled = true
