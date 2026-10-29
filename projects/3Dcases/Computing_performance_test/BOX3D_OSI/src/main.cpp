@@ -320,8 +320,11 @@ void RunSimulation() {
     const int max_step = input.max_step;
     const Real stop_time = input.stop_time;
     std::string ddf_reference_checkpoint;
+    // 收敛监测与提前停止独立，支持固定步数的精度对照。
+    bool stop_on_convergence = true;
     {
         amrex::ParmParse pp_verify("verification");
+        pp_verify.query("convergence_stop", stop_on_convergence);
         pp_verify.query(
             "ddf_reference_checkpoint", ddf_reference_checkpoint);
     }
@@ -403,7 +406,7 @@ void RunSimulation() {
         ReportPerformanceIfNeeded(lid, step, window);
         WriteOutputsIfNeeded(lid, step, cur_time);
 
-        if (converged) {
+        if (converged && stop_on_convergence) {
             amrex::Print() << "CONVERGED step=" << step << '\n';
             break;
         }

@@ -21,6 +21,11 @@ RESTART_CASE="${PROBE_RESTART_CASE:-A}"
 SNAPSHOT_ROOT="${PROBE_SNAPSHOT_ROOT:-}"
 PLOT_INT="${PROBE_PLOT_INT:--1}"
 END_STEP="${PROBE_END_STEP:-3200}"
+CHECKPOINT_INT="${PROBE_CHECKPOINT_INT:-$END_STEP}"
+REPORT_INT="${PROBE_REPORT_INT:-320}"
+CONVERGENCE="${PROBE_CONVERGENCE:-false}"
+CONVERGENCE_STOP="${PROBE_CONVERGENCE_STOP:-true}"
+REFINEMENT_DIAGNOSTICS="${PROBE_REFINEMENT_DIAGNOSTICS:-true}"
 [[ "$END_STEP" =~ ^[1-9][0-9]*$ ]] && (( END_STEP % 128 == 0 )) || {
     echo "PROBE_END_STEP 必须为正整数且为 128 的倍数" >&2; exit 1;
 }
@@ -75,19 +80,21 @@ sha256sum "$OUT/application.ex" "$OUT/inputs" > "$OUT/fingerprints.sha256"
 nvidia-smi > "$OUT/gpu.txt"
 awk 'NF >= 2 {print $1 " slots=" $2}' "${CCS_ALLOC_FILE:?}" > "$OUT/hostfile"
 printf 'case\texit_code\n' > "$OUT/status.tsv"
+export MPLCONFIGDIR="$OUT/mplconfig"
+mkdir -p "$MPLCONFIGDIR"
 printf 'restart_root=%s\nsnapshot=%s\ncases=%s\nbegin_step=%s\nend_step=%s\nplot_int=%s\n' "$RESTART_ROOT" "$SNAPSHOT" "${names[*]}" "$BEGIN_STEP" "$END_STEP" "$PLOT_INT" > "$OUT/stage.txt"
 common=(max_step="$END_STEP" stop_time="$((END_STEP / 128))"
     lbm.reynolds_number=1000 lbm.stream_mode=1 lbm.interp_mode=0
     amr.n_cell=128 128 128 amr.max_level=2 amr.regrid_int=32
-    amr.max_grid_size=128 128 128
     amr.blocking_factor_x=16 16 16 amr.blocking_factor_y=16 16 16 amr.blocking_factor_z=16 16 16
     amr.n_error_buf=1 1 1 amr.grid_eff=0.7
     amr.plot_file=plt_ amr.plot_int="$PLOT_INT" amr.begin_plot=0
-    checkpoint.begin_step="$BEGIN_STEP" checkpoint.chk_int="$END_STEP"
+    checkpoint.begin_step="$BEGIN_STEP" checkpoint.chk_int="$CHECKPOINT_INT"
     checkpoint.chk_prefix=chk checkpoint.keep_latest_only=false
-    verification.convergence_enabled=false verification.refinement_diagnostics=true
+    verification.convergence_enabled="$CONVERGENCE" verification.convergence_stop="$CONVERGENCE_STOP"
+    verification.refinement_diagnostics="$REFINEMENT_DIAGNOSTICS"
     verification.regrid_valid_check=true verification.final_state_check=true
-    performance.report_int=320 performance.osi_detail_timing=0)
+    performance.report_int="$REPORT_INT" performance.osi_detail_timing=0)
 failed=0
 for name in "${names[@]}"; do
     case "$name" in
@@ -103,10 +110,18 @@ for name in "${names[@]}"; do
         ln -s "$RESTART_CHECKPOINT" chk00003200
     fi
     args=("${common[@]}" lbm.err="${thresholds[0]}" "${thresholds[@]:1}")
+    # 复用公共提交入口的覆盖变量，供短回归与正式运行记录额外参数。
+    read -r -a extra_args <<< "${AMREX_RUN_ARGS:-}"
+    args+=("${extra_args[@]}")
+    ln -s ../inputs inputs
+    printf 'case=%s\nprecision=FLOAT\nexecutable=%s\n' "$name" "$OUT/application.ex" > manifest.txt
+    cat "$OUT/fingerprints.sha256" >> manifest.txt
+    printf '%s ' "${args[@]}" > overrides.txt
+    printf '\n' >> overrides.txt
     printf '%q ' "$OUT/application.ex" "$OUT/inputs" "${args[@]}" > command.txt
     printf '\n' >> command.txt
     code=0
-    "$REPO/.venv/bin/python" "$CASE/scripts/guard_run.py" --wall-seconds 1800 -- \
+    "$REPO/.venv/bin/python" "$CASE/scripts/guard_run.py" --wall-seconds "${PROBE_WALL_SECONDS:-1800}" -- \
         mpirun -hostfile "$OUT/hostfile" -n 1 -npernode 1 -x PATH -x LD_LIBRARY_PATH \
         --mca plm_rsh_agent /opt/batch/agent/tools/dstart \
         env -u BASH_ENV bash --noprofile --norc -c \
@@ -114,6 +129,25 @@ for name in "${names[@]}"; do
         bash "$OUT/inputs" "${args[@]}" || code=$?
     printf '%s\t%s\n' "$name" "$code" >> "$OUT/status.tsv"
     echo "case=$name exit=$code output=$OUT/$name"
+    if (( code == 0 )) && [[ "$CONVERGENCE" == true ]]; then
+        "$REPO/.venv/bin/python" "$CASE/data_post_processing/plot_convergence.py" \
+            --log run.log --output convergence.png --title "$name Re=1000 convergence"
+    fi
+    if (( code == 0 )) && [[ "${PROBE_PROFILE:-false}" == true ]]; then
+        # 数据提取和误差绘图继续使用现有入口；失败保留日志，不删除场数据。
+        post_code=0
+        "$REPO/.venv/bin/python" "$CASE/data_post_processing/extract_run_centerline.py" \
+            "$OUT/$name" --backend batch --output-dir "$OUT/$name/profile" > profile.log 2>&1 || post_code=$?
+        if (( post_code == 0 )); then
+            "$REPO/.venv/bin/python" "$CASE/data_post_processing/plot_centerline.py" \
+                --profile "$OUT/$name/profile/centerline.csv" "$name" "$END_STEP" \
+                --height 1 --lid-velocity 0.05 --origin 0 \
+                --reference "${PROBE_REFERENCE:?}" --reference-source 'Jaber Fig.18(a), digitized AMR and Cortes-Miller points' \
+                --title "$name Re=1000 step $END_STEP vs Fig.18(a)" \
+                --output "$OUT/$name/profile/reference_comparison.png" >> profile.log 2>&1 || post_code=$?
+        fi
+        printf '%s\n' "$post_code" > profile_exit_code.txt
+    fi
     if (( code != 0 )); then failed=1; fi
 done
 exit "$failed"

@@ -379,7 +379,8 @@ OSI/A-B 检查。默认 `periodic`；也可设置 `BOX3D_FIXED_GRID_BOUNDARY`，
 blocking_factor=16、max_grid_size=128、grid_eff=0.7，regrid 间隔 32；
 `stream_mode=1`、`collide_mode=1`、`interp_mode=0`；OSI 同层通信、插值搬运及接口平均统一使用 direct 路径；
 device-direct 关闭，host-staging 分块为 2 MiB；最多 128000 步，PlotFile 间隔
-3200、checkpoint 间隔 32000，收敛容差为 `1e-4`。当前 `WriteOutputsIfNeeded` 实际调用速度与涡量输出，
+12800、checkpoint 间隔 32000，收敛容差为 `1e-4`。`verification.convergence_stop=false` 时仍输出真实收敛判定，
+但不因达标提前退出；设为 true 则恢复达标即停。当前 `WriteOutputsIfNeeded` 实际调用速度与涡量输出，
 密度独立输出调用仍被注释；不能仅按 inputs 中的输出说明推断所有文件都产生。
 这些是配置值与源码行为，不表示长程已经完成。
 
@@ -437,3 +438,5 @@ OSI 已移除 canonical 通信、插值搬运与接口平均写回回退。旧�
 `osi_local_direct`、`osi_parallel_copy`、`osi_mpi_direct` 参数可暂时接受值 1，
 值 0 会明确报错；新输入无需设置。插值工作区、完整 valid restriction、
 A-B 参考态和 checkpoint/诊断需要的 canonical 数据仍保留。
+
+本轮更新网格限制后的 A/B 阈值 128000 步实验，以[配置与提交记录](docs/ai_changes/2026-10-29-a5-128000-launch.md)中的冻结输入、运行日志和参考数据为准；不以本页历史概览替代实际配置。
