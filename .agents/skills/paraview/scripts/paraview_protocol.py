@@ -7,6 +7,7 @@ DEFAULT_BRIDGE_ROOT = '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-brid
 # 客户端能力由本表派生，运行层的实际分发仍由回归检查。
 BRIDGE_ACTIONS = {
     'inspect': {},
+    'disable_fxaa': {'optional': ('view_id',)},
     'background': {},
     'restore_background': {},
     'export_centerline': {'required': ('input', 'output'),

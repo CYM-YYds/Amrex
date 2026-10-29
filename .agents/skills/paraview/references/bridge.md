@@ -61,6 +61,20 @@ PS1 本身更新后须重新下载，它不会更新自身；正常启动时会�
 `/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-bridge/` 对应 `session-UUID` 中
 核对 `command.json` 与同 ID 的 `result.json`，不能盲目重发。
 
+## FXAA 渲染警告
+
+出现 `vtkOpenGLFXAAFilter` 无法取得 shader program 的警告时，先用 `inspect` 查看各视图
+`fxaa.proxy`、`fxaa.client_view` 与 `fxaa.renderers`。这些是当前实际状态，不仅是代理属性。
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current disable_fxaa --timeout 180
+```
+
+可用 `--view-id '<ID>'` 限定一个视图，省略则处理当前全部 RenderView。操作关闭代理、客户端
+视图及实际主/叠加 renderer 的 FXAA，逐个重绘并回传前后状态与本次客户端渲染的新消息；
+临时消息收集器在成功或异常后均恢复。保留连接、数据、相机和显示对象，不清空历史错误。
+新建视图仍可能使用默认开启设置；本操作不修改全局首选项，也不解决显卡驱动或 shader 编译根因。
+
 ## 常用操作
 
 ```bash

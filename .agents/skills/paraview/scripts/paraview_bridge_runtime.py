@@ -16,11 +16,11 @@ from types import SimpleNamespace
 from paraview import simple as pvs
 from paraview_protocol import DEFAULT_BRIDGE_ROOT, CAPABILITIES
 from paraview_operations import (AMR_CELL_VORTICITY_SCRIPT, export_centerline,
-                                 add_vorticity_view, repair_vorticity_slice, update_background)
+                                 add_vorticity_view, repair_vorticity_slice, update_background, render_diagnostics, disable_fxaa)
 from paraview_publication import publication_vorticity, add_axis_title_view, align_publication
 
 
-BRIDGE_VERSION = '19'
+BRIDGE_VERSION = '20'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 
@@ -28,7 +28,7 @@ REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.a
 
 # 经操作层执行的动作；inspect、背景与热更新由运行层自身处理。
 # 与 CAPABILITIES 的一致性由 test_action_registry 保证。
-OPERATIONS = {'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
+OPERATIONS = {'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
               'repair_vorticity_slice': repair_vorticity_slice,
               'publication_vorticity': publication_vorticity,
               'add_axis_title_view': add_axis_title_view,
@@ -109,6 +109,7 @@ def inspect_state(source_sha256):
             'views': [v.GetXMLName() for v in pvs.GetViews()],
             'view_details': [
                 {'id': v.GetGlobalIDAsString(), 'size': list(v.ViewSize),
+                 'fxaa': render_diagnostics(v),
                  'visible_sources': [r.GetProperty('Input').SMProperty.GetProxy(0).GetGlobalIDAsString()
                                      for r in v.Representations if r.GetProperty('Input')
                                      and r.GetProperty('Input').SMProperty.GetNumberOfProxies() and r.Visibility]}

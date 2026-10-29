@@ -320,3 +320,51 @@ def update_background(command, backgrounds):
         del backgrounds[key]
     pvs.Render(view)
     return {'view': key, 'background': list(view.Background)}
+
+
+def render_diagnostics(view):
+    """分别读取代理、客户端视图与实际 renderer 的 FXAA 状态。"""
+    client = view.GetClientSideObject()
+    renderers = []
+    for role, method in [('main', 'GetRenderer'), ('overlay', 'GetNonCompositedRenderer')]:
+        renderer = getattr(client, method)() if client is not None and hasattr(client, method) else None
+        if renderer is not None and hasattr(renderer, 'GetUseFXAA'):
+            renderers.append({'role': role, 'use_fxaa': bool(renderer.GetUseFXAA())})
+    return {'proxy': int(view.UseFXAA) if view.GetProperty('UseFXAA') is not None else None,
+            'client_view': bool(client.GetUseFXAA()) if client is not None and hasattr(client, 'GetUseFXAA') else None,
+            'renderers': renderers}
+
+
+def disable_fxaa(command):
+    """只关闭现有视图的抗锯齿，保留管线、相机及显示对象。"""
+    from vtkmodules.vtkCommonCore import vtkOutputWindow, vtkStringOutputWindow
+    views = [v for v in pvs.GetViews() if v.GetXMLName() == 'RenderView'
+             and (not command.get('view_id') or v.GetGlobalIDAsString() == command['view_id'])]
+    if not views:
+        raise ValueError('No matching RenderView')
+    result = []
+    for view in views:
+        before = render_diagnostics(view)
+        if view.GetProperty('UseFXAA') is not None:
+            view.UseFXAA = 0
+            view.UpdateVTKObjects()
+        client = view.GetClientSideObject()
+        if client is not None and hasattr(client, 'SetUseFXAA'):
+            client.SetUseFXAA(False)
+        for method in ('GetRenderer', 'GetNonCompositedRenderer'):
+            renderer = getattr(client, method)() if client is not None and hasattr(client, method) else None
+            if renderer is not None and hasattr(renderer, 'SetUseFXAA'):
+                renderer.SetUseFXAA(False)
+        # 仅捕获本次客户端重绘的新消息，结束后恢复 GUI 原有输出窗口。
+        previous = vtkOutputWindow.GetInstance()
+        capture = vtkStringOutputWindow()
+        vtkOutputWindow.SetInstance(capture)
+        try:
+            pvs.Render(view)
+            messages = capture.GetOutput()
+        finally:
+            vtkOutputWindow.SetInstance(previous)
+        result.append({'view': view.GetGlobalIDAsString(), 'before': before,
+                       'after': render_diagnostics(view), 'render_messages': messages,
+                       'fxaa_warning_seen': 'vtkOpenGLFXAAFilter' in messages})
+    return {'views': result}
