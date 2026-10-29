@@ -18,10 +18,17 @@ module load mpi/hmpi/1.2.0_bs2.4.0_sp1 compilers/cuda/12.8.0 compilers/gcc/11.3.
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REPO_DIR="$(git -C "$CASE_DIR" rev-parse --show-toplevel)"
 EXP="$CASE_DIR/runs/temporary/uniform_dispatch/round1"
+if [[ ${UNIFORM_KERNEL_EXPERIMENT:-0} == 1 ]]; then
+    EXP="$CASE_DIR/runs/temporary/uniform_kernels/round1"
+fi
 OUT="$EXP/job${CCS_JOB_ID:?}"
 mkdir "$OUT"
 cp "$0" "$OUT/submit.sh"
 cp "$CASE_DIR/scripts/temporary/analyze_uniform_dispatch.py" "$OUT/analyze.py"
+if [[ ${UNIFORM_KERNEL_EXPERIMENT:-0} == 1 ]]; then
+    cp "$CASE_DIR/scripts/temporary/analyze_uniform_dispatch.py" "$OUT/analyze_uniform_dispatch.py"
+    cp "$CASE_DIR/scripts/temporary/analyze_uniform_kernels.py" "$OUT/analyze.py"
+fi
 source "$CASE_DIR/scripts/osi_experiment_common.sh"
 export -f osi_launch_mpi
 osi_write_hostfile "$OUT/hostfile"
@@ -54,6 +61,51 @@ run() {
     echo "UNIFORM_CASE $name exit=$code"
     [[ "$code" == 0 ]]
 }
+if [[ ${UNIFORM_KERNEL_EXPERIMENT:-0} == 1 ]]; then
+    common+=(amr.n_cell=64 64 64 amr.regrid_int=0)
+    for ranks in 1 2; do
+        for storage in 0 1; do
+            for boundary in cavity periodic; do
+                domain=(0 0 0)
+                [[ "$boundary" == periodic ]] && domain=(1 1 1)
+                name="check_r${ranks}_s${storage}_${boundary}"
+                for variant in baseline sync nomask; do
+                    extra=(checkpoint.chk_int=32)
+                    if [[ "$variant" != baseline ]]; then
+                        extra=(verification.ddf_reference_checkpoint="$OUT/${name}_baseline/chk00000064")
+                    fi
+                    run "${name}_${variant}" "$ranks" "$EXP/$variant.ex" lbm.stream_mode="$storage" \
+                        geometry.is_periodic="${domain[@]}" "${extra[@]}"
+                done
+            done
+        done
+    done
+    for variant in sync nomask; do
+        run "hooks_$variant" 2 "$EXP/$variant.ex" max_step=16 verification.osi_ab_check=true \
+            verification.osi_ab_continue_on_mismatch=false verification.osi_step_entry_check_interval=1 \
+            geometry.is_periodic=1 1 1
+        run "restart_$variant" 1 "$EXP/$variant.ex" checkpoint.begin_step=32 \
+            checkpoint.chk_prefix="$OUT/check_r1_s1_cavity_baseline/chk" \
+            verification.ddf_reference_checkpoint="$OUT/check_r1_s1_cavity_baseline/chk00000064"
+    done
+    "$REPO_DIR/.venv/bin/python" "$OUT/analyze.py" "$OUT" --checks-only
+    # 三种程序分别计时，不运行叠加候选；六种顺序各一次，均用同节点共享基线配对。
+    orders=('baseline sync nomask' 'nomask sync baseline' 'sync baseline nomask'
+            'nomask baseline sync' 'sync nomask baseline' 'baseline nomask sync')
+    for spec in '128 128 1' '128 32 1' '256 128 1' '128 32 2'; do
+        read -r cells box ranks <<< "$spec"
+        for block in 1 2 3 4 5 6; do
+            read -ra variants <<< "${orders[$((block-1))]}"
+            for variant in "${variants[@]}"; do
+                run "perf_n${cells}_b${box}_r${ranks}_p${block}_${variant}" "$ranks" "$EXP/$variant.ex" \
+                    max_step=1200 amr.n_cell="$cells" "$cells" "$cells" amr.max_grid_size="$box" \
+                    performance.report_int=200 verification.final_state_check=false
+            done
+        done
+    done
+    "$REPO_DIR/.venv/bin/python" "$OUT/analyze.py" "$OUT"
+    exit 0
+fi
 if [[ -n ${UNIFORM_CHECKS_FROM:-} ]]; then
     # 只复用已通过的独立数值组；失败AMR组重跑，计时一律在本作业内重新执行。
     previous="$EXP/job${UNIFORM_CHECKS_FROM}"
