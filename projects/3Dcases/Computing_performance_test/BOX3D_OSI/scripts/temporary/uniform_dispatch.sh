@@ -69,39 +69,42 @@ run() {
     [[ "$code" == 0 ]]
 }
 if [[ ${UNIFORM_SAMPLING_EXPERIMENT:-0} == 1 ]]; then
-    common+=(amr.n_cell=64 64 64 amr.regrid_int=0 performance.uniform_sample_int=0)
+    common+=(amr.n_cell=64 64 64 amr.regrid_int=0)
     for spec in '64 1 0' '16 1 0' '16 1 1' '16 2 0'; do
         read -r box ranks periodic <<< "$spec"
         name="check_b${box}_r${ranks}_p${periodic}"
-        run "${name}_off" "$ranks" "$EXP/candidate.ex" amr.max_grid_size="$box" \
+        run "${name}_off" "$ranks" "$EXP/baseline.ex" amr.max_grid_size="$box" \
             geometry.is_periodic="$periodic" "$periodic" "$periodic" checkpoint.chk_int=64
         run "${name}_on" "$ranks" "$EXP/candidate.ex" amr.max_grid_size="$box" \
-            geometry.is_periodic="$periodic" "$periodic" "$periodic" performance.uniform_sample_int=1 \
+            geometry.is_periodic="$periodic" "$periodic" "$periodic" \
             verification.ddf_reference_checkpoint="$OUT/${name}_off/chk00000064"
     done
-    run interval7 1 "$EXP/candidate.ex" performance.uniform_sample_int=7
+    run interval7 1 "$EXP/candidate.ex" performance.report_int=7
     run restart_sample 1 "$EXP/candidate.ex" checkpoint.begin_step=64 max_step=128 \
-        checkpoint.chk_prefix="$OUT/check_b64_r1_p0_off/chk" performance.uniform_sample_int=7 \
-        performance.report_int=32
+        checkpoint.chk_prefix="$OUT/check_b64_r1_p0_off/chk" performance.report_int=7
     for variant in off on; do
-        extra=(checkpoint.chk_int=40 performance.uniform_sample_int=0)
+        extra=(checkpoint.chk_int=40)
+        executable="$EXP/baseline.ex"
         if [[ "$variant" == on ]]; then
-            extra=(performance.uniform_sample_int=1 verification.ddf_reference_checkpoint="$OUT/amr_off/chk00000040")
+            executable="$EXP/candidate.ex"
+            extra=(verification.ddf_reference_checkpoint="$OUT/amr_off/chk00000040")
         fi
-        run "amr_$variant" 1 "$EXP/candidate.ex" max_step=40 amr.max_level=1 amr.plot_int=40 \
+        run "amr_$variant" 1 "$executable" max_step=40 amr.max_level=1 amr.plot_int=40 \
             amr.max_grid_size=32 32 amr.blocking_factor_x=8 8 amr.blocking_factor_y=8 8 \
             amr.blocking_factor_z=8 8 amr.regrid_int=8 verification.regrid_fixture=true "${extra[@]}"
     done
-    run hooks_sample 1 "$EXP/candidate.ex" max_step=16 performance.uniform_sample_int=1 \
+    run hooks_sample 1 "$EXP/candidate.ex" max_step=16 \
         performance.report_int=8 verification.osi_ab_check=true verification.osi_ab_continue_on_mismatch=false \
         verification.osi_step_entry_check_interval=1 geometry.is_periodic=1 1 1
     for cells in 128 256; do
         for pair in 1 2 3; do
-            order=(0 100); (( pair % 2 == 0 )) && order=(100 0)
-            for interval in "${order[@]}"; do
-                run "perf_n${cells}_p${pair}_i${interval}" 1 "$EXP/candidate.ex" max_step=1200 \
+            order=(base new); (( pair % 2 == 0 )) && order=(new base)
+            for variant in "${order[@]}"; do
+                executable="$EXP/baseline.ex"
+                [[ "$variant" == new ]] && executable="$EXP/candidate.ex"
+                run "perf_n${cells}_p${pair}_${variant}" 1 "$executable" max_step=1200 \
                     amr.n_cell="$cells" "$cells" "$cells" amr.max_grid_size="$cells" \
-                    performance.report_int=200 performance.uniform_sample_int="$interval" \
+                    performance.report_int=200 \
                     verification.final_state_check=false verification.osi_seed_pattern=false
             done
         done

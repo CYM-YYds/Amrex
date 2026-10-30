@@ -191,10 +191,13 @@ OSI 相位和数值核继续共用现有机制。`performance.uniform_grid_path=
 各开关可独立设为0做对照；完整恢复原调度与核选择需将上述两项及 `uniform_grid_path` 都设为0。
 接入范围与组合回归见[同步与无mask接入记录](docs/ai_changes/2026-10-29-uniform-kernels-integration.md)。
 
-均匀网格异步采样使用 `performance.uniform_sample_int=N`，默认0关闭；例如100表示本次启动后
-每100次level-0推进采样一次，与绝对步数和性能窗口清零无关。当前只支持CUDA、单MPI rank、
-`max_level=0`、OSI且减少同步实际生效的路径；其他配置输出`eligible=0 samples=0`，不会偷偷改变同步策略。
-开启后每个性能窗口增加两行**样本累计秒数**（未采样步不外推，除以`samples`才是采样步平均）：
+均匀网格异步阶段计时复用 `performance.report_int`，不另设采样参数。
+例如1000表示在绝对coarse step为1000、2000等报告步各采样一次，并随该窗口输出两行。
+restart也按绝对步数对齐；不足一个报告周期的尾段不额外采样或输出。
+当前只支持CUDA、单MPI rank、`max_level=0`、OSI且减少同步实际生效的路径；
+其他配置输出`eligible=0 samples=0`，不会改变同步策略。
+`samples=1`表示**报告步的单步样本**，不是整个窗口的阶段平均或累计耗时；
+原有`perf(s)`和MLUPS仍统计完整窗口，两类数据不能混用。
 
 | 日志 | 字段与含义 |
 |---|---|
@@ -204,7 +207,7 @@ OSI 相位和数值核继续共用现有机制。`performance.uniform_grid_path=
 
 GPU事件池由求解器拥有，首次采样按所需任务数创建，之后复用；MFIter依赖和步末等待不变，
 所有事件在原有等待后查询，不添加计时专用同步。首次事件创建与各次事件记录会有测量开销，
-评估时需同节点交替开关对照并排除首窗。GPU事件区间可能包含排队后的stream空隙及启动延迟，
+评估其开销时需使用无采样基线在同节点交替对照并排除首窗。GPU事件区间可能包含排队后的stream空隙及启动延迟，
 不是Nsight意义上的纯kernel活跃时间；多stream的`collide_sum`也不是关键路径墙钟。
 CPU等待与GPU执行重叠，两行不能相加，`collide_finalize`也不能当成独立于GPU计算的额外浪费。
 周期域无物理边界任务时，边界事件仍可能记录空事件区间/CPU间隙，不表示存在边界kernel。

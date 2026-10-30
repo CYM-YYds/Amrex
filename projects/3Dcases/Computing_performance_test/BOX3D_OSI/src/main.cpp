@@ -276,13 +276,13 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
                   << " boundary_launch_cells=" << perf.boundary_launch_cells
                   << std::endl;
 
-        if (lid.params().uniform_sample_int > 0) {
+        {
             const auto& sample = perf.uniform_sample;
             // 两种视角分行输出：GPU区间与CPU等待有重叠，禁止跨行相加。
             std::cout << "step" << step << " uniform_sample_gpu(s): rank="
                       << amrex::ParallelDescriptor::MyProc()
                       << " eligible=" << lid.uniformSampleEligible()
-                      << " interval=" << lid.params().uniform_sample_int
+                      << " interval=" << lid.params().perf_report_int
                       << " samples=" << sample.samples
                       << " collide_sum=" << sample.gpu_collide_sum
                       << " phase=" << sample.gpu_phase

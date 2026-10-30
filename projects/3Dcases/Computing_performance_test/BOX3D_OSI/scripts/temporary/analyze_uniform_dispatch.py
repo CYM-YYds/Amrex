@@ -104,9 +104,11 @@ def analyze_sampling(root):
             if int(g['samples']):
                 assert all(float(g[k]) > 0 for k in ['collide_sum', 'phase']), g
         if status['case'] in ['interval7', 'restart_sample']:
-            assert [int(g['samples']) for g in gpu] == [4, 5], gpu
+            assert [int(g['samples']) for g in gpu] == [1]*9, gpu
+            reported = [int(step) for step in re.findall(r'^step(\d+) uniform_sample_gpu', log, re.M)]
+            assert reported == (list(range(7, 64, 7)) if status['case'] == 'interval7' else list(range(70, 129, 7))), reported
         if status['case'].endswith('_on') and 'r2' not in status['case'] and not status['case'].startswith('amr'):
-            assert [int(g['samples']) for g in gpu] == [32, 32], gpu
+            assert [int(g['samples']) for g in gpu] == [1, 1], gpu
         if 'r2' in status['case'] or status['case'] in ['amr_on', 'hooks_sample']:
             if status['case'].endswith('_off'):
                 assert not gpu
@@ -122,18 +124,18 @@ def analyze_sampling(root):
         deltas = []
         measurements = []
         for pair in [1, 2, 3]:
-            off_result = timing(root / f'perf_n{cells}_p{pair}_i0', 1)
-            on_result = timing(root / f'perf_n{cells}_p{pair}_i100', 1)
+            off_result = timing(root / f'perf_n{cells}_p{pair}_base', 1)
+            on_result = timing(root / f'perf_n{cells}_p{pair}_new', 1)
             assert off_result['work'] == on_result['work']
             off, on = off_result['total'], on_result['total']
             deltas.append((on/off-1)*100)
-            log = (root / f'perf_n{cells}_p{pair}_i100/run.log').read_text()
+            log = (root / f'perf_n{cells}_p{pair}_new/run.log').read_text()
             # 排除首200步；各行是窗口内样本累计秒数，除以样本数得到采样步平均。
             for kind in ['gpu', 'cpu']:
                 rows = [fields(line) for step, line in re.findall(
                     rf'^step(\d+) uniform_sample_{kind}\(s\): (.+)$', log, re.M) if int(step) > 200]
                 count = sum(int(row['samples']) for row in rows)
-                assert count == 10, count
+                assert count == 5, count
                 measurements.append({'pair': pair, 'kind': kind, 'samples': count,
                     'ms_per_sample': {k: sum(float(row[k]) for row in rows)/count*1000
                      for k in rows[0] if k not in ['rank', 'eligible', 'interval', 'samples']}})
@@ -141,7 +143,7 @@ def analyze_sampling(root):
                         'median_change_pct': statistics.median(deltas), 'measurements': measurements})
     summary = {'runs': len(statuses), 'checkpoint_comparisons': comparisons,
                'zero_norms': True, 'node': (root/'node.txt').read_text().strip(),
-               'timing': results, 'scope': 'steps 201-1200; 3 alternating pairs; same executable/node; interval=100 vs disabled'}
+               'timing': results, 'scope': 'steps 201-1200; 3 alternating pairs; same node; report-step sampling vs frozen no-sampling executable; report_int=200'}
     (root/'sampling_summary.json').write_text(json.dumps(summary, indent=2)+'\n')
     print(json.dumps(summary, indent=2))
 

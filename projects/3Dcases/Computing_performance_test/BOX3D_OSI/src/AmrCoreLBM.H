@@ -215,7 +215,6 @@ class AmrCoreLBM : public amrex::AmrCore {
         int plot_int = -1;
         int begin_plot = 0;
         int perf_report_int = 1000;
-        int uniform_sample_int = 0; // 0关闭；每N次本次启动后的level-0推进采样一次。
         bool perf_osi_detail_timing = true; // OSI 嵌套细分计时会引入额外同步。
         bool uniform_reduce_sync = true; // 固定单层合并阶段等待，保留步末同步。
         bool uniform_nomask_collision = true; // 固定单层使用编译期无 mask 碰撞核。

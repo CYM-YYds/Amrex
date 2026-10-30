@@ -311,9 +311,9 @@ void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
 }
 
 void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
-    const bool sample = params_.uniform_sample_int > 0 && uniformSampleEligible() &&
-                        lev == 0 && layout == DdfLayout::Osi &&
-                        probe_.coarse_advance_count % params_.uniform_sample_int == 0;
+    // 与main的报告条件同用绝对coarse step；restart首个不完整窗口也在报告步采样。
+    const bool sample = uniformSampleEligible() && lev == 0 && layout == DdfLayout::Osi &&
+                        (params_.begin_step + probe_.coarse_advance_count) % params_.perf_report_int == 0;
     uniform_sample_active = sample;
     if (sample) { uniform_gpu_events.reset(); }
     const double sample_start = sample ? amrex::second() : 0.0;
