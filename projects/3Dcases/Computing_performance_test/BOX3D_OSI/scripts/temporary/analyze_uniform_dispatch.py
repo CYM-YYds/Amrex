@@ -75,11 +75,86 @@ def timing(folder, ranks):
     return {'total': total, 'solver': solver, 'work': work}
 
 
+def analyze_sampling(root):
+    """本轮事件采样验证：检查完成、逐值对照、窗口归属、CPU分账及开销。"""
+    statuses = list(csv.DictReader((root / 'status.tsv').open(), delimiter='\t'))
+    comparisons = 0
+    for status in statuses:
+        folder = root / status['case']
+        assert status['exit_code'] == '0', status
+        assert json.loads((folder / 'exit_status.json').read_text())['exit_code'] == 0
+        log = (folder / 'run.log').read_text()
+        assert 'AMReX (26.06) finalized' in log
+        norms = re.findall(r'^ddf_cell_norm_level: (.+)$', log, re.M)
+        for line in norms:
+            d = fields(line)
+            for key in ['valid_linf', 'valid_l1', 'valid_l2', 'active_linf', 'active_l1', 'active_l2']:
+                assert float(d[key]) == 0 and math.isfinite(float(d[key])), (folder, d)
+        comparisons += bool(norms)
+        gpu = [fields(l) for l in log.splitlines() if 'uniform_sample_gpu(s):' in l]
+        cpu = [fields(l) for l in log.splitlines() if 'uniform_sample_cpu(s):' in l]
+        assert len(gpu) == len(cpu)
+        for g, h in zip(gpu, cpu):
+            assert g['samples'] == h['samples']
+            for values in [g, h]:
+                assert all(math.isfinite(float(v)) and float(v) >= 0 for v in values.values())
+            exclusive = sum(float(h[k]) for k in ['collide_submit', 'collide_finalize', 'comm',
+                'phase_submit', 'boundary_submit', 'step_wait', 'other'])
+            assert math.isclose(exclusive, float(h['step']), rel_tol=2e-8, abs_tol=1e-9), h
+            if int(g['samples']):
+                assert all(float(g[k]) > 0 for k in ['collide_sum', 'phase']), g
+        if status['case'] in ['interval7', 'restart_sample']:
+            assert [int(g['samples']) for g in gpu] == [4, 5], gpu
+        if status['case'].endswith('_on') and 'r2' not in status['case'] and not status['case'].startswith('amr'):
+            assert [int(g['samples']) for g in gpu] == [32, 32], gpu
+        if 'r2' in status['case'] or status['case'] in ['amr_on', 'hooks_sample']:
+            if status['case'].endswith('_off'):
+                assert not gpu
+            else:
+                assert gpu and all(g['eligible'] == '0' and g['samples'] == '0' for g in gpu)
+    assert comparisons == 5, comparisons
+    assert 'AMR_LIFECYCLE MakeNewLevelFromCoarse level=1' in (root / 'amr_on/run.log').read_text()
+    hooks = (root / 'hooks_sample/run.log').read_text()
+    assert 'stage=StepEntryUncovered' in hooks
+    assert not re.search(r'mismatches=[1-9]|(?:^|\s)finite=0', hooks)
+    results = []
+    for cells in [128, 256]:
+        deltas = []
+        measurements = []
+        for pair in [1, 2, 3]:
+            off_result = timing(root / f'perf_n{cells}_p{pair}_i0', 1)
+            on_result = timing(root / f'perf_n{cells}_p{pair}_i100', 1)
+            assert off_result['work'] == on_result['work']
+            off, on = off_result['total'], on_result['total']
+            deltas.append((on/off-1)*100)
+            log = (root / f'perf_n{cells}_p{pair}_i100/run.log').read_text()
+            # 排除首200步；各行是窗口内样本累计秒数，除以样本数得到采样步平均。
+            for kind in ['gpu', 'cpu']:
+                rows = [fields(line) for step, line in re.findall(
+                    rf'^step(\d+) uniform_sample_{kind}\(s\): (.+)$', log, re.M) if int(step) > 200]
+                count = sum(int(row['samples']) for row in rows)
+                assert count == 10, count
+                measurements.append({'pair': pair, 'kind': kind, 'samples': count,
+                    'ms_per_sample': {k: sum(float(row[k]) for row in rows)/count*1000
+                     for k in rows[0] if k not in ['rank', 'eligible', 'interval', 'samples']}})
+        results.append({'cells': cells, 'change_pct': deltas,
+                        'median_change_pct': statistics.median(deltas), 'measurements': measurements})
+    summary = {'runs': len(statuses), 'checkpoint_comparisons': comparisons,
+               'zero_norms': True, 'node': (root/'node.txt').read_text().strip(),
+               'timing': results, 'scope': 'steps 201-1200; 3 alternating pairs; same executable/node; interval=100 vs disabled'}
+    (root/'sampling_summary.json').write_text(json.dumps(summary, indent=2)+'\n')
+    print(json.dumps(summary, indent=2))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('root', type=Path)
     parser.add_argument('--checks-only', action='store_true')
+    parser.add_argument("--sampling", action="store_true")
     args = parser.parse_args()
+    if args.sampling:
+        analyze_sampling(args.root)
+        return
     root = args.root
     checks = validate(root)
     (root / 'checks.json').write_text(json.dumps(checks, indent=2) + '\n')

@@ -320,6 +320,9 @@ void AmrCoreLBM::ReadParameters() {
     {
         ParmParse pp_performance("performance");
         pp_performance.query("report_int", params_.perf_report_int);
+        pp_performance.query("uniform_sample_int", params_.uniform_sample_int);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params_.uniform_sample_int >= 0,
+                                        "performance.uniform_sample_int must be non-negative");
         pp_performance.query("osi_detail_timing", params_.perf_osi_detail_timing);
         pp_performance.query("uniform_reduce_sync", params_.uniform_reduce_sync);
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(

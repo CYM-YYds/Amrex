@@ -311,6 +311,15 @@ void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
 }
 
 void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
+    const bool sample = params_.uniform_sample_int > 0 && uniformSampleEligible() &&
+                        lev == 0 && layout == DdfLayout::Osi &&
+                        probe_.coarse_advance_count % params_.uniform_sample_int == 0;
+    uniform_sample_active = sample;
+    if (sample) { uniform_gpu_events.reset(); }
+    const double sample_start = sample ? amrex::second() : 0.0;
+    auto& timing = perf_stats.uniform_sample;
+    const double finalize_before = timing.cpu_collide_finalize;
+    double collide_cpu = 0.0, comm_cpu = 0.0, phase_cpu = 0.0, boundary_cpu = 0.0;
     // 生产推进只执行一次布局；锁步检测由 AdvanceLevel 显式编排两次布局。
     if (layout == DdfLayout::Osi && osi_collide_comm_overlap &&
         osi_fillboundary_cache.at(lev).overlap_collision) {
@@ -318,15 +327,49 @@ void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
         ScopedPerfTimer comm_timer(perf_stats.comm, !useUniformReducedSync());
         FillBoundaryOsi(lev, [&]() { Collide(lev, nghost, layout, 0); });
     } else {
+        const double begin = sample ? amrex::second() : 0.0;
         Collide(lev, nghost, layout);
+        const double collided = sample ? amrex::second() : 0.0;
         CommunicateLevel(lev, layout);
+        if (sample) {
+            collide_cpu = collided - begin;
+            comm_cpu = amrex::second() - collided;
+        }
     }
+    const double phase_start = sample ? amrex::second() : 0.0;
+    const auto phase_event = sample ? uniform_gpu_events.begin(UniformGpuEvents::Phase) : 0;
     Stream(lev, nghost, layout);
+    if (sample) { uniform_gpu_events.end(phase_event); }
+    const double boundary_start = sample ? amrex::second() : 0.0;
+    const auto boundary_event = sample ? uniform_gpu_events.begin(UniformGpuEvents::Boundary) : 0;
     Boundary(lev, layout);
+    if (sample) { uniform_gpu_events.end(boundary_event); }
+    const double wait_start = sample ? amrex::second() : 0.0;
     if (useUniformReducedSync()) {
         // phase、本地复制和边界在默认 stream 有序执行，步末等待覆盖它们。
         amrex::Gpu::streamSynchronize();
     }
+    if (sample) {
+        const double completed = amrex::second();
+        phase_cpu = boundary_start - phase_start;
+        boundary_cpu = wait_start - boundary_start;
+        const double wait = completed - wait_start;
+        const double step = completed - sample_start;
+        const auto gpu = uniform_gpu_events.seconds();
+        ++timing.samples;
+        timing.gpu_collide_sum += gpu[UniformGpuEvents::Collision];
+        timing.gpu_phase += gpu[UniformGpuEvents::Phase];
+        timing.gpu_boundary += gpu[UniformGpuEvents::Boundary];
+        timing.cpu_collide_submit += collide_cpu - (timing.cpu_collide_finalize - finalize_before);
+        timing.cpu_comm += comm_cpu;
+        timing.cpu_phase_submit += phase_cpu;
+        timing.cpu_boundary_submit += boundary_cpu;
+        timing.cpu_step_wait += wait;
+        timing.cpu_step += step;
+        timing.cpu_other += step - collide_cpu - comm_cpu - phase_cpu - boundary_cpu - wait;
+        timing.cpu_collect += amrex::second() - completed;
+    }
+    uniform_sample_active = false;
 }
 
 void AmrCoreLBM::AdvanceLevel(int lev) {
@@ -497,7 +540,10 @@ void AmrCoreLBM::CollideLayoutLevel(int lev, int n, DdfLayout layout, int send_s
     if (send_subset == 0) {
         collision_info.DisableDeviceSync().UseDefaultStream();
     }
-    for (MFIter mfi(state_lev, collision_info); mfi.isValid(); ++mfi) {
+    double finalize_start = 0.0;
+    {
+    MFIter mfi(state_lev, collision_info);
+    for (; mfi.isValid(); ++mfi) {
         if (send_subset >= 0 &&
             osi_fillboundary_cache.at(lev).send_fabs.at(mfi.index()) != send_subset) {
             continue;
@@ -521,6 +567,8 @@ void AmrCoreLBM::CollideLayoutLevel(int lev, int n, DdfLayout layout, int send_s
             has_fine_level ? interface_mask[lev].const_array(mfi)
                            : Array4<const int>{};
 
+        const auto collision_event = uniform_sample_active
+            ? uniform_gpu_events.begin(UniformGpuEvents::Collision) : 0;
         // host 侧编译期分派使无 mask 闭包不捕获掩码参数；碰撞公式仍共用。
         if constexpr (!UseMask) {
             if (use_osi) {
@@ -573,6 +621,13 @@ void AmrCoreLBM::CollideLayoutLevel(int lev, int n, DdfLayout layout, int send_s
                     });
             }
         }
+        if (uniform_sample_active) { uniform_gpu_events.end(collision_event); }
+    }
+    // MFIter析构保持原有多stream等待；这里只包围它计时，不另加等待。
+    if (uniform_sample_active) { finalize_start = amrex::second(); }
+    }
+    if (uniform_sample_active) {
+        perf_stats.uniform_sample.cpu_collide_finalize += amrex::second() - finalize_start;
     }
     // 延后子集留在 stream 0，由通信后的同 stream 消费和阶段同步保证完成。
     // 普通子集已有 MFIter 的多 stream 等待；AMR/诊断保留原显式等待。

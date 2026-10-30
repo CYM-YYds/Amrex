@@ -191,6 +191,24 @@ OSI 相位和数值核继续共用现有机制。`performance.uniform_grid_path=
 各开关可独立设为0做对照；完整恢复原调度与核选择需将上述两项及 `uniform_grid_path` 都设为0。
 接入范围与组合回归见[同步与无mask接入记录](docs/ai_changes/2026-10-29-uniform-kernels-integration.md)。
 
+均匀网格异步采样使用 `performance.uniform_sample_int=N`，默认0关闭；例如100表示本次启动后
+每100次level-0推进采样一次，与绝对步数和性能窗口清零无关。当前只支持CUDA、单MPI rank、
+`max_level=0`、OSI且减少同步实际生效的路径；其他配置输出`eligible=0 samples=0`，不会偷偷改变同步策略。
+开启后每个性能窗口增加两行**样本累计秒数**（未采样步不外推，除以`samples`才是采样步平均）：
+
+| 日志 | 字段与含义 |
+|---|---|
+| `uniform_sample_gpu(s)` | `collide_sum`：逐Fab、实际stream的碰撞事件区间之和；`phase`和`boundary`：默认stream的相位更新、物理边界事件区间 |
+| `uniform_sample_cpu(s)` | `collide_submit`：碰撞CPU阶段扣除MFIter析构；`collide_finalize`：原有MFIter析构（含多stream等待和收尾）；`comm`：通信CPU入口；`phase_submit`、`boundary_submit`：CPU准备与提交；`step_wait`：原有步末等待；`other`：该推进函数其余CPU时间 |
+| 同上 | `step`：采样的AdvanceOneLayout墙钟时间，等于上述CPU分项之和；`collect`：已有等待后读取事件及累计统计的额外CPU时间，计入外层solv/total，不计入step |
+
+GPU事件池由求解器拥有，首次采样按所需任务数创建，之后复用；MFIter依赖和步末等待不变，
+所有事件在原有等待后查询，不添加计时专用同步。首次事件创建与各次事件记录会有测量开销，
+评估时需同节点交替开关对照并排除首窗。GPU事件区间可能包含排队后的stream空隙及启动延迟，
+不是Nsight意义上的纯kernel活跃时间；多stream的`collide_sum`也不是关键路径墙钟。
+CPU等待与GPU执行重叠，两行不能相加，`collide_finalize`也不能当成独立于GPU计算的额外浪费。
+周期域无物理边界任务时，边界事件仍可能记录空事件区间/CPU间隙，不表示存在边界kernel。
+
 多层现役入口是 `Cycle2`。每个 coarse step 先处理需要的 regrid，再进入多层递归；
 同文件中的 Rohde/Jaber 等其他周期函数不在当前主调用路径上。
 

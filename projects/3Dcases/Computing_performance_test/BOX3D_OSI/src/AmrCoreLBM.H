@@ -19,6 +19,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <vector>
 #include <string>
 #include <utility>
 
@@ -133,6 +134,59 @@ inline constexpr int restriction_group_size = Q == 19 ? 1 : (Q == 27 ? 16 : 32);
 inline constexpr int restriction_parents_per_block =
     restriction_threads_per_block / restriction_group_size;
 
+// 每个事件对只在一次完整推进内使用；已有步末等待后读取，下一采样步复用。
+// 逐 Fab 记录实际 stream，跨 stream 的区间和不代表推进关键路径。
+class UniformGpuEvents {
+  public:
+    enum Stage { Collision, Phase, Boundary };
+    void reset() noexcept { used = 0; }
+    std::size_t begin(Stage stage) {
+        const auto index = used++;
+        if (index == events.size()) { events.emplace_back(std::make_unique<Pair>()); }
+        auto& event = *events[index];
+        event.stage = stage;
+#ifdef AMREX_USE_CUDA
+        AMREX_CUDA_SAFE_CALL(cudaEventRecord(event.start, amrex::Gpu::gpuStream()));
+#endif
+        return index;
+    }
+    void end(std::size_t index) {
+#ifdef AMREX_USE_CUDA
+        AMREX_CUDA_SAFE_CALL(cudaEventRecord(events[index]->stop, amrex::Gpu::gpuStream()));
+#endif
+    }
+    std::array<double, 3> seconds() const {
+        std::array<double, 3> result{};
+#ifdef AMREX_USE_CUDA
+        for (std::size_t i = 0; i < used; ++i) {
+            // 仅查询已完成事件；若依赖改变导致未完成，立即报错，绝不偷偷补同步。
+            AMREX_CUDA_SAFE_CALL(cudaEventQuery(events[i]->stop));
+            float ms = 0.0f;
+            AMREX_CUDA_SAFE_CALL(cudaEventElapsedTime(&ms, events[i]->start, events[i]->stop));
+            result[events[i]->stage] += static_cast<double>(ms) * 0.001;
+        }
+#endif
+        return result;
+    }
+  private:
+    struct Pair {
+        Stage stage = Collision;
+#ifdef AMREX_USE_CUDA
+        cudaEvent_t start{}, stop{};
+        Pair() {
+            AMREX_CUDA_SAFE_CALL(cudaEventCreate(&start));
+            AMREX_CUDA_SAFE_CALL(cudaEventCreate(&stop));
+        }
+        ~Pair() {
+            AMREX_CUDA_SAFE_CALL(cudaEventDestroy(start));
+            AMREX_CUDA_SAFE_CALL(cudaEventDestroy(stop));
+        }
+#endif
+    };
+    std::vector<std::unique_ptr<Pair>> events;
+    std::size_t used = 0;
+};
+
 class ScopedPerfTimer {
   public:
     explicit ScopedPerfTimer(double& accum, bool enabled = true)
@@ -161,6 +215,7 @@ class AmrCoreLBM : public amrex::AmrCore {
         int plot_int = -1;
         int begin_plot = 0;
         int perf_report_int = 1000;
+        int uniform_sample_int = 0; // 0关闭；每N次本次启动后的level-0推进采样一次。
         bool perf_osi_detail_timing = true; // OSI 嵌套细分计时会引入额外同步。
         bool uniform_reduce_sync = true; // 固定单层合并阶段等待，保留步末同步。
         bool uniform_nomask_collision = true; // 固定单层使用编译期无 mask 碰撞核。
@@ -185,7 +240,15 @@ class AmrCoreLBM : public amrex::AmrCore {
         int level1_fill_count = 0;      // 1 层 ghost 填充次数
     };
 
+    struct UniformSampleStats {
+        long long samples = 0;
+        double gpu_collide_sum = 0.0, gpu_phase = 0.0, gpu_boundary = 0.0;
+        double cpu_collide_submit = 0.0, cpu_collide_finalize = 0.0;
+        double cpu_comm = 0.0, cpu_phase_submit = 0.0, cpu_boundary_submit = 0.0;
+        double cpu_step_wait = 0.0, cpu_other = 0.0, cpu_step = 0.0, cpu_collect = 0.0;
+    };
     struct PerfStats {
+        UniformSampleStats uniform_sample;
         double interp = 0.0;
         double interp_cache_build = 0.0;
         long long interp_cache_builds = 0;
@@ -298,6 +361,14 @@ class AmrCoreLBM : public amrex::AmrCore {
     bool useUniformReducedSync() const noexcept {
         return max_level == 0 && params_.uniform_reduce_sync &&
                !params_.perf_osi_detail_timing && !osiReferenceEnabled();
+    }
+    bool uniformSampleEligible() const noexcept {
+#ifdef AMREX_USE_CUDA
+        return useUniformReducedSync() && streamMode() == 1 &&
+               amrex::ParallelDescriptor::NProcs() == 1;
+#else
+        return false;
+#endif
     }
     bool useUniformNoMaskCollision() const noexcept {
         return max_level == 0 && params_.uniform_nomask_collision;
@@ -598,6 +669,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::RealVect> points;
     amrex::Vector<amrex::Long> regrid_tag_counts;
     PerfStats perf_stats;
+    // 事件池由本对象唯一拥有，仅采样推进写入；统计清零不释放已完成的事件池。
+    Box3dDetail::UniformGpuEvents uniform_gpu_events;
+    bool uniform_sample_active = false;
     RuntimeParams params_;
 };
 

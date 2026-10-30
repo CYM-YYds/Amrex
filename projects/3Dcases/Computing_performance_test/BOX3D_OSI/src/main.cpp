@@ -276,6 +276,31 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
                   << " boundary_launch_cells=" << perf.boundary_launch_cells
                   << std::endl;
 
+        if (lid.params().uniform_sample_int > 0) {
+            const auto& sample = perf.uniform_sample;
+            // 两种视角分行输出：GPU区间与CPU等待有重叠，禁止跨行相加。
+            std::cout << "step" << step << " uniform_sample_gpu(s): rank="
+                      << amrex::ParallelDescriptor::MyProc()
+                      << " eligible=" << lid.uniformSampleEligible()
+                      << " interval=" << lid.params().uniform_sample_int
+                      << " samples=" << sample.samples
+                      << " collide_sum=" << sample.gpu_collide_sum
+                      << " phase=" << sample.gpu_phase
+                      << " boundary=" << sample.gpu_boundary << std::endl;
+            std::cout << "step" << step << " uniform_sample_cpu(s): rank="
+                      << amrex::ParallelDescriptor::MyProc()
+                      << " samples=" << sample.samples
+                      << " collide_submit=" << sample.cpu_collide_submit
+                      << " collide_finalize=" << sample.cpu_collide_finalize
+                      << " comm=" << sample.cpu_comm
+                      << " phase_submit=" << sample.cpu_phase_submit
+                      << " boundary_submit=" << sample.cpu_boundary_submit
+                      << " step_wait=" << sample.cpu_step_wait
+                      << " other=" << sample.cpu_other
+                      << " step=" << sample.cpu_step
+                      << " collect=" << sample.cpu_collect << std::endl;
+        }
+
         window.compute_time = 0.0f;
         window.regrid_time = 0.0f;
         window.JaberCycle_time = 0.0f;
