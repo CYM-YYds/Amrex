@@ -6,6 +6,11 @@
 传输机制以[架构说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)为准。
 历史验收只覆盖各自冻结的源码、程序、输入和网格范围，不自动代表当前 HEAD。
 
+## 2026-10-30：独立CUDA代码D3Q27副本对照
+
+- 同节点621726：AMReX现有程序2788.653 MLUPS；一维OSI D3Q27副本128/256线程3940.010/3833.754 MLUPS；副本174寄存器，现有核168寄存器。边界、构建与几何专门化不同，不能将全部差距归因于框架或线程块。
+- 621727多相位地址/碰撞/反弹逐值检查通过，但不等于NEE长程物理精度或跨程序逐点等价。原件与正式源码未改；[完整结果及限制](../runs/temporary/flat_q27/round1/report.md)，[变更记录](ai_changes/2026-10-30-flat-q27-comparison.md)。
+
 ## 2026-10-30：256³ 硬件剖析
 
 - [本轮结果](../runs/temporary/uniform_hw_profile/round1/report.md)：621705三轮稳态基线约2771 MLUPS，包含自动CUDA事件计时；Nsight Compute退出1并报ERR_NVGPUCTRPERM，硬件带宽/occupancy仍pending。
