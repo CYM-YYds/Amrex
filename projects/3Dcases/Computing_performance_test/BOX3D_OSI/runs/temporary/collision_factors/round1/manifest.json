@@ -1,0 +1,10 @@
+{
+  "modes": {
+    "0": "original256",
+    "1": "original128",
+    "2": "cached256",
+    "3": "cached128"
+  },
+  "baseline_sha256": "2b381410ec930e61e1272d46cb60029b1f7b9a042bfaa546c13094f3fb3aa0b3",
+  "source_scope": "current worktree including existing user changes"
+}

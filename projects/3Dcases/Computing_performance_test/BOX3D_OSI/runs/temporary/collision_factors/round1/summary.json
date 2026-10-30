@@ -1,0 +1,246 @@
+{
+  "rows": [
+    {
+      "repeat": 1,
+      "mode": "frozen",
+      "seconds_1000_steps": 5.945381225,
+      "MLUPS": 2821.89070222322,
+      "collision_ms": 4.9830410194,
+      "boundary_ms": 0.93354291154
+    },
+    {
+      "repeat": 1,
+      "mode": "0",
+      "seconds_1000_steps": 5.943716186,
+      "MLUPS": 2822.681210707459,
+      "collision_ms": 4.984670198400001,
+      "boundary_ms": 0.93344153488
+    },
+    {
+      "repeat": 1,
+      "mode": "1",
+      "seconds_1000_steps": 5.371165282,
+      "MLUPS": 3123.5709793225465,
+      "collision_ms": 4.403742725,
+      "boundary_ms": 0.94136524828
+    },
+    {
+      "repeat": 1,
+      "mode": "2",
+      "seconds_1000_steps": 5.6133835439999995,
+      "MLUPS": 2988.7884675068626,
+      "collision_ms": 4.6546186144,
+      "boundary_ms": 0.9333002240599999
+    },
+    {
+      "repeat": 1,
+      "mode": "3",
+      "seconds_1000_steps": 4.5538129273,
+      "MLUPS": 3684.212827325644,
+      "collision_ms": 3.5744471382,
+      "boundary_ms": 0.95012454414
+    },
+    {
+      "repeat": 2,
+      "mode": "frozen",
+      "seconds_1000_steps": 5.946262207,
+      "MLUPS": 2821.4726185888157,
+      "collision_ms": 4.9870376988,
+      "boundary_ms": 0.9336074247399999
+    },
+    {
+      "repeat": 2,
+      "mode": "0",
+      "seconds_1000_steps": 5.945148316,
+      "MLUPS": 2822.0012535007713,
+      "collision_ms": 4.986072054,
+      "boundary_ms": 0.93354700768
+    },
+    {
+      "repeat": 2,
+      "mode": "1",
+      "seconds_1000_steps": 5.37280188,
+      "MLUPS": 3122.6195148666084,
+      "collision_ms": 4.4053514348,
+      "boundary_ms": 0.94130176036
+    },
+    {
+      "repeat": 2,
+      "mode": "2",
+      "seconds_1000_steps": 5.614754272,
+      "MLUPS": 2988.0588156218423,
+      "collision_ms": 4.6540461984000006,
+      "boundary_ms": 0.93293465452
+    },
+    {
+      "repeat": 2,
+      "mode": "3",
+      "seconds_1000_steps": 4.5517506104,
+      "MLUPS": 3685.8820783517504,
+      "collision_ms": 3.5722035522,
+      "boundary_ms": 0.95011327964
+    },
+    {
+      "repeat": 3,
+      "mode": "frozen",
+      "seconds_1000_steps": 5.947642211,
+      "MLUPS": 2820.817965305815,
+      "collision_ms": 4.9857781787999995,
+      "boundary_ms": 0.9334804480599999
+    },
+    {
+      "repeat": 3,
+      "mode": "0",
+      "seconds_1000_steps": 5.9440365,
+      "MLUPS": 2822.5291012260777,
+      "collision_ms": 4.9851555886,
+      "boundary_ms": 0.9335357436
+    },
+    {
+      "repeat": 3,
+      "mode": "1",
+      "seconds_1000_steps": 5.375269652,
+      "MLUPS": 3121.185928552929,
+      "collision_ms": 4.4023306232,
+      "boundary_ms": 0.9416488962799999
+    },
+    {
+      "repeat": 3,
+      "mode": "2",
+      "seconds_1000_steps": 5.613377198,
+      "MLUPS": 2988.791846373264,
+      "collision_ms": 4.6514073438,
+      "boundary_ms": 0.9331732479799999
+    },
+    {
+      "repeat": 3,
+      "mode": "3",
+      "seconds_1000_steps": 4.553960083,
+      "MLUPS": 3684.093776453947,
+      "collision_ms": 3.5752222966,
+      "boundary_ms": 0.94993817548
+    },
+    {
+      "repeat": 4,
+      "mode": "frozen",
+      "seconds_1000_steps": 5.947134887,
+      "MLUPS": 2821.0585969176122,
+      "collision_ms": 4.9880012784000005,
+      "boundary_ms": 0.93366784028
+    },
+    {
+      "repeat": 4,
+      "mode": "0",
+      "seconds_1000_steps": 5.9476016860000005,
+      "MLUPS": 2820.8371854308466,
+      "collision_ms": 4.987085824999999,
+      "boundary_ms": 0.9336238084799999
+    },
+    {
+      "repeat": 4,
+      "mode": "1",
+      "seconds_1000_steps": 5.374943848,
+      "MLUPS": 3121.3751202708377,
+      "collision_ms": 4.4038922202,
+      "boundary_ms": 0.94102732822
+    },
+    {
+      "repeat": 4,
+      "mode": "2",
+      "seconds_1000_steps": 5.616931518,
+      "MLUPS": 2986.900578409366,
+      "collision_ms": 4.6529669026,
+      "boundary_ms": 0.93349785548
+    },
+    {
+      "repeat": 4,
+      "mode": "3",
+      "seconds_1000_steps": 4.5536539916,
+      "MLUPS": 3684.341417013341,
+      "collision_ms": 3.5760681276,
+      "boundary_ms": 0.95060275146
+    },
+    {
+      "repeat": 5,
+      "mode": "frozen",
+      "seconds_1000_steps": 5.948313111,
+      "MLUPS": 2820.49981010154,
+      "collision_ms": 4.988852228400001,
+      "boundary_ms": 0.9337006076
+    },
+    {
+      "repeat": 5,
+      "mode": "0",
+      "seconds_1000_steps": 5.947704224,
+      "MLUPS": 2820.788554397355,
+      "collision_ms": 4.9880842266,
+      "boundary_ms": 0.93402521586
+    },
+    {
+      "repeat": 5,
+      "mode": "1",
+      "seconds_1000_steps": 5.379439453,
+      "MLUPS": 3118.766582760533,
+      "collision_ms": 4.4073195584,
+      "boundary_ms": 0.9414973445200001
+    },
+    {
+      "repeat": 5,
+      "mode": "2",
+      "seconds_1000_steps": 5.616797363,
+      "MLUPS": 2986.9719193570986,
+      "collision_ms": 4.6527385486,
+      "boundary_ms": 0.9330708489399999
+    },
+    {
+      "repeat": 5,
+      "mode": "3",
+      "seconds_1000_steps": 4.5498065796,
+      "MLUPS": 3687.45697349512,
+      "collision_ms": 3.5733064044000002,
+      "boundary_ms": 0.9497989113399999
+    }
+  ],
+  "summary": {
+    "frozen": {
+      "MLUPS": 2821.1478539808727,
+      "ms_step": 5.9469467281999995,
+      "collision_ms": 4.9865420807600005,
+      "boundary_ms": 0.933599846444,
+      "min_ms_step": 5.945381225,
+      "max_ms_step": 5.948313111
+    },
+    "0": {
+      "MLUPS": 2821.767227613677,
+      "ms_step": 5.9456413824,
+      "collision_ms": 4.986213578519999,
+      "boundary_ms": 0.9336346621,
+      "min_ms_step": 5.943716186,
+      "max_ms_step": 5.947704224
+    },
+    "1": {
+      "MLUPS": 3121.5027838090728,
+      "ms_step": 5.374724023000001,
+      "collision_ms": 4.404527312320001,
+      "boundary_ms": 0.9413681155320001,
+      "min_ms_step": 5.371165282,
+      "max_ms_step": 5.379439453
+    },
+    "2": {
+      "MLUPS": 2987.902093165414,
+      "ms_step": 5.615048779,
+      "collision_ms": 4.6531555215600005,
+      "boundary_ms": 0.933195366196,
+      "min_ms_step": 5.613377198,
+      "max_ms_step": 5.616931518
+    },
+    "3": {
+      "MLUPS": 3685.196953651187,
+      "ms_step": 4.5525968383799995,
+      "collision_ms": 3.5742495038,
+      "boundary_ms": 0.9501155324119999,
+      "min_ms_step": 4.5498065796,
+      "max_ms_step": 4.553960083
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "checkpoint_comparisons": 20,
+  "all_valid_active_norms_zero": true,
+  "cases": [
+    "check_n64_b64_p0_m0",
+    "check_n64_b64_p0_m1",
+    "check_n64_b64_p0_m2",
+    "check_n64_b64_p0_m3",
+    "check_n64_b16_p0_m0",
+    "check_n64_b16_p0_m1",
+    "check_n64_b16_p0_m2",
+    "check_n64_b16_p0_m3",
+    "check_n64_b16_p1_m0",
+    "check_n64_b16_p1_m1",
+    "check_n64_b16_p1_m2",
+    "check_n64_b16_p1_m3",
+    "check_n256_b256_p0_m0",
+    "check_n256_b256_p0_m1",
+    "check_n256_b256_p0_m2",
+    "check_n256_b256_p0_m3",
+    "restart_m0",
+    "restart_m1",
+    "restart_m2",
+    "restart_m3"
+  ]
+}

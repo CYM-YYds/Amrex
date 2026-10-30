@@ -6,6 +6,11 @@
 传输机制以[架构说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)为准。
 历史验收只覆盖各自冻结的源码、程序、输入和网格范围，不自动代表当前 HEAD。
 
+## 2026-10-30：现有D3Q27核的因素隔离
+
+- 621730同节点同模型/NEE边界：原路径2822 MLUPS，仅128线程3122，仅坐标复用2988，组合3685；组合吞吐+30.60%、total下降23.43%。四核168寄存器无spill，坐标复用静态指令条目少15.14%。
+- 20次全DDF逐值比较通过后执行25次换序性能运行；范围限单rank固定lev0 FLOAT，未合入正式核，AMR/多rank/长期精度仍在范围外。实际带宽/occupancy/stall未测，[结果与复现](../runs/temporary/collision_factors/round1/report.md)、[变更记录](ai_changes/2026-10-30-collision-factors.md)。
+
 ## 2026-10-30：师兄原18分量代码实测
 
 - job621728测原模型：高精度有效流体吞吐256³约6650.5 MLUPS，默认586³约7032.1 MLUPS；原整数毫秒及含halo输出更高，不能直接引用为D3Q27速度。模型保持Re1600/Ma0.1、128线程，原文件和kernel正文未改；[报告与限制](../runs/temporary/flat_original/round1/report.md)。
