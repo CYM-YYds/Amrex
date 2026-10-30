@@ -348,8 +348,53 @@ def seam_job():
     (out/'summary.json').write_text(json.dumps({'summary':summary,'records':records},indent=2)+'\n')
     (out/'completed.txt').write_text('completed\n');print(json.dumps(summary,indent=2),flush=True)
 
+def integration_job():
+    # 接入验收仅编译一次、复用一个真实AMR逐值用例；不重复性能矩阵。
+    exp=CASE/'runs/temporary/collision_amr/round3'
+    out=exp/f"job{os.environ['CCS_JOB_ID']}";out.mkdir()
+    shutil.copy2(__file__,out/'stages.py')
+    shutil.copy2(CASE/'scripts/temporary/collision_amr/submit.sh',out/'submit.sh')
+    build=exp/'build'
+    with (out/'compile.log').open('w') as log:
+        subprocess.run(['make','-j8','DIM=3','PRECISION=FLOAT'],cwd=build,stdout=log,stderr=subprocess.STDOUT,check=True)
+    shutil.copy2(build/'main3d.gnu.FLOAT.TPROF.MPI.CUDA.ex',out/'production.ex')
+    previous=EXP/'job621802'
+    shutil.copy2(previous/'inputs',out/'inputs')
+    alloc=Path(os.environ['CCS_ALLOC_FILE']).read_text().splitlines()
+    (out/'hostfile').write_text(''.join(f'{row.split()[0]} slots={row.split()[1]}\n' for row in alloc if len(row.split())>=2))
+    (out/'node.txt').write_bytes(subprocess.check_output(['hostname']))
+    (out/'gpu.txt').write_bytes(subprocess.check_output(['nvidia-smi']))
+    test=out/'real_integration';test.mkdir()
+    cmd=json.loads((previous/'real_production/command.json').read_text())
+    cmd=[value.replace(str(previous),str(out)) for value in cmd]
+    (test/'command.json').write_text(json.dumps(cmd,indent=2)+'\n')
+    with (test/'guard.log').open('w') as log:
+        result=subprocess.run(cmd,cwd=test,stdout=log,stderr=subprocess.STDOUT)
+    assert result.returncode==0,result.returncode
+    lines=[line for line in (test/'run.log').read_text().splitlines() if line.startswith('ddf_cell_norm_level:')];assert len(lines)==3
+    for line in lines:
+        values=dict(re.findall(r'(\w+)=([^ ]+)',line))
+        assert all(math.isfinite(float(values[k])) and float(values[k])==0 for k in ['valid_linf','valid_l1','valid_l2','active_linf','active_l1','active_l2'])
+    def digest(path):
+        h=hashlib.sha256()
+        with path.open('rb') as stream:
+            for block in iter(lambda:stream.read(8*1024*1024),b''):h.update(block)
+        return h.hexdigest()
+    payloads=[]
+    for plot in ['plt_128032','plt_vort_128032']:
+        old=previous/'real_production'/plot;new=test/plot
+        files=sorted(path.relative_to(old) for path in old.glob('Level_*/Cell_D_*'))
+        assert files and files==sorted(path.relative_to(new) for path in new.glob('Level_*/Cell_D_*'))
+        for relative in files:
+            value=digest(new/relative);assert value==digest(old/relative),(plot,str(relative))
+            payloads.append(dict(plot=plot,file=str(relative),sha256=value))
+    report=dict(exit_code=0,ddf_levels=3,all_valid_active_norms_zero=True,velocity_vorticity_payloads=payloads,performance_matrix_repeated=False,executable_sha256=digest(out/'production.ex'))
+    (out/'checks.json').write_text(json.dumps(report,indent=2)+'\n')
+    (out/'completed.txt').write_text('completed\n');print(json.dumps(report,indent=2),flush=True)
+
 if __name__=='__main__':
     if sys.argv[1]=='run':run_job()
     elif sys.argv[1]=='analyze':analyze(Path(sys.argv[2]))
     elif sys.argv[1]=='seam':seam_job()
+    elif sys.argv[1]=='integrate':integration_job()
     else:raise SystemExit('run | analyze OUT')

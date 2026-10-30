@@ -2326,6 +2326,7 @@ void collide_bgk_register_osi(
 
 // 直接从 twisted OSI 存储计算 logical valid cell 的宏观量。宏观场随后使用
 // 自己的普通 MultiFab FillBoundary，因此这里不需要构造完整 canonical DDF。
+template <bool CacheCoordinates = false>
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void compute_macro_osi(
@@ -2333,6 +2334,10 @@ void compute_macro_osi(
     amrex::Array4<amrex::Real> const& rho,
     amrex::Array4<amrex::Real> const& u, OSI::FabGeometry fab,
     OSI::PhaseShift3 phase_shift) noexcept {
+    OSI::CellCoordinates coordinates{};
+    if constexpr (CacheCoordinates) {
+        coordinates = OSI::osi_cell_coordinates({i, j, k}, fab, phase_shift);
+    }
     Real rhot = 0.0_rt;
     Real uxt = 0.0_rt;
     Real uyt = 0.0_rt;
@@ -2340,8 +2345,13 @@ void compute_macro_osi(
 
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
-        const auto raw = OSI::osi_address(
-            {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fab, phase_shift);
+        OSI::Coord3 raw;
+        if constexpr (CacheCoordinates) {
+            raw = OSI::osi_address(coordinates, {e[q][0], e[q][1], lattice_ez(q)});
+        } else {
+            raw = OSI::osi_address(
+                {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)}, fab, phase_shift);
+        }
         const Real ft = state(raw.x, raw.y, raw.z, q);
         rhot += ft;
         uxt += ft * e[q][0];

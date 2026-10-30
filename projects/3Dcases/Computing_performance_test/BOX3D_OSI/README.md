@@ -198,6 +198,10 @@ AMR保留covered/interface筛选；其他精度、维度、多rank和canonical�
 单层接入与AMR独立测试见[前轮记录](docs/ai_changes/2026-10-30-uniform-collision-integration-amr-test.md)，
 AMR正式接入及其他阶段筛选见[本轮记录](docs/ai_changes/2026-10-30-amr-collision-integration-stage-coordinates.md)。
 
+同一CUDA三维FLOAT、单rank范围内，宏观量计算和本地ghost复制也启用线程内坐标复用；
+其余配置沿用原寻址，MPI打包/解包及ParallelCopyOsi不变。
+接入复用已有性能证据，仅做编译和代表性逐值回归，见[接入记录](docs/ai_changes/2026-10-30-macro-localcopy-integration.md)。
+
 均匀网格阶段计时**每步累计、每个报告窗口输出平均值**，只用现有的
 `performance.report_int`，不增加计时参数。例如1000表示累计1000步后，输出该窗口的
 每步平均耗时（ms/step），与原有窗口平均MLUPS同时报告；不是仅测报告步。

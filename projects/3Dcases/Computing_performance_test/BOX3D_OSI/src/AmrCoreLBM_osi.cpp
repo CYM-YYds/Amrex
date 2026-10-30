@@ -10,6 +10,53 @@
 using namespace amrex;
 using namespace Box3dDetail;
 
+namespace {
+
+// 独立模板发射函数支持编译期选路，避免NVCC不支持的泛型lambda内设备lambda。
+template <bool CacheCoordinates>
+void LaunchLocalGhostCopy(
+    const amrex::TagVector<OSI::LocalCopyTag>& tags,
+    const OSI::PhaseShift3* phase_shifts) {
+    amrex::ParallelFor(
+        tags,
+        [=] AMREX_GPU_DEVICE(int i, int j, int k,
+                             const OSI::LocalCopyTag& tag) noexcept {
+            const auto source = OSI::source_cell(tag, i, j, k);
+            const int si = source[0];
+            const int sj = source[1];
+            const int sk = AMREX_D_PICK(0, 0, source[2]);
+            const auto src_shift = phase_shifts[tag.src_phase_index];
+            const auto dst_shift = phase_shifts[tag.dst_phase_index];
+            OSI::CellCoordinates source_coordinates{}, destination_coordinates{};
+            if constexpr (CacheCoordinates) {
+                source_coordinates = OSI::osi_cell_coordinates(
+                    {si, sj, sk}, tag.src_fab, src_shift);
+                destination_coordinates = OSI::osi_cell_coordinates(
+                    {i, j, k}, tag.dst_fab, dst_shift);
+            }
+            for (int q = 0; q < Q; ++q) {
+                OSI::Coord3 src_raw, dst_raw;
+                if constexpr (CacheCoordinates) {
+                    src_raw = OSI::osi_address(
+                        source_coordinates, {e[q][0], e[q][1], lattice_ez(q)});
+                    dst_raw = OSI::osi_address(
+                        destination_coordinates, {e[q][0], e[q][1], lattice_ez(q)});
+                } else {
+                    src_raw = OSI::osi_address(
+                        {si, sj, sk}, {e[q][0], e[q][1], lattice_ez(q)},
+                        tag.src_fab, src_shift);
+                    dst_raw = OSI::osi_address(
+                        {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)},
+                        tag.dst_fab, dst_shift);
+                }
+                tag.dst(dst_raw.x, dst_raw.y, dst_raw.z, q) =
+                    tag.src(src_raw.x, src_raw.y, src_raw.z, q);
+            }
+        });
+}
+
+} // 匿名命名空间
+
 // OSI 地址转换、通信与粗细层传输。
 
 void AmrCoreLBM::BuildOsiCommunicationRegionCache(int lev) {
@@ -109,28 +156,15 @@ void AmrCoreLBM::FillBoundaryOsi(int lev, const std::function<void()>& during_tr
     const auto* phase_shifts = osi_fab_phase_cache.at(lev).data(phase);
 
     // 多 rank 时在投递远端 MPI 后启动本地 seam copy，使 GPU 工作与 MPI wait 重叠。
+    // host侧分派保持GPU内编译期选路；多rank及其他精度/维度保留原复制核。
     const auto launch_local_copy = [&]() {
-        amrex::ParallelFor(
-            cache.local_tags,
-            [=] AMREX_GPU_DEVICE(int i, int j, int k,
-                                 const OSI::LocalCopyTag& tag) noexcept {
-                const auto source = OSI::source_cell(tag, i, j, k);
-                const int si = source[0];
-                const int sj = source[1];
-                const int sk = AMREX_D_PICK(0, 0, source[2]);
-                const auto src_shift = phase_shifts[tag.src_phase_index];
-                const auto dst_shift = phase_shifts[tag.dst_phase_index];
-                for (int q = 0; q < Q; ++q) {
-                    const auto src_raw = OSI::osi_address(
-                        {si, sj, sk}, {e[q][0], e[q][1], lattice_ez(q)},
-                        tag.src_fab, src_shift);
-                    const auto dst_raw = OSI::osi_address(
-                        {i, j, k}, {e[q][0], e[q][1], lattice_ez(q)},
-                        tag.dst_fab, dst_shift);
-                    tag.dst(dst_raw.x, dst_raw.y, dst_raw.z, q) =
-                        tag.src(src_raw.x, src_raw.y, src_raw.z, q);
-                }
-            });
+#if defined(AMREX_USE_CUDA) && AMREX_SPACEDIM == 3 && defined(AMREX_USE_FLOAT)
+        if (ParallelDescriptor::NProcs() == 1) {
+            LaunchLocalGhostCopy<true>(cache.local_tags, phase_shifts);
+            return;
+        }
+#endif
+        LaunchLocalGhostCopy<false>(cache.local_tags, phase_shifts);
     };
 
     if (ParallelDescriptor::NProcs() == 1) {

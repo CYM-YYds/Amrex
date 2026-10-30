@@ -1,0 +1,8 @@
+{
+  "previous_sha256": "ceb3e8849f21e178c8cbbe4bcba1e1a7c25460a41a7ac6994ad3085b18263cc4",
+  "installed_sha256": "88a5fc7d374e9eb38e7a6724696a019ba6372e62c4bd650b09a150cba0c56c32",
+  "source_matches_snapshot": true,
+  "performance_evidence_reused": "round2 job621802 and job621808",
+  "integration_job": 621813,
+  "performance_matrix_repeated": false
+}

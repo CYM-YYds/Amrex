@@ -1,0 +1,39 @@
+{
+  "exit_code": 0,
+  "ddf_levels": 3,
+  "all_valid_active_norms_zero": true,
+  "velocity_vorticity_payloads": [
+    {
+      "plot": "plt_128032",
+      "file": "Level_0/Cell_D_00000",
+      "sha256": "1cdeaf480e83cf4fe6e4c4fb1bdb91a8d0dc80a496ed987cbdf2d61a8d91b63b"
+    },
+    {
+      "plot": "plt_128032",
+      "file": "Level_1/Cell_D_00000",
+      "sha256": "8c8feec49ea65d23c1c24f6227f56b3006e2b0fd943647052ad37fdd1805903b"
+    },
+    {
+      "plot": "plt_128032",
+      "file": "Level_2/Cell_D_00000",
+      "sha256": "4186714a7a788dc8ec8c71fc87a5a89d2ba90e481b0111ca90dae0160776d17c"
+    },
+    {
+      "plot": "plt_vort_128032",
+      "file": "Level_0/Cell_D_00000",
+      "sha256": "820bf84d831411bedc81d848b88d710773d6fef3ed29487c17735db1310434bf"
+    },
+    {
+      "plot": "plt_vort_128032",
+      "file": "Level_1/Cell_D_00000",
+      "sha256": "4faf5a67489136681d34a54f6eb6ec93f0a4784eda5097dcbb4fa67892f2077d"
+    },
+    {
+      "plot": "plt_vort_128032",
+      "file": "Level_2/Cell_D_00000",
+      "sha256": "dd4bc712f6bf59b3ae656183a5a691b6535702e9cfb3328087a177f3c27ca9cd"
+    }
+  ],
+  "performance_matrix_repeated": false,
+  "executable_sha256": "88a5fc7d374e9eb38e7a6724696a019ba6372e62c4bd650b09a150cba0c56c32"
+}
