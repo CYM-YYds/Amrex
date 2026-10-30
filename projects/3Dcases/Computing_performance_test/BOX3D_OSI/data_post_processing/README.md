@@ -58,6 +58,32 @@ post_dir="$case_dir/data_post_processing"
 所有曲线共用该次调用的归一化和列选择；不同尺度的数据分次调用，或先准备统一的 CSV。
 参考吻合不能据此判定收敛。
 
+## 复用现成CSV快速重绘
+
+来源、有效掩码和归一化已核对且数据未变化时，只运行绘图入口；不重复提取或连接ParaView，
+也不必重新全文检索同一篇论文。仅改变样式、标签或添加现有参考时不新增脚本。
+若更换输入文件、截线、Re或标度，再核对相应来源。重绘只需检查新图和旁边的JSON/误差表，
+无需重复完整数值验收；另取输出名以保留原图。
+
+以下复用已保存的128³/256³在t=1000的中心线，叠加Re=1000的Fig.18(a)参考：
+
+```bash
+analysis_dir="$case_dir/runs/uniform_256_lev0_t1000/analysis"
+.venv/bin/python "$post_dir/plot_centerline.py" \
+  --profile "$analysis_dir/n128_t1000/centerline.csv" '128^3, t=1000' 128000 \
+  --profile "$analysis_dir/n256_t1000/centerline.csv" '256^3, t=1000' 256000 \
+  --height 1 --lid-velocity 0.05 \
+  --reference "$post_dir/fig18a_velocity_profiles.csv" \
+  --reference-source 'Jaber et al., Fig.18(a), existing digitized AMR and Cortes-Miller points' \
+  --title 'Re=1000, t=1000: centerline vs Fig.18(a)' \
+  --output "$analysis_dir/centerline_t1000_with_reference_redraw.png"
+```
+
+现成原图为`centerline_t1000_with_reference.png`；参考CSV包含20个论文AMR点和44个
+Cortes-Miller点，已经无量纲化，不再除以U_lid。论文数字化参考不是原始真解表；误差按两组
+分别报告，不挑选更有利的一组作为唯一精度结论。完整来源及现成结果见
+[正式运行记录](../docs/ai_changes/2026-10-30-uniform-256-t1000.md)。
+
 ## 收敛：日志、已有 CSV 与 PlotFile
 
 ```bash

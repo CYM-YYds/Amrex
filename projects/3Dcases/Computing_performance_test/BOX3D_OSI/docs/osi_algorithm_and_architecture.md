@@ -430,6 +430,12 @@ grid_eff=0.7 约束的是处理后的聚类效率，不保证细网格内 70% �
 ### 性能与显存统计口径
 
 `main.cpp` 的 `solv` 是推进周期耗时，`total` 加上重网格及其验证成本；两者均不包含初始化和随后输出文件的耗时。
+固定lev0减少同步路径另以`uniform_stage_gpu/cpu(ms/step)`报告每步累计的窗口平均，
+仅支持CUDA、单rank、OSI且减少同步实际生效。GPU事件在既有等待后读取，不增加阶段等待；
+GPU区间、CPU提交和CPU等待有重叠，不能相加。该路径的旧`comm/stream/boundary/swap=0`
+表示未独立同步计时，不能据此认定没有通信或边界。通信是否发生须同时看布局、peer/bytes和
+CPU通信入口明细；单块非周期单rank没有实际块间/MPI传输。现役字段和支持边界统一见
+[README](../README.md#实际推进调用链)。
 累计耗时须累加完整统计窗口，末窗口 MLUPS 不等于全程平均。与论文对照前须核对采样区间和计时范围。
 `ComputeWeightedLatticeUpdatesPerCoarseStep()` 统计按子步加权、扣除细层覆盖的 valid 单元，不含 ghost；
 `collide_level.launch_cells` 是发射范围计数，可能包含 ghost 和 kernel 内提前返回的 covered 内部单元，不能当作实际碰撞单元数。
@@ -648,7 +654,8 @@ checkpoint 常量位于 `AmrCoreLBM.H`，没有独立 detail 头文件。
 
 OSI 通信/缓存搬运的嵌套细分计时由 `RuntimeParams` 中一次读取的
 `performance.osi_detail_timing` 控制；代码缺省保留，但当前三维inputs显式关闭。关闭时跳过计时器及其同步，
-保留显式数据依赖同步和主阶段计时；日志明确标记未测量，不能把零值解释为没有搬运成本。
+保留显式数据依赖同步；AMR路径保留主阶段计时，固定lev0减少同步路径则使用上文窗口事件统计。
+日志中的未测量零值不能解释为没有搬运成本。
 用法和配对结果见[README](../README.md#构建运行与实验记录)。
 
 ## 14. 不能破坏的比较控制
