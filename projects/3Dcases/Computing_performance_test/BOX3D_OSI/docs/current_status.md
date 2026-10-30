@@ -6,6 +6,12 @@
 传输机制以[架构说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)为准。
 历史验收只覆盖各自冻结的源码、程序、输入和网格范围，不自动代表当前 HEAD。
 
+## 2026-10-30：256³ 硬件剖析
+
+- [本轮结果](../runs/temporary/uniform_hw_profile/round1/report.md)：621705三轮稳态基线约2771 MLUPS，包含自动CUDA事件计时；Nsight Compute退出1并报ERR_NVGPUCTRPERM，硬件带宽/occupancy仍pending。
+- 621706成功生成Nsight Systems时间线，确认碰撞168 registers/thread、256 threads/block；时间汇总含初始化和预热，不作为严格稳态占比或性能基线。调度成功不代表计数器采集成功。
+- 求解器和正式inputs未改；权限需管理员处理。本轮收尾与保留边界见[记录](ai_changes/2026-10-30-uniform-hw-profile-closeout.md)。
+
 ## 2026-10-30：均匀网格推进、窗口计时与t=1000结果
 
 - 当前代码在`amr.max_level=0`时支持独立均匀网格调度，默认启用无mask碰撞和减少同步；

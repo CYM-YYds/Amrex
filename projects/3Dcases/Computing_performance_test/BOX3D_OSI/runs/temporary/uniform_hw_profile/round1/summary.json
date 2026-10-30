@@ -1,0 +1,126 @@
+{
+  "621704": {
+    "windows": [
+      {
+        "repeat": 1,
+        "total_s": 0.59678302,
+        "collide_s": 0.501328455,
+        "steps": 100
+      },
+      {
+        "repeat": 1,
+        "total_s": 0.5958536987,
+        "collide_s": 0.500391823,
+        "steps": 100
+      },
+      {
+        "repeat": 1,
+        "total_s": 0.5977988281,
+        "collide_s": 0.501648775,
+        "steps": 100
+      },
+      {
+        "repeat": 2,
+        "total_s": 0.5967342529,
+        "collide_s": 0.50130124,
+        "steps": 100
+      },
+      {
+        "repeat": 2,
+        "total_s": 0.5961970825,
+        "collide_s": 0.500803041,
+        "steps": 100
+      },
+      {
+        "repeat": 2,
+        "total_s": 0.5970259399,
+        "collide_s": 0.501552358,
+        "steps": 100
+      },
+      {
+        "repeat": 3,
+        "total_s": 0.5976368408,
+        "collide_s": 0.502051878,
+        "steps": 100
+      },
+      {
+        "repeat": 3,
+        "total_s": 0.595520874,
+        "collide_s": 0.500138701,
+        "steps": 100
+      },
+      {
+        "repeat": 3,
+        "total_s": 0.5970778809,
+        "collide_s": 0.50172525,
+        "steps": 100
+      }
+    ],
+    "total_s": 5.3706284178,
+    "steps": 900,
+    "MLUPS_total": 2811.4948988009282,
+    "ms_per_step": 5.967364908666666
+  },
+  "621705": {
+    "windows": [
+      {
+        "repeat": 1,
+        "total_s": 0.6061504517,
+        "collide_s": 0.510356926,
+        "steps": 100
+      },
+      {
+        "repeat": 1,
+        "total_s": 0.6041712036,
+        "collide_s": 0.508402521,
+        "steps": 100
+      },
+      {
+        "repeat": 1,
+        "total_s": 0.6048141479,
+        "collide_s": 0.509080704,
+        "steps": 100
+      },
+      {
+        "repeat": 2,
+        "total_s": 0.6061417847,
+        "collide_s": 0.51030419,
+        "steps": 100
+      },
+      {
+        "repeat": 2,
+        "total_s": 0.6039036255,
+        "collide_s": 0.508209165,
+        "steps": 100
+      },
+      {
+        "repeat": 2,
+        "total_s": 0.6051399536,
+        "collide_s": 0.509224619,
+        "steps": 100
+      },
+      {
+        "repeat": 3,
+        "total_s": 0.6074929199,
+        "collide_s": 0.511421412,
+        "steps": 100
+      },
+      {
+        "repeat": 3,
+        "total_s": 0.6038537598,
+        "collide_s": 0.508032432,
+        "steps": 100
+      },
+      {
+        "repeat": 3,
+        "total_s": 0.6076745605,
+        "collide_s": 0.511874484,
+        "steps": 100
+      }
+    ],
+    "total_s": 5.4493424072,
+    "steps": 900,
+    "MLUPS_total": 2770.883763892252,
+    "ms_per_step": 6.0548248968888885
+  }
+}

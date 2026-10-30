@@ -1,0 +1,20 @@
+# 均匀网格硬件剖析知识收尾
+
+目的：统一本轮报告、当前状态与真实采集结果，补齐此前未提交的临时复现入口；范围仅BOX3D_OSI本轮剖析，不修改求解器、正式配置或全局权限。
+
+| 事实面 | 状态 | 核验与处置 |
+|---|---|---|
+| 代码 | verified-current | 运行复用621699冻结程序；本轮无求解器修改；临时入口补充自身快照与基线命令留存，bash -n通过，未为留存改动重跑GPU |
+| 运行态 | verified-current | 原始退出码与SQLite可读：621705三轮基线成功，ncu退出1且ERR_NVGPUCTRPERM；621706 nsys退出0并有报告；此前调度终态只描述批处理 |
+| 文档 | changed-and-verified | 修正checkpoint位置、ncu匹配未经验证、MLUPS累计分母及nsys含初始化/预热的口径；当前状态页指向本轮唯一报告 |
+| 规则 | verified-current | AGENTS.md -> CLAUDE.md有效，上级作用域无额外规则；仅提交本次文件，用户已有修改保留 |
+| 记忆 | out-of-scope | generated-read-only；只读既有计数器限制线索，未获写入请求，不修改生成记忆 |
+| 工作区 | pending | 已盘点单worktree及算例Markdown；重复程序列为清理候选，未执行删除；不声称整个工作区干净 |
+
+现役答案见[本轮报告](../../runs/temporary/uniform_hw_profile/round1/report.md)，运行元数据、失败记录和原始时间线按实验README保留。新入口用于独立均匀网格基线和nsys回退，避免改写旧AMR剖析的冻结复现入口；本次未整合历史脚本。
+
+待确认清理：job621704/621705/621706下三个application.ex均123361416字节，总约352.9 MiB，与正式冻结程序同SHA256。可在用户确认后换成指向冻结程序的链接，保留路径可用及全部日志、输入、源码、报告和失败凭证；当前三个副本仍在。
+
+pending：管理员开放GPU计数器权限；真实DRAM字节/sector效率/occupancy/stall尚未取得。warning：基线含自动CUDA事件开销；nsys API等待与GPU执行不能相加；kernel总时长占比含初始化与预热；不同节点不作加速对照。out-of-scope：数值优化、结构审查、长程物理验证、其他算例、用户已有inputs/AMR判据/MLUPS文档/后处理修改、全局config.toml与记忆写入。
+
+验证：算例Markdown机械枚举；本轮文档本地路径检查、程序哈希一致性、原始退出码及SQLite核资源交叉核验、Shell语法、限定文件diff空白检查。未新增构建或数值验收。复核现场仍保留，等待用户确认后清场。
