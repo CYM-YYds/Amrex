@@ -2253,12 +2253,16 @@ void stream(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
 
 // A-B 与 OSI 共用 BGK 数学公式；模板参数只决定 DDF 的读写地址。
 // 编译期分叉可以避免一种存储布局增加另一种布局的运行时判断和寄存器压力。
-template <bool UseOsiAddress>
+template <bool UseOsiAddress, bool CacheCoordinates = false>
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
     int i, int j, int k, amrex::Array4<amrex::Real> const& state,
     OSI::FabGeometry const& fab,
     OSI::PhaseShift3 const& phase_shift,
     amrex::Real omega) noexcept {
+    OSI::CellCoordinates coordinates{};
+    if constexpr (CacheCoordinates) {
+        coordinates = OSI::osi_cell_coordinates({i, j, k}, fab, phase_shift);
+    }
     Real fq[Q];
     Real rho = 0.0_rt;
     Real uxt = 0.0_rt;
@@ -2267,8 +2271,12 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
 
 #pragma unroll
     for (int q = 0; q < Q; ++q) {
-        const Real ft = load_ddf<UseOsiAddress>(
-            i, j, k, q, state, fab, phase_shift);
+        Real ft;
+        if constexpr (CacheCoordinates) {
+            ft = load_ddf_cached<UseOsiAddress>(i, j, k, q, state, coordinates);
+        } else {
+            ft = load_ddf<UseOsiAddress>(i, j, k, q, state, fab, phase_shift);
+        }
         fq[q] = ft;
         rho += ft;
         uxt += ft * e[q][0];
@@ -2290,8 +2298,11 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
         const Real feq = w[q] * rho *
                          (equilibrium_common + 3.0_rt * eu + 4.5_rt * eu * eu);
         const Real value = keep * fq[q] + omega * feq;
-        store_ddf<UseOsiAddress>(
-            i, j, k, q, value, state, fab, phase_shift);
+        if constexpr (CacheCoordinates) {
+            store_ddf_cached<UseOsiAddress>(i, j, k, q, value, state, coordinates);
+        } else {
+            store_ddf<UseOsiAddress>(i, j, k, q, value, state, fab, phase_shift);
+        }
     }
 }
 

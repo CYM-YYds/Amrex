@@ -1,0 +1,27 @@
+{
+  "comparisons": [
+    "uniform_n64_b64_p0",
+    "uniform_n64_b16_p0",
+    "uniform_n64_b16_p1",
+    "uniform_n256_b256_p0",
+    "uniform_restart",
+    "dynamic_p0_mproduction",
+    "dynamic_p0_m0",
+    "dynamic_p0_m1",
+    "dynamic_p0_m2",
+    "dynamic_p0_m3",
+    "dynamic_p1_mproduction",
+    "dynamic_p1_m0",
+    "dynamic_p1_m1",
+    "dynamic_p1_m2",
+    "dynamic_p1_m3",
+    "real_mproduction",
+    "real_m0",
+    "real_m1",
+    "real_m2",
+    "real_m3"
+  ],
+  "count": 20,
+  "valid_active_all_zero": true,
+  "uniform_lockstep_completed": true
+}

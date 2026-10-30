@@ -191,6 +191,12 @@ OSI 相位和数值核继续共用现有机制。`performance.uniform_grid_path=
 各开关可独立设为0做对照；完整恢复原调度与核选择需将上述两项及 `uniform_grid_path` 都设为0。
 接入范围与组合回归见[同步与无mask接入记录](docs/ai_changes/2026-10-29-uniform-kernels-integration.md)。
 
+CUDA三维FLOAT、单MPI rank、固定单层OSI且无mask路径启用时，碰撞采用128线程/block，
+并在线程内复用当前格点的九个轴坐标；不增加跨步缓存，BGK公式与Fab回绕范围不变。
+其他精度、维度、多rank、AMR和canonical路径保留原线程/寻址实现。
+`lbm.uniform_nomask_collision=0`也会退回原碰撞寻址与默认线程数。AMR候选另作独立测试，不自动沿用均匀网格性能结论；
+正式接入验证与AMR测试结果见[记录](docs/ai_changes/2026-10-30-uniform-collision-integration-amr-test.md)。
+
 均匀网格阶段计时**每步累计、每个报告窗口输出平均值**，只用现有的
 `performance.report_int`，不增加计时参数。例如1000表示累计1000步后，输出该窗口的
 每步平均耗时（ms/step），与原有窗口平均MLUPS同时报告；不是仅测报告步。

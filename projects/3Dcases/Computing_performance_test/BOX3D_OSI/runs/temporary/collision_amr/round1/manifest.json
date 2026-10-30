@@ -1,0 +1,11 @@
+{
+  "modes": {
+    "0": "original256",
+    "1": "original128",
+    "2": "cached256",
+    "3": "cached128"
+  },
+  "checkpoint": "runs/a5_threshold_128000/job621436/B/chk00128000",
+  "production_scope": "CUDA 3D FLOAT single rank fixed lev0 OSI nomask",
+  "amr": "experiment only; covered/interface retained"
+}

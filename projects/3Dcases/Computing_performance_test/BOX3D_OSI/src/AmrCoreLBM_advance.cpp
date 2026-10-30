@@ -572,11 +572,23 @@ void AmrCoreLBM::CollideLayoutLevel(int lev, int n, DdfLayout layout, int send_s
         if constexpr (!UseMask) {
             if (use_osi) {
                 const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        collide_bgk_register_osi(
-                            i, j, k, state, fab, phase_shift, omega_lev);
-                    });
+#if defined(AMREX_USE_CUDA) && AMREX_SPACEDIM == 3 && defined(AMREX_USE_FLOAT)
+                // 仅对已验证的三维单精度、单rank固定单层启用；其他配置保留原路径。
+                if (amrex::ParallelDescriptor::NProcs() == 1) {
+                    amrex::ParallelFor<128>(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            collide_bgk_register_impl<true, true>(
+                                i, j, k, state, fab, phase_shift, omega_lev);
+                        });
+                } else
+#endif
+                {
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            collide_bgk_register_osi(
+                                i, j, k, state, fab, phase_shift, omega_lev);
+                        });
+                }
             } else if (collide_mode == 0) {
                 amrex::ParallelFor(
                     bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {

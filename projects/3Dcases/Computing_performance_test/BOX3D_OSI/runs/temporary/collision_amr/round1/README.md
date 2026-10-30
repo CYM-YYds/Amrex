@@ -1,0 +1,9 @@
+# 单层正式接入与AMR碰撞因素测试（临时）
+
+正式接入限CUDA三维FLOAT单rank固定lev0 OSI无mask：128线程＋九个轴坐标复用；沿用既有无mask开关回退。AMR保持原masked256路径。production.ex与production_src为正式接入源码构建；candidate.ex只在masked OSI分支增加四模式host分派，covered/interface保留。
+
+先验证正式单层接入对照前轮独立checkpoint、restart及锁步；再验证动态三级周期/非周期和FLOAT A5 B真实三层checkpoint的各层valid/active逐值结果。最终输出先完成全平均再写参考checkpoint，避免covered粗层取样阶段不一致。源checkpoint只读，新增checkpoint使用本实验目录前缀。
+
+性能：同节点单GPU，单层新旧各三轮1200步剔首200；AMR四候选及production控制各三轮320步剔首80，固定真实网格，关闭输出/收敛/regrid，完整total判优。MLUPS分母沿用源代码的各层去覆盖加权更新量，不使用launch_cells或rank时间相加。
+
+保留源码、限定补丁、用户已有修改范围、程序、编译日志、输入、命令、checkpoint、日志和报告。不因候选变慢删除实验；AMR是否正式启用取决于本轮数值与性能证据，不自动把小网格结论推广到其他精度/布局。

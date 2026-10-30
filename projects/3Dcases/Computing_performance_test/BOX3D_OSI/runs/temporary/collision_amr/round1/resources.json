@@ -1,0 +1,36 @@
+{
+  "production": [
+    {
+      "lambda": "E_",
+      "threads": 256,
+      "registers": 168,
+      "resource_line": "0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads"
+    }
+  ],
+  "candidate": [
+    {
+      "lambda": "E2_",
+      "threads": 128,
+      "registers": 168,
+      "resource_line": "0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads"
+    },
+    {
+      "lambda": "E1_",
+      "threads": 256,
+      "registers": 168,
+      "resource_line": "0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads"
+    },
+    {
+      "lambda": "E0_",
+      "threads": 128,
+      "registers": 168,
+      "resource_line": "0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads"
+    },
+    {
+      "lambda": "E_",
+      "threads": 256,
+      "registers": 168,
+      "resource_line": "0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads"
+    }
+  ]
+}

@@ -6,6 +6,12 @@
 传输机制以[架构说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)为准。
 历史验收只覆盖各自冻结的源码、程序、输入和网格范围，不自动代表当前 HEAD。
 
+## 2026-10-30：单层正式接入与AMR独立测试
+
+- 固定单层CUDA三维FLOAT、单rank无mask OSI已正式启用128线程＋坐标复用；新参数/持久缓存均无，其他配置保留原策略。既有无mask开关可回退；算例FLOAT程序已更新，源与生产快照一致。
+- 621733完成20次全DDF对照（各层valid/active范数全为0）、单层锁步及21次性能运行。单层生产接入2822→3680 MLUPS；真实A5 B三层AMR：原1826、仅128线程2010、仅坐标复用1899、组合2265，组合total下降约19.4%。AMR仍是独立候选，未扩展默认范围。
+- [报告与口径](../runs/temporary/collision_amr/round1/report.md)、[正式接入记录](ai_changes/2026-10-30-uniform-collision-integration-amr-test.md)。动态AMR性能、DOUBLE、多rank和长期精度不在本轮验收范围。
+
 ## 2026-10-30：现有D3Q27核的因素隔离
 
 - 621730同节点同模型/NEE边界：原路径2822 MLUPS，仅128线程3122，仅坐标复用2988，组合3685；组合吞吐+30.60%、total下降23.43%。四核168寄存器无spill，坐标复用静态指令条目少15.14%。
