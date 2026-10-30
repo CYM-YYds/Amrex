@@ -187,34 +187,34 @@ void AmrCoreLBM::InterpolateDdfStageBatch(
     // 所有 stage 先缩放，再在同一 stream 上批量插值，保持读写依赖。
     if (apply_scale) {
         amrex::ParallelFor(cache.scale_tags,
-            [=] AMREX_GPU_DEVICE(int i, int j, int k, const amrex::Array4BoxTag<Real>& tag) {
-                average_scale(i, j, k, tag.dfab, scale);
-            });
+                           [=] AMREX_GPU_DEVICE(int i, int j, int k, const amrex::Array4BoxTag<Real>& tag) {
+                               average_scale(i, j, k, tag.dfab, scale);
+                           });
     }
     // 每次调用取当前数组，避免 A-B 双缓冲交换后仍访问旧存储。
     const auto stages = coarse_stage.const_arrays();
     const auto fines = fine_state.arrays();
     if (interp_mode == 0) {
         amrex::ParallelFor(cache.tags,
-            [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
-                interp_bilinear_ddf_impl<UseOsiAddress>(
-                    i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
-                    tag.fab, UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{});
-            });
+                           [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
+                               interp_bilinear_ddf_impl<UseOsiAddress>(
+                                   i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
+                                   tag.fab, UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{});
+                           });
     } else if (interp_mode == 1) {
         amrex::ParallelFor(cache.tags,
-            [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
-                interp_cell_cons_linear_children_ddf_impl<UseOsiAddress>(
-                    i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
-                    tag.target, tag.fab, UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{});
-            });
+                           [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
+                               interp_cell_cons_linear_children_ddf_impl<UseOsiAddress>(
+                                   i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
+                                   tag.target, tag.fab, UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{});
+                           });
     } else {
         amrex::ParallelFor(cache.tags,
-            [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
-                interp_cell_quadratic_children_ddf_impl<UseOsiAddress>(
-                    i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
-                    tag.target, tag.fab, UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{});
-            });
+                           [=] AMREX_GPU_DEVICE(int i, int j, int k, const InterpolationBatchTag& tag) {
+                               interp_cell_quadratic_children_ddf_impl<UseOsiAddress>(
+                                   i, j, k, fines[tag.fine_local_index], stages[tag.stage_local_index],
+                                   tag.target, tag.fab, UseOsiAddress ? shifts[tag.phase_index] : OSI::PhaseShift3{});
+                           });
     }
 }
 
@@ -248,10 +248,10 @@ void AmrCoreLBM::FillDdfGhostFromCoarse(
     ApplyPhysicalBoundaryToInterpolationStage(lev, coarse_stage);
     if (use_osi) {
         InterpolateDdfStageBatch<true>(coarse_stage, fine_state, cache.work,
-            osi_fab_phase_cache.at(fine_lev).data(osi_phase.at(fine_lev)), apply_scale, scale);
+                                       osi_fab_phase_cache.at(fine_lev).data(osi_phase.at(fine_lev)), apply_scale, scale);
     } else {
         InterpolateDdfStageBatch<false>(coarse_stage, fine_state, cache.work,
-                                       nullptr, apply_scale, scale);
+                                        nullptr, apply_scale, scale);
     }
 }
 
@@ -266,7 +266,8 @@ void AmrCoreLBM::BuildInterpolationWork(
         const auto& patch = patches.at(mfi.index());
         const int fi = patch.fine_box_index;
         const auto fab = OSI::MakeOsiFabContext(
-            amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0).fab;
+                             amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0)
+                             .fab;
         const int local_fine = fine.localindex(fi);
         AMREX_ALWAYS_ASSERT(local_fine >= 0);
         scale_tags.push_back({coarse_stage.array(mfi), mfi.validbox()});
@@ -290,7 +291,8 @@ void AmrCoreLBM::BuildRestrictionWork(
         const int local_fine = fine.localindex(fi);
         AMREX_ALWAYS_ASSERT(local_fine >= 0);
         const auto fab = OSI::MakeOsiFabContext(
-            amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0).fab;
+                             amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0)
+                             .fab;
         const Box region = mfi.validbox();
         for (Long parent = 0; parent < region.numPts(); parent += restriction_parents_per_block) {
             tags.push_back({region, fab, parent, mfi.LocalIndex(), local_fine,
@@ -707,12 +709,11 @@ void AmrCoreLBM::BuildInterpolationCache() {
                 osi_state.at(lev - 1), coarse_stage,
                 Geom(lev - 1).periodicity(), Q, osi_mpi_device_direct,
                 osi_fab_phase_cache.at(lev - 1)); // 构建粗网格复制所需的缓存信息
-
         }
         if (coarse_stage.isDefined()) {
             BuildInterpolationWork(coarse_stage, fine_layout, patches,
-                interpolation_cache.at(lev).work,
-                streamMode() == 1 ? &osi_fab_phase_cache.at(lev) : nullptr);
+                                   interpolation_cache.at(lev).work,
+                                   streamMode() == 1 ? &osi_fab_phase_cache.at(lev) : nullptr);
         }
         ++perf_stats.interp_cache_builds;
         perf_stats.interp_cache_build += amrex::second() - start;
@@ -768,8 +769,8 @@ void AmrCoreLBM::BuildAverageCache() {
                     osi_fab_phase_cache.at(lev));
             }
             BuildRestrictionWork(fine_layout, average_down_cache.at(lev).interface_buffer,
-                average_down_cache.at(lev).fine_box_indices, average_down_cache.at(lev).block_tags,
-                streamMode() == 1 ? &osi_fab_phase_cache.at(lev + 1) : nullptr);
+                                 average_down_cache.at(lev).fine_box_indices, average_down_cache.at(lev).block_tags,
+                                 streamMode() == 1 ? &osi_fab_phase_cache.at(lev + 1) : nullptr);
         }
     }
 }
@@ -1204,12 +1205,13 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
         const int points_num = particle_num;
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-        // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
 #if AMREX_SPACEDIM == 3
-            state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+            // state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+            state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
 #else
             state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
 #endif
+            // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
             // state_error_4(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
             // state_error_5(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
             // state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);

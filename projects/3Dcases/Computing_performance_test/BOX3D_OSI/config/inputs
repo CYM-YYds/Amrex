@@ -10,7 +10,7 @@ stop_time = 2500000.0
 # =============================================================================
 
 # 雷诺数；当前运动黏度按 nu = U0 * Lx / Re 计算，其中 U0 仍由源码定义。
-lbm.reynolds_number = 3200.0
+lbm.reynolds_number = 1000.0
 
 # BGK 碰撞内核：
 # 0 = 原始通用路径，作为数值与性能基准
@@ -50,15 +50,15 @@ amr.regrid_int = 32
 amr.grid_eff   = 0.7
 
 amr.n_error_buf       = 1   1   1   1
-amr.max_grid_size     = 128 128 128 128
+amr.max_grid_size     = 128 256 512 1024
 amr.blocking_factor_x = 16  16  16  16
 amr.blocking_factor_y = 16  16  16  16
 amr.blocking_factor_z = 16  16  16  16
 
 # state_error_3 使用 lbm.err[lev]；state_error_6 使用自身层级映射，不读取该数值。
 # 实际选择以 ErrorEst() 调用为准；数组长度须覆盖层级，判据实现见 Kernels.H。
-lbm.err = 0.64  1.28  2.56  5.12
-
+lbm.err = 0.0625  0.125  0.25  0.5
+# 0.03125 0.0625  0.125  0.25  0.5  1.0
 # OSI 在多层 AMR、多 Fab/MPI、全周期和六面非周期边界下均有实现。
 # max_level > 1 时程序仍会给出验证警告：四层 OSI/A-B 逐单元等价尚未达到
 # 1e-12，且历史动态 regrid 冒烟测试曾在第 128 步捕获 NaN。
