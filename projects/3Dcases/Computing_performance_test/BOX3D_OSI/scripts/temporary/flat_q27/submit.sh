@@ -17,14 +17,20 @@ module load mpi/hmpi/1.2.0_bs2.4.0_sp1 compilers/cuda/12.8.0 compilers/gcc/11.3.
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 REPO_DIR="$(git -C "$CASE_DIR" rev-parse --show-toplevel)"
 EXP="$CASE_DIR/runs/temporary/flat_q27/round1"
+if [[ ${FLAT_ORIGINAL:-0} == 1 ]];then EXP="$CASE_DIR/runs/temporary/flat_original/round1";fi
 OUT="$EXP/job${CCS_JOB_ID:?}"
 mkdir "$OUT"
 cp "$0" "$OUT/submit.sh"
+if [[ ${FLAT_ORIGINAL:-0} == 1 ]];then
+    cp "$EXP"/main_original_*.cu "$OUT/"
+    cp "$EXP/source_manifest.json" "$OUT/source_manifest.json"
+else
 cp "$EXP/main_q27.cu" "$OUT/main_q27.cu"
 cp "$EXP/source_manifest.json" "$OUT/source_manifest.json"
 cp "$CASE_DIR/runs/uniform_256_lev0_t1000/application.ex" "$OUT/amrex.ex"
 cp "$CASE_DIR/runs/uniform_256_lev0_t1000/inputs" "$OUT/inputs"
 cp -R "$CASE_DIR/runs/uniform_256_lev0_t1000/src" "$OUT/amrex_src"
+fi
 awk 'NF>=2 {print $1 " slots=" $2}' "${CCS_ALLOC_FILE:?}" > "$OUT/hostfile"
 nvidia-smi > "$OUT/gpu.txt"
 hostname > "$OUT/node.txt"
@@ -41,6 +47,29 @@ for flag in "${mpi_compile[@]}" "${mpi_link[@]}";do
         *) nvcc_mpi+=("$flag") ;;
     esac
 done
+if [[ ${FLAT_ORIGINAL:-0} == 1 ]];then
+    for size in 256 586;do
+        cmd=(nvcc -O3 --use_fast_math -std=c++17 -arch=sm_80 -Xptxas=-v "${nvcc_mpi[@]}" "$OUT/main_original_${size}.cu" -o "$OUT/original${size}.ex")
+        printf '%q ' "${cmd[@]}" > "$OUT/compile_${size}.command"
+        "${cmd[@]}" > "$OUT/compile_${size}.log" 2>&1
+    done
+    sha256sum "$OUT"/*.ex > "$OUT/executables.sha256"
+    printf 'case\texit_code\n' > "$OUT/status.tsv"
+    for repeat in 1 2;do
+        order=(256 586);if [[ "$repeat" == 2 ]];then order=(586 256);fi
+        for size in "${order[@]}";do
+            name="perf_${repeat}_n${size}"
+            mkdir "$OUT/$name";cd "$OUT/$name"
+            printf '%q ' "$OUT/original${size}.ex" > command.txt
+            code=0
+            "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/guard_run.py" -- mpirun -hostfile "$OUT/hostfile" -n 1 -npernode 1 -x PATH -x LD_LIBRARY_PATH --mca plm_rsh_agent /opt/batch/agent/tools/dstart /usr/bin/env -u BASH_ENV CUDA_VISIBLE_DEVICES=0 "$OUT/original${size}.ex" > guard.log 2>&1 || code=$?
+            printf '%s\t%s\n' "$name" "$code" >> "$OUT/status.tsv"
+            [[ "$code" == 0 ]]
+        done
+    done
+    printf 'completed\n' > "$OUT/completed.txt"
+    exit 0
+fi
 if [[ ${FLAT_VALIDATE_ONLY:-0} == 1 ]];then
     cp "$EXP/verify_source.cu" "$OUT/verify_source.cu"
     cp "$CASE_DIR/scripts/temporary/flat_q27/verify.cu" "$OUT/verify.cu"

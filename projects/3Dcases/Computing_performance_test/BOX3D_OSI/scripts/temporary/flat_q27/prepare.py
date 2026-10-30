@@ -1,8 +1,26 @@
 # 本轮D3Q27对照的临时生成入口；保留实验期间作为复现材料。
 from pathlib import Path
-import re,hashlib,shutil,json
+import re,hashlib,shutil,json,sys
 case=Path(__file__).resolve().parents[3];exp=case/'runs/temporary/flat_q27/round1';exp.mkdir(parents=True,exist_ok=True)
 orig=case/'main_ldc_nee.cu';s=orig.read_text();shutil.copy2(orig,exp/'original.cu')
+if '--original' in sys.argv:
+    exp=case/'runs/temporary/flat_original/round1';exp.mkdir(parents=True,exist_ok=True)
+    shutil.copy2(orig,exp/'original.cu')
+    source=s.replace('#include "../basic/errCUDA.h"', '#define checkCudaErrors(call) do { cudaError_t code=(call); if(code!=cudaSuccess){fprintf(stderr,"CUDA %s:%d: %s\\n",__FILE__,__LINE__,cudaGetErrorString(code)); MPI_Abort(MPI_COMM_WORLD,2);} } while(0)\n#include <cmath>')
+    source=source.replace('#define OUTPUT_VEL_EVERY 10000','#define OUTPUT_VEL_EVERY 0').replace('stepmax = 10000;','stepmax = 3000;')
+    source=source.replace('dfloat feq[Q];','dfloat feq[Q];\n    feq[0]=0.0f; // 原模型不推进静止分量，仅初始化未使用槽位，避免未初始化读取。')
+    source=source.replace('double total_time = 0.0;','double total_time = 0.0, precise_time=0.0;')
+    source=source.replace('total_time += std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();','total_time += std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();\n        precise_time += std::chrono::duration<double,std::milli>(end-start).count();')
+    source=source.replace('\t\t\ttotal_time = 0.0;', '            printf("PRECISE ms=%.9f MLUPS_fluid=%.9f MLUPS_storage=%.9f\\n",precise_time,(double)NxT*NyT*NzT/precise_time,(double)NODES/precise_time);\n            precise_time=0;\n\t\t\ttotal_time = 0.0;')
+    # 退役的CPU_time统计读取未初始化时间戳，与实际推进无关，实验不使用它。
+    source=source.replace('\tCPU_time(me);','').replace('\t\tcom3_time += endwtime_com3 - endwtime_Fcolli;','').replace('\t\tstream_time += endwtime_stream - endwtime_com3;','')
+    for n in [256,586]:
+        variant=source.replace('#define NxT (586*NPROCx)',f'#define NxT ({n}*NPROCx)').replace('#define NyT 586',f'#define NyT {n}').replace('#define NzT 586',f'#define NzT {n}')
+        for start,end in [('__global__ void fluidCollisionInnerCUDA','__global__ void ldcWallBCCUDA'),('__global__ void ldcWallBCCUDA','__global__ void pdfsExPackXCUDA')]:
+            assert s[s.index(start):s.index(end)]==variant[variant.index(start):variant.index(end)]
+        (exp/f'main_original_{n}.cu').write_text(variant)
+    (exp/'source_manifest.json').write_text(json.dumps({'original_sha256':hashlib.sha256(orig.read_bytes()).hexdigest(),'kernel_bodies_byte_identical':True,'steps':3000,'sizes':[256,586]},indent=2)+'\n')
+    print(exp);sys.exit(0)
 lattice=(case/'src/LbmLattice.H').read_text().split('#define LBM_D3Q27_ORDER0(X)')[1].split('#define LBM_D3Q27_ORDER1')[0]
 rows=re.findall(r'X\((-?\d+),\s*(-?\d+),\s*(-?\d+),\s*([^)]*)\)',lattice);assert len(rows)==27
 es=[tuple(map(int,r[:3])) for r in rows];ws=[r[3].replace('_rt','f') for r in rows]

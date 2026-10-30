@@ -2,6 +2,32 @@
 from pathlib import Path
 import re,json,sys
 out=Path(sys.argv[1]);rows=[]
+if '--original' in sys.argv:
+    status=(out/'status.tsv').read_text().strip().splitlines()[1:]
+    assert len(status)==4 and all(x.endswith('\t0') for x in status),status
+    for n in [256,586]:
+        for repeat in [1,2]:
+            folder=out/f'perf_{repeat}_n{n}'
+            assert json.loads((folder/'exit_status.json').read_text())['exit_code']==0
+            txt=(folder/'run.log').read_text()
+            precise=re.findall(r'PRECISE ms=([\d.]+)',txt)
+            raw=re.findall(r'total_time = ([\d.]+) ms',txt)
+            assert len(precise)==len(raw)==3
+            sec=sum(map(float,precise[1:]))/1000
+            rawsec=sum(map(float,raw[1:]))/1000
+            rows.append({'n':n,'repeat':repeat,'seconds':sec,'raw_seconds':rawsec,'steps':2000,
+                'precise_fluid_MLUPS':n**3*2000/sec/1e6,
+                'raw_fluid_MLUPS':n**3*2000/rawsec/1e6,
+                'raw_storage_MLUPS':(n+4)**3*2000/rawsec/1e6})
+    summary={}
+    for n in [256,586]:
+        group=[r for r in rows if r['n']==n]
+        sec=sum(r['seconds'] for r in group);rawsec=sum(r['raw_seconds'] for r in group)
+        summary[str(n)]={'precise_fluid_MLUPS':n**3*4000/sec/1e6,
+            'raw_fluid_MLUPS':n**3*4000/rawsec/1e6,'raw_storage_MLUPS':(n+4)**3*4000/rawsec/1e6,
+            'precise_ms_step':sec/4,'total_steps':4000}
+    (out/'summary.json').write_text(json.dumps({'rows':rows,'summary':summary},indent=2)+'\n')
+    print(json.dumps(summary,indent=2));sys.exit(0)
 status=(out/'status.tsv').read_text().strip().splitlines()[1:]
 assert len(status)==11 and all(line.endswith('\t0') for line in status),status
 for repeat in range(1,4):
