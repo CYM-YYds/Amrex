@@ -9,7 +9,7 @@
 | 文档 | changed-and-verified | 修正checkpoint位置、ncu匹配未经验证、MLUPS累计分母及nsys含初始化/预热的口径；当前状态页指向本轮唯一报告 |
 | 规则 | verified-current | AGENTS.md -> CLAUDE.md有效，上级作用域无额外规则；仅提交本次文件，用户已有修改保留 |
 | 记忆 | out-of-scope | generated-read-only；只读既有计数器限制线索，未获写入请求，不修改生成记忆 |
-| 工作区 | pending | 已盘点单worktree及算例Markdown；重复程序列为清理候选，未执行删除；不声称整个工作区干净 |
+| 工作区 | changed-and-verified | 用户确认后，三份同哈希程序副本换为相对软链；全部复现路径有效，用户已有修改保留；不声称整个工作区干净 |
 
 现役答案见[本轮报告](../../runs/temporary/uniform_hw_profile/round1/report.md)，运行元数据、失败记录和原始时间线按实验README保留。新入口用于独立均匀网格基线和nsys回退，避免改写旧AMR剖析的冻结复现入口；本次未整合历史脚本。
 
@@ -18,3 +18,7 @@
 pending：管理员开放GPU计数器权限；真实DRAM字节/sector效率/occupancy/stall尚未取得。warning：基线含自动CUDA事件开销；nsys API等待与GPU执行不能相加；kernel总时长占比含初始化与预热；不同节点不作加速对照。out-of-scope：数值优化、结构审查、长程物理验证、其他算例、用户已有inputs/AMR判据/MLUPS文档/后处理修改、全局config.toml与记忆写入。
 
 验证：算例Markdown机械枚举；本轮文档本地路径检查、程序哈希一致性、原始退出码及SQLite核资源交叉核验、Shell语法、限定文件diff空白检查。未新增构建或数值验收。复核现场仍保留，等待用户确认后清场。
+
+## 确认清理结果（2026-10-30）
+
+用户在完整收尾汇报后回复“那清理吧”。执行前再次核对三个副本与正式冻结程序SHA256一致，随后仅将job621704/621705/621706下application.ex换为相对软链，释放370084248字节（约352.9 MiB）。逐链接核验目标存在且内容哈希不变；输入、日志、源码、Nsight报告、SQLite、checkpoint和用户文件均保留。上文候选描述是清理前预览，本节为实际终态。计数器权限及性能归因pending保持不变。
