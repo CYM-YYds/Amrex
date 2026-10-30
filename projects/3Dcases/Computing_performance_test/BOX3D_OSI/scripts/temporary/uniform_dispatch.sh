@@ -22,9 +22,11 @@ if [[ ${UNIFORM_KERNEL_EXPERIMENT:-0} == 1 ]]; then
     EXP="$CASE_DIR/runs/temporary/uniform_kernels/round1"
 fi
 # 编译节点SSH不可用时，在本作业已分配的计算节点直接构建，沿用算例Makefile。
+# UNIFORM_BUILD_DIR 指向隔离源码快照，避免工作区中无关的未提交修改进入候选程序。
 if [[ ${UNIFORM_SAMPLING_EXPERIMENT:-0} == 1 ]]; then
-    (cd "$CASE_DIR"; make -j8 DIM=3 PRECISION=FLOAT) > "$EXP/compile.log" 2>&1
-    cp "$CASE_DIR/main3d.gnu.FLOAT.TPROF.MPI.CUDA.ex" "$EXP/candidate.ex"
+    BUILD_DIR="${UNIFORM_BUILD_DIR:-$CASE_DIR}"
+    (cd "$BUILD_DIR"; make -j16 DIM=3 PRECISION=FLOAT) > "$EXP/compile.log" 2>&1
+    cp "$BUILD_DIR/main3d.gnu.FLOAT.TPROF.MPI.CUDA.ex" "$EXP/candidate.ex"
     sha256sum "$EXP/candidate.ex" > "$EXP/candidate.sha256"
 fi
 OUT="$EXP/job${CCS_JOB_ID:?}"
@@ -96,14 +98,16 @@ if [[ ${UNIFORM_SAMPLING_EXPERIMENT:-0} == 1 ]]; then
     run hooks_sample 1 "$EXP/candidate.ex" max_step=16 \
         performance.report_int=8 verification.osi_ab_check=true verification.osi_ab_continue_on_mismatch=false \
         verification.osi_step_entry_check_interval=1 geometry.is_periodic=1 1 1
-    for cells in 128 256; do
-        for pair in 1 2 3; do
+    # 128/32 为64个Fab，检查逐Fab事件记录的开销随Fab数的变化。
+    for spec in '128 128' '128 32' '256 256'; do
+        read -r cells box <<< "$spec"
+        for pair in 1 2 3 4 5; do
             order=(base new); (( pair % 2 == 0 )) && order=(new base)
             for variant in "${order[@]}"; do
                 executable="$EXP/baseline.ex"
                 [[ "$variant" == new ]] && executable="$EXP/candidate.ex"
-                run "perf_n${cells}_p${pair}_${variant}" 1 "$executable" max_step=1200 \
-                    amr.n_cell="$cells" "$cells" "$cells" amr.max_grid_size="$cells" \
+                run "perf_n${cells}_b${box}_p${pair}_${variant}" 1 "$executable" max_step=1200 \
+                    amr.n_cell="$cells" "$cells" "$cells" amr.max_grid_size="$box" \
                     performance.report_int=200 \
                     verification.final_state_check=false verification.osi_seed_pattern=false
             done

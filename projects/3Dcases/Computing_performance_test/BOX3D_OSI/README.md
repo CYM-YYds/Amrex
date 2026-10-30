@@ -191,23 +191,29 @@ OSI 相位和数值核继续共用现有机制。`performance.uniform_grid_path=
 各开关可独立设为0做对照；完整恢复原调度与核选择需将上述两项及 `uniform_grid_path` 都设为0。
 接入范围与组合回归见[同步与无mask接入记录](docs/ai_changes/2026-10-29-uniform-kernels-integration.md)。
 
-均匀网格异步阶段计时复用 `performance.report_int`，不另设采样参数。
-例如1000表示在绝对coarse step为1000、2000等报告步各采样一次，并随该窗口输出两行。
-restart也按绝对步数对齐；不足一个报告周期的尾段不额外采样或输出。
-当前只支持CUDA、单MPI rank、`max_level=0`、OSI且减少同步实际生效的路径；
-其他配置输出`eligible=0 samples=0`，不会改变同步策略。
-`samples=1`表示**报告步的单步样本**，不是整个窗口的阶段平均或累计耗时；
-原有`perf(s)`和MLUPS仍统计完整窗口，两类数据不能混用。
+均匀网格阶段计时**每步累计、每个报告窗口输出平均值**，只用现有的
+`performance.report_int`，不增加计时参数。例如1000表示累计1000步后，输出该窗口的
+每步平均耗时（ms/step），与原有窗口平均MLUPS同时报告；不是仅测报告步。
+restart仍按绝对coarse step触发报告，但平均值除以本次窗口实际推进步数：
+例如从64步恢复且report_int=7时，首窗在70步报告，分母为6。
+不足一个报告周期的末尾不额外输出，沿用原有报告行为。
+当前仅CUDA、单MPI rank、`max_level=0`、OSI且减少同步实际生效的路径提供此统计；
+其他配置输出`eligible=0 samples=0`，表示未测量，不能把0当成实际耗时。
+支持路径中`samples`应等于对应`perf(s).steps`；各窗口清零后重新累计。
 
 | 日志 | 字段与含义 |
 |---|---|
-| `uniform_sample_gpu(s)` | `collide_sum`：逐Fab、实际stream的碰撞事件区间之和；`phase`和`boundary`：默认stream的相位更新、物理边界事件区间 |
-| `uniform_sample_cpu(s)` | `collide_submit`：碰撞CPU阶段扣除MFIter析构；`collide_finalize`：原有MFIter析构（含多stream等待和收尾）；`comm`：通信CPU入口；`phase_submit`、`boundary_submit`：CPU准备与提交；`step_wait`：原有步末等待；`other`：该推进函数其余CPU时间 |
-| 同上 | `step`：采样的AdvanceOneLayout墙钟时间，等于上述CPU分项之和；`collect`：已有等待后读取事件及累计统计的额外CPU时间，计入外层solv/total，不计入step |
+| `uniform_stage_gpu(ms/step)` | 窗口每步平均：`collide_sum`为逐Fab实际stream的碰撞事件区间和，`phase`为相位更新，`boundary`为物理边界 |
+| `uniform_stage_cpu(ms/step)` | CPU诊断明细平均：`collide_submit`为碰撞准备/提交，`collide_finalize`为MFIter析构（含原有等待和收尾），`comm`为通信入口，`phase_submit`/`boundary_submit`为准备/提交，`step_wait`为原有步末等待，`other`为该推进函数其余CPU时间 |
+| 同上 | `step`为AdvanceOneLayout平均墙钟，等于CPU分项之和；`collect`是等待后读取事件与统计的额外CPU时间，已计入外层solv/total，但不计入该step |
 
-GPU事件池由求解器拥有，首次采样按所需任务数创建，之后复用；MFIter依赖和步末等待不变，
+GPU行用于看阶段成本，CPU行用于诊断；两者有重叠，不能相加。完整推进速度仍看原有
+`perf(s).solv/total`与MLUPS。逐步记录有测量开销，本轮短测256³单Fab约+0.20%，
+128³单Fab约+1.56%，128³/64Fab约+3.15%；详见[窗口平均计时记录](docs/ai_changes/2026-10-30-uniform-window-average.md)。
+
+GPU事件池由求解器拥有，首次测量按所需任务数创建，之后复用；MFIter依赖和步末等待不变，
 所有事件在原有等待后查询，不添加计时专用同步。首次事件创建与各次事件记录会有测量开销，
-评估其开销时需使用无采样基线在同节点交替对照并排除首窗。GPU事件区间可能包含排队后的stream空隙及启动延迟，
+评估其开销时需使用无阶段事件计时基线在同节点交替对照并排除首窗。GPU事件区间可能包含排队后的stream空隙及启动延迟，
 不是Nsight意义上的纯kernel活跃时间；多stream的`collide_sum`也不是关键路径墙钟。
 CPU等待与GPU执行重叠，两行不能相加，`collide_finalize`也不能当成独立于GPU计算的额外浪费。
 周期域无物理边界任务时，边界事件仍可能记录空事件区间/CPU间隙，不表示存在边界kernel。

@@ -278,27 +278,29 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
 
         {
             const auto& sample = perf.uniform_sample;
+            // 窗口内逐步累计，按实际样本数输出每步平均（ms）；无样本时输出0。
             // 两种视角分行输出：GPU区间与CPU等待有重叠，禁止跨行相加。
-            std::cout << "step" << step << " uniform_sample_gpu(s): rank="
+            const double ms =
+                sample.samples > 0 ? 1000.0 / static_cast<double>(sample.samples) : 0.0;
+            std::cout << "step" << step << " uniform_stage_gpu(ms/step): rank="
                       << amrex::ParallelDescriptor::MyProc()
                       << " eligible=" << lid.uniformSampleEligible()
-                      << " interval=" << lid.params().perf_report_int
                       << " samples=" << sample.samples
-                      << " collide_sum=" << sample.gpu_collide_sum
-                      << " phase=" << sample.gpu_phase
-                      << " boundary=" << sample.gpu_boundary << std::endl;
-            std::cout << "step" << step << " uniform_sample_cpu(s): rank="
+                      << " collide_sum=" << sample.gpu_collide_sum * ms
+                      << " phase=" << sample.gpu_phase * ms
+                      << " boundary=" << sample.gpu_boundary * ms << std::endl;
+            std::cout << "step" << step << " uniform_stage_cpu(ms/step): rank="
                       << amrex::ParallelDescriptor::MyProc()
                       << " samples=" << sample.samples
-                      << " collide_submit=" << sample.cpu_collide_submit
-                      << " collide_finalize=" << sample.cpu_collide_finalize
-                      << " comm=" << sample.cpu_comm
-                      << " phase_submit=" << sample.cpu_phase_submit
-                      << " boundary_submit=" << sample.cpu_boundary_submit
-                      << " step_wait=" << sample.cpu_step_wait
-                      << " other=" << sample.cpu_other
-                      << " step=" << sample.cpu_step
-                      << " collect=" << sample.cpu_collect << std::endl;
+                      << " collide_submit=" << sample.cpu_collide_submit * ms
+                      << " collide_finalize=" << sample.cpu_collide_finalize * ms
+                      << " comm=" << sample.cpu_comm * ms
+                      << " phase_submit=" << sample.cpu_phase_submit * ms
+                      << " boundary_submit=" << sample.cpu_boundary_submit * ms
+                      << " step_wait=" << sample.cpu_step_wait * ms
+                      << " other=" << sample.cpu_other * ms
+                      << " step=" << sample.cpu_step * ms
+                      << " collect=" << sample.cpu_collect * ms << std::endl;
         }
 
         window.compute_time = 0.0f;

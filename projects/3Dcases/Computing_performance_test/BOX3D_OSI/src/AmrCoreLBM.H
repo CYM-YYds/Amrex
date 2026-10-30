@@ -134,7 +134,7 @@ inline constexpr int restriction_group_size = Q == 19 ? 1 : (Q == 27 ? 16 : 32);
 inline constexpr int restriction_parents_per_block =
     restriction_threads_per_block / restriction_group_size;
 
-// 每个事件对只在一次完整推进内使用；已有步末等待后读取，下一采样步复用。
+// 每个事件对只在一次完整推进内使用；已有步末等待后读取，下一步复用。
 // 逐 Fab 记录实际 stream，跨 stream 的区间和不代表推进关键路径。
 class UniformGpuEvents {
   public:

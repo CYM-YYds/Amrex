@@ -311,9 +311,8 @@ void AmrCoreLBM::CommunicateLevel(int lev, DdfLayout layout) {
 }
 
 void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
-    // 与main的报告条件同用绝对coarse step；restart首个不完整窗口也在报告步采样。
-    const bool sample = uniformSampleEligible() && lev == 0 && layout == DdfLayout::Osi &&
-                        (params_.begin_step + probe_.coarse_advance_count) % params_.perf_report_int == 0;
+    // 支持路径逐步采样并累计到当前报告窗口，main按samples输出窗口平均。
+    const bool sample = uniformSampleEligible() && lev == 0 && layout == DdfLayout::Osi;
     uniform_sample_active = sample;
     if (sample) { uniform_gpu_events.reset(); }
     const double sample_start = sample ? amrex::second() : 0.0;
