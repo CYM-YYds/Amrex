@@ -1,0 +1,18 @@
+{
+  "full_ddf_comparisons": [
+    "dynamic_p0_production",
+    "dynamic_p0_interp",
+    "dynamic_p0_average",
+    "dynamic_p0_macro",
+    "dynamic_p1_production",
+    "dynamic_p1_interp",
+    "dynamic_p1_average",
+    "dynamic_p1_macro",
+    "real_production",
+    "real_interp",
+    "real_average",
+    "real_macro"
+  ],
+  "all_valid_active_norms_zero": true,
+  "macro_field_comparisons": 27
+}

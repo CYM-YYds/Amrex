@@ -1,0 +1,74 @@
+[
+  {
+    "case": "perf_1_baseline",
+    "mode": "baseline",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_1_production",
+    "mode": "production",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_1_interp",
+    "mode": "interp",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_1_average",
+    "mode": "average",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_2_average",
+    "mode": "average",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_2_interp",
+    "mode": "interp",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_2_production",
+    "mode": "production",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_2_baseline",
+    "mode": "baseline",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_3_average",
+    "mode": "average",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_3_baseline",
+    "mode": "baseline",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_3_production",
+    "mode": "production",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_3_interp",
+    "mode": "interp",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  }
+]

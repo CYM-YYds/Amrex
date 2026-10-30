@@ -1,0 +1,254 @@
+[
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 0,
+    "phase": 80,
+    "cached": 0,
+    "ms_per_call": 0.031008849999999998
+  },
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 0,
+    "phase": 80,
+    "cached": 1,
+    "ms_per_call": 0.030163850000000002
+  },
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 0,
+    "phase": 80,
+    "cached": 1,
+    "ms_per_call": 0.02742585
+  },
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 0,
+    "phase": 80,
+    "cached": 0,
+    "ms_per_call": 0.0282328
+  },
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 1,
+    "phase": 98,
+    "cached": 0,
+    "ms_per_call": 0.0709178
+  },
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 1,
+    "phase": 98,
+    "cached": 1,
+    "ms_per_call": 0.07196979999999999
+  },
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 1,
+    "phase": 98,
+    "cached": 1,
+    "ms_per_call": 0.0701588
+  },
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 1,
+    "phase": 98,
+    "cached": 0,
+    "ms_per_call": 0.07057335
+  },
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 2,
+    "phase": 164,
+    "cached": 0,
+    "ms_per_call": 0.14725470000000002
+  },
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 2,
+    "phase": 164,
+    "cached": 1,
+    "ms_per_call": 0.1453857
+  },
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 2,
+    "phase": 164,
+    "cached": 1,
+    "ms_per_call": 0.1426911
+  },
+  {
+    "case": "dynamic_p0_macro",
+    "lev": 2,
+    "phase": 164,
+    "cached": 0,
+    "ms_per_call": 0.14435015
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 0,
+    "phase": 80,
+    "cached": 0,
+    "ms_per_call": 0.030366849999999997
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 0,
+    "phase": 80,
+    "cached": 1,
+    "ms_per_call": 0.02973235
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 0,
+    "phase": 80,
+    "cached": 1,
+    "ms_per_call": 0.0269998
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 0,
+    "phase": 80,
+    "cached": 0,
+    "ms_per_call": 0.027505850000000002
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 1,
+    "phase": 98,
+    "cached": 0,
+    "ms_per_call": 0.06836924999999999
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 1,
+    "phase": 98,
+    "cached": 1,
+    "ms_per_call": 0.06814129999999999
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 1,
+    "phase": 98,
+    "cached": 1,
+    "ms_per_call": 0.0680248
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 1,
+    "phase": 98,
+    "cached": 0,
+    "ms_per_call": 0.06747025
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 2,
+    "phase": 164,
+    "cached": 0,
+    "ms_per_call": 0.14171114999999998
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 2,
+    "phase": 164,
+    "cached": 1,
+    "ms_per_call": 0.13734505
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 2,
+    "phase": 164,
+    "cached": 1,
+    "ms_per_call": 0.1357441
+  },
+  {
+    "case": "dynamic_p1_macro",
+    "lev": 2,
+    "phase": 164,
+    "cached": 0,
+    "ms_per_call": 0.13783955
+  },
+  {
+    "case": "real_macro",
+    "lev": 0,
+    "phase": 32,
+    "cached": 0,
+    "ms_per_call": 0.37641535
+  },
+  {
+    "case": "real_macro",
+    "lev": 0,
+    "phase": 32,
+    "cached": 1,
+    "ms_per_call": 0.34274395
+  },
+  {
+    "case": "real_macro",
+    "lev": 0,
+    "phase": 32,
+    "cached": 1,
+    "ms_per_call": 0.3385544
+  },
+  {
+    "case": "real_macro",
+    "lev": 0,
+    "phase": 32,
+    "cached": 0,
+    "ms_per_call": 0.3716993
+  },
+  {
+    "case": "real_macro",
+    "lev": 1,
+    "phase": 64,
+    "cached": 0,
+    "ms_per_call": 1.42127935
+  },
+  {
+    "case": "real_macro",
+    "lev": 1,
+    "phase": 64,
+    "cached": 1,
+    "ms_per_call": 1.3100511000000001
+  },
+  {
+    "case": "real_macro",
+    "lev": 1,
+    "phase": 64,
+    "cached": 1,
+    "ms_per_call": 1.3099646
+  },
+  {
+    "case": "real_macro",
+    "lev": 1,
+    "phase": 64,
+    "cached": 0,
+    "ms_per_call": 1.40795425
+  },
+  {
+    "case": "real_macro",
+    "lev": 2,
+    "phase": 128,
+    "cached": 0,
+    "ms_per_call": 3.6178992
+  },
+  {
+    "case": "real_macro",
+    "lev": 2,
+    "phase": 128,
+    "cached": 1,
+    "ms_per_call": 3.3142267000000003
+  },
+  {
+    "case": "real_macro",
+    "lev": 2,
+    "phase": 128,
+    "cached": 1,
+    "ms_per_call": 3.3144572
+  },
+  {
+    "case": "real_macro",
+    "lev": 2,
+    "phase": 128,
+    "cached": 0,
+    "ms_per_call": 3.6207947499999995
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "modes": [
+    "production",
+    "interp",
+    "average",
+    "macro"
+  ],
+  "scope": "CUDA 3D FLOAT single rank",
+  "source_head": "1ba9eafa75edfe74c3b73532306073575709fd96",
+  "user_worktree_preserved": true,
+  "interpolation_scope": "mode0 only; mode1/2 unchanged",
+  "average_scope": "CUDA Q27 half-warp, scaled and unscaled",
+  "macro_scope": "rho and velocity; convergence cadence separate"
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "case": "perf_1_production",
+    "mode": "production",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_1_seam",
+    "mode": "seam",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_2_seam",
+    "mode": "seam",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_2_production",
+    "mode": "production",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_3_production",
+    "mode": "production",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  },
+  {
+    "case": "perf_3_seam",
+    "mode": "seam",
+    "arena_peak_used_MB": 9572,
+    "arena_peak_reserved_MB": 30254
+  }
+]

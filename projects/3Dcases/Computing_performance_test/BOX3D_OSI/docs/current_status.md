@@ -6,6 +6,12 @@
 传输机制以[架构说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)为准。
 历史验收只覆盖各自冻结的源码、程序、输入和网格范围，不自动代表当前 HEAD。
 
+## 2026-10-30：AMR碰撞正式接入及阶段筛选（最新）
+
+- CUDA三维FLOAT、单rank的masked OSI碰撞正式采用128线程＋坐标复用，保留covered/interface；其他精度/维度、多rank/canonical保持原策略。均匀网格原接入不变。无mask开关现在只选择mask与否，不再回退碰撞寻址/线程配置；新程序已更新并核对生产源快照。
+- 621802与621808共15次逐层DDF比较全部valid/active范数0，27次宏观场比较0，18次换序性能应用。正式AMR1823→2256 MLUPS，total下降19.19%；三线性插值/平均无稳定收益，保留原实现。宏观量局部快约8%，本地ghost候选total降0.538%，均未装入正式程序。
+- 主阶段total不含CheckConvergence及输出；动态AMR仅验证数值，性能固定真实三层布局；不外推DOUBLE、多rank或长期精度。[报告](../runs/temporary/collision_amr/round2/report.md)、[接入记录](ai_changes/2026-10-30-amr-collision-integration-stage-coordinates.md)。以下同日/历史条目反映各自当时的冻结范围。
+
 ## 2026-10-30：单层正式接入与AMR独立测试
 
 - 固定单层CUDA三维FLOAT、单rank无mask OSI已正式启用128线程＋坐标复用；新参数/持久缓存均无，其他配置保留原策略。既有无mask开关可回退；算例FLOAT程序已更新，源与生产快照一致。

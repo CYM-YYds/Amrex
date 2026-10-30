@@ -1,0 +1,100 @@
+{
+  "summary": {
+    "production": {
+      "MLUPS": 2223.8464317167604,
+      "total_ms": 42.90966796944444,
+      "collide_ms": 25.09809962222223,
+      "comm_ms": 5.460228672222222,
+      "interp_ms": 4.403553047222222,
+      "average_ms": 2.1744298222222223,
+      "boundary_ms": 5.7069599222222225,
+      "min_ms": 42.903604125,
+      "max_ms": 42.9204945875
+    },
+    "seam": {
+      "MLUPS": 2235.867178016542,
+      "total_ms": 42.67897169305555,
+      "collide_ms": 24.981928427777778,
+      "comm_ms": 5.35811395,
+      "interp_ms": 4.389080722222222,
+      "average_ms": 2.172986344444444,
+      "boundary_ms": 5.711008775,
+      "min_ms": 42.66712646666667,
+      "max_ms": 42.685095212499995
+    }
+  },
+  "records": [
+    {
+      "name": "perf_1_production",
+      "mode": "production",
+      "steps": 240,
+      "total": 10.300918701,
+      "collide": 6.022083618,
+      "comm": 1.3103032909999999,
+      "interp": 1.060948896,
+      "average": 0.521756715,
+      "boundary": 1.369930102,
+      "updates": 22901882880.0
+    },
+    {
+      "name": "perf_1_seam",
+      "mode": "seam",
+      "steps": 240,
+      "total": 10.244326416,
+      "collide": 5.999715534,
+      "comm": 1.284189295,
+      "interp": 1.054107552,
+      "average": 0.521125294,
+      "boundary": 1.369296651,
+      "updates": 22901882880.0
+    },
+    {
+      "name": "perf_2_seam",
+      "mode": "seam",
+      "steps": 240,
+      "total": 10.240110352,
+      "collide": 5.992456584,
+      "comm": 1.2842854080000001,
+      "interp": 1.052628227,
+      "average": 0.521233541,
+      "boundary": 1.373758101,
+      "updates": 22901882880.0
+    },
+    {
+      "name": "perf_2_production",
+      "mode": "production",
+      "steps": 240,
+      "total": 10.297177247,
+      "collide": 6.025946891,
+      "comm": 1.310421559,
+      "interp": 1.053750794,
+      "average": 0.521762452,
+      "boundary": 1.369526386,
+      "updates": 22901882880.0
+    },
+    {
+      "name": "perf_3_production",
+      "mode": "production",
+      "steps": 240,
+      "total": 10.29686499,
+      "collide": 6.022601219,
+      "comm": 1.310639794,
+      "interp": 1.0558585040000001,
+      "average": 0.522070305,
+      "boundary": 1.369554656,
+      "updates": 22901882880.0
+    },
+    {
+      "name": "perf_3_seam",
+      "mode": "seam",
+      "steps": 240,
+      "total": 10.244422851,
+      "collide": 5.99481635,
+      "comm": 1.289367341,
+      "interp": 1.053402341,
+      "average": 0.522191333,
+      "boundary": 1.368871566,
+      "updates": 22901882880.0
+    }
+  ]
+}

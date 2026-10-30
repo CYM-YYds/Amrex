@@ -1,6 +1,11 @@
-# 本轮临时AMR因素试验生成器，正式接入只改固定单层，AMR候选只在隔离源码中生成。
+# 临时生成器：默认复现round1单层接入/AMR因素测试，--stage-tests扩展round2阶段筛选。
 from pathlib import Path
 import shutil,subprocess,json
+import sys
+if '--stage-tests' in sys.argv:
+    import stages
+    stages.prepare()
+    raise SystemExit(0)
 case=Path(__file__).resolve().parents[3];exp=case/'runs/temporary/collision_amr/round1';build=exp/'build'
 assert not build.exists();build.mkdir(parents=True)
 for d in ['src','config']:shutil.copytree(case/d,build/d)

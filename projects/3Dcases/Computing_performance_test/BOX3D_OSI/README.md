@@ -188,14 +188,15 @@ OSI 相位和数值核继续共用现有机制。`performance.uniform_grid_path=
 两者在 `max_level>0` 时均不生效；细分计时或OSI锁步验证开启时，减少同步也不生效。
 `perf(s)` 的 `uniform_nomask_collision`、`uniform_reduce_sync` 表示实际生效状态。
 减少同步时comm/stream/boundary/swap为未测量，端到端total包含步末GPU等待。
-各开关可独立设为0做对照；完整恢复原调度与核选择需将上述两项及 `uniform_grid_path` 都设为0。
+各开关可独立设为0做调度对照；将上述两项及 `uniform_grid_path` 都设为0可恢复通用调度与mask路径。
 接入范围与组合回归见[同步与无mask接入记录](docs/ai_changes/2026-10-29-uniform-kernels-integration.md)。
 
-CUDA三维FLOAT、单MPI rank、固定单层OSI且无mask路径启用时，碰撞采用128线程/block，
+CUDA三维FLOAT、单MPI rank的OSI碰撞（含AMR的mask路径）采用128线程/block，
 并在线程内复用当前格点的九个轴坐标；不增加跨步缓存，BGK公式与Fab回绕范围不变。
-其他精度、维度、多rank、AMR和canonical路径保留原线程/寻址实现。
-`lbm.uniform_nomask_collision=0`也会退回原碰撞寻址与默认线程数。AMR候选另作独立测试，不自动沿用均匀网格性能结论；
-正式接入验证与AMR测试结果见[记录](docs/ai_changes/2026-10-30-uniform-collision-integration-amr-test.md)。
+AMR保留covered/interface筛选；其他精度、维度、多rank和canonical路径保留原线程/寻址实现。
+`lbm.uniform_nomask_collision=0`只选择mask路径，不再关闭上述碰撞优化；原实现对照使用实验中冻结的基线程序。
+单层接入与AMR独立测试见[前轮记录](docs/ai_changes/2026-10-30-uniform-collision-integration-amr-test.md)，
+AMR正式接入及其他阶段筛选见[本轮记录](docs/ai_changes/2026-10-30-amr-collision-integration-stage-coordinates.md)。
 
 均匀网格阶段计时**每步累计、每个报告窗口输出平均值**，只用现有的
 `performance.report_int`，不增加计时参数。例如1000表示累计1000步后，输出该窗口的

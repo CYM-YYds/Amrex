@@ -1,0 +1,20 @@
+{
+  "original": [
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN3OSI12LocalCopyTagEZNS_11ParallelForIS4_ZZN10AmrCoreLBM15FillBoundaryOsiEiRKSt8functionIFvvEEENKUlvE_clEvEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSE_E_EEvSN_SQ_EUlvE_EEvSO_",
+      "registers": 51,
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0
+    }
+  ],
+  "cached": [
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN3OSI12LocalCopyTagEZNS_11ParallelForIS4_ZZN10AmrCoreLBM15FillBoundaryOsiEiRKSt8functionIFvvEEENKUlvE_clEvEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSE_E_EEvSN_SQ_EUlvE_EEvSO_",
+      "registers": 54,
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0
+    }
+  ]
+}

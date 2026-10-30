@@ -1,0 +1,486 @@
+{
+  "production": [
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE2_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 154
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE1_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 139
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE0_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZNS_11ParallelForILi128EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE2_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 142
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE1_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 145
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE0_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZNS_11ParallelForILi128EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZN10AmrCoreLBM19RestrictDdfToCoarseILb0ELb0EEEviRNS_8MultiFabERKNS_6VectorIiSaIiEEERKNS_9PODVectorIN11Box3dDetail19RestrictionBlockTagENS_14ArenaAllocatorISC_EEEEbEUlvE_EEvT0_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 76
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZN10AmrCoreLBM19RestrictDdfToCoarseILb0ELb1EEEviRNS_8MultiFabERKNS_6VectorIiSaIiEEERKNS_9PODVectorIN11Box3dDetail19RestrictionBlockTagENS_14ArenaAllocatorISC_EEEEbEUlvE_EEvT0_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 102
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZN10AmrCoreLBM19RestrictDdfToCoarseILb1ELb0EEEviRNS_8MultiFabERKNS_6VectorIiSaIiEEERKNS_9PODVectorIN11Box3dDetail19RestrictionBlockTagENS_14ArenaAllocatorISC_EEEEbEUlvE_EEvT0_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 84
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM17ComputeMacroLevelEiEUliiiE0_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS5_EUlvE_EEvS5_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 128
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM17ComputeMacroLevelEiEUliiiE_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS5_EUlvE_EEvS5_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 160
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E1_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 52
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E0_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 48
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 48
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitINS_12Array4BoxTagIfEEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKN11Box3dDetail23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSJ_E_EEvSS_SV_EUlvE_EEvST_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 140
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E1_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 72
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E0_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 64
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 66
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitINS_12Array4BoxTagIfEEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKN11Box3dDetail23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSJ_E_EEvSS_SV_EUlvE_EEvST_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 140
+    }
+  ],
+  "interp": [
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE2_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 154
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE1_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 139
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE0_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZNS_11ParallelForILi128EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE2_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 142
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE1_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 145
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE0_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZNS_11ParallelForILi128EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZN10AmrCoreLBM19RestrictDdfToCoarseILb0ELb0EEEviRNS_8MultiFabERKNS_6VectorIiSaIiEEERKNS_9PODVectorIN11Box3dDetail19RestrictionBlockTagENS_14ArenaAllocatorISC_EEEEbEUlvE_EEvT0_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 76
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZN10AmrCoreLBM19RestrictDdfToCoarseILb0ELb1EEEviRNS_8MultiFabERKNS_6VectorIiSaIiEEERKNS_9PODVectorIN11Box3dDetail19RestrictionBlockTagENS_14ArenaAllocatorISC_EEEEbEUlvE_EEvT0_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 102
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZN10AmrCoreLBM19RestrictDdfToCoarseILb1ELb0EEEviRNS_8MultiFabERKNS_6VectorIiSaIiEEERKNS_9PODVectorIN11Box3dDetail19RestrictionBlockTagENS_14ArenaAllocatorISC_EEEEbEUlvE_EEvT0_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 84
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM17ComputeMacroLevelEiEUliiiE0_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS5_EUlvE_EEvS5_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 128
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM17ComputeMacroLevelEiEUliiiE_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS5_EUlvE_EEvS5_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 160
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E1_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 52
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E0_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 48
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 48
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitINS_12Array4BoxTagIfEEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKN11Box3dDetail23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSJ_E_EEvSS_SV_EUlvE_EEvST_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 140
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E1_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 72
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E0_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 64
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 62
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitINS_12Array4BoxTagIfEEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKN11Box3dDetail23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSJ_E_EEvSS_SV_EUlvE_EEvST_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 140
+    }
+  ],
+  "average": [
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE2_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 154
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE1_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 139
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE0_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZNS_11ParallelForILi128EZN10AmrCoreLBM18CollideLayoutLevelILb1EEEviiNS2_9DdfLayoutEiEUliiiE_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE2_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 142
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE1_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 145
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE0_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZNS_11ParallelForILi128EZN10AmrCoreLBM18CollideLayoutLevelILb0EEEviiNS2_9DdfLayoutEiEUliiiE_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS7_EUlvE_EEvS7_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 168
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZN10AmrCoreLBM19RestrictDdfToCoarseILb0ELb0EEEviRNS_8MultiFabERKNS_6VectorIiSaIiEEERKNS_9PODVectorIN11Box3dDetail19RestrictionBlockTagENS_14ArenaAllocatorISC_EEEEbEUlvE_EEvT0_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 76
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZN10AmrCoreLBM19RestrictDdfToCoarseILb0ELb1EEEviRNS_8MultiFabERKNS_6VectorIiSaIiEEERKNS_9PODVectorIN11Box3dDetail19RestrictionBlockTagENS_14ArenaAllocatorISC_EEEEbEUlvE_EEvT0_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 102
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi128EZN10AmrCoreLBM19RestrictDdfToCoarseILb1ELb0EEEviRNS_8MultiFabERKNS_6VectorIiSaIiEEERKNS_9PODVectorIN11Box3dDetail19RestrictionBlockTagENS_14ArenaAllocatorISC_EEEEbEUlvE_EEvT0_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 88
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM17ComputeMacroLevelEiEUliiiE0_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS5_EUlvE_EEvS5_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 128
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM17ComputeMacroLevelEiEUliiiE_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS5_EUlvE_EEvS5_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 160
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E1_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 52
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E0_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 48
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 48
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitINS_12Array4BoxTagIfEEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb0EEEvRNS_8MultiFabES9_RKN11Box3dDetail23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSJ_E_EEvSS_SV_EUlvE_EEvST_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 140
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E1_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 72
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E0_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 64
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitIN11Box3dDetail21InterpolationBatchTagEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKNS3_23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSI_E_EEvSR_SU_EUlvE_EEvSS_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 66
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_6detail16ParallelFor_doitINS_12Array4BoxTagIfEEZNS_11ParallelForIS4_ZN10AmrCoreLBM24InterpolateDdfStageBatchILb1EEEvRNS_8MultiFabES9_RKN11Box3dDetail23InterpolationBatchCacheEPKN3OSI11PhaseShift3EbfEUliiiRKS4_E_EENSt9enable_ifIL_ZSt9is_same_vEvE4typeERKNS_9TagVectorIT_EERKT0_EUliiiiiSJ_E_EEvSS_SV_EUlvE_EEvST_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 140
+    }
+  ],
+  "macro": [
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM17ComputeMacroLevelEiEUliiiE3_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS5_EUlvE_EEvS5_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 128
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM17ComputeMacroLevelEiEUliiiE2_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS5_EUlvE_EEvS5_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 160
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM17ComputeMacroLevelEiEUliiiE1_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS5_EUlvE_EEvS5_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 158
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM17ComputeMacroLevelEiEUliiiE0_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS5_EUlvE_EEvS5_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 160
+    },
+    {
+      "symbol": "_ZN5amrex13launch_globalILi256EZNS_11ParallelForILi256EZN10AmrCoreLBM17ComputeMacroLevelEiEUliiiE_Li3EEENSt9enable_ifIXsr5amrex19MaybeDeviceRunnableIT0_vEE5valueEvE4typeERKNS_3Gpu10KernelInfoERKNS_5BoxNDIXT1_EEERKS5_EUlvE_EEvS5_",
+      "stack": 0,
+      "spill_stores": 0,
+      "spill_loads": 0,
+      "registers": 158
+    }
+  ]
+}

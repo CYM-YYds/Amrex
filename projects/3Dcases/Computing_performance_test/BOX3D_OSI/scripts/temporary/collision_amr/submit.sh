@@ -16,6 +16,11 @@ module purge
 module load mpi/hmpi/1.2.0_bs2.4.0_sp1 compilers/cuda/12.8.0 compilers/gcc/11.3.0
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 REPO_DIR="$(git -C "$CASE_DIR" rev-parse --show-toplevel)"
+if [[ "${COORD_STAGE_TEST:-0}" == seam ]]; then
+    exec "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/temporary/collision_amr/stages.py" seam
+elif [[ "${COORD_STAGE_TEST:-0}" == 1 ]]; then
+    exec "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/temporary/collision_amr/stages.py" run
+fi
 EXP="$CASE_DIR/runs/temporary/collision_amr/round1"
 OUT="$EXP/job${CCS_JOB_ID:?}"
 mkdir "$OUT";cp "$0" "$OUT/submit.sh"
