@@ -1,0 +1,22 @@
+{
+  "status": "FAILED",
+  "step": 12800,
+  "physical_time": 100,
+  "total_s": 399.72112007,
+  "MLUPS": 2684.299179633764,
+  "old_same_prefix_total_s": 496.95292971000003,
+  "allocated_cells": 28864512,
+  "leaf_cells": 25518592,
+  "allocated_saving_pct": 78.4942626953125,
+  "leaf_saving_pct": 80.98716735839844,
+  "device_sample_peak_MiB": 30671,
+  "arena_peak_used_MB": null,
+  "stage_s": {
+    "collide": 259.2371639,
+    "interp": 27.780766055999997,
+    "average": 14.476078593,
+    "comm": 28.747636994,
+    "boundary": 44.037593341000004,
+    "solv": 374.97285482
+  }
+}
