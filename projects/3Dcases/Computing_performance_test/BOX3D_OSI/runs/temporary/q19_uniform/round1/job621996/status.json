@@ -1,0 +1,77 @@
+[
+  {
+    "name": "flat_collision_reference",
+    "mode": "flat",
+    "exit_code": 0
+  },
+  {
+    "name": "flat_full_reference",
+    "mode": "flat_verify",
+    "exit_code": 0
+  },
+  {
+    "name": "q19_p0_ab",
+    "mode": "q19",
+    "exit_code": 0
+  },
+  {
+    "name": "q19_p0_osi",
+    "mode": "q19",
+    "exit_code": 0
+  },
+  {
+    "name": "q19_p1_ab",
+    "mode": "q19",
+    "exit_code": 0
+  },
+  {
+    "name": "q19_p1_osi",
+    "mode": "q19",
+    "exit_code": 0
+  },
+  {
+    "name": "perf_1_q27",
+    "mode": "q27",
+    "exit_code": 0
+  },
+  {
+    "name": "perf_1_q19",
+    "mode": "q19",
+    "exit_code": 0
+  },
+  {
+    "name": "perf_1_flat",
+    "mode": "flat",
+    "exit_code": 0
+  },
+  {
+    "name": "perf_2_flat",
+    "mode": "flat",
+    "exit_code": 0
+  },
+  {
+    "name": "perf_2_q19",
+    "mode": "q19",
+    "exit_code": 0
+  },
+  {
+    "name": "perf_2_q27",
+    "mode": "q27",
+    "exit_code": 0
+  },
+  {
+    "name": "perf_3_q19",
+    "mode": "q19",
+    "exit_code": 0
+  },
+  {
+    "name": "perf_3_q27",
+    "mode": "q27",
+    "exit_code": 0
+  },
+  {
+    "name": "perf_3_flat",
+    "mode": "flat",
+    "exit_code": 0
+  }
+]

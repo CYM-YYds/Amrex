@@ -1,0 +1,11 @@
+--- /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/src/LbmLattice.H	2026-10-27 10:43:20.977131000 +0800
++++ /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/q19_uniform/round1/build/src/LbmLattice.H	2026-10-31 21:10:04.647004967 +0800
+@@ -14,7 +14,7 @@
+ #if AMREX_SPACEDIM == 2
+ #define LBM_Q 9
+ #elif AMREX_SPACEDIM == 3
+-#define LBM_Q 27
++#define LBM_Q 19
+ #else
+ #error "Only DIM=2 and DIM=3 are supported"
+ #endif

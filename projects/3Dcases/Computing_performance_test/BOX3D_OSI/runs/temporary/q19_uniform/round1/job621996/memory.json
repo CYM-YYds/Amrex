@@ -1,0 +1,38 @@
+[
+  {
+    "mode": "q19",
+    "repeat": 1,
+    "arena_peak_used_MB": 1984,
+    "arena_reserved_MB": 30254
+  },
+  {
+    "mode": "q27",
+    "repeat": 1,
+    "arena_peak_used_MB": 2521,
+    "arena_reserved_MB": 30254
+  },
+  {
+    "mode": "q19",
+    "repeat": 2,
+    "arena_peak_used_MB": 1984,
+    "arena_reserved_MB": 30254
+  },
+  {
+    "mode": "q27",
+    "repeat": 2,
+    "arena_peak_used_MB": 2521,
+    "arena_reserved_MB": 30254
+  },
+  {
+    "mode": "q19",
+    "repeat": 3,
+    "arena_peak_used_MB": 1984,
+    "arena_reserved_MB": 30254
+  },
+  {
+    "mode": "q27",
+    "repeat": 3,
+    "arena_peak_used_MB": 2521,
+    "arena_reserved_MB": 30254
+  }
+]

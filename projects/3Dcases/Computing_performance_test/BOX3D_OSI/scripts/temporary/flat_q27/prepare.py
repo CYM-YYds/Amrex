@@ -1,7 +1,8 @@
 # 本轮D3Q27对照的临时生成入口；保留实验期间作为复现材料。
 from pathlib import Path
 import re,hashlib,shutil,json,sys
-case=Path(__file__).resolve().parents[3];exp=case/'runs/temporary/flat_q27/round1';exp.mkdir(parents=True,exist_ok=True)
+case=Path(__file__).resolve().parents[3];q=19 if '--q19' in sys.argv else 27
+exp=case/('runs/temporary/q19_uniform/round1/flat' if q==19 else 'runs/temporary/flat_q27/round1');exp.mkdir(parents=True,exist_ok=True)
 orig=case/'main_ldc_nee.cu';s=orig.read_text();shutil.copy2(orig,exp/'original.cu')
 if '--original' in sys.argv:
     exp=case/'runs/temporary/flat_original/round1';exp.mkdir(parents=True,exist_ok=True)
@@ -21,8 +22,8 @@ if '--original' in sys.argv:
         (exp/f'main_original_{n}.cu').write_text(variant)
     (exp/'source_manifest.json').write_text(json.dumps({'original_sha256':hashlib.sha256(orig.read_bytes()).hexdigest(),'kernel_bodies_byte_identical':True,'steps':3000,'sizes':[256,586]},indent=2)+'\n')
     print(exp);sys.exit(0)
-lattice=(case/'src/LbmLattice.H').read_text().split('#define LBM_D3Q27_ORDER0(X)')[1].split('#define LBM_D3Q27_ORDER1')[0]
-rows=re.findall(r'X\((-?\d+),\s*(-?\d+),\s*(-?\d+),\s*([^)]*)\)',lattice);assert len(rows)==27
+lattice=(case/'src/LbmLattice.H').read_text().split(f'#define LBM_D3Q{q}_ORDER0(X)')[1].split(f'#define LBM_D3Q{q}_ORDER1')[0]
+rows=re.findall(r'X\((-?\d+),\s*(-?\d+),\s*(-?\d+),\s*([^)]*)\)',lattice);assert len(rows)==q
 es=[tuple(map(int,r[:3])) for r in rows];ws=[r[3].replace('_rt','f') for r in rows]
 opp=[es.index(tuple(-x for x in e)) for e in es]
 tables='\n'.join(f'__device__ __constant__ int E{axis}[27]={{'+','.join(str(e[d]) for e in es)+'};' for d,axis in enumerate('XYZ'))
@@ -37,7 +38,8 @@ s=s.replace('#include "../basic/errCUDA.h"','''#define checkCudaErrors(call) do 
 ''')
 s=s.replace('#define nThreads 128','#ifndef nThreads\n#define nThreads 128\n#endif')
 s=s.replace('#define NxT (586*NPROCx)','#define NxT (256*NPROCx)').replace('#define NyT 586','#define NyT 256').replace('#define NzT 586','#define NzT 256')
-s=s.replace('#define Q 19','#define Q 27\n'+tables).replace('#define Re 1600.0','#define Re 1000.0').replace('#define U0 (Ma * cs)','#define U0 (0.05f)')
+tables=tables.replace('[27]',f'[{q}]')
+s=s.replace('#define Q 19',f'#define Q {q}\n'+tables).replace('#define Re 1600.0','#define Re 1000.0').replace('#define U0 (Ma * cs)','#define U0 (0.05f)')
 s=s.replace('#define OUTPUT_VEL_EVERY 10000','#define OUTPUT_VEL_EVERY 0')
 a=s.index('__device__ __host__ inline pfint INDEX');b=s.index('void CPU_time',a)
 idx='''// 一维OSI环：每方向位移由固定网格尺寸决定，读写复用相同地址。
@@ -47,6 +49,7 @@ __device__ __host__ inline pfint INDEX(pfint node, pfint q, pfint phase) {
     return q*(pfint)NODES+(node+(pfint)NODES*phase-shift*phase)%(pfint)NODES;
 }
 '''.replace('OFFSETS',','.join(f'({x}LL*NY*NZ+{y}LL*NZ+{z}LL)' for x,y,z in es))
+idx=idx.replace('[27]',f'[{q}]')
 s=s[:a]+idx+'\n'+s[b:]
 a=s.index('void init_f(');b=s.index('void init_flag(',a)
 s=s[:a]+'''bool verify_only=false;
@@ -94,6 +97,7 @@ __global__ void ldcWallBCCUDA(pfint phase,dfloat* fD,dfloat* pr,dfloat* u,dfloat
 }
 
 '''
+kernel=kernel.replace('[27]',f'[{q}]').replace('<27',f'<{q}').replace('D3Q27',f'D3Q{q}')
 s=s[:a]+kernel+s[b:]
 s=s.replace('stepmax = 10000;','stepmax = 1200;\n    verify_only=(argc>1 && strcmp(argv[1],"--verify")==0);')
 s=s.replace('100 * sizeof(dfloat), stream1','0, stream1')
@@ -128,6 +132,7 @@ verify='''
         freeMemoryCUDA();MPI_Finalize();return 0;
     }
 '''
+verify=verify.replace('[27]',f'[{q}]').replace('<27',f'<{q}').replace('*27',f'*{q}').replace('directions=27',f'directions={q}')
 pos=s.index('\n\tstartwtime = MPI_Wtime();',s.index('int main('));s=s[:pos]+verify+s[pos:]
 # 性能末态只做有限值检查，不冒充物理精度验证。
 pos=s.index('\n\tendwtime = MPI_Wtime();',s.index('int main('))
@@ -151,9 +156,10 @@ s=s.replace('\t\tfluidCollisionInnerCUDA<<<', '\t\tcheckCudaErrors(cudaEventReco
 s=s.replace('\n\t\tendwtime_Fcolli = MPI_Wtime();', '\n        checkCudaErrors(cudaEventRecord(ev2,stream1));\n\t\tendwtime_Fcolli = MPI_Wtime();')
 s=s.replace('total_time += std::chrono::duration<double,std::milli>(end-start).count();', 'total_time += std::chrono::duration<double,std::milli>(end-start).count();\n        float bc_ms=0,cl_ms=0;checkCudaErrors(cudaEventElapsedTime(&bc_ms,ev0,ev1));checkCudaErrors(cudaEventElapsedTime(&cl_ms,ev1,ev2));gpu_bc_ms+=bc_ms;gpu_collision_ms+=cl_ms;')
 s=s.replace('\t\t\ttotal_time = 0.0;', '            printf("STAGE ms_per_step boundary=%.9f collision=%.9f\\n",gpu_bc_ms/200.0,gpu_collision_ms/200.0);\n            gpu_bc_ms=0;gpu_collision_ms=0;\n\t\t\ttotal_time = 0.0;')
+if q==19:s=s.replace('mlups_fluid * 216.0','mlups_fluid * 152.0').replace('216B/流体格点','152B/流体格点')
 s=s.replace('// 全部格点（含 halo），Nx4^3 = 256^3，与我们 OSI 版口径一致','// 全存储格点，仅辅助指标，不用于判优').replace('// 仅流体格点 252^3','// 有效流体256^3').replace('// total_time = 1000 步的毫秒数 -> MLUPs = 格点数 / total_time','// 200步窗口，采用浮点毫秒，保留真实时间精度')
 
-(exp/'main_q27.cu').write_text(s)
+(exp/f'main_q{q}.cu').write_text(s)
 (exp/'verify_source.cu').write_text(s.replace('#define NxT (256*NPROCx)','#define NxT (16*NPROCx)').replace('#define NyT 256','#define NyT 16').replace('#define NzT 256','#define NzT 16'))
-(exp/'source_manifest.json').write_text(json.dumps({'original_sha256':hashlib.sha256(orig.read_bytes()).hexdigest(),'q27_sha256':hashlib.sha256(s.encode()).hexdigest(),'lattice_source':'src/LbmLattice.H LBM_D3Q27_ORDER0'},indent=2)+'\n')
+(exp/'source_manifest.json').write_text(json.dumps({'original_sha256':hashlib.sha256(orig.read_bytes()).hexdigest(),f'q{q}_sha256':hashlib.sha256(s.encode()).hexdigest(),'lattice_source':f'src/LbmLattice.H LBM_D3Q{q}_ORDER0','Q':q,'q0_collided':True},indent=2)+'\n')
 print(exp)

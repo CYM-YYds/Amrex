@@ -1,0 +1,15 @@
+{
+  "source_head": "ccd4af0fc9bd426cc4b91e15861bbad8afdcddc4",
+  "change": "isolated LbmLattice.H: LBM_Q 27 -> 19; reuse existing ORDER0 direction and weight table",
+  "baseline_q27_sha256": "fdda4f2400438ad1abda5929de960f65c080962f706dd16f94bd5db35ddb1c14",
+  "formal_default_changed": false,
+  "scope": "same collision equation; boundaries/OSI indexing/build remain different",
+  "teacher_model": "standard D3Q19 density BGK, including q0; changed experiment copy, not original",
+  "shared_parameters": {
+    "grid": 256,
+    "Re": 1000,
+    "U0": 0.05,
+    "threads": 128,
+    "precision": "FLOAT"
+  }
+}

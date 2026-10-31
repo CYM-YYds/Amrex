@@ -1,0 +1,10 @@
+{
+  "amrex_q19_ab_osi": [
+    "q19_p0_osi",
+    "q19_p1_osi"
+  ],
+  "all_valid_active_norms_zero": true,
+  "teacher_double_reference_passed": true,
+  "teacher_full_grid_phases": 6,
+  "q0_included": true
+}

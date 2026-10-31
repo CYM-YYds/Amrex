@@ -1,0 +1,102 @@
+{
+  "summary": {
+    "q19": {
+      "MLUPS": 5478.832268814043,
+      "total_ms": 3.062188287,
+      "collision_ms": 2.3638893174,
+      "boundary_ms": 0.6670571506866666,
+      "min_ms": 3.057989486,
+      "max_ms": 3.069693721
+    },
+    "q27": {
+      "MLUPS": 3677.847367169716,
+      "total_ms": 4.561694471,
+      "collision_ms": 3.5803477460666664,
+      "boundary_ms": 0.95024332808,
+      "min_ms": 4.557466888,
+      "max_ms": 4.569333126
+    },
+    "flat": {
+      "MLUPS": 5830.796811822657,
+      "total_ms": 2.8773453339999997,
+      "collision_ms": 2.4416785154666667,
+      "boundary_ms": 0.42317619199999995,
+      "min_ms": 2.871777923,
+      "max_ms": 2.880468443
+    }
+  },
+  "records": [
+    {
+      "mode": "q19",
+      "repeat": 1,
+      "steps": 1000,
+      "total_s": 3.069693721,
+      "collision_ms": 2.3635793976,
+      "boundary_ms": 0.66721484734
+    },
+    {
+      "mode": "q27",
+      "repeat": 1,
+      "steps": 1000,
+      "total_s": 4.557466888,
+      "collision_ms": 3.5798282388000002,
+      "boundary_ms": 0.9503631347999999
+    },
+    {
+      "mode": "flat",
+      "repeat": 1,
+      "steps": 1000,
+      "total_s": 2.879789636,
+      "collision_ms": 2.4415877198000002,
+      "boundary_ms": 0.42314137579999994
+    },
+    {
+      "mode": "q19",
+      "repeat": 2,
+      "steps": 1000,
+      "total_s": 3.057989486,
+      "collision_ms": 2.3638077278000003,
+      "boundary_ms": 0.6669895666800001
+    },
+    {
+      "mode": "q27",
+      "repeat": 2,
+      "steps": 1000,
+      "total_s": 4.569333126,
+      "collision_ms": 3.5794606232,
+      "boundary_ms": 0.95016550488
+    },
+    {
+      "mode": "flat",
+      "repeat": 2,
+      "steps": 1000,
+      "total_s": 2.880468443,
+      "collision_ms": 2.4414863466,
+      "boundary_ms": 0.4230492158
+    },
+    {
+      "mode": "q19",
+      "repeat": 3,
+      "steps": 1000,
+      "total_s": 3.058881654,
+      "collision_ms": 2.3642808268,
+      "boundary_ms": 0.6669670380399999
+    },
+    {
+      "mode": "q27",
+      "repeat": 3,
+      "steps": 1000,
+      "total_s": 4.5582833990000005,
+      "collision_ms": 3.5817543762,
+      "boundary_ms": 0.9502013445599999
+    },
+    {
+      "mode": "flat",
+      "repeat": 3,
+      "steps": 1000,
+      "total_s": 2.871777923,
+      "collision_ms": 2.4419614800000002,
+      "boundary_ms": 0.4233379844
+    }
+  ]
+}
