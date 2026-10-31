@@ -429,7 +429,8 @@ grid_eff=0.7 约束的是处理后的聚类效率，不保证细网格内 70% �
 
 ### 性能与显存统计口径
 
-`main.cpp` 的 `solv` 是推进周期耗时，`total` 加上重网格及其验证成本；两者均不包含初始化和随后输出文件的耗时。
+`main.cpp` 的 `solv` 是推进周期耗时，`total` 加上重网格及其验证成本；两者均不包含初始化、随后执行的 `CheckConvergence` 和输出文件的耗时。
+窗口时钟、日志单位及已移除细分字段统一见[README](../README.md#同层通信重叠与计时)。
 固定lev0减少同步路径另以`uniform_stage_gpu/cpu(ms/step)`报告每步累计的窗口平均，
 仅支持CUDA、单rank、OSI且减少同步实际生效。GPU事件在既有等待后读取，不增加阶段等待；
 GPU区间、CPU提交和CPU等待有重叠，不能相加。该路径的旧`comm/stream/boundary/swap=0`
@@ -657,6 +658,14 @@ OSI 通信/缓存搬运的嵌套细分计时由 `RuntimeParams` 中一次读取�
 保留显式数据依赖同步；AMR路径保留主阶段计时，固定lev0减少同步路径则使用上文窗口事件统计。
 日志中的未测量零值不能解释为没有搬运成本。
 用法和配对结果见[README](../README.md#构建运行与实验记录)。
+
+验证时机由 `OsiAbVerification` 根据配置安排，实际比较仍由驱动类诊断函数执行；
+底层保护及 CPU 独立逐值复核保留。`verification.osi_ab_continue_on_mismatch`
+由 `ReadParameters` 一次写入 `ProbeParams`，阶段比较和步末报告只读同一配置。
+`CompareDdfCheckpoint` 在 valid 差值尚未屏蔽 covered 单元时，按 Fab 回拷全部 Q 分量和掩码一次，
+在主机按分量分类；局部 `MismatchStats[Q]` 每层重新构造，不跨调用缓存。
+分类前显式等待设备完成；各分量 valid/active 范数仍沿原有屏蔽与归约顺序计算。
+分类计数与坐标保持 rank 本地输出，范数的全局归约另行执行，不能把两者混为同一统计范围。
 
 ## 14. 不能破坏的比较控制
 

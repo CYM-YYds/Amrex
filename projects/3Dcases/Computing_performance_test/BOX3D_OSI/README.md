@@ -310,6 +310,8 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 统计范围和绝对步报告条件保持不变，报告后整个窗口清零。
 不再输出已无更新者的 `average_copy/average_scale/average_restrict/osi_decode/osi_encode`；
 旧日志仍可由现有性能绘图入口读取，缺少旧细分字段时沿用其兼容处理。
+检测职责与同步边界见[架构说明](docs/osi_algorithm_and_architecture.md#13-当前数据结构边界)，
+冻结版本的数值及计时验证见[精简记录](docs/ai_changes/2026-10-30-timing-verification-cleanup.md)。
 
 当前三维 [inputs](config/inputs) 显式设置 `lbm.osi_collide_comm_overlap=1`、
 `performance.osi_detail_timing=0`。二维 inputs 未启用重叠、细分计时仍为 1；
@@ -406,7 +408,7 @@ OSI/A-B 检查。默认 `periodic`；也可设置 `BOX3D_FIXED_GRID_BOUNDARY`，
   <日志路径> --window-steps 1000 --output <图片路径>
 ```
 
-它读取旧版完整 `perf(s)` / `perf_detail(s)` 记录；每窗步数默认 1000，须与运行配置一致，
+它读取包含 `perf(s)` / `perf_detail(s)` 的新旧日志；每窗步数默认 1000，须与运行配置一致，
 相邻记录不连续或间隔不同会拒绝绘图。单条记录不能自动核实实际窗口长度。
 输出标注来源、步数、每窗秒数及日志字段参照；缺失旧细分字段仍按兼容逻辑绘为 0，
 不能解释为测得零成本，也未增加跨 rank 聚合机制。原解析和指标计算保持不变。
