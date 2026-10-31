@@ -497,6 +497,7 @@ uncovered DDF、各层 checkpoint valid/active DDF 的前后差均为 `linf=0`�
 - [OSI 架构](docs/osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)：粗细层传输、缓存与覆盖门禁。
 - [MPI 通信计划](docs/osi_mpi_communication_plan.md)：历史实验阶段与通信机制；现役粗细传输见 [OSI 架构](docs/osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)。
 - [MLUPS 记录](docs/MLUPS记录.md)：历史性能及适用范围。
+- [均匀网格与AMR性能优化记录](docs/均匀网格与AMR性能优化记录.md)：师兄原程序/改造副本、均匀网格、固定AMR与多GPU的实测及参数。
 - [变更记录](docs/ai_changes/)：按提交保留的修改目的与验证摘要。
 
 OSI 已移除 canonical 通信、插值搬运与接口平均写回回退。旧的
