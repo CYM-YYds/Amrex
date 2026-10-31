@@ -1,0 +1,19 @@
+{
+  "job": 622016,
+  "measured_steps": 1000,
+  "MLUPS": 4057.614250489409,
+  "total_ms": 33.077991084,
+  "collision_ms": 29.262590962,
+  "boundary_ms": 3.7813125112000003,
+  "arena_peak_used_MB": 34094,
+  "arena_reserved_MB": 34102,
+  "application_total_seconds": 39.67782157,
+  "guard_elapsed_seconds": 41.412146512418985,
+  "window_mlups": [
+    4130.790334,
+    4079.364619,
+    4040.600433,
+    4021.458395,
+    4018.055905
+  ]
+}

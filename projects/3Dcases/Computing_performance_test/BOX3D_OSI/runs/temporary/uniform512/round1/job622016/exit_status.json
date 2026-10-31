@@ -1,0 +1,9 @@
+{
+  "reason": "launcher_exit",
+  "exit_code": 0,
+  "launcher_returncode": 0,
+  "elapsed_seconds": 41.412146512418985,
+  "completion_seen": false,
+  "wall_seconds": 0,
+  "exit_grace_seconds": 60
+}
