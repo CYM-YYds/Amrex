@@ -1,0 +1,15 @@
+{
+  "cases": [
+    {
+      "level": 0,
+      "all_valid_active_norms_zero": true
+    },
+    {
+      "level": 1,
+      "all_valid_active_norms_zero": true
+    }
+  ],
+  "candidate_sha256": "58b7947206f07ece096192bd8fa5f71b577a082aad49424c54d17ceeaffbec1d",
+  "baseline_source_job": 621978,
+  "performance_tuned": false
+}

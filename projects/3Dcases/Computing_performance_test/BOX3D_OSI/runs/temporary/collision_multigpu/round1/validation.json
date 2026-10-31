@@ -1,0 +1,22 @@
+{
+  "valid_comparisons": [
+    "job621978/uniform_r2_p0",
+    "job621978/uniform_r2_p1",
+    "job621978/uniform_r4_p0",
+    "job621978/uniform_r4_p1",
+    "job621978/real_r2",
+    "job621978/real_r4",
+    "job621978/dynamic_r4",
+    "job621979/2d_l0_candidate",
+    "job621979/2d_l1_candidate"
+  ],
+  "all_valid_active_norms_zero": true,
+  "workload_counts_matched": true,
+  "excluded_2d_comparisons": [
+    "job621978/2d_l0_candidate",
+    "job621978/2d_l1_candidate"
+  ],
+  "exclusion_reason": "candidate was not rebuilt due to preserved mtime; replaced by job621979",
+  "performance_3d_runs": 24,
+  "performance_2d_runs": 0
+}

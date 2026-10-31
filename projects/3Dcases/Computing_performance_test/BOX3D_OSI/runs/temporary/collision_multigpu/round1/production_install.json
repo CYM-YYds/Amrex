@@ -1,0 +1,18 @@
+{
+  "executables": {
+    "3": {
+      "previous_sha256": "4b670202083632f4869a447a6c7b4f8281dd1e504db1da7ee2ebe921e7ae3c3a",
+      "installed_sha256": "9ea45c3c4d4cbf5cb0b029e856cadbf79fb86d5805cb929ed1b2c9939192bea1"
+    },
+    "2": {
+      "previous_sha256": "8f3df199452e50cbe2d9465ca9a0d9530181eb2471c028498dc332744aa78913",
+      "installed_sha256": "58b7947206f07ece096192bd8fa5f71b577a082aad49424c54d17ceeaffbec1d"
+    }
+  },
+  "source_matches_both_builds": true,
+  "scope": "CUDA FLOAT collision, 2D/3D, all MPI ranks",
+  "source_jobs": [
+    621978,
+    621979
+  ]
+}

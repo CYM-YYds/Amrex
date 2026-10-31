@@ -1,0 +1,290 @@
+[
+  {
+    "name": "perf_uniform_r2_1_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 1490,
+    "max_rank": 1490
+  },
+  {
+    "name": "perf_uniform_r2_1_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_uniform_r2_1_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 1490,
+    "max_rank": 1490
+  },
+  {
+    "name": "perf_uniform_r2_1_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r2_1_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 4391,
+    "max_rank": 5365
+  },
+  {
+    "name": "perf_amr_r2_1_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r2_1_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 4391,
+    "max_rank": 5365
+  },
+  {
+    "name": "perf_amr_r2_1_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_uniform_r4_1_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 780,
+    "max_rank": 780
+  },
+  {
+    "name": "perf_uniform_r4_1_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_uniform_r4_1_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 780,
+    "max_rank": 780
+  },
+  {
+    "name": "perf_uniform_r4_1_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r4_1_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 1556,
+    "max_rank": 4319
+  },
+  {
+    "name": "perf_amr_r4_1_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r4_1_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 1556,
+    "max_rank": 4319
+  },
+  {
+    "name": "perf_amr_r4_1_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r4_2_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 1556,
+    "max_rank": 4319
+  },
+  {
+    "name": "perf_amr_r4_2_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r4_2_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 1556,
+    "max_rank": 4319
+  },
+  {
+    "name": "perf_amr_r4_2_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_uniform_r4_2_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 780,
+    "max_rank": 780
+  },
+  {
+    "name": "perf_uniform_r4_2_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_uniform_r4_2_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 780,
+    "max_rank": 780
+  },
+  {
+    "name": "perf_uniform_r4_2_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r2_2_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 4391,
+    "max_rank": 5365
+  },
+  {
+    "name": "perf_amr_r2_2_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r2_2_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 4391,
+    "max_rank": 5365
+  },
+  {
+    "name": "perf_amr_r2_2_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_uniform_r2_2_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 1490,
+    "max_rank": 1490
+  },
+  {
+    "name": "perf_uniform_r2_2_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_uniform_r2_2_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 1490,
+    "max_rank": 1490
+  },
+  {
+    "name": "perf_uniform_r2_2_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_uniform_r2_3_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 1490,
+    "max_rank": 1490
+  },
+  {
+    "name": "perf_uniform_r2_3_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_uniform_r2_3_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 1490,
+    "max_rank": 1490
+  },
+  {
+    "name": "perf_uniform_r2_3_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r2_3_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 4391,
+    "max_rank": 5365
+  },
+  {
+    "name": "perf_amr_r2_3_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r2_3_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 4391,
+    "max_rank": 5365
+  },
+  {
+    "name": "perf_amr_r2_3_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_uniform_r4_3_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 780,
+    "max_rank": 780
+  },
+  {
+    "name": "perf_uniform_r4_3_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_uniform_r4_3_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 780,
+    "max_rank": 780
+  },
+  {
+    "name": "perf_uniform_r4_3_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r4_3_baseline",
+    "metric": "arena_used_MB",
+    "min_rank": 1556,
+    "max_rank": 4319
+  },
+  {
+    "name": "perf_amr_r4_3_baseline",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  },
+  {
+    "name": "perf_amr_r4_3_candidate",
+    "metric": "arena_used_MB",
+    "min_rank": 1556,
+    "max_rank": 4319
+  },
+  {
+    "name": "perf_amr_r4_3_candidate",
+    "metric": "arena_reserved_MB",
+    "min_rank": 30254,
+    "max_rank": 30254
+  }
+]

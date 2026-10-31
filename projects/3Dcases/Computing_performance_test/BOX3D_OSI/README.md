@@ -189,14 +189,15 @@ ghost 填充和重构迁移统一采用自定义数值插值核。AMReX 仍提�
 两项优化独立于外层调度；各开关可独立设为0对照，均设为0恢复阶段同步和mask碰撞。
 接入范围与组合回归见[同步与无mask接入记录](docs/ai_changes/2026-10-29-uniform-kernels-integration.md)。
 
-CUDA三维FLOAT、单MPI rank的OSI碰撞（含AMR的mask路径）采用128线程/block，
+CUDA FLOAT的二维/三维OSI碰撞（含AMR的mask路径、多MPI rank）采用128线程/block，
 并在线程内复用当前格点的九个轴坐标；不增加跨步缓存，BGK公式与Fab回绕范围不变。
-AMR保留covered/interface筛选；其他精度、维度、多rank和canonical路径保留原线程/寻址实现。
+AMR保留covered/interface筛选；CPU、其他精度和canonical路径保留原线程/寻址实现。
 `lbm.uniform_nomask_collision=0`只选择mask路径，不再关闭上述碰撞优化；原实现对照使用实验中冻结的基线程序。
 单层接入与AMR独立测试见[前轮记录](docs/ai_changes/2026-10-30-uniform-collision-integration-amr-test.md)，
 AMR正式接入及其他阶段筛选见[本轮记录](docs/ai_changes/2026-10-30-amr-collision-integration-stage-coordinates.md)。
+多GPU碰撞及二维相同默认的接入范围与证据见[扩展记录](docs/ai_changes/2026-10-31-collision-multigpu-2d.md)。
 
-同一CUDA三维FLOAT、单rank范围内，宏观量计算和本地ghost复制也启用线程内坐标复用；
+宏观量计算和本地ghost复制仍仅在CUDA三维FLOAT、单rank范围内启用线程内坐标复用；
 其余配置沿用原寻址，MPI打包/解包及ParallelCopyOsi不变。
 接入复用已有性能证据，仅做编译和代表性逐值回归，见[接入记录](docs/ai_changes/2026-10-30-macro-localcopy-integration.md)。
 

@@ -1,0 +1,6 @@
+{
+  "source_head": "ef1ce5dc83907e9b7b3bf6de9dd37d646c265252",
+  "baseline3d_sha256": "4b670202083632f4869a447a6c7b4f8281dd1e504db1da7ee2ebe921e7ae3c3a",
+  "scope": "collision only; CUDA FLOAT; 2D follows 3D",
+  "performance": "2/4 ranks single node; no 2D performance tuning"
+}

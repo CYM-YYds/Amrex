@@ -6,7 +6,13 @@
 传输机制以[架构说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)为准。
 历史验收只覆盖各自冻结的源码、程序、输入和网格范围，不自动代表当前 HEAD。
 
-## 2026-10-31：统一单层/多层外层推进入口（最新）
+## 2026-10-31：碰撞多GPU及二维统一默认（最新）
+
+- CUDA FLOAT二维/三维OSI碰撞统一128线程＋坐标复用，不再限制单rank；covered/interface、MPI与同步不变。CPU/DOUBLE/canonical保留原策略；宏观量/本地ghost的原适用范围未扩大。
+- 621978/621979有效DDF对照9组全0；2/4 GPU均匀及真实AMR同节点各三对，total分别下降5.945%/6.949%、6.782%/8.106%，范围不重叠。二维只编译/回归，不调性能。两种正式程序均已安装，源与候选一致，不重复接入矩阵。
+- 初次二维候选因时间戳未重编而排除，补编后两组验证有效。证据与边界见[报告](../runs/temporary/collision_multigpu/round1/report.md)、[扩展记录](ai_changes/2026-10-31-collision-multigpu-2d.md)。不将同节点结果泛化为多节点或任意布局收益。
+
+## 2026-10-31：统一单层/多层外层推进入口
 
 - 移除main直接AdvanceLevel(0)的独立入口与performance.uniform_grid_path参数，统一经过RegridIfNeeded和Cycle2。配置max_level=0时重网格条件不成立，不重建单层缓存；max_level>0即使当前尚无细层仍保留重网格。
 - 减少同步、无mask碰撞、GPU窗口统计继续保留，独立于外层入口；128线程及坐标复用等有效核优化不变。不把独立入口无明显收益解释为这些机制也无收益。

@@ -16,7 +16,11 @@ module purge
 module load mpi/hmpi/1.2.0_bs2.4.0_sp1 compilers/cuda/12.8.0 compilers/gcc/11.3.0
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 REPO_DIR="$(git -C "$CASE_DIR" rev-parse --show-toplevel)"
-if [[ "${COORD_STAGE_TEST:-0}" == dispatch-removal ]]; then
+if [[ "${COORD_STAGE_TEST:-0}" == multigpu-2d ]]; then
+    exec "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/temporary/collision_amr/multigpu.py" 2d
+elif [[ "${COORD_STAGE_TEST:-0}" == multigpu ]]; then
+    exec "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/temporary/collision_amr/multigpu.py" run
+elif [[ "${COORD_STAGE_TEST:-0}" == dispatch-removal ]]; then
     exec "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/temporary/collision_amr/stages.py" dispatch-removal
 elif [[ "${COORD_STAGE_TEST:-0}" == integrate ]]; then
     exec "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/temporary/collision_amr/stages.py" integrate

@@ -1,0 +1,146 @@
+[
+  {
+    "name": "perf_uniform_r2_1_baseline",
+    "ranks": 2,
+    "mode": "baseline",
+    "application_reported_total_s": 7.732512624
+  },
+  {
+    "name": "perf_uniform_r2_1_candidate",
+    "ranks": 2,
+    "mode": "candidate",
+    "application_reported_total_s": 7.153817287
+  },
+  {
+    "name": "perf_amr_r2_1_baseline",
+    "ranks": 2,
+    "mode": "baseline",
+    "application_reported_total_s": 29.93995135
+  },
+  {
+    "name": "perf_amr_r2_1_candidate",
+    "ranks": 2,
+    "mode": "candidate",
+    "application_reported_total_s": 28.96913166
+  },
+  {
+    "name": "perf_uniform_r4_1_baseline",
+    "ranks": 4,
+    "mode": "baseline",
+    "application_reported_total_s": 6.778116991
+  },
+  {
+    "name": "perf_uniform_r4_1_candidate",
+    "ranks": 4,
+    "mode": "candidate",
+    "application_reported_total_s": 6.308597354
+  },
+  {
+    "name": "perf_amr_r4_1_baseline",
+    "ranks": 4,
+    "mode": "baseline",
+    "application_reported_total_s": 24.01161265
+  },
+  {
+    "name": "perf_amr_r4_1_candidate",
+    "ranks": 4,
+    "mode": "candidate",
+    "application_reported_total_s": 20.87271093
+  },
+  {
+    "name": "perf_amr_r4_2_candidate",
+    "ranks": 4,
+    "mode": "candidate",
+    "application_reported_total_s": 25.92013596
+  },
+  {
+    "name": "perf_amr_r4_2_baseline",
+    "ranks": 4,
+    "mode": "baseline",
+    "application_reported_total_s": 23.52851975
+  },
+  {
+    "name": "perf_uniform_r4_2_candidate",
+    "ranks": 4,
+    "mode": "candidate",
+    "application_reported_total_s": 6.379404941
+  },
+  {
+    "name": "perf_uniform_r4_2_baseline",
+    "ranks": 4,
+    "mode": "baseline",
+    "application_reported_total_s": 6.787016597
+  },
+  {
+    "name": "perf_amr_r2_2_candidate",
+    "ranks": 2,
+    "mode": "candidate",
+    "application_reported_total_s": 24.08074431
+  },
+  {
+    "name": "perf_amr_r2_2_baseline",
+    "ranks": 2,
+    "mode": "baseline",
+    "application_reported_total_s": 26.70775824
+  },
+  {
+    "name": "perf_uniform_r2_2_candidate",
+    "ranks": 2,
+    "mode": "candidate",
+    "application_reported_total_s": 7.220758912
+  },
+  {
+    "name": "perf_uniform_r2_2_baseline",
+    "ranks": 2,
+    "mode": "baseline",
+    "application_reported_total_s": 7.733206138
+  },
+  {
+    "name": "perf_uniform_r2_3_baseline",
+    "ranks": 2,
+    "mode": "baseline",
+    "application_reported_total_s": 7.660422363
+  },
+  {
+    "name": "perf_uniform_r2_3_candidate",
+    "ranks": 2,
+    "mode": "candidate",
+    "application_reported_total_s": 7.291737704
+  },
+  {
+    "name": "perf_amr_r2_3_baseline",
+    "ranks": 2,
+    "mode": "baseline",
+    "application_reported_total_s": 29.7312542
+  },
+  {
+    "name": "perf_amr_r2_3_candidate",
+    "ranks": 2,
+    "mode": "candidate",
+    "application_reported_total_s": 28.30673096
+  },
+  {
+    "name": "perf_uniform_r4_3_baseline",
+    "ranks": 4,
+    "mode": "baseline",
+    "application_reported_total_s": 6.78271357
+  },
+  {
+    "name": "perf_uniform_r4_3_candidate",
+    "ranks": 4,
+    "mode": "candidate",
+    "application_reported_total_s": 6.318373623
+  },
+  {
+    "name": "perf_amr_r4_3_baseline",
+    "ranks": 4,
+    "mode": "baseline",
+    "application_reported_total_s": 26.82610033
+  },
+  {
+    "name": "perf_amr_r4_3_candidate",
+    "ranks": 4,
+    "mode": "candidate",
+    "application_reported_total_s": 24.60120738
+  }
+]
