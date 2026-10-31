@@ -309,6 +309,12 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 
 ### 同层通信重叠与计时
 
+主循环窗口统一以 `amrex::second()` 的 `double` 秒累计，不增加 GPU 同步；
+旧日志行 `compute_time/regrid_time/JaberCycle_time` 仍输出毫秒，`perf(s)` 仍输出秒。
+统计范围和绝对步报告条件保持不变，报告后整个窗口清零。
+不再输出已无更新者的 `average_copy/average_scale/average_restrict/osi_decode/osi_encode`；
+旧日志仍可由现有性能绘图入口读取，缺少旧细分字段时沿用其兼容处理。
+
 当前三维 [inputs](config/inputs) 显式设置 `lbm.osi_collide_comm_overlap=1`、
 `performance.osi_detail_timing=0`。二维 inputs 未启用重叠、细分计时仍为 1；
 程序未读到参数时，两个开关分别缺省为 0 和 1。

@@ -1,5 +1,4 @@
 #include <iostream>
-#include <chrono>
 #include <array>
 #include <cmath>
 
@@ -125,9 +124,9 @@ InputConfig ReadInputConfig() {
 
 // 仅拥有当前报告窗口的累计量；每步更新，报告后与求解器统计一起清零。
 struct PerformanceWindow {
-    float compute_time = 0.0f;
-    float regrid_time = 0.0f;
-    float JaberCycle_time = 0.0f;
+    double total_s = 0.0;
+    double regrid_s = 0.0;
+    double solv_s = 0.0;
     double weighted_updates_window = 0.0;
     int stats_steps = 0;
 };
@@ -170,17 +169,13 @@ void RegridIfNeeded(AmrCoreLBM& lid, OsiAbVerification& verification,
         } else {
             lid.AverageDownValid();
         }
-        if (verification_enabled) {
-            verification.AfterRepair(lid, step);
-        }
+        verification.AfterRepair(lid, step);
         if (lid.streamMode() == 0 && lid.params().write_particles) {
             lid.FindCentre();
         }
 
         lid.RefineMesh(cur_time);
-        if (verification_enabled) {
-            verification.AfterRefineMesh(lid, step);
-        }
+        verification.AfterRefineMesh(lid, step);
         if (lid.params().write_particles) {
             lid.RedistributeParticle();
         }
@@ -191,8 +186,8 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
                                PerformanceWindow& window) {
     if (step % lid.params().perf_report_int == 0) {
         const auto& perf = lid.GetPerfStats();
-        double total_s = static_cast<double>(window.compute_time) / 1000.0;
-        double solv_s = static_cast<double>(window.JaberCycle_time) / 1000.0;
+        const double total_s = window.total_s;
+        const double solv_s = window.solv_s;
         double total_mlups = 0.0;
         double solv_mlups = 0.0;
 
@@ -205,7 +200,7 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
 
         lid.PrintMeshInfo();
 
-        std::cout << "step" << step << " compute_time: " << window.compute_time << " ms" << " regrid_time: " << window.regrid_time << " ms" << " JaberCycle_time: " << window.JaberCycle_time << " ms"
+        std::cout << "step" << step << " compute_time: " << window.total_s * 1000.0 << " ms" << " regrid_time: " << window.regrid_s * 1000.0 << " ms" << " JaberCycle_time: " << window.solv_s * 1000.0 << " ms"
                   << std::endl;
         std::cout << "step" << step
                   << " perf(s): osi_detail_timing=" << lid.params().perf_osi_detail_timing
@@ -216,10 +211,8 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
                   << " stream=" << perf.stream
                   << " average=" << perf.average
                   << " comm=" << perf.comm
-                  << " osi_decode=" << perf.osi_decode
                   << " osi_parallel_copy=" << perf.osi_parallel_copy
                   << " osi_fillboundary=" << perf.osi_fillboundary
-                  << " osi_encode=" << perf.osi_encode
                   << " osi_mpi_pack=" << perf.osi_mpi_pack
                   << " osi_mpi_pack_kernel=" << perf.osi_mpi_pack_kernel
                   << " osi_mpi_dtoh=" << perf.osi_mpi_dtoh
@@ -255,11 +248,8 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
                   << " perf_detail(s): interp_cache_build=" << perf.interp_cache_build
                   << " interp_regrid_fill=" << perf.interp_regrid_fill
                   << " interp_fillpatch=" << perf.interp_fillpatch
-                  << " average_copy=" << perf.average_copy
-                  << " average_scale=" << perf.average_scale
                   << " average_down=" << perf.average_down
                   << " average_fused=" << perf.average_fused
-                  << " average_restrict=" << perf.average_restrict
                   << " average_copyback=" << perf.average_copyback
                   << std::endl;
         std::cout << "step" << step
@@ -303,11 +293,7 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
                       << " collect=" << sample.cpu_collect * ms << std::endl;
         }
 
-        window.compute_time = 0.0f;
-        window.regrid_time = 0.0f;
-        window.JaberCycle_time = 0.0f;
-        window.weighted_updates_window = 0.0;
-        window.stats_steps = 0;
+        window = PerformanceWindow{};
         lid.ResetPerfStats();
     }
 }
@@ -401,7 +387,6 @@ void RunSimulation() {
     Real cur_time = begin_step * grid.dt;
     InitializeSimulation(lid, cur_time);
 
-    const bool verification_enabled = lid.osiReferenceEnabled();
     amrex::Print() << "[Advance] path=" << (uniform_grid_path ? "uniform" : "amr")
                    << " max_level=" << runtime_max_level << '\n';
 
@@ -410,35 +395,28 @@ void RunSimulation() {
     int start_step = begin_step + 1;
     for (int step = start_step; step <= max_step && cur_time < stop_time; step++) {
         amrex::Print() << "STEP " << step << "starts ..." << std::endl;
-        auto start_time_compute_time = std::chrono::high_resolution_clock::now();
+        const double compute_start = amrex::second();
         // 步入口验证同时覆盖两条路径；单层不执行伪重网格及缓存重建。
-        if (verification_enabled) {
-            verification.BeforeRegrid(lid, step);
-        }
+        verification.BeforeRegrid(lid, step);
         if (!uniform_grid_path) {
-            auto start_time_regrid_time = std::chrono::high_resolution_clock::now();
+            const double regrid_start = amrex::second();
             RegridIfNeeded(lid, verification, step, cur_time);
-            auto end_time_regrid_time = std::chrono::high_resolution_clock::now();
-            window.regrid_time += std::chrono::duration<float, std::milli>(end_time_regrid_time - start_time_regrid_time).count();
+            window.regrid_s += amrex::second() - regrid_start;
         }
         window.weighted_updates_window += lid.ComputeWeightedLatticeUpdatesPerCoarseStep();
         ++window.stats_steps;
 
-        auto start_time_JaberCycle = std::chrono::high_resolution_clock::now();
+        const double solv_start = amrex::second();
         if (uniform_grid_path) {
             lid.AdvanceLevel(0);
         } else {
             Cycle2(0, cur_time, lid, verification);
         }
-        if (verification_enabled) {
-            verification.AfterAdvance(lid, 0, step);
-        }
+        verification.AfterAdvance(lid, 0, step);
         lid.PrintParticleChecksums(step);
-        auto end_time_JaberCycle = std::chrono::high_resolution_clock::now();
-        window.JaberCycle_time += std::chrono::duration<float, std::milli>(end_time_JaberCycle - start_time_JaberCycle).count();
+        window.solv_s += amrex::second() - solv_start;
 
-        auto end_time_compute_time = std::chrono::high_resolution_clock::now();
-        window.compute_time += std::chrono::duration<float, std::milli>(end_time_compute_time - start_time_compute_time).count();
+        window.total_s += amrex::second() - compute_start;
         cur_time += grid.dt;
 
         const bool converged = lid.CheckConvergence(step);
@@ -610,9 +588,7 @@ void Cycle2(int lev, amrex::Real cur_time, AmrCoreLBM& lid,
     //    fine substeps 共享这次时间插值，与既有两层 Jaber 调度一致。
     if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev, cur_time, 1);
-        if (lid.osiReferenceEnabled()) {
-            verification.AfterFirstFillGhost(lid, lev);
-        }
+        verification.AfterFirstFillGhost(lid, lev);
     }
 
     // 2. 当前层推进一个时间步

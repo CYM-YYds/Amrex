@@ -562,6 +562,7 @@ void AmrCoreLBM::ReadParameters() {
         pp_verify.query("regrid_fixture", probe_.regrid_fixture);
         pp_verify.query("osi_seed_pattern", osi_verification_pattern);
         pp_verify.query("osi_ab_check", requested_osi_ab_check);
+        pp_verify.query("osi_ab_continue_on_mismatch", probe_.osi_ab_continue_on_mismatch);
         pp_verify.query("particle_checksum", particle_checksum);
         pp_verify.query("average_probe_first", probe_.average_first);
         pp_verify.query("ghost_probe_first_fill", probe_.ghost_first_fill);

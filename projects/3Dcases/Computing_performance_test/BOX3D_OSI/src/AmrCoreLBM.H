@@ -228,6 +228,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     // verification.* 中的一次性探针开关与计数；ReadParameters 读取一次，
     // 推进路径只做成员访问，不再每次调用 ParmParse。
     struct ProbeParams {
+        bool osi_ab_continue_on_mismatch = false; // 固定验证策略，不在阶段比较中重复解析。
         bool regrid_fixture = false;     // 仅验证时按粗步切换受控加密区域。
         bool average_first = false;     // 首次 0 层界面平均前后导出快照
         bool ghost_first_fill = false;  // 首次 1 层粗到细 ghost 填充后导出
@@ -260,17 +261,12 @@ class AmrCoreLBM : public amrex::AmrCore {
         std::array<long long, max_ref_level + 1> collide_level_launch_cells{};
         double stream = 0.0;
         double average = 0.0;
-        double average_copy = 0.0;
-        double average_scale = 0.0;
         double average_down = 0.0;
         double average_fused = 0.0;
-        double average_restrict = 0.0;
         double average_copyback = 0.0;
         double comm = 0.0;
-        double osi_decode = 0.0;
         double osi_parallel_copy = 0.0;
         double osi_fillboundary = 0.0;
-        double osi_encode = 0.0;
         double osi_mpi_pack = 0.0;
         double osi_mpi_pack_kernel = 0.0;
         double osi_mpi_dtoh = 0.0;

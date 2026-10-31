@@ -810,9 +810,7 @@ void AmrCoreLBM::CompareOsiReferenceStage(
         }
         output << '\n';
     }
-    bool continue_on_mismatch = false;
-    ParmParse("verification").query("osi_ab_continue_on_mismatch", continue_on_mismatch);
-    if (comparison_failed && continue_on_mismatch) {
+    if (comparison_failed && probe_.osi_ab_continue_on_mismatch) {
         // 仅供独立 OSI 状态对照：保留失败记录，继续写出诊断态 checkpoint。
         return;
     }
@@ -996,12 +994,10 @@ void AmrCoreLBM::AdvanceAndCheckOsiReference(int lev, int step) {
         run_mode == RunMode::OsiLockstep,
         "AdvanceAndCheckOsiReference requires the OSI oracle");
     ComputeMacroLevel(lev);
-    bool continue_on_mismatch = false;
-    ParmParse("verification").query("osi_ab_continue_on_mismatch", continue_on_mismatch);
     amrex::Print() << "osi_ab: step=" << step
                    << " phase=" << osi_phase[lev]
                    << " staged_check="
-                   << (continue_on_mismatch ? "completed_with_failures_allowed"
+                   << (probe_.osi_ab_continue_on_mismatch ? "completed_with_failures_allowed"
                                             : "passed")
                    << '\n';
 }
@@ -1780,19 +1776,11 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                     });
             }
 
-            for (int q = 0; q < Q; ++q) {
-                const Real valid_linf =
-                    difference.norminf(q);
-                const Real valid_l1 =
-                    difference.norm1(q);
-                const Real valid_l2 =
-                    difference.norm2(q);
-
-                // Coordinate-level classification of the largest valid-cell
-                // mismatch.  This is intentionally done before covered-cell
-                // masking so that covered/interface status is reported too.
+            // 分类只读取未屏蔽的 valid 差值；每个 Fab 的全部分量和掩码仅回拷一次。
+            // 每个分量独立累计，保留原有最大值并列选择与 rank 本地输出语义。
+            struct MismatchStats {
                 Real max_diff = 0.0;
-                IntVect max_iv(0);
+                IntVect max_iv = IntVect(0);
                 int max_covered = 0;
                 int max_interface = 0;
                 int max_physical = 0;
@@ -1802,44 +1790,50 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                 Long mismatch_interface = 0;
                 Long mismatch_physical = 0;
                 Long mismatch_fab_edge = 0;
-                const Box domain = Geom(lev).Domain();
-                for (MFIter mfi(difference, false);
-                     mfi.isValid(); ++mfi) {
-                    const Box bx = mfi.validbox();
-                    FArrayBox host_diff(difference[mfi].box(),
-                                        difference.nComp(),
-                                        The_Pinned_Arena());
-                    Gpu::dtoh_memcpy(host_diff.dataPtr(),
-                                     difference[mfi].dataPtr(),
-                                     host_diff.nBytes());
-                    IArrayBox host_covered(
-                        has_fine ? covered_mask.at(lev)[mfi].box() : bx,
-                        1, The_Pinned_Arena());
-                    IArrayBox host_interface(
-                        has_fine ? interface_mask.at(lev)[mfi].box() : bx,
-                        1, The_Pinned_Arena());
-                    if (has_fine) {
-                        Gpu::dtoh_memcpy(
-                            host_covered.dataPtr(),
-                            covered_mask.at(lev)[mfi].dataPtr(),
-                            host_covered.nBytes());
-                        Gpu::dtoh_memcpy(
-                            host_interface.dataPtr(),
-                            interface_mask.at(lev)[mfi].dataPtr(),
-                            host_interface.nBytes());
-                    }
-                    const auto diff = host_diff.const_array();
-                    const auto covered = host_covered.const_array();
-                    const auto interface = host_interface.const_array();
-                    const IntVect lo = bx.smallEnd();
-                    const IntVect hi = bx.bigEnd();
+            };
+            std::array<MismatchStats, Q> mismatches{};
+            const Box domain = Geom(lev).Domain();
+            // 原先由前置 norm 等待设备；分类前移后显式保证主机读取的数据已完成。
+            Gpu::synchronize();
+            for (MFIter mfi(difference, false);
+                 mfi.isValid(); ++mfi) {
+                const Box bx = mfi.validbox();
+                FArrayBox host_diff(difference[mfi].box(),
+                                    difference.nComp(),
+                                    The_Pinned_Arena());
+                Gpu::dtoh_memcpy(host_diff.dataPtr(),
+                                 difference[mfi].dataPtr(),
+                                 host_diff.nBytes());
+                IArrayBox host_covered(
+                    has_fine ? covered_mask.at(lev)[mfi].box() : bx,
+                    1, The_Pinned_Arena());
+                IArrayBox host_interface(
+                    has_fine ? interface_mask.at(lev)[mfi].box() : bx,
+                    1, The_Pinned_Arena());
+                if (has_fine) {
+                    Gpu::dtoh_memcpy(
+                        host_covered.dataPtr(),
+                        covered_mask.at(lev)[mfi].dataPtr(),
+                        host_covered.nBytes());
+                    Gpu::dtoh_memcpy(
+                        host_interface.dataPtr(),
+                        interface_mask.at(lev)[mfi].dataPtr(),
+                        host_interface.nBytes());
+                }
+                const auto diff = host_diff.const_array();
+                const auto covered = host_covered.const_array();
+                const auto interface = host_interface.const_array();
+                const IntVect lo = bx.smallEnd();
+                const IntVect hi = bx.bigEnd();
+                for (int q = 0; q < Q; ++q) {
+                    auto& mismatch = mismatches[q];
                     for (int k = AMREX_D_PICK(0, 0, lo[2]); k <= AMREX_D_PICK(0, 0, hi[2]); ++k) {
                         for (int j = lo[1]; j <= hi[1]; ++j) {
                             for (int i = lo[0]; i <= hi[0]; ++i) {
                                 const Real d = std::abs(diff(i, j, k, q));
                                 if (d <= Real(1.e-12))
                                     continue;
-                                ++mismatch_count;
+                                ++mismatch.mismatch_count;
                                 const int cv = has_fine ? covered(i, j, k) : 0;
                                 const int iv = has_fine ? interface(i, j, k) : 0;
                                 const bool physical =
@@ -1853,36 +1847,47 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                                     i == lo[0] || i == hi[0] ||
                                     j == lo[1] || j == hi[1] ||
                                     (AMREX_SPACEDIM == 3 && k == AMREX_D_PICK(0, 0, lo[2])) || (AMREX_SPACEDIM == 3 && k == AMREX_D_PICK(0, 0, hi[2]));
-                                mismatch_covered += (cv != 0);
-                                mismatch_interface += (iv != 0);
-                                mismatch_physical += physical;
-                                mismatch_fab_edge += fab_edge;
-                                if (d > max_diff) {
-                                    max_diff = d;
-                                    max_iv = IntVect(AMREX_D_DECL(i, j, k));
-                                    max_covered = cv != 0;
-                                    max_interface = iv != 0;
-                                    max_physical = physical;
-                                    max_fab_edge = fab_edge;
+                                mismatch.mismatch_covered += (cv != 0);
+                                mismatch.mismatch_interface += (iv != 0);
+                                mismatch.mismatch_physical += physical;
+                                mismatch.mismatch_fab_edge += fab_edge;
+                                if (d > mismatch.max_diff) {
+                                    mismatch.max_diff = d;
+                                    mismatch.max_iv = IntVect(AMREX_D_DECL(i, j, k));
+                                    mismatch.max_covered = cv != 0;
+                                    mismatch.max_interface = iv != 0;
+                                    mismatch.max_physical = physical;
+                                    mismatch.max_fab_edge = fab_edge;
                                 }
                             }
                         }
                     }
                 }
+            }
+
+            for (int q = 0; q < Q; ++q) {
+                const Real valid_linf =
+                    difference.norminf(q);
+                const Real valid_l1 =
+                    difference.norm1(q);
+                const Real valid_l2 =
+                    difference.norm2(q);
+
+                const auto& mismatch = mismatches[q];
                 amrex::Print()
                     << "ddf_mismatch_location: lev=" << lev
                     << " q=" << q
-                    << " count_gt_1e-12=" << mismatch_count
-                    << " covered=" << mismatch_covered
-                    << " interface=" << mismatch_interface
-                    << " physical_boundary=" << mismatch_physical
-                    << " fab_edge=" << mismatch_fab_edge
-                    << " max=" << max_diff
-                    << " max_iv=" << max_iv
-                    << " max_is_covered=" << max_covered
-                    << " max_is_interface=" << max_interface
-                    << " max_is_physical_boundary=" << max_physical
-                    << " max_is_fab_edge=" << max_fab_edge
+                    << " count_gt_1e-12=" << mismatch.mismatch_count
+                    << " covered=" << mismatch.mismatch_covered
+                    << " interface=" << mismatch.mismatch_interface
+                    << " physical_boundary=" << mismatch.mismatch_physical
+                    << " fab_edge=" << mismatch.mismatch_fab_edge
+                    << " max=" << mismatch.max_diff
+                    << " max_iv=" << mismatch.max_iv
+                    << " max_is_covered=" << mismatch.max_covered
+                    << " max_is_interface=" << mismatch.max_interface
+                    << " max_is_physical_boundary=" << mismatch.max_physical
+                    << " max_is_fab_edge=" << mismatch.max_fab_edge
                     << '\n';
 
                 if (has_fine) {
@@ -1893,8 +1898,6 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                             difference.array(mfi);
                         const auto covered =
                             covered_mask.at(lev).const_array(mfi);
-                        const auto interface =
-                            interface_mask.at(lev).const_array(mfi);
                         amrex::ParallelFor(
                             bx,
                             [=] AMREX_GPU_DEVICE(
@@ -1924,8 +1927,6 @@ void AmrCoreLBM::CompareDdfCheckpoint(
                     if (has_fine) {
                         const auto covered =
                             covered_mask.at(lev).const_array(mfi);
-                        const auto interface =
-                            interface_mask.at(lev).const_array(mfi);
                         amrex::ParallelFor(
                             bx,
                             [=] AMREX_GPU_DEVICE(
