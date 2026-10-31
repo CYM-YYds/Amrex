@@ -176,19 +176,17 @@ ghost 填充和重构迁移统一采用自定义数值插值核。AMReX 仍提�
 
 ## 实际推进调用链
 
-`main.cpp` 根据配置中的最高层编号选择调度。`amr.max_level=0` 默认直接调用
-`AdvanceLevel(0)`，跳过重网格外围工作与多层递归；初始化、输出、收敛、checkpoint、
-OSI 相位和数值核继续共用现有机制。`performance.uniform_grid_path=0` 可回到原调度做对照，
-默认为 1；该开关在 `max_level>0` 时不启用单层路径，即使当前还没有细层。
-启动日志的 `[Advance] path=uniform/amr` 表示实际选择。
-实现范围与短测结果见[单层调度记录](docs/ai_changes/2026-10-29-uniform-grid-dispatch.md)。
+单层和多层统一经过 `RegridIfNeeded → Cycle2 → AdvanceLevel`，不再保留独立单层推进入口。
+`Cycle2` 只在存在细层时执行填ghost、细步递归和平均；`max_level=0` 不执行重网格或重建缓存。
+原 `performance.uniform_grid_path` 参数已移除，不再控制运行行为。
+回退范围与验证见[统一推进记录](docs/ai_changes/2026-10-31-remove-uniform-dispatch.md)。
 
 固定单层另默认启用两个独立开关：`lbm.uniform_nomask_collision=1` 使用编译期无mask碰撞，
 `performance.uniform_reduce_sync=1` 将重复阶段等待合并到推进末尾，保留MFIter多stream及MPI依赖。
 两者在 `max_level>0` 时均不生效；细分计时或OSI锁步验证开启时，减少同步也不生效。
 `perf(s)` 的 `uniform_nomask_collision`、`uniform_reduce_sync` 表示实际生效状态。
 减少同步时comm/stream/boundary/swap为未测量，端到端total包含步末GPU等待。
-各开关可独立设为0做调度对照；将上述两项及 `uniform_grid_path` 都设为0可恢复通用调度与mask路径。
+两项优化独立于外层调度；各开关可独立设为0对照，均设为0恢复阶段同步和mask碰撞。
 接入范围与组合回归见[同步与无mask接入记录](docs/ai_changes/2026-10-29-uniform-kernels-integration.md)。
 
 CUDA三维FLOAT、单MPI rank的OSI碰撞（含AMR的mask路径）采用128线程/block，
@@ -229,21 +227,19 @@ GPU事件池由求解器拥有，首次测量按所需任务数创建，之后�
 CPU等待与GPU执行重叠，两行不能相加，`collide_finalize`也不能当成独立于GPU计算的额外浪费。
 周期域无物理边界任务时，边界事件仍可能记录空事件区间/CPU间隙，不表示存在边界kernel。
 
-多层现役入口是 `Cycle2`。每个 coarse step 先处理需要的 regrid，再进入多层递归；
+单层和多层现役入口均为 `Cycle2`。每个 coarse step 先处理需要的 regrid，再进入多层递归；
 同文件中的 Rohde/Jaber 等其他周期函数不在当前主调用路径上。
 
 ```text
 main coarse-step 循环
-  ├─ max_level=0 且 uniform_grid_path=1：AdvanceLevel(0)
-  └─ 其余配置：
-       ├─ regrid 步：AverageDownValid → RepairCurrentStatePhysicalBoundary → RefineMesh
-       └─ Cycle2(lev, time)
-            ├─ 有细层时：FillGhostLevel(lev, time, scale) 填 lev+1 的 ghost
-            ├─ AdvanceLevel(lev)
-            │    ├─ 串行路径：Collide → CommunicateLevel → Stream → Boundary
-            │    ├─ OSI 重叠路径：发送源碰撞 → FillBoundaryOsi(剩余碰撞回调) → Stream → Boundary
-            │    └─ SwapLevel
-            └─ 有细层时：Cycle2(lev+1) 两次 → AverageDownInterfaceLevel(lev+1)
+  ├─ 允许细化且到达regrid步：AverageDownValid → RepairCurrentStatePhysicalBoundary → RefineMesh
+  └─ Cycle2(lev, time)
+       ├─ 有细层时：FillGhostLevel(lev, time, scale) 填 lev+1 的 ghost
+       ├─ AdvanceLevel(lev)
+       │    ├─ 串行路径：Collide → CommunicateLevel → Stream → Boundary
+       │    ├─ OSI 重叠路径：发送源碰撞 → FillBoundaryOsi(剩余碰撞回调) → Stream → Boundary
+       │    └─ SwapLevel
+       └─ 有细层时：Cycle2(lev+1) 两次 → AverageDownInterfaceLevel(lev+1)
 ```
 
 两个 fine substeps 共用父层在本次调用开始时的 ghost 填充。

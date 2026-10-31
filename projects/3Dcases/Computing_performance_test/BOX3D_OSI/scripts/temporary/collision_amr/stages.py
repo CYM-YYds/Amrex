@@ -392,9 +392,45 @@ def integration_job():
     (out/'checks.json').write_text(json.dumps(report,indent=2)+'\n')
     (out/'completed.txt').write_text('completed\n');print(json.dumps(report,indent=2),flush=True)
 
+def dispatch_removal_job():
+    # 独立调度删除只构建一次，复用两份已有单层checkpoint；不重做性能矩阵。
+    exp=CASE/'runs/temporary/uniform_dispatch_removal/round1'
+    out=exp/f"job{os.environ['CCS_JOB_ID']}";out.mkdir()
+    shutil.copy2(__file__,out/'stages.py')
+    shutil.copy2(CASE/'scripts/temporary/collision_amr/submit.sh',out/'submit.sh')
+    with (out/'compile.log').open('w') as log:
+        subprocess.run(['make','-j8','DIM=3','PRECISION=FLOAT'],cwd=exp/'build',stdout=log,stderr=subprocess.STDOUT,check=True)
+    shutil.copy2(exp/'build/main3d.gnu.FLOAT.TPROF.MPI.CUDA.ex',out/'production.ex')
+    previous=EXP/'job621802';shutil.copy2(previous/'inputs',out/'inputs')
+    alloc=Path(os.environ['CCS_ALLOC_FILE']).read_text().splitlines()
+    (out/'hostfile').write_text(''.join(f'{row.split()[0]} slots={row.split()[1]}\n' for row in alloc if len(row.split())>=2))
+    (out/'node.txt').write_bytes(subprocess.check_output(['hostname']))
+    (out/'gpu.txt').write_bytes(subprocess.check_output(['nvidia-smi']))
+    base=json.loads((previous/'real_production/command.json').read_text())
+    base=[value.replace(str(previous),str(out)) for value in base]
+    checks=[]
+    for periodic in [0,1]:
+        test=out/f'p{periodic}';test.mkdir()
+        reference=CASE/f'runs/temporary/collision_factors/round1/job621730/check_n64_b16_p{periodic}_frozen/chk00000160'
+        cmd=base+['max_step=160','checkpoint.begin_step=0','checkpoint.chk_prefix=chk','amr.n_cell=64','64','64','amr.max_level=0','amr.max_grid_size=16','amr.regrid_int=32','amr.plot_int=-1','verification.osi_seed_pattern=true',f'geometry.is_periodic={periodic}',str(periodic),str(periodic),'performance.report_int=80',f'verification.ddf_reference_checkpoint={reference}']
+        (test/'command.json').write_text(json.dumps(cmd,indent=2)+'\n')
+        with (test/'guard.log').open('w') as log:
+            result=subprocess.run(cmd,cwd=test,stdout=log,stderr=subprocess.STDOUT)
+        assert result.returncode==0,(periodic,result.returncode)
+        text=(test/'run.log').read_text();norms=[line for line in text.splitlines() if line.startswith('ddf_cell_norm_level:')];assert len(norms)==1
+        values=dict(re.findall(r'(\w+)=([^ ]+)',norms[0]))
+        assert all(math.isfinite(float(values[k])) and float(values[k])==0 for k in ['valid_linf','valid_l1','valid_l2','active_linf','active_l1','active_l2'])
+        stats=[line for line in text.splitlines() if ' perf(s):' in line];assert len(stats)==2
+        assert all('uniform_reduce_sync=1' in line and 'uniform_nomask_collision=1' in line for line in stats)
+        samples=re.findall(r'uniform_stage_gpu\(ms/step\):.*eligible=1 samples=(\d+)',text);assert samples==['80','80'],samples
+        checks.append(dict(periodic=periodic,steps=160,all_valid_active_norms_zero=True,reduced_sync_and_nomask_preserved=True,window_samples=samples))
+    report=dict(cases=checks,performance_matrix_repeated=False,executable_sha256=hashlib.sha256((out/'production.ex').read_bytes()).hexdigest())
+    (out/'checks.json').write_text(json.dumps(report,indent=2)+'\n');(out/'completed.txt').write_text('completed\n');print(json.dumps(report,indent=2),flush=True)
+
 if __name__=='__main__':
     if sys.argv[1]=='run':run_job()
     elif sys.argv[1]=='analyze':analyze(Path(sys.argv[2]))
     elif sys.argv[1]=='seam':seam_job()
     elif sys.argv[1]=='integrate':integration_job()
+    elif sys.argv[1]=='dispatch-removal':dispatch_removal_job()
     else:raise SystemExit('run | analyze OUT')

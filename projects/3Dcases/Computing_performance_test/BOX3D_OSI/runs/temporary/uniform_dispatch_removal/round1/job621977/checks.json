@@ -1,0 +1,26 @@
+{
+  "cases": [
+    {
+      "periodic": 0,
+      "steps": 160,
+      "all_valid_active_norms_zero": true,
+      "reduced_sync_and_nomask_preserved": true,
+      "window_samples": [
+        "80",
+        "80"
+      ]
+    },
+    {
+      "periodic": 1,
+      "steps": 160,
+      "all_valid_active_norms_zero": true,
+      "reduced_sync_and_nomask_preserved": true,
+      "window_samples": [
+        "80",
+        "80"
+      ]
+    }
+  ],
+  "performance_matrix_repeated": false,
+  "executable_sha256": "4b670202083632f4869a447a6c7b4f8281dd1e504db1da7ee2ebe921e7ae3c3a"
+}

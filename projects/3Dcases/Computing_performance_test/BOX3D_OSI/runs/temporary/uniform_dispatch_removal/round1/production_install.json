@@ -1,0 +1,8 @@
+{
+  "previous_sha256": "4907bf23d27d971774f4ab48aa4eee96c7cad96f5340d9d84318aa81190fdb8b",
+  "installed_sha256": "4b670202083632f4869a447a6c7b4f8281dd1e504db1da7ee2ebe921e7ae3c3a",
+  "source_matches_snapshot": true,
+  "job": 621977,
+  "preserved_reduced_sync_and_nomask": true,
+  "performance_matrix_repeated": false
+}

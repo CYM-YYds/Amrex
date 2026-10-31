@@ -1,0 +1,13 @@
+{
+  "source_head": "e9258b85d784d5bf8424509fd6c0e070cf72050b",
+  "removed": "main independent uniform dispatch only",
+  "preserved": [
+    "reduced sync",
+    "nomask collision",
+    "GPU window diagnostics",
+    "128-thread collision",
+    "coordinate reuse"
+  ],
+  "performance_matrix_repeated": false,
+  "previous_executable_sha256": "4907bf23d27d971774f4ab48aa4eee96c7cad96f5340d9d84318aa81190fdb8b"
+}

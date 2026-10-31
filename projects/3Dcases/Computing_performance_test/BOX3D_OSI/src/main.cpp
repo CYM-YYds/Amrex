@@ -159,7 +159,9 @@ void InitializeSimulation(AmrCoreLBM& lid, Real cur_time) {
 void RegridIfNeeded(AmrCoreLBM& lid, OsiAbVerification& verification,
                     int step, Real cur_time) {
     const bool verification_enabled = lid.osiReferenceEnabled();
-    if (step >= 0 && lid.params().regrid_int > 0 && step % lid.params().regrid_int == 0) {
+    // 配置禁止细化时没有重网格任务，避免重建不变的单层缓存。
+    if (lid.maxLevel() > 0 && step >= 0 && lid.params().regrid_int > 0 &&
+        step % lid.params().regrid_int == 0) {
         // mode 1 在普通时间步只更新粗细交界区域；regrid 可能重新暴露
         // 被细网格覆盖的粗单元，因此重网格前先执行一次完整平均下传。
         if (verification_enabled) {
@@ -340,11 +342,6 @@ void RunSimulation() {
     }
 
     const int runtime_max_level = input.max_level;
-    // 配置禁止细层时选择固定单层调度；当前尚无细层的 AMR 仍须保留重网格。
-    // 开关只用于同程序回退对照，不拥有独立的流场、相位或缓存。
-    bool uniform_grid_path = true;
-    amrex::ParmParse("performance").query("uniform_grid_path", uniform_grid_path);
-    uniform_grid_path = uniform_grid_path && runtime_max_level == 0;
     const auto& prob_lo = input.prob_lo;
     const auto& prob_hi = input.prob_hi;
     const auto& periodic_input = input.is_periodic;
@@ -387,8 +384,7 @@ void RunSimulation() {
     Real cur_time = begin_step * grid.dt;
     InitializeSimulation(lid, cur_time);
 
-    amrex::Print() << "[Advance] path=" << (uniform_grid_path ? "uniform" : "amr")
-                   << " max_level=" << runtime_max_level << '\n';
+    amrex::Print() << "[Advance] max_level=" << runtime_max_level << '\n';
 
     PerformanceWindow window;
     lid.ResetPerfStats();
@@ -396,22 +392,15 @@ void RunSimulation() {
     for (int step = start_step; step <= max_step && cur_time < stop_time; step++) {
         amrex::Print() << "STEP " << step << "starts ..." << std::endl;
         const double compute_start = amrex::second();
-        // 步入口验证同时覆盖两条路径；单层不执行伪重网格及缓存重建。
         verification.BeforeRegrid(lid, step);
-        if (!uniform_grid_path) {
-            const double regrid_start = amrex::second();
-            RegridIfNeeded(lid, verification, step, cur_time);
-            window.regrid_s += amrex::second() - regrid_start;
-        }
+        const double regrid_start = amrex::second();
+        RegridIfNeeded(lid, verification, step, cur_time);
+        window.regrid_s += amrex::second() - regrid_start;
         window.weighted_updates_window += lid.ComputeWeightedLatticeUpdatesPerCoarseStep();
         ++window.stats_steps;
 
         const double solv_start = amrex::second();
-        if (uniform_grid_path) {
-            lid.AdvanceLevel(0);
-        } else {
-            Cycle2(0, cur_time, lid, verification);
-        }
+        Cycle2(0, cur_time, lid, verification);
         verification.AfterAdvance(lid, 0, step);
         lid.PrintParticleChecksums(step);
         window.solv_s += amrex::second() - solv_start;
