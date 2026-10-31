@@ -1,0 +1,115 @@
+{
+  "cases": [
+    {
+      "dimension": 3,
+      "ranks": 2,
+      "levels": 3,
+      "all_valid_active_norms_zero": true,
+      "output_payloads": [
+        {
+          "plot": "plt_128032",
+          "file": "Level_0/Cell_D_00000",
+          "sha256": "1cdeaf480e83cf4fe6e4c4fb1bdb91a8d0dc80a496ed987cbdf2d61a8d91b63b"
+        },
+        {
+          "plot": "plt_128032",
+          "file": "Level_1/Cell_D_00000",
+          "sha256": "ac5b1c1e652bb99a7307cd6d801731e9e45ed1321e96a8df277d635251c16536"
+        },
+        {
+          "plot": "plt_128032",
+          "file": "Level_1/Cell_D_00001",
+          "sha256": "7901685040fea1afddd8475250cae90143eb020aa08a667e87957baeaba1ea16"
+        },
+        {
+          "plot": "plt_128032",
+          "file": "Level_2/Cell_D_00000",
+          "sha256": "be4205f89579d08b5391acc6741a08c2f62e61ff75d249fda4ec9c59bc39cd8f"
+        },
+        {
+          "plot": "plt_128032",
+          "file": "Level_2/Cell_D_00001",
+          "sha256": "10a483a6ce3f807a032549316454f7d37b7b4eee02bf7f364bfa953fb03bf81e"
+        },
+        {
+          "plot": "plt_vort_128032",
+          "file": "Level_0/Cell_D_00000",
+          "sha256": "820bf84d831411bedc81d848b88d710773d6fef3ed29487c17735db1310434bf"
+        },
+        {
+          "plot": "plt_vort_128032",
+          "file": "Level_1/Cell_D_00000",
+          "sha256": "8fae1cd89e200258da75a0fc751fc183ad35cd17be31b1c3588856c1efa83039"
+        },
+        {
+          "plot": "plt_vort_128032",
+          "file": "Level_1/Cell_D_00001",
+          "sha256": "90f2eec7020656c84f0215b1f31b08d5c7114a8ae73ba935908d142971c78b95"
+        },
+        {
+          "plot": "plt_vort_128032",
+          "file": "Level_2/Cell_D_00000",
+          "sha256": "930df7f371c98758624819a3a8dbea2ee79d026ced5ad3d3a5ab9b818ecffae9"
+        },
+        {
+          "plot": "plt_vort_128032",
+          "file": "Level_2/Cell_D_00001",
+          "sha256": "2e41179b0fd97fc7ea6aff87c82c667ae555c93e20acc8107d9a0e0985087212"
+        }
+      ]
+    },
+    {
+      "dimension": 2,
+      "ranks": 2,
+      "levels": 2,
+      "all_valid_active_norms_zero": true,
+      "output_payloads": [
+        {
+          "plot": "plt_000080",
+          "file": "Level_0/Cell_D_00000",
+          "sha256": "ff932cc1f141d1a39cb4b38874ecc117980de2f891b9705562f1a5a8cdf3badf"
+        },
+        {
+          "plot": "plt_000080",
+          "file": "Level_0/Cell_D_00001",
+          "sha256": "39178ee8a9fc6f6e774afa0951aa79269e57ee8364d5f69fcca7a75f98e46c24"
+        },
+        {
+          "plot": "plt_000080",
+          "file": "Level_1/Cell_D_00000",
+          "sha256": "fccb8bdf71b89cba72d68a491f39f1729448ba82245395ac064d74ac59e02547"
+        },
+        {
+          "plot": "plt_000080",
+          "file": "Level_1/Cell_D_00001",
+          "sha256": "2855c9478185b41433764ab571fd88bab1420719f24c3051456b5f1cb374f648"
+        },
+        {
+          "plot": "plt_vort_000080",
+          "file": "Level_0/Cell_D_00000",
+          "sha256": "190e63a607246dd4da3af5b06c60ca9a0e0572eac95ec70303975d4def79500d"
+        },
+        {
+          "plot": "plt_vort_000080",
+          "file": "Level_0/Cell_D_00001",
+          "sha256": "e772a557d728d04d85cd7a10c8e10cf6f51539a3d77c707c814a9bac6831ecc6"
+        },
+        {
+          "plot": "plt_vort_000080",
+          "file": "Level_1/Cell_D_00000",
+          "sha256": "1158edb87360555fb45387e5e745fd939e096e6c6077b47cb57e4b4bfc0166d3"
+        },
+        {
+          "plot": "plt_vort_000080",
+          "file": "Level_1/Cell_D_00001",
+          "sha256": "02ae9c7346d515304283ff69df12ece523acfdaf7bdfcbca297bc570b77d5635"
+        }
+      ]
+    }
+  ],
+  "performance_matrix_repeated": false,
+  "executables": {
+    "2": "f5169268074539045c583026ffe3cef0f6efef248cf044c8aeebe2237fe21cdf",
+    "3": "fdda4f2400438ad1abda5929de960f65c080962f706dd16f94bd5db35ddb1c14"
+  }
+}

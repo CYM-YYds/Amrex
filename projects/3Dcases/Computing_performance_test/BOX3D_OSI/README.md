@@ -197,9 +197,10 @@ AMR保留covered/interface筛选；CPU、其他精度和canonical路径保留原
 AMR正式接入及其他阶段筛选见[本轮记录](docs/ai_changes/2026-10-30-amr-collision-integration-stage-coordinates.md)。
 多GPU碰撞及二维相同默认的接入范围与证据见[扩展记录](docs/ai_changes/2026-10-31-collision-multigpu-2d.md)。
 
-宏观量计算和本地ghost复制仍仅在CUDA三维FLOAT、单rank范围内启用线程内坐标复用；
-其余配置沿用原寻址，MPI打包/解包及ParallelCopyOsi不变。
-接入复用已有性能证据，仅做编译和代表性逐值回归，见[接入记录](docs/ai_changes/2026-10-30-macro-localcopy-integration.md)。
+宏观量计算和本地ghost复制同样在CUDA FLOAT二维/三维、单/多rank启用线程内坐标复用，
+沿用原线程映射；CPU/DOUBLE沿用原寻址，MPI打包/解包及ParallelCopyOsi不变。
+原接入见[记录](docs/ai_changes/2026-10-30-macro-localcopy-integration.md)，
+默认范围统一与必要回归见[最新记录](docs/ai_changes/2026-10-31-other-coordinate-defaults.md)。
 
 均匀网格阶段计时**每步累计、每个报告窗口输出平均值**，只用现有的
 `performance.report_int`，不增加计时参数。例如1000表示累计1000步后，输出该窗口的

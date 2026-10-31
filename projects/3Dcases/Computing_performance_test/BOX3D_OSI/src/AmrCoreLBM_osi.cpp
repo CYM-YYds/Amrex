@@ -156,15 +156,13 @@ void AmrCoreLBM::FillBoundaryOsi(int lev, const std::function<void()>& during_tr
     const auto* phase_shifts = osi_fab_phase_cache.at(lev).data(phase);
 
     // 多 rank 时在投递远端 MPI 后启动本地 seam copy，使 GPU 工作与 MPI wait 重叠。
-    // host侧分派保持GPU内编译期选路；多rank及其他精度/维度保留原复制核。
+    // 编译期统一CUDA单精度坐标复用；消息顺序及跨stream依赖沿用原机制。
     const auto launch_local_copy = [&]() {
-#if defined(AMREX_USE_CUDA) && AMREX_SPACEDIM == 3 && defined(AMREX_USE_FLOAT)
-        if (ParallelDescriptor::NProcs() == 1) {
-            LaunchLocalGhostCopy<true>(cache.local_tags, phase_shifts);
-            return;
-        }
-#endif
+#if defined(AMREX_USE_CUDA) && defined(AMREX_USE_FLOAT)
+        LaunchLocalGhostCopy<true>(cache.local_tags, phase_shifts);
+#else
         LaunchLocalGhostCopy<false>(cache.local_tags, phase_shifts);
+#endif
     };
 
     if (ParallelDescriptor::NProcs() == 1) {

@@ -176,8 +176,57 @@ def followup_2d():
     (out/'checks.json').write_text(json.dumps(dict(cases=checks,candidate_sha256=checksum,baseline_source_job=int(os.environ['COORD_SOURCE_JOB']),performance_tuned=False),indent=2)+'\n')
     (out/'completed.txt').write_text('completed\n');print('2D rebuilt and both comparisons passed',flush=True)
 
+def other_coordinates():
+    # 宏观量/本地复制策略接入仅补做两组相关回归，不重复已有性能矩阵。
+    exp=CASE/'runs/temporary/other_coordinates/round1'
+    out=exp/f"job{os.environ['CCS_JOB_ID']}";out.mkdir()
+    shutil.copy2(__file__,out/'multigpu.py')
+    build=exp/'build'
+    for dimension in [3,2]:
+        for name in ['AmrCoreLBM.cpp','AmrCoreLBM_osi.cpp']:(build/'src'/name).touch()
+        with (out/f'compile{dimension}d.log').open('w') as log:
+            subprocess.run(['make','-j8',f'DIM={dimension}','PRECISION=FLOAT'],cwd=build,stdout=log,stderr=subprocess.STDOUT,check=True)
+        shutil.copy2(build/f'main{dimension}d.gnu.FLOAT.TPROF.MPI.CUDA.ex',out/f'production{dimension}d.ex')
+        print('built',dimension,flush=True)
+    alloc=Path(os.environ['CCS_ALLOC_FILE']).read_text().splitlines()
+    (out/'hostfile').write_text(''.join(f'{row.split()[0]} slots={row.split()[1]}\n' for row in alloc if len(row.split())>=2))
+    (out/'node.txt').write_bytes(subprocess.check_output(['hostname']));(out/'gpu.txt').write_bytes(subprocess.check_output(['nvidia-smi']))
+    shutil.copy2(EXP/'job621978/rank.sh',out/'rank.sh')
+    visible=os.environ.get('CUDA_VISIBLE_DEVICES','');devices=visible.split(',') if visible else ['0','1'];assert len(devices)>=2
+    checks=[]
+    for dimension,source,levels in [(3,EXP/'job621978/real_r2',3),(2,EXP/'job621979/2d_l1_candidate',2)]:
+        directory=out/f'check{dimension}d';directory.mkdir();old=source.parent
+        shutil.copy2(old/f'inputs{dimension}d',out/f'inputs{dimension}d')
+        command=json.loads((source/'command.json').read_text())
+        mapping={str(old/'hostfile'):str(out/'hostfile'),str(old/'rank.sh'):str(out/'rank.sh'),str(old/f'inputs{dimension}d'):str(out/f'inputs{dimension}d'),str(old/f'candidate{dimension}d.ex'):str(out/f'production{dimension}d.ex')}
+        command=[mapping.get(value,value) if not value.startswith('BOX3D_TEST_GPU_LIST=') else 'BOX3D_TEST_GPU_LIST='+','.join(devices[:2]) for value in command]
+        (directory/'command.json').write_text(json.dumps(command,indent=2)+'\n')
+        with (directory/'guard.log').open('w') as log:result=subprocess.run(command,cwd=directory,stdout=log,stderr=subprocess.STDOUT)
+        assert result.returncode==0,(dimension,result.returncode)
+        for rank in [0,1]:assert (directory/f'rank_{rank}.exit').read_text().strip()=='0'
+        assert_norms(directory,levels)
+        outputs=[]
+        for plot in sorted(source.glob('plt_*')):
+            if not plot.is_dir():continue
+            files=sorted(path.relative_to(plot) for path in plot.glob('Level_*/Cell_D_*'));assert files
+            new=directory/plot.name;assert files==sorted(path.relative_to(new) for path in new.glob('Level_*/Cell_D_*'))
+            for relative in files:
+                def checksum(path):
+                    value=hashlib.sha256()
+                    with path.open('rb') as stream:
+                        for block in iter(lambda:stream.read(8*1024*1024),b''):value.update(block)
+                    return value.hexdigest()
+                digest=checksum(new/relative);assert digest==checksum(plot/relative),(dimension,plot.name,str(relative))
+                outputs.append(dict(plot=plot.name,file=str(relative),sha256=digest))
+        assert outputs
+        checks.append(dict(dimension=dimension,ranks=2,levels=levels,all_valid_active_norms_zero=True,output_payloads=outputs))
+        print('passed',dimension,flush=True)
+    record=dict(cases=checks,performance_matrix_repeated=False,executables={str(d):hashlib.sha256((out/f'production{d}d.ex').read_bytes()).hexdigest() for d in [2,3]})
+    (out/'checks.json').write_text(json.dumps(record,indent=2)+'\n');(out/'completed.txt').write_text('completed\n')
+
 if __name__=='__main__':
     if sys.argv[1]=='run':run_job()
     elif sys.argv[1]=='analyze':analyze(Path(sys.argv[2]))
     elif sys.argv[1]=='2d':followup_2d()
+    elif sys.argv[1]=='other-coordinates':other_coordinates()
     else:raise SystemExit('run | analyze OUT')

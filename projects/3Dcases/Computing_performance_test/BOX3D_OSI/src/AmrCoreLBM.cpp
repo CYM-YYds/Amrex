@@ -37,19 +37,16 @@ void AmrCoreLBM::ComputeMacroLevel(int lev) {
             const Array4<Real>& rho = rho_lev.array(mfi);
             const Array4<Real>& u = u_lev.array(mfi);
 
-#if defined(AMREX_USE_CUDA) && AMREX_SPACEDIM == 3 && defined(AMREX_USE_FLOAT)
-            // 仅在已验证的单GPU单精度范围复用坐标，其他配置沿用原寻址。
-            if (amrex::ParallelDescriptor::NProcs() == 1) {
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    compute_macro_osi<true>(i, j, k, ddf, rho, u, fab, phase_shift);
-                });
-            } else
+#if defined(AMREX_USE_CUDA) && defined(AMREX_USE_FLOAT)
+            // CUDA单精度二维/三维、单/多rank统一复用当前单元坐标。
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                compute_macro_osi<true>(i, j, k, ddf, rho, u, fab, phase_shift);
+            });
+#else
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                compute_macro_osi(i, j, k, ddf, rho, u, fab, phase_shift);
+            });
 #endif
-            {
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                    compute_macro_osi(i, j, k, ddf, rho, u, fab, phase_shift);
-                });
-            }
         }
         return;
     }

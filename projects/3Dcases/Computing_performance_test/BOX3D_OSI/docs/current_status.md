@@ -6,7 +6,13 @@
 传输机制以[架构说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)为准。
 历史验收只覆盖各自冻结的源码、程序、输入和网格范围，不自动代表当前 HEAD。
 
-## 2026-10-31：碰撞多GPU及二维统一默认（最新）
+## 2026-10-31：宏观量/本地ghost坐标复用范围统一（最新）
+
+- ComputeMacroLevel及FillBoundaryOsi本地复制的坐标复用统一至CUDA FLOAT二维/三维、单/多rank；沿用原线程映射、MPI顺序和同步，不增加参数。CPU/DOUBLE、平均/插值及ParallelCopyOsi不变。
+- 621982完成两种维度构建及两组2GPU回归：三维三层、二维动态两层DDF范数均0，18份速度/涡量数据与修改前SHA一致；正式二维/三维程序已更新，源与构建一致。
+- 仅验证数值/输出，不重跑性能矩阵，不把既有碰撞多GPU收益当作本轮两处的收益。[记录](ai_changes/2026-10-31-other-coordinate-defaults.md)。以下历史条目按当时范围解读。
+
+## 2026-10-31：碰撞多GPU及二维统一默认
 
 - CUDA FLOAT二维/三维OSI碰撞统一128线程＋坐标复用，不再限制单rank；covered/interface、MPI与同步不变。CPU/DOUBLE/canonical保留原策略；宏观量/本地ghost的原适用范围未扩大。
 - 621978/621979有效DDF对照9组全0；2/4 GPU均匀及真实AMR同节点各三对，total分别下降5.945%/6.949%、6.782%/8.106%，范围不重叠。二维只编译/回归，不调性能。两种正式程序均已安装，源与候选一致，不重复接入矩阵。
