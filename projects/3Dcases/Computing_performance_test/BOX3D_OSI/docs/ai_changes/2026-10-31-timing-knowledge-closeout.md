@@ -32,8 +32,10 @@
 - 保留 `runs/temporary/timing_verification_cleanup/round1/`（约 712 MiB）与
   `runs/temporary/uniform_dispatch_removal/round1/`（约 492 MiB）的输入、程序、源码、命令、日志、检查点与报告。
   它们仍有复现用途，不是待删除构建残留；已跟踪的验证凭证保持原位。
-- 清场 pending：本会话 `/tmp/diagnostics-checkpoint-before.txt`、`/tmp/timing-cleanup-main-final.cpp`
-  是重复对照副本，可在复核后删除；本轮只预览，复核现场仍保留，等待用户确认后清场。
+- 清场 changed-and-verified（2026-10-31）：用户在完整收尾汇报后明确回复“确认删除”。
+  核对 `/tmp/diagnostics-checkpoint-before.txt` 为冻结基线源码中的片段、
+  `/tmp/timing-cleanup-main-final.cpp` 与冻结候选源码逐字节相同后，已删除这两份重复副本。
+  删除后确认两路径均不存在，实验程序、输入、源码、日志、报告及复现入口仍保留。
 - 外部工作区变更 pending：`logs/submit/621586-supervisor.{json,pid}`、
   `621642-supervisor.{json,pid}`、`621699-supervisor.{json,pid}` 六个已跟踪文件在检查期间变为删除状态，
   本轮未操作它们；保留现场，归属及是否提交由其操作者核对。
