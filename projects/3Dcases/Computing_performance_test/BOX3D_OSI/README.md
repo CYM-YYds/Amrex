@@ -286,6 +286,12 @@ MPI、CUDA、TinyProfiler，项目要求 C++20 和 GCC 11+。
 依赖已缺失 `config/inputs_osi` 的四个历史 stage 提交入口已退役。
 专项验收需使用完整输入快照和明确的覆盖参数，不能直接套用历史命令。
 
+### 大规模均匀网格的显存设置
+
+单A100 40GB的512³、FP32、Q27、lev0、单Fab短测已完成；默认Arena预留池曾使一次约14GiB的连续申请失败，实验通过`AMREX_RUN_ARGS`增加`amrex.the_arena_init_size=0`后成功。这只调整初始预留，不限制总显存使用；正式配置没有修改。
+
+容量须看整次运行高水位，不能仅按单份27分量DDF估计。本次Arena使用高水位约33.3 GiB，关闭了场输出/checkpoint；不能据此保证输出、重启或其他布局也有足够显存。性能仍有窗口漂移，完整参数和范围见[512³报告](runs/temporary/uniform512/round1/report.md)，Q19与Q27对照统一见[性能记录](docs/均匀网格与AMR性能优化记录.md)。正式默认仍为三维Q27，Q19只在实验副本中选择。
+
 短程加密诊断可设置 `verification.refinement_diagnostics=true`（默认关闭）：
 每次 ErrorEst 输出实际读取的 valid 涡量范围、均值、非有限值和固定阈值超限比例，
 并在 regrid 后复用 `REGRID_DIAG` / `CF_MASK_DIAG` 输出打标数及网格覆盖信息。
