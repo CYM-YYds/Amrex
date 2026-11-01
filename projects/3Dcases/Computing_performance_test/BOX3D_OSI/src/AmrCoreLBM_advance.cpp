@@ -282,8 +282,8 @@ void AmrCoreLBM::FillMacroGhostLevel(int lev, amrex::Real time) {
     if (lev == 0) {
         u_lev.FillBoundary(geom[lev].periodicity());
     } else {
-        FillMacroPatch(lev, time, u_lev);            // 填充c-f边界
-        u_lev.FillBoundary(geom[lev].periodicity()); // 填充同等级
+        // FillPatchTwoLevels 内部已执行同层/周期 FillBoundary。
+        FillMacroPatch(lev, time, u_lev);
     }
 }
 

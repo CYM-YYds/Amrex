@@ -215,6 +215,7 @@ class AmrCoreLBM : public amrex::AmrCore {
         int plot_int = -1;
         int begin_plot = 0;
         int perf_report_int = 1000;
+        bool perf_regrid_detail_timing = false; // 判据准备细分诊断会同步 GPU。
         bool perf_osi_detail_timing = true; // OSI 嵌套细分计时会引入额外同步。
         bool uniform_reduce_sync = true; // 固定单层合并阶段等待，保留步末同步。
         bool uniform_nomask_collision = true; // 固定单层使用编译期无 mask 碰撞核。
@@ -250,6 +251,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     struct PerfStats {
         UniformSampleStats uniform_sample;
         double interp = 0.0;
+        double regrid_macro = 0.0, regrid_macro_ghost = 0.0;
+        double regrid_vorticity = 0.0, regrid_tag = 0.0, regrid_cache_build = 0.0;
+        long long regrid_mask_builds = 0, regrid_boundary_builds = 0, regrid_average_builds = 0;
         double interp_cache_build = 0.0;
         long long interp_cache_builds = 0;
         double interp_regrid_fill = 0.0;
@@ -552,7 +556,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     void BuildAverageCache();
     void ProbeAverageInterfaceLevel(int lev, const char* stage);
     void ProbeFillGhostLevel(int lev);
-    void ClearOsiTransferCaches();
+    void InvalidateLevelCaches(int lev);
     amrex::Interpolater* DdfInterpolater() const;
     void InitializeOsiLevel(int lev, const amrex::BoxArray& ba,
                             const amrex::DistributionMapping& dm);
@@ -599,6 +603,8 @@ class AmrCoreLBM : public amrex::AmrCore {
 
     std::string plot_file{"plt"};
 
+    // 构造时全部失效；存储生命周期回调置位，缓存重建完成后统一清零。
+    amrex::Vector<int> level_cache_dirty;
     int nghost = 2;
     int particle_num = 1;
     // 0：禁用粗细网格 mask；1：逐单元 mask。

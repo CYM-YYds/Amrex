@@ -460,17 +460,7 @@ void AmrCoreLBM::FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf) 
 }
 
 void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新生成 AMR 网格,并把所有依赖旧网格拓扑的缓存同步重建。
-    ClearOsiTransferCaches();
-    for (auto& cache : boundary_work_cache) {
-        cache.clear();
-    }
     regrid_tag_counts.assign(max_level + 1, -1);
-    for (auto& cache : interpolation_cache) {
-        cache.clear();
-    }
-    for (auto& cache : average_down_cache) {
-        cache.clear();
-    }
     regrid(0, cur_time);
     RebuildCoarseFineCaches();
     bool refinement_diagnostics = false;
@@ -481,53 +471,34 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
     }
 }
 
-void AmrCoreLBM::ClearOsiTransferCaches() {
-    // 任一层存储改变前，先失效所有跨层 Array4 和设备任务。
-    for (auto& cache : interpolation_cache) {
-        cache.clear_work();
+void AmrCoreLBM::InvalidateLevelCaches(int lev) {
+    // 只在该层存储可能更换/释放时调用；先释放绑定旧 Array4 的传输资源。
+    level_cache_dirty.at(lev) = 1;
+    if (lev > 0) {
+        interpolation_cache.at(lev).clear();
+        average_down_cache.at(lev - 1).clear();
     }
-    for (auto& cache : average_down_cache) {
-        cache.clear_work();
+    if (lev < max_level) {
+        interpolation_cache.at(lev + 1).clear();
+        average_down_cache.at(lev).clear();
+    }
+    boundary_work_cache.at(lev).clear();
+    for (int coarse = std::max(0, lev - 1); coarse <= std::min(lev, max_level); ++coarse) {
+        covered_mask.at(coarse).clear();
+        interface_mask.at(coarse).clear();
+        covered_cell_counts.at(coarse) = 0;
+        interface_cell_counts.at(coarse) = 0;
     }
 }
 
 void AmrCoreLBM::RebuildCoarseFineCaches() {
-    ClearOsiTransferCaches();
-    // 网格初始化或 regrid 完成后，各层的 BoxArray 和 DistributionMapping
-    // 可能已经改变。所有依赖旧网格拓扑、Box 编号或数据归属的缓存都必须
-    // 在再次执行 FillGhost、Boundary 和 AverageDown 前统一重建。
-
-    // 重新统计每个 coarse level 被 fine level 覆盖的单元数，以及覆盖区中
-    // 紧邻 coarse-fine 交界面的单元数；未被实际建立的层保持为 0。
-    covered_cell_counts.assign(max_level + 1, 0);
-    interface_cell_counts.assign(max_level + 1, 0);
-
-    // 先释放所有由旧网格布局生成的 MultiFab、Box 列表和索引映射，避免
-    // 后续计算继续使用已经失效的 Box 编号、owner 或 coarse/fine 对应关系。
-    for (int lev = 0; lev <= max_level; ++lev) {
-        covered_mask[lev].clear();
-        interface_mask[lev].clear();
-        interpolation_cache[lev].clear();
-        average_down_cache[lev].clear();
-        boundary_work_cache[lev].clear();
-    }
-
-    // 构造 coarse 覆盖掩码和 coarse-fine 交界掩码，供粗层
-    // Collide/Stream 跳过被细层替代的区域，并供交界限制操作使用。
+    // 层级回调已在释放旧存储前失效相关资源；未变的层和层对继续复用。
+    ScopedPerfTimer timer(perf_stats.regrid_cache_build, params_.perf_regrid_detail_timing);
     RebuildCoarseFineMasks();
-
-    // 预先找出各 fine Fab 位于非周期物理边界上的互不重叠工作 Box，
-    // Boundary() 批量执行缓存任务，不必在每个时间步重复分析几何关系。
     BuildBoundaryWorkCache();
-
-    // 为每个 fine ghost work_box 建立所需的 coarse stencil staging Fab、
-    // fine Fab 索引和 owner 映射，供 FillDdfGhostFromCoarse() 直接插值。
-    // stencil 大小由当前 interp_mode 对应的 Interpolater::BoxCoarsener 决定。
     BuildInterpolationCache();
-
-    // 建立 fine-to-coarse 平均下传缓存：全覆盖模式使用完整 coarse 缓冲区，
-    // 稀疏模式只保存 coarse-fine 交界条带及其对应的 fine Fab 索引。
     BuildAverageCache();
+    std::fill(level_cache_dirty.begin(), level_cache_dirty.end(), 0);
 }
 
 void AmrCoreLBM::RebuildCoarseFineMasks() {
@@ -541,6 +512,8 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
 void AmrCoreLBM::RebuildCoarseFineMasksForState(
     const Vector<MultiFab>& state) {
     for (int lev = 0; lev < finest_level; ++lev) {
+        if (!level_cache_dirty[lev] && !level_cache_dirty[lev + 1]) { continue; }
+        ++perf_stats.regrid_mask_builds;
         AMREX_ALWAYS_ASSERT(state.at(lev).isDefined());
         AMREX_ALWAYS_ASSERT(state.at(lev + 1).isDefined());
         covered_mask[lev] = amrex::makeFineMask(
@@ -597,6 +570,8 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
 
 void AmrCoreLBM::BuildBoundaryWorkCache() {
     for (int lev = 0; lev <= finest_level; ++lev) {
+        if (!level_cache_dirty[lev]) { continue; }
+        ++perf_stats.regrid_boundary_builds;
         const BoxArray& ba = boxArray(lev);
         const Box domain = Geom(lev).Domain();
         const auto is_periodic = Geom(lev).isPeriodicArray();
@@ -653,6 +628,7 @@ void AmrCoreLBM::BuildBoundaryWorkCache() {
 
 void AmrCoreLBM::BuildInterpolationCache() {
     for (int lev = 1; lev <= finest_level; ++lev) {
+        if (!level_cache_dirty[lev - 1] && !level_cache_dirty[lev]) { continue; }
         const double start = amrex::second();
         AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
@@ -704,6 +680,8 @@ void AmrCoreLBM::BuildInterpolationCache() {
 
 void AmrCoreLBM::BuildAverageCache() {
     for (int lev = 0; lev < finest_level; ++lev) {
+        if (!level_cache_dirty[lev] && !level_cache_dirty[lev + 1]) { continue; }
+        ++perf_stats.regrid_average_builds;
         average_down_cache.at(lev).clear();
         const MultiFab& fine_layout =
             streamMode() == 1 ? osi_state.at(lev + 1) : f_old.at(lev + 1);
@@ -774,6 +752,8 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
     if (lev == 0) {
         amrex::Abort("Cannot construct level 0 from a coarser level.");
     }
+
+    if (streamMode() == 0) { InvalidateLevelCaches(lev); }
 
     amrex::MultiFab& u_lev = velocity.at(lev);
     amrex::MultiFab& rho_lev = density.at(lev);
@@ -914,6 +894,7 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
         return;
     }
 
+    InvalidateLevelCaches(lev);
     amrex::MultiFab new_state(ba, dm, Q, nghost);
     amrex::MultiFab old_state(ba, dm, Q, nghost);
 
@@ -939,6 +920,7 @@ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& b
 
 void AmrCoreLBM::InitializeOsiLevel(
     int lev, const BoxArray& ba, const DistributionMapping& dm) {
+    InvalidateLevelCaches(lev);
     osi_fillboundary_cache.at(lev).clear();
     osi_state.at(lev).define(ba, dm, Q, nghost);
     osi_phase.at(lev) = 0;
@@ -1008,8 +990,7 @@ void AmrCoreLBM::ClearLevel(int lev) {
         amrex::Print() << "AMR_LIFECYCLE ClearLevel level=" << lev << '\n';
     }
 
-    ClearOsiTransferCaches();
-    boundary_work_cache[lev].clear();
+    InvalidateLevelCaches(lev);
     osi_fillboundary_cache[lev].clear();
     osi_fab_phase_cache[lev].clear();
     f_old[lev].clear();
@@ -1036,6 +1017,8 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
                       ├─ ErrorEst() 标记加密区域
                       ├─ 生成 level 1 的网格
                       └─ MakeNewLevelFromScratch(1, ...) */
+
+    if (streamMode() == 0) { InvalidateLevelCaches(lev); }
 
     amrex::MultiFab& u_lev = velocity.at(lev);
     amrex::MultiFab& rho_lev = density.at(lev);
@@ -1157,63 +1140,75 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
         regrid_tag_counts.assign(max_level + 1, -1);
     }
 
-    ComputeMacroLevel(lev);
-    FillMacroGhostLevel(lev, time);
-    ComputeVorticityLevel(lev); // 计算vort比较慢
-
-    const int tagval = TagBox::SET;
-    const int clearval = TagBox::CLEAR;
-
-    const MultiFab& level_layout =
-        streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
-    const MultiFab& vort_lev = vorticity[lev];
-
-    amrex::IntVect lo2 = static_lo[lev + max_ref_level + 1];
-    amrex::IntVect hi2 = static_hi[lev + max_ref_level + 1];
-
-    const auto geomdata = geom[lev].data();
-    amrex::Gpu::DeviceVector<amrex::RealVect> points_d = convertToDeviceVector(points);
-
-    for (MFIter mfi(level_layout, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const Box& bx = mfi.growntilebox(0);
-        const auto vort = vort_lev.array(mfi);
-        const auto tagfab = tags.array(mfi);
-
-        const IntVect& lo = bx.smallEnd();
-        const IntVect& hi = bx.bigEnd();
-
-        Real err_value = err[lev];
-        RealVect* points_p = points_d.data();
-        const int points_num = particle_num;
-
-        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-#if AMREX_SPACEDIM == 3
-            // state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
-            state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
-#else
-            state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
-#endif
-            // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
-            // state_error_4(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
-            // state_error_5(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
-            // state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
-        });
+    {
+        ScopedPerfTimer timer(perf_stats.regrid_macro, params_.perf_regrid_detail_timing);
+        ComputeMacroLevel(lev);
     }
-
-    amrex::ReduceOps<amrex::ReduceOpSum> reduce_op;
-    amrex::ReduceData<amrex::Long> reduce_data(reduce_op);
-    using ReduceTuple = amrex::GpuTuple<amrex::Long>;
-    for (MFIter mfi(tags, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const Box& bx = mfi.tilebox();
-        const auto tagfab = tags.const_array(mfi);
-        reduce_op.eval(bx, reduce_data,
-                       [=] AMREX_GPU_DEVICE(int i, int j, int k) -> ReduceTuple {
-                           return {amrex::Long(tagfab(i, j, k) == TagBox::SET)};
-                       });
+    {
+        ScopedPerfTimer timer(perf_stats.regrid_macro_ghost, params_.perf_regrid_detail_timing);
+        FillMacroGhostLevel(lev, time);
     }
-    amrex::Long tag_count = amrex::get<0>(reduce_data.value());
-    ParallelDescriptor::ReduceLongSum(tag_count);
-    regrid_tag_counts[lev] = tag_count;
+    {
+        ScopedPerfTimer timer(perf_stats.regrid_vorticity, params_.perf_regrid_detail_timing);
+        ComputeVorticityLevel(lev);
+    }
+    {
+        ScopedPerfTimer tag_timer(perf_stats.regrid_tag, params_.perf_regrid_detail_timing);
+
+        const int tagval = TagBox::SET;
+        const int clearval = TagBox::CLEAR;
+
+        const MultiFab& level_layout =
+            streamMode() == 1 ? osi_state.at(lev) : f_old.at(lev);
+        const MultiFab& vort_lev = vorticity[lev];
+
+        amrex::IntVect lo2 = static_lo[lev + max_ref_level + 1];
+        amrex::IntVect hi2 = static_hi[lev + max_ref_level + 1];
+
+        const auto geomdata = geom[lev].data();
+        amrex::Gpu::DeviceVector<amrex::RealVect> points_d = convertToDeviceVector(points);
+
+        for (MFIter mfi(level_layout, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const Box& bx = mfi.growntilebox(0);
+            const auto vort = vort_lev.array(mfi);
+            const auto tagfab = tags.array(mfi);
+
+            const IntVect& lo = bx.smallEnd();
+            const IntVect& hi = bx.bigEnd();
+
+            Real err_value = err[lev];
+            RealVect* points_p = points_d.data();
+            const int points_num = particle_num;
+
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+    #if AMREX_SPACEDIM == 3
+                // state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+                state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+    #else
+                state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+    #endif
+                // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
+                // state_error_4(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+                // state_error_5(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+                // state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+            });
+        }
+
+        amrex::ReduceOps<amrex::ReduceOpSum> reduce_op;
+        amrex::ReduceData<amrex::Long> reduce_data(reduce_op);
+        using ReduceTuple = amrex::GpuTuple<amrex::Long>;
+        for (MFIter mfi(tags, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            const Box& bx = mfi.tilebox();
+            const auto tagfab = tags.const_array(mfi);
+            reduce_op.eval(bx, reduce_data,
+                           [=] AMREX_GPU_DEVICE(int i, int j, int k) -> ReduceTuple {
+                               return {amrex::Long(tagfab(i, j, k) == TagBox::SET)};
+                           });
+        }
+        amrex::Long tag_count = amrex::get<0>(reduce_data.value());
+        ParallelDescriptor::ReduceLongSum(tag_count);
+        regrid_tag_counts[lev] = tag_count;
+    }
     bool refinement_diagnostics = false;
     ParmParse("verification").query("refinement_diagnostics", refinement_diagnostics);
     if (refinement_diagnostics) {

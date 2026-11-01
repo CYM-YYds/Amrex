@@ -175,6 +175,9 @@ A-B 状态是每层 `f_old/f_new`；OSI 生产状态是每层 `osi_state` 和 `o
 
 新层 DDF 初始化只写 valid，并按目标所需 stencil 搬运 coarse 数据；初始化、
 ghost 填充和重构迁移统一采用自定义数值插值核。AMReX 仍提供 stencil 几何。
+AMR 缓存按 DDF 存储生命周期失效：本层边界任务只随本层存储变化重建，
+覆盖掩码和插值/平均资源随相邻层对任一端变化重建；布局及存储未变时保留。
+OSI 相位继续在执行时更新，不作为几何缓存重建条件。
 范围、公式及最新验证边界见[当前状态](docs/current_status.md#2026-10-14-新层初始化与插值收尾)。
 
 ## 实际推进调用链
@@ -332,6 +335,12 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 
 关闭细分计时通常保留 `comm/interp/average` 等主阶段计时；固定单层的减少同步策略
 会另外关闭comm/stream/boundary/swap计时，具体以实际生效开关为准。`osi_*` 为 0 表示未测量；
+`performance.regrid_detail_timing=1` 可诊断宏观量、速度补边、涡量、打标/计数和
+缓存重建耗时，输出于 `perf_detail(s)` 的 `regrid_*` 字段；默认关闭。
+该诊断会同步 GPU，不用于整体收益测试；关闭时这些零值表示未测量。
+`perf_count` 的 `regrid_mask_builds`、`regrid_boundary_builds`、`regrid_average_builds`
+及原有 `interp_cache_builds` 记录实际构建的层/层对数。
+
 `perf(s)` 的 `osi_detail_timing` 字段给出实际开关。开启细分计时会同步 GPU、限制重叠，
 只适合定位成本。重叠时 `comm` 区间包含剩余 GPU 碰撞，`collide` 包含该子集的提交时间；
 两者不是独立 GPU 成本，不直接相加，端到端收益使用 `total`。

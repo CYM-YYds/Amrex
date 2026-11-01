@@ -81,6 +81,7 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
 
     int nlevs_max = max_level + 1;
 
+    level_cache_dirty.assign(nlevs_max, 1);
     f_new.resize(nlevs_max);
     f_old.resize(nlevs_max);
     osi_state.resize(nlevs_max);
@@ -328,6 +329,7 @@ void AmrCoreLBM::ReadParameters() {
         ParmParse pp_performance("performance");
         pp_performance.query("report_int", params_.perf_report_int);
         pp_performance.query("osi_detail_timing", params_.perf_osi_detail_timing);
+        pp_performance.query("regrid_detail_timing", params_.perf_regrid_detail_timing);
         pp_performance.query("uniform_reduce_sync", params_.uniform_reduce_sync);
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
             params_.perf_report_int > 0,

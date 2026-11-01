@@ -247,7 +247,13 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
                       << std::endl;
         }
         std::cout << "step" << step
-                  << " perf_detail(s): interp_cache_build=" << perf.interp_cache_build
+                  << " perf_detail(s): regrid_detail_timing=" << lid.params().perf_regrid_detail_timing
+                  << " regrid_macro=" << perf.regrid_macro
+                  << " regrid_macro_ghost=" << perf.regrid_macro_ghost
+                  << " regrid_vorticity=" << perf.regrid_vorticity
+                  << " regrid_tag=" << perf.regrid_tag
+                  << " regrid_cache_build=" << perf.regrid_cache_build
+                  << " interp_cache_build=" << perf.interp_cache_build
                   << " interp_regrid_fill=" << perf.interp_regrid_fill
                   << " interp_fillpatch=" << perf.interp_fillpatch
                   << " average_down=" << perf.average_down
@@ -255,7 +261,10 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
                   << " average_copyback=" << perf.average_copyback
                   << std::endl;
         std::cout << "step" << step
-                  << " perf_count: fillghost_calls=" << perf.fillghost_calls
+                  << " perf_count: regrid_mask_builds=" << perf.regrid_mask_builds
+                  << " regrid_boundary_builds=" << perf.regrid_boundary_builds
+                  << " regrid_average_builds=" << perf.regrid_average_builds
+                  << " fillghost_calls=" << perf.fillghost_calls
                   << " interp_cache_builds=" << perf.interp_cache_builds
                   << " interp_regrid_fill_calls=" << perf.interp_regrid_fill_calls
                   << " avgdown_calls=" << perf.avgdown_calls
