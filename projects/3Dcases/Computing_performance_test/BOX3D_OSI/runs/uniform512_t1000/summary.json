@@ -1,0 +1,28 @@
+{
+  "job": 622116,
+  "status": "FAILED during final PlotFile write",
+  "completed_steps": 512000,
+  "target_physical_time": 1000,
+  "windows": 160,
+  "cumulative_seconds": {
+    "interp": 0.0,
+    "average": 0.0,
+    "collide": 15306.35623401,
+    "stream": 0.0,
+    "comm": 0.0,
+    "boundary": 0.0,
+    "solv": 17262.2879765,
+    "total": 17262.3734938
+  },
+  "gpu_event_seconds": {
+    "collide_sum": 15301.122153984,
+    "phase": 3.5213875673088,
+    "boundary": 1944.7409172576
+  },
+  "last_window_MLUPS_solv": 3978.454484,
+  "last_window_MLUPS_total": 3978.434783,
+  "aggregate_MLUPS_total": 3980.8822790609565,
+  "exit_code": 6,
+  "final_flow_valid": false,
+  "arena_peak_used_MB": null
+}
