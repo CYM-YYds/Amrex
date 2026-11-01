@@ -1,0 +1,145 @@
+{
+  "date": "2026-11-01",
+  "authorization": "User approved centralized archival with completed results retained as fallback; concurrent cleanup confirmed ended.",
+  "kept_in_place": [
+    "a5_B_optimized_128000",
+    "archive",
+    "temporary",
+    "uniform512_t1000"
+  ],
+  "moves": [
+    {
+      "name": "20261020_203826_job615978",
+      "archive": "runs/archive/history_20261101/20261020_203826_job615978",
+      "entries": 27,
+      "regular_bytes": 123944515,
+      "symlinks": 3,
+      "link_adjustments": [
+        {
+          "path": "gpu-memory.csv",
+          "old_target": "../../logs/submit/615978-gpu-memory.csv",
+          "new_target": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/logs/submit/615978-gpu-memory.csv"
+        }
+      ],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    },
+    {
+      "name": "20261020_221834_job615992",
+      "archive": "runs/archive/history_20261101/20261020_221834_job615992",
+      "entries": 34,
+      "regular_bytes": 123986908,
+      "symlinks": 3,
+      "link_adjustments": [
+        {
+          "path": "gpu-memory.csv",
+          "old_target": "../../logs/submit/615992-gpu-memory.csv",
+          "new_target": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/logs/submit/615992-gpu-memory.csv"
+        }
+      ],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    },
+    {
+      "name": "20261021_120737_job616234",
+      "archive": "runs/archive/history_20261101/20261021_120737_job616234",
+      "entries": 28,
+      "regular_bytes": 124424868,
+      "symlinks": 3,
+      "link_adjustments": [
+        {
+          "path": "gpu-memory.csv",
+          "old_target": "../../logs/submit/616234-gpu-memory.csv",
+          "new_target": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/logs/submit/616234-gpu-memory.csv"
+        }
+      ],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    },
+    {
+      "name": "20261021_120737_job616235",
+      "archive": "runs/archive/history_20261101/20261021_120737_job616235",
+      "entries": 28,
+      "regular_bytes": 124468658,
+      "symlinks": 3,
+      "link_adjustments": [
+        {
+          "path": "gpu-memory.csv",
+          "old_target": "../../logs/submit/616235-gpu-memory.csv",
+          "new_target": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/logs/submit/616235-gpu-memory.csv"
+        }
+      ],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    },
+    {
+      "name": "20261029_223835_job621586",
+      "archive": "runs/archive/history_20261101/20261029_223835_job621586",
+      "entries": 116,
+      "regular_bytes": 648935080,
+      "symlinks": 1,
+      "link_adjustments": [],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    },
+    {
+      "name": "20261029_233347_job621642",
+      "archive": "runs/archive/history_20261101/20261029_233347_job621642",
+      "entries": 116,
+      "regular_bytes": 5170394359,
+      "symlinks": 1,
+      "link_adjustments": [],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    },
+    {
+      "name": "20261030_102153_job621699",
+      "archive": "runs/archive/history_20261101/20261030_102153_job621699",
+      "entries": 141,
+      "regular_bytes": 12418323864,
+      "symlinks": 2,
+      "link_adjustments": [],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    },
+    {
+      "name": "a5_threshold_128000",
+      "archive": "runs/archive/history_20261101/a5_threshold_128000",
+      "entries": 786,
+      "regular_bytes": 63630411719,
+      "symlinks": 4,
+      "link_adjustments": [],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    },
+    {
+      "name": "a5_threshold_fields",
+      "archive": "runs/archive/history_20261101/a5_threshold_fields",
+      "entries": 301,
+      "regular_bytes": 14494812220,
+      "symlinks": 2,
+      "link_adjustments": [],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    },
+    {
+      "name": "uniform_128_lev0_128000",
+      "archive": "runs/archive/history_20261101/uniform_128_lev0_128000",
+      "entries": 76,
+      "regular_bytes": 124829470,
+      "symlinks": 1,
+      "link_adjustments": [],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    },
+    {
+      "name": "uniform_256_lev0_128000",
+      "archive": "runs/archive/history_20261101/uniform_256_lev0_128000",
+      "entries": 138,
+      "regular_bytes": 125010794,
+      "symlinks": 1,
+      "link_adjustments": [],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    },
+    {
+      "name": "uniform_256_lev0_t1000",
+      "archive": "runs/archive/history_20261101/uniform_256_lev0_t1000",
+      "entries": 170,
+      "regular_bytes": 126179650,
+      "symlinks": 1,
+      "link_adjustments": [],
+      "verification": "same device/inode/size/mtime for every regular file; same entry set and symlink availability"
+    }
+  ],
+  "compatibility": "Original paths retained as relative directory symlinks. No data deleted. Pre-existing missing targets remain missing."
+}

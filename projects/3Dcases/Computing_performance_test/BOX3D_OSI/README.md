@@ -511,7 +511,9 @@ OSI 已移除 canonical 通信、插值搬运与接口平均写回回退。旧�
 值 0 会明确报错；新输入无需设置。插值工作区、完整 valid restriction、
 A-B 参考态和 checkpoint/诊断需要的 canonical 数据仍保留。
 
-最近的均匀网格正式结果为[256³、Re=1000、t=1000](docs/ai_changes/2026-10-30-uniform-256-t1000.md)：
+运行目录的最新优化计算、完整结果兜底和历史归档统一见[计算结果入口](runs/README.md)。
+
+最近完成的均匀网格正式结果为[256³、Re=1000、t=1000](docs/ai_changes/2026-10-30-uniform-256-t1000.md)：
 包含最终场、checkpoint和叠加Fig.18(a)参考点的中心线图；现成CSV的重绘入口见
 [后处理说明](data_post_processing/README.md#复用现成csv快速重绘)。
 
