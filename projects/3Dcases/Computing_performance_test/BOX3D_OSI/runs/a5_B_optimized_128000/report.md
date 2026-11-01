@@ -12,6 +12,8 @@
 
 ## 写入故障边界
 
-VisMF失败位于文件流write/flush后的good检查；Level_0/Cell_D_00000仅81字节FAB头，无有效场数组。共享文件系统当前df显示2.8TB空闲且inode充足，但quota服务拒绝查询，不能据此排除用户配额或计算节点NFS写入问题。日志无底层errno，根因尚未确认；不称为OOM或数值发散，也不宣布存储已恢复。失败材料与原参数完整保留，未盲目重复长作业。
+VisMF失败位于文件流write/flush后的good检查；Level_0/Cell_D_00000仅81字节FAB头，无有效场数组。共享文件系统当前df显示2.8TB空闲且inode充足，但quota服务拒绝查询，不能据此排除用户配额或计算节点共享存储写入问题。日志无底层errno，根因尚未确认；不称为OOM或数值发散，也不宣布存储已恢复。失败材料与原参数完整保留，未盲目重复长作业。
 
 [阶段汇总](partial_summary.json) · [运行日志](job622026/B/run.log) · [退出状态](job622026/B/exit_status.json)
+
+后续诊断已实查为DPC挂载，并在同节点通过独立缓冲写入、8轮真实输出和读回，根因仍未复现；见[诊断报告](../temporary/checkpoint_io/report.md)。

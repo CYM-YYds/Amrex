@@ -1,0 +1,20 @@
+{
+  "622130": {
+    "node": "whshare-agent-82",
+    "six_direct_write_fsync_passed": true
+  },
+  "622132": {
+    "node": "whshare-agent-82",
+    "exit_code": 0
+  },
+  "622134": {
+    "node": "whshare-agent-82",
+    "exit_code": 0,
+    "checkpoint_writes": 8
+  },
+  "622135": {
+    "node": "whshare-agent-82",
+    "exit_code": 0,
+    "three_level_readback_norms_zero": true
+  }
+}
