@@ -479,24 +479,6 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
         amrex::Print() << "REFINEMENT_REGRID time=" << cur_time << '\n';
         PrintRegridDiagnostics();
     }
-    bool regrid_valid_check = false;
-    ParmParse("verification").query("regrid_valid_check", regrid_valid_check);
-    if (streamMode() == 1 && (osiReferenceEnabled() || regrid_valid_check)) {
-        for (int lev = 0; lev <= finest_level; ++lev) {
-            const MultiFab& state = osi_state.at(lev);
-            MultiFab canonical(state.boxArray(), state.DistributionMap(), Q, 0);
-            bool nonfinite = false;
-            DecodeOsiValid(state, osi_phase.at(lev), canonical);
-            nonfinite = canonical.contains_nan(0, Q, 0) ||
-                        canonical.contains_inf(0, Q, 0);
-            amrex::Print() << "regrid_valid_check level=" << lev
-                           << " boxes=" << state.boxArray().size()
-                           << " all_valid_finite=" << (nonfinite ? 0 : 1)
-                           << '\n';
-            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
-                !nonfinite, "Regrid produced nonfinite valid OSI DDF");
-        }
-    }
 }
 
 void AmrCoreLBM::ClearOsiTransferCaches() {

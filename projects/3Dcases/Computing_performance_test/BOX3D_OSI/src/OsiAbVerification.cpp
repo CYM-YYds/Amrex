@@ -41,6 +41,7 @@ void OsiAbVerification::AfterRepair(AmrCoreLBM& lid, int step) const {
 }
 
 void OsiAbVerification::AfterRefineMesh(AmrCoreLBM& lid, int step) const {
+    // OSI 和 A-B 的全 valid 有限值检查及逐值比较共用目标步调度。
     if (lid.osiReferenceEnabled() && IsTargetStep(step)) {
         lid.PrintRegridDiagnostics();
         lid.CheckOsiReferenceAllValid(step, "AfterRefineMeshAllValid");

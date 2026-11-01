@@ -167,6 +167,9 @@ BOX3D_OSI/
 
 A-B 状态是每层 `f_old/f_new`；OSI 生产状态是每层 `osi_state` 和 `osi_phase`。
 开启 `verification.osi_ab_check` 时额外分配 A-B 状态用于锁步对照。
+重构后的全 valid DDF 有限值检查和逐值比较统一由 `OsiAbVerification`
+按 `osi_step_entry_check_step` / `osi_step_entry_check_interval` 选择目标步；
+生产重构不解码完整 canonical DDF 做检查，原独立开关 `verification.regrid_valid_check` 已移除。
 `ring` 必须来自完整 grown-Fab，不能用 tilebox、碰撞域或物理域裁剪后的 Box 替代。
 相位属于 level 驱动，在 host 上准备 Fab 上下文，再供整个 kernel 复用。
 

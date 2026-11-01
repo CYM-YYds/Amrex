@@ -110,7 +110,7 @@ common=(max_step="$END_STEP" stop_time="$((END_STEP / 128))"
     checkpoint.chk_prefix=chk checkpoint.keep_latest_only=false
     verification.convergence_enabled="$CONVERGENCE" verification.convergence_stop="$CONVERGENCE_STOP"
     verification.refinement_diagnostics="$REFINEMENT_DIAGNOSTICS"
-    verification.regrid_valid_check=true verification.final_state_check=true
+    verification.final_state_check=true
     performance.report_int="$REPORT_INT" performance.osi_detail_timing=0)
 failed=0
 for index in "${!names[@]}"; do

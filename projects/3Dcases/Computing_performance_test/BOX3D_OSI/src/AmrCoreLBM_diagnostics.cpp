@@ -607,8 +607,18 @@ void AmrCoreLBM::CheckOsiReferenceAllValid(
                    << " finest_level=" << finest_level << '\n';
     for (int lev = 0; lev <= finest_level; ++lev) {
         const MultiFab& reference = f_old.at(lev);
-        const bool nonfinite = reference.contains_nan(0, Q, 0) ||
-                               reference.contains_inf(0, Q, 0);
+        // 全 valid 解码与有限值归约只属于锁步诊断，不放入生产重网格路径。
+        bool nonfinite = false;
+        {
+            const MultiFab& state = osi_state.at(lev);
+            MultiFab canonical(state.boxArray(), state.DistributionMap(), Q, 0);
+            DecodeOsiValid(state, osi_phase.at(lev), canonical);
+            nonfinite = canonical.contains_nan(0, Q, 0) ||
+                        canonical.contains_inf(0, Q, 0);
+        }
+        // 先释放解码缓冲，再由逐值比较分配差值缓冲，避免增加诊断峰值。
+        nonfinite = nonfinite || reference.contains_nan(0, Q, 0) ||
+                    reference.contains_inf(0, Q, 0);
         amrex::Print() << "osi_ab_all_valid_finite: step=" << step
                        << " stage=" << stage << " lev=" << lev
                        << " finite=" << (nonfinite ? 0 : 1) << '\n';
