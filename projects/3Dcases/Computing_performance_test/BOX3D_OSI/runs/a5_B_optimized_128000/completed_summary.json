@@ -1,0 +1,22 @@
+{
+  "job": 622137,
+  "status": "SUCCEEDED",
+  "step": 128000,
+  "time": 1000,
+  "application_seconds": 5647.998548,
+  "perf_total_seconds": 5568.60707692,
+  "aggregate_MLUPS": 2097.126845381758,
+  "final_cells_by_level": [
+    2097152,
+    8110080,
+    20832256
+  ],
+  "final_allocated_cells": 31039488,
+  "final_valid_cell_saving_pct": 76.873779296875,
+  "final_leaf_cells": 27421696,
+  "arena_peak_used_MB": 9579,
+  "arena_reserved_MB": 30254,
+  "arena_usage_saving_vs_uniform512_short_pct": 71.90414735730627,
+  "converged": false,
+  "instrumented": true
+}
