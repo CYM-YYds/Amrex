@@ -1,0 +1,12 @@
+{
+  "purpose": "512^3 Q27 physical t=1000 with final velocity/vorticity/Q output",
+  "steps": 512000,
+  "stop_time": 1000,
+  "precision": "FLOAT",
+  "Re": 1000,
+  "ranks": 1,
+  "output_interval": 512000,
+  "arena_init_size": 0,
+  "checkpoint_interval": -1,
+  "executable_sha256": "fdda4f2400438ad1abda5929de960f65c080962f706dd16f94bd5db35ddb1c14"
+}
