@@ -1,0 +1,21 @@
+{
+  "purpose": "three independent parallel B replicas; full final fields and retained checkpoints",
+  "frozen_successful_job": 622137,
+  "executable_sha256": "fdda4f2400438ad1abda5929de960f65c080962f706dd16f94bd5db35ddb1c14",
+  "from_rest": true,
+  "max_step": 128000,
+  "stop_time": 1000,
+  "plot_int": 3200,
+  "checkpoint_int": 32000,
+  "keep_latest_only": false,
+  "replicas": 3,
+  "rank_per_job": 1,
+  "gpu_per_job": 1,
+  "worktree_solver_changes_included": false,
+  "io_failed_syscalls_trace": true,
+  "jobs": [
+    622355,
+    622356,
+    622357
+  ]
+}
