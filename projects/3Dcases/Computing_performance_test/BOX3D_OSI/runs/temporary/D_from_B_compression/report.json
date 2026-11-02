@@ -1,0 +1,77 @@
+{
+  "job": 623748,
+  "thresholds": [
+    0.5,
+    1,
+    2,
+    4
+  ],
+  "start_step": 128000,
+  "end_step": 128128,
+  "end_time": 1001,
+  "mesh_records": [
+    {
+      "cells": [
+        2097152,
+        8110080,
+        20832256
+      ],
+      "total": 31039488,
+      "saved_pct": 76.873779296875,
+      "compression_factor": 4.3240960675640014
+    },
+    {
+      "cells": [
+        2097152,
+        7065600,
+        15900672
+      ],
+      "total": 25063424,
+      "saved_pct": 81.3262939453125,
+      "compression_factor": 5.355123386174212
+    },
+    {
+      "cells": [
+        2097152,
+        2244608,
+        5304320
+      ],
+      "total": 9646080,
+      "saved_pct": 92.8131103515625,
+      "compression_factor": 13.914225053078557
+    },
+    {
+      "cells": [
+        2097152,
+        2240512,
+        5267456
+      ],
+      "total": 9605120,
+      "saved_pct": 92.8436279296875,
+      "compression_factor": 13.973560767590618
+    },
+    {
+      "cells": [
+        2097152,
+        2240512,
+        5292032
+      ],
+      "total": 9629696,
+      "saved_pct": 92.8253173828125,
+      "compression_factor": 13.937898766482348
+    },
+    {
+      "cells": [
+        2097152,
+        2240512,
+        5292032
+      ],
+      "total": 9629696,
+      "saved_pct": 92.8253173828125,
+      "compression_factor": 13.937898766482348
+    }
+  ],
+  "relative_to_C_reduction_pct": 45.69184569184569,
+  "relative_to_B_reduction_pct": 68.97598310899974,
+  "validation": "4 regrids all_valid_finite=1; guard/rank exit0; no convergence or accuracy verdict"
+}
