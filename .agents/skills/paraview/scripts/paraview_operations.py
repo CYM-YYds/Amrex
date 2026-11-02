@@ -368,3 +368,57 @@ def disable_fxaa(command):
                        'after': render_diagnostics(view), 'render_messages': messages,
                        'fxaa_warning_seen': 'vtkOpenGLFXAAFilter' in messages})
     return {'views': result}
+
+
+def set_plotfile_series(command):
+    """原位扩展 AMReX 时间序列，保留所有下游对象与排版。"""
+    import math
+    import re
+    from pathlib import PurePosixPath
+    files = command['files']
+    if not isinstance(files, list) or not files or any(
+            not isinstance(f, str) or not PurePosixPath(f).is_absolute()
+            or re.fullmatch(r'plt_[0-9]+', PurePosixPath(f).name) is None for f in files):
+        raise ValueError('files must contain absolute velocity PlotFile paths')
+    steps = [int(PurePosixPath(f).name[4:]) for f in files]
+    if len({str(PurePosixPath(f).parent) for f in files}) != 1 or any(
+            a >= b for a, b in zip(steps, steps[1:])):
+        raise ValueError('files must be strictly ordered snapshots from one directory')
+    matches = [s for (name, _), s in pvs.GetSources().items() if name == command['source']]
+    if len(matches) != 1 or matches[0].GetXMLName() != 'AMReXGridReader':
+        raise ValueError('source must identify exactly one existing AMReX reader')
+    reader = matches[0]
+    scene, keeper = pvs.GetAnimationScene(), pvs.GetTimeKeeper()
+    views = [v for v in pvs.GetViews() if v.GetProperty('ViewTime')]
+    old_files = list(reader.FileNames)
+    old_scene = (scene.StartTime, scene.EndTime, scene.AnimationTime, scene.PlayMode)
+    old_time = keeper.Time
+    old_views = [(v, v.ViewTime) for v in views]
+    try:
+        reader.FileNames = files
+        reader.UpdatePipelineInformation()
+        times = [float(t) for t in reader.TimestepValues]
+        if len(times) != len(files) or any(not math.isfinite(t) for t in times) or any(
+                a >= b for a, b in zip(times, times[1:])):
+            raise ValueError('Reader did not expose one increasing physical time per file')
+        scene.UpdateAnimationUsingDataTimeSteps()
+        scene.StartTime, scene.EndTime = times[0], times[-1]
+        scene.PlayMode = 'Snap To TimeSteps'
+        scene.AnimationTime = times[-1]
+        keeper.Time = times[-1]
+        for v in views:
+            v.ViewTime = times[-1]
+        view = pvs.GetActiveView()
+        if view is not None:
+            pvs.Render(view)
+        return {'source': command['source'], 'files': list(reader.FileNames),
+                'times': times, 'time': float(keeper.Time),
+                'view_times': {v.GetGlobalIDAsString(): float(v.ViewTime) for v in views}}
+    except Exception:
+        reader.FileNames = old_files
+        reader.UpdatePipelineInformation()
+        scene.StartTime, scene.EndTime, scene.AnimationTime, scene.PlayMode = old_scene
+        keeper.Time = old_time
+        for v, time in old_views:
+            v.ViewTime = time
+        raise

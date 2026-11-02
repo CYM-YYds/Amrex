@@ -68,6 +68,12 @@ class SenderCliTests(unittest.TestCase):
                              for t in n.targets))
         self.assertEqual(trace, (SCRIPTS.parents[3] / '后处理脚本/2DVorticity.py').read_text(encoding='utf-8'))
 
+    def test_set_plotfile_series_options(self):
+        _, sent = self.run_cli('current', 'set_plotfile_series', '--source', 'plt_..',
+                              '--files', '/run/plt_003200', '/run/plt_006400')
+        self.assertEqual(sent[4], {'source': 'plt_..',
+                                  'files': ['/run/plt_003200', '/run/plt_006400']})
+
     def test_export_centerline_options(self):
         _, sent = self.run_cli('current', 'export_centerline', '--input', '/a', '--output', '/b.csv')
         self.assertEqual(sent[4], {'input': '/a', 'output': '/b.csv', 'resolution': 1024, 'max_level': 2})

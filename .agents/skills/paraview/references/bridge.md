@@ -104,6 +104,21 @@ PS1 本身更新后须重新下载，它不会更新自身；正常启动时会�
 
 回执包含实际输入、时间、出图视图 ID、切片单元数及标量范围。当前入口只加载指定单帧；`--time` 必须与输入 Header 的物理时间一致（单帧读取器可能不提供 TimestepValues）。
 
+## 原位扩展 PlotFile 时间序列
+
+先用 `inspect` 核对当前读取器的实际注册名称（名称可能因重命名或加载状态而改变），
+不要假定仍叫 `plt_128000`。`set_plotfile_series` 接受同一目录下按步号严格递增的
+速度 PlotFile 完整路径，原位更新读取器，保留下游管线、显示、相机和排版。
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current set_plotfile_series \
+  --source 'plt_..' --files /absolute/run/plt_003200 /absolute/run/plt_006400 --timeout 300
+```
+
+操作核对读取器为每个文件提供递增物理时间，再同步动画范围、TimeKeeper 和视图时间到
+最后一帧并渲染活动视图。失败时尝试恢复原文件列表与时间设置；断线不在恢复保证内。
+调用前核对各输入 Header 和数据文件完整性，避免把缺失输出当作可用快照。
+
 ## 常用操作
 
 ```bash

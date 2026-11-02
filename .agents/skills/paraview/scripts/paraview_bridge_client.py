@@ -26,6 +26,7 @@ DEFAULT_BRIDGE_ROOT = '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-brid
 # 客户端能力由本表派生，运行层的实际分发仍由回归检查。
 BRIDGE_ACTIONS = {
     'inspect': {},
+    'set_plotfile_series': {'required': ('source', 'files')},
     'apply_2d_vorticity_trace': {'required': ('input', 'time')},
     'disable_fxaa': {'optional': ('view_id',)},
     'background': {},
@@ -420,6 +421,60 @@ def disable_fxaa(command):
                        'after': render_diagnostics(view), 'render_messages': messages,
                        'fxaa_warning_seen': 'vtkOpenGLFXAAFilter' in messages})
     return {'views': result}
+
+
+def set_plotfile_series(command):
+    """原位扩展 AMReX 时间序列，保留所有下游对象与排版。"""
+    import math
+    import re
+    from pathlib import PurePosixPath
+    files = command['files']
+    if not isinstance(files, list) or not files or any(
+            not isinstance(f, str) or not PurePosixPath(f).is_absolute()
+            or re.fullmatch(r'plt_[0-9]+', PurePosixPath(f).name) is None for f in files):
+        raise ValueError('files must contain absolute velocity PlotFile paths')
+    steps = [int(PurePosixPath(f).name[4:]) for f in files]
+    if len({str(PurePosixPath(f).parent) for f in files}) != 1 or any(
+            a >= b for a, b in zip(steps, steps[1:])):
+        raise ValueError('files must be strictly ordered snapshots from one directory')
+    matches = [s for (name, _), s in pvs.GetSources().items() if name == command['source']]
+    if len(matches) != 1 or matches[0].GetXMLName() != 'AMReXGridReader':
+        raise ValueError('source must identify exactly one existing AMReX reader')
+    reader = matches[0]
+    scene, keeper = pvs.GetAnimationScene(), pvs.GetTimeKeeper()
+    views = [v for v in pvs.GetViews() if v.GetProperty('ViewTime')]
+    old_files = list(reader.FileNames)
+    old_scene = (scene.StartTime, scene.EndTime, scene.AnimationTime, scene.PlayMode)
+    old_time = keeper.Time
+    old_views = [(v, v.ViewTime) for v in views]
+    try:
+        reader.FileNames = files
+        reader.UpdatePipelineInformation()
+        times = [float(t) for t in reader.TimestepValues]
+        if len(times) != len(files) or any(not math.isfinite(t) for t in times) or any(
+                a >= b for a, b in zip(times, times[1:])):
+            raise ValueError('Reader did not expose one increasing physical time per file')
+        scene.UpdateAnimationUsingDataTimeSteps()
+        scene.StartTime, scene.EndTime = times[0], times[-1]
+        scene.PlayMode = 'Snap To TimeSteps'
+        scene.AnimationTime = times[-1]
+        keeper.Time = times[-1]
+        for v in views:
+            v.ViewTime = times[-1]
+        view = pvs.GetActiveView()
+        if view is not None:
+            pvs.Render(view)
+        return {'source': command['source'], 'files': list(reader.FileNames),
+                'times': times, 'time': float(keeper.Time),
+                'view_times': {v.GetGlobalIDAsString(): float(v.ViewTime) for v in views}}
+    except Exception:
+        reader.FileNames = old_files
+        reader.UpdatePipelineInformation()
+        scene.StartTime, scene.EndTime, scene.AnimationTime, scene.PlayMode = old_scene
+        keeper.Time = old_time
+        for v, time in old_views:
+            v.ViewTime = time
+        raise
 
 # 以下定义由 paraview_publication.py 自动嵌入。
 """论文/参考图风格的涡量切片排版与独立标题视图；不启动桥接、线程或计时器。
@@ -1127,7 +1182,7 @@ def apply_2d_vorticity_trace(command):
 
 
 
-BRIDGE_VERSION = '23'
+BRIDGE_VERSION = '24'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 
@@ -1135,7 +1190,7 @@ REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.a
 
 # 经操作层执行的动作；inspect、背景与热更新由运行层自身处理。
 # 与 CAPABILITIES 的一致性由 test_action_registry 保证。
-OPERATIONS = {'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
+OPERATIONS = {'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
               'repair_vorticity_slice': repair_vorticity_slice,
               'publication_vorticity': publication_vorticity,
               'add_axis_title_view': add_axis_title_view,

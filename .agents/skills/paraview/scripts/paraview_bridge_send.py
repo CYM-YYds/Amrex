@@ -116,6 +116,7 @@ def build_parser():
     parser.add_argument('action', choices=[*BRIDGE_ACTIONS, *LOCAL_ACTIONS])
     parser.add_argument('--color', nargs=3, type=float)
     parser.add_argument('--input')
+    parser.add_argument('--files', nargs='+', help='按时间排列的完整 PlotFile 路径列表')
     parser.add_argument('--time', type=float, help='指定单帧 PlotFile Header 中的物理时间')
     parser.add_argument('--output')
     parser.add_argument('--resolution', type=int, default=1024)
