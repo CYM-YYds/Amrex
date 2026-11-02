@@ -17,3 +17,7 @@
 单帧读取器实际返回 TimestepValues=[]，因此入口新增必填 `--time`，用于提供 Header 的真实物理时间；不再回退到旧脚本的动画结束时间。CLI 回归及打包一致性检查通过，49 项测试（10 跳过）。
 
 重启后的 GUI 使用 8 rank 服务，热更新及 inspect 均成功；再次执行原脚本加载，在新日志 `.tools/paraview-mpi/logs/pvserver_20261102_143513_6Eyndr.log` 中仍出现 `got 1, expecting 188968`。因此不重复相同加载；GUI 与服务端交互路径仍待定位，下一步需单 rank GUI 对照及 Windows Output Messages，不能把独立批处理通过当成 GUI 问题已修复。
+
+最终现场验收：用户以单进程重启后，2026-11-02 的 `apply_2d_vorticity_trace` 回执成功（id=d1196864290a4e58b8fca718b2817f86），输入 B/plt_128000、time=1000、cells=165376、标量范围 [5.063393088864571e-07,25.60000299503511]、出图 view_id=10969。后续独立 inspect 成功，读取器 Level=2，确认速度→AMR 求导→Slice3→Publication_vorticity_magnitude 连接正确，出图视图 ViewTime=1000，涡量标量及原脚本四个坐标标题可见。新日志 `.tools/paraview-mpi/logs/pvserver_20261102_144156_WPmFLT.log` 未出现先前标签错误。静态单帧无 TimestepValues，全局 TimeKeeper 仍为 0，不解释为输入的物理时间；输入 Header 和两个新视图时间均为 1000。
+
+结论边界：单进程 GUI 本次通过，8 rank GUI 两次失败、8 rank 独立 pvbatch 通过。这支持当前采用单进程 GUI，尚不能判定具体通信根因或宣称已修复多进程 GUI。此现场检查不构成求解器收敛或跨网格涡量误差验证。
