@@ -56,6 +56,11 @@ Amrex/
 - `scripts/`: 仓库级工具脚本，如批量编译、清理、同步工程。
 - `后处理脚本/`: 数据处理与可视化脚本（例如涡量、Q-criterion、流线展示）。
 
+Codex 账号与第三方 API 模式可在仓库终端运行 `./scripts/codex-provider-mode.sh` 自动切换；
+也可传入 `openai` 或 `custom` 指定模式。脚本调用 `codex-provider switch`，该命令会备份配置
+并同步会话元数据。完成后需在 VS Code 命令面板执行 `Developer: Reload Window`；远端 `code` CLI
+不提供执行该界面命令的入口。
+
 <a id="脚本归属与生命周期"></a>
 
 ### 2.4 脚本归属与生命周期
