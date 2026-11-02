@@ -130,7 +130,7 @@ struct AverageDownLevelCache {
 };
 // 两种布局共用格子专用映射；布局差异只影响 DDF 寻址。
 inline constexpr int restriction_threads_per_block = (Q == 19 || Q == 27) ? 128 : 256;
-inline constexpr int restriction_group_size = Q == 19 ? 1 : (Q == 27 ? 16 : 32);
+inline constexpr int restriction_group_size = Q == 27 ? 16 : 1;
 inline constexpr int restriction_parents_per_block =
     restriction_threads_per_block / restriction_group_size;
 

@@ -582,10 +582,10 @@ CUDA 界面平均使用 `average_down_cache[coarse_lev].block_tags` 合并所有
 Q19 每线程处理一个父单元、128 线程/block。默认模型仍为三维 Q27、二维 Q9，不提供运行时 Q19 切换。
 Q27 半 warp 每 lane 保存 q=lane 及 q=lane+16 两槽，分别对每个细子单元归约 rho/动量、缩放后累加，
 两个半 warp 使用独立 shuffle 掩码，尾部父单元整组退出。
-二维 Q9 当前进入非 Q27 的 `average_down_to_canonical` 标量核分支，但
-`restriction_group_size=32`、256 线程/block 的任务分组未同步改变：同组 32 个线程取得相同父单元，
-各自执行完整 Q 循环并写回，存在重复写入风险。这是当前源码的静态事实；当前二维 CUDA
-平均路径的数值正确性仍 pending，历史整 warp 归约验收不能覆盖该分支变化。
+非 Q27 的 `average_down_to_canonical` 使用标量映射：`restriction_group_size=1`，
+每线程独立处理一个父单元。二维 Q9 保留 256 线程/block，Q19 保留 128 线程/block。
+2026-11-02 修正了 Q9 原有的 32 线程重复处理同一父单元配置；按用户要求未编译或运行测试，
+新映射的二维数值验收仍 pending，已有程序不自动包含该源码修改。
 缓存建表与执行共用 `restriction_parents_per_block` 及对应 group/thread 常量。
 任务只绑定几何和布局索引，执行时取当前数组与 phase，避免 A-B 双缓冲交换后访问旧数组。
 CPU 的两种平均范围保持逐盒提交，共用 `average_down_to_canonical` 标量核。
