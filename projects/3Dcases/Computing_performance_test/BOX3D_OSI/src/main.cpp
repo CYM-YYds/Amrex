@@ -248,6 +248,13 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
         }
         std::cout << "step" << step
                   << " perf_detail(s): regrid_detail_timing=" << lid.params().perf_regrid_detail_timing
+                  << " regrid_average_valid=" << perf.regrid_average_valid
+                  << " regrid_repair=" << perf.regrid_repair
+                  << " regrid_amrex=" << perf.regrid_amrex
+                  << " regrid_error_est=" << perf.regrid_error_est
+                  << " regrid_remake=" << perf.regrid_remake
+                  << " regrid_new_level=" << perf.regrid_new_level
+                  << " regrid_clear_level=" << perf.regrid_clear_level
                   << " regrid_macro=" << perf.regrid_macro
                   << " regrid_macro_ghost=" << perf.regrid_macro_ghost
                   << " regrid_vorticity=" << perf.regrid_vorticity

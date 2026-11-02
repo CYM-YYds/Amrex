@@ -251,6 +251,9 @@ class AmrCoreLBM : public amrex::AmrCore {
     struct PerfStats {
         UniformSampleStats uniform_sample;
         double interp = 0.0;
+        double regrid_average_valid = 0.0, regrid_repair = 0.0;
+        double regrid_amrex = 0.0, regrid_error_est = 0.0, regrid_remake = 0.0;
+        double regrid_new_level = 0.0, regrid_clear_level = 0.0;
         double regrid_macro = 0.0, regrid_macro_ghost = 0.0;
         double regrid_vorticity = 0.0, regrid_tag = 0.0, regrid_cache_build = 0.0;
         long long regrid_mask_builds = 0, regrid_boundary_builds = 0, regrid_average_builds = 0;

@@ -461,7 +461,10 @@ void AmrCoreLBM::FillMacroPatch(int lev, amrex::Real time, amrex::MultiFab& mf) 
 
 void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新生成 AMR 网格,并把所有依赖旧网格拓扑的缓存同步重建。
     regrid_tag_counts.assign(max_level + 1, -1);
-    regrid(0, cur_time);
+    {
+        ScopedPerfTimer timer(perf_stats.regrid_amrex, params_.perf_regrid_detail_timing);
+        regrid(0, cur_time);
+    }
     RebuildCoarseFineCaches();
     bool refinement_diagnostics = false;
     ParmParse("verification").query("refinement_diagnostics", refinement_diagnostics);
@@ -744,6 +747,7 @@ void AmrCoreLBM::FindCentre() {
 
 void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::BoxArray& ba,
                                         const amrex::DistributionMapping& dm) {
+    ScopedPerfTimer stage_timer(perf_stats.regrid_new_level, params_.perf_regrid_detail_timing);
     if (probe_.regrid_fixture) {
         amrex::Print() << "AMR_LIFECYCLE MakeNewLevelFromCoarse level=" << lev << '\n';
     }
@@ -797,6 +801,7 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
 
 void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
                              const amrex::DistributionMapping& dm) {
+    ScopedPerfTimer stage_timer(perf_stats.regrid_remake, params_.perf_regrid_detail_timing);
     if (probe_.regrid_fixture) {
         amrex::Print() << "AMR_LIFECYCLE RemakeLevel level=" << lev << '\n';
     }
@@ -986,6 +991,7 @@ void AmrCoreLBM::InitializeDdfFromCoarse(
 }
 
 void AmrCoreLBM::ClearLevel(int lev) {
+    ScopedPerfTimer stage_timer(perf_stats.regrid_clear_level, params_.perf_regrid_detail_timing);
     if (probe_.regrid_fixture) {
         amrex::Print() << "AMR_LIFECYCLE ClearLevel level=" << lev << '\n';
     }
@@ -1102,6 +1108,7 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
 }
 
 void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, int ngrow) {
+    ScopedPerfTimer stage_timer(perf_stats.regrid_error_est, params_.perf_regrid_detail_timing);
     // 受控回归专用：依次新建、平移、清除加密区，确保实际走过布局生命周期。
     // 默认关闭；不参与物理算例的加密判据，也不保存独立时间状态。
     if (probe_.regrid_fixture) {

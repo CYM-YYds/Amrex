@@ -338,6 +338,9 @@ Python 后处理统一使用仓库根 `.venv/bin/python`。例如从仓库根运
 `performance.regrid_detail_timing=1` 可诊断宏观量、速度补边、涡量、打标/计数和
 缓存重建耗时，输出于 `perf_detail(s)` 的 `regrid_*` 字段；默认关闭。
 该诊断会同步 GPU，不用于整体收益测试；关闭时这些零值表示未测量。
+完整重构剖析还输出 `regrid_average_valid`（含 `regrid_repair`）及 `regrid_amrex`
+（含 `regrid_error_est`、`regrid_remake`、`regrid_new_level`、`regrid_clear_level`）。
+这些父子计时存在嵌套，应相减得到独占阶段，再计算占比，不可直接相加。
 `perf_count` 的 `regrid_mask_builds`、`regrid_boundary_builds`、`regrid_average_builds`
 及原有 `interp_cache_builds` 记录实际构建的层/层对数。
 

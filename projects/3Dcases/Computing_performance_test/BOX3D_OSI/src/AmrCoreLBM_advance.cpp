@@ -97,6 +97,7 @@ void AmrCoreLBM::AverageDownValidLevel(int lev, bool is_scale, DdfLayout layout)
 }
 
 void AmrCoreLBM::AverageDownValid(const std::function<void()>& before_repair) {
+    ScopedPerfTimer stage_timer(perf_stats.regrid_average_valid, params_.perf_regrid_detail_timing);
     // interface-only 时间推进不会更新深层 covered 粗单元；regrid 可能重新暴露这些单元，
     // 因此重网格前必须先将全部细层 valid 数据完整同步到粗层父单元。
     for (int lev = finest_level - 1; lev >= 0; --lev) {
@@ -117,7 +118,8 @@ void AmrCoreLBM::AverageDownValid(const std::function<void()>& before_repair) {
     RepairCurrentStatePhysicalBoundary();
 }
 
-void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() { // 在平均后，修复当前状态的物理边界条件。
+void AmrCoreLBM::RepairCurrentStatePhysicalBoundary() {
+    ScopedPerfTimer stage_timer(perf_stats.regrid_repair, params_.perf_regrid_detail_timing); // 在平均后，修复当前状态的物理边界条件。
     ScopedPerfTimer timer(perf_stats.boundary, !useUniformReducedSync());
     const DdfLayout layout =
         streamMode() == 1 ? DdfLayout::Osi : DdfLayout::Canonical;
