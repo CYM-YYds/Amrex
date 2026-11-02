@@ -175,9 +175,8 @@ A-B 状态是每层 `f_old/f_new`；OSI 生产状态是每层 `osi_state` 和 `o
 
 新层 DDF 初始化只写 valid，并按目标所需 stencil 搬运 coarse 数据；初始化、
 ghost 填充和重构迁移统一采用自定义数值插值核。AMReX 仍提供 stencil 几何。
-AMR 缓存按 DDF 存储生命周期失效：本层边界任务只随本层存储变化重建，
-覆盖掩码和插值/平均资源随相邻层对任一端变化重建；布局及存储未变时保留。
-OSI 相位继续在执行时更新，不作为几何缓存重建条件。
+缓存按 DDF 存储生命周期失效并保留未变层/层对，机制与所有权见
+[架构说明](docs/osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)。
 范围、公式及最新验证边界见[当前状态](docs/current_status.md#2026-10-14-新层初始化与插值收尾)。
 
 ## 实际推进调用链
@@ -519,6 +518,7 @@ uncovered DDF、各层 checkpoint valid/active DDF 的前后差均为 `linf=0`�
 - [MPI 通信计划](docs/osi_mpi_communication_plan.md)：历史实验阶段与通信机制；现役粗细传输见 [OSI 架构](docs/osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)。
 - [MLUPS 记录](docs/MLUPS记录.md)：历史性能及适用范围。
 - [均匀网格与AMR性能优化记录](docs/均匀网格与AMR性能优化记录.md)：师兄原程序/改造副本、均匀网格、固定AMR与多GPU的实测及参数。
+- [重构成本定量报告](docs/ai_changes/2026-11-02-regrid-cost-quantification.md)：B 后期窗口的阶段占比、旧检查回放和论文比较边界；不外推为全程或所有网格的成本。
 - [变更记录](docs/ai_changes/)：按提交保留的修改目的与验证摘要。
 
 OSI 已移除 canonical 通信、插值搬运与接口平均写回回退。旧的

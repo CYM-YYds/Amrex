@@ -160,6 +160,8 @@ AMReX Q19周期/非周期64³多Fab、160步A-B/OSI对照，valid/active逐值�
 | 本地ghost复制坐标复用 | 621808独立对照中单GPU完整total下降0.538%；不同节点的局部优化对照，不另列主表 | 当前同样扩展至二维/多rank；不把局部或旧单GPU收益套用到多GPU |
 | 三线性目标坐标复用、半warp平均坐标复用 | 621802完整推进无稳定收益 | 未接入这些候选 |
 | 独立单层外层调度 | 没有明显稳定收益 | 已移除；统一Cycle2，减少同步及无mask仍保留 |
+| 重构缓存保留与重复速度交换删除 | 固定布局窗口有收益，B 动态窗口未测到稳定整体加速，不能相互外推 | 已接入；[范围与证据](ai_changes/2026-11-01-regrid-cache-reuse.md) |
+| 重构阶段定量归因 | 完整重构、独占阶段、旧检查与物理时间频率分别统计 | 默认关闭的诊断；[现役定量入口](ai_changes/2026-11-02-regrid-cost-quantification.md) |
 
 本地ghost/宏观量的证据见[阶段筛选](../runs/temporary/collision_amr/round2/report.md)。最近范围统一的两组2GPU回归DDF范数全0、18份速度/涡量数据逐字节相同，见[最新接入记录](ai_changes/2026-10-31-other-coordinate-defaults.md)；**未重做性能矩阵，不把各轮收益相加**。
 

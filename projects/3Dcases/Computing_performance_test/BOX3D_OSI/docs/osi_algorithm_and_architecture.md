@@ -394,15 +394,10 @@ twisted(Addr(fab,q,target_phase,i,j,k),q) =
 
 ### 判据打标、建块与覆盖统计
 
-2026-10-29 核对：当前工作树二维/三维 `ErrorEst()` 均调用 `state_error_3`，
+2026-11-02 核对：当前 HEAD 与工作树二维/三维 `ErrorEst()` 均调用 `state_error_3`，
 以 valid 单元的涡量模 `vort(...,1) >= lbm.err[lev]` 打标；近壁强制打标代码仍被注释。
-三维选择器为用户未提交修改，本轮 A/B 冻结实验也采用此选择，不能用 HEAD 的选择器解释这些日志。
-
-已提交 HEAD 的三维选择器仍为 `state_error_6`，该备选函数保留在代码中，记 W 为 valid 单元的涡量模，其历史映射为：
-`min(1, log2(W)) >= -2 - (max_ref_level - lev)`，编译期 `max_ref_level=3`，
-所以 level 0→1、1→2 的阈值分别是 0.03125、0.0625。
-运行时 `amr.max_level=2` 限制实际层数，不会改变上述映射；`lbm.err` 数值不参与
-`state_error_6` 比较，但其数组长度仍用于 ErrorEst 的层级入口检查。不能把该映射与 `state_error_3` 的阈值直接混用。
+`state_error_6` 作为未选用的备选实现保留，其层级映射不读取 `lbm.err` 数值，不能用来
+解释现役阈值。旧记录中“工作树使用 state_error_3、HEAD 使用 state_error_6”仅描述当时版本。
 
 AMReX 26.06 在 ErrorEst 后按顺序缓冲 tags、按
 `max(1, blocking_factor[lev+1]/ref_ratio[lev])` 粗化 tags，再执行投影、
@@ -438,6 +433,9 @@ GPU区间、CPU提交和CPU等待有重叠，不能相加。该路径的旧`comm
 CPU通信入口明细；单块非周期单rank没有实际块间/MPI传输。现役字段和支持边界统一见
 [README](../README.md#实际推进调用链)。
 累计耗时须累加完整统计窗口，末窗口 MLUPS 不等于全程平均。与论文对照前须核对采样区间和计时范围。
+重构成本的现役定量入口为[2026-11-02 定量报告](ai_changes/2026-11-02-regrid-cost-quantification.md)：
+它区分完整重构、独占阶段、旧检查的同源回放及论文比较条件。数字仅对应冻结的三维
+FLOAT、单 A100、B 后期窗口；旧长跑、固定布局窗口和同步诊断不能混为一个加速比。
 `ComputeWeightedLatticeUpdatesPerCoarseStep()` 统计按子步加权、扣除细层覆盖的 valid 单元，不含 ghost；
 `collide_level.launch_cells` 是发射范围计数，可能包含 ghost 和 kernel 内提前返回的 covered 内部单元，不能当作实际碰撞单元数。
 碰撞累计秒数同时受工作量和单元成本影响，不能单独反推冗余加密或实现吞吐率。
@@ -471,7 +469,7 @@ regrid 前完整 AverageDownValid
                     -> 按 coarse 当前 phase 搬运 Q 分量，延拓 stencil 的物理域外来源
                     -> 非平衡缩放与自定义插值核 -> 新 fine valid，phase 0（不填 fine ghost）
         -> Clear: 释放该层 OSI state、通信缓冲和地址 tags
-        -> 重建通信、插值、restriction 和 coarse-fine mask 缓存
+        -> 存储变更回调失效相关缓存；只补建变更层/层对资源，保留未变资源
         -> Cycle2 FillGhostLevel(fine): 只建立两步细层子循环需要的 coarse-fine ghost
         -> AdvanceLevel: OSI 每层碰撞后、phase 提交前由 FillBoundaryOsi 同步同层/周期 ghost
 ```
@@ -598,8 +596,12 @@ AB 完整平均使用 `StoreScaledFine=true`，同时将各子单元缩放后的
 完整平均的临时搬运计划、任务、结果在 GPU/MPI 完成后才释放，不进入持久界面缓存。
 平均后的边界修复仍调用既有薄面批量任务。
 
-正常推进的持久任务分别由 `BuildInterpolationCache`/`BuildAverageCache` 派生，
-`ClearOsiTransferCaches` 在任一侧布局/存储改变前使其失效，随后由既有粗细缓存重建流程恢复。
+正常推进的持久任务分别由 `BuildInterpolationCache`/`BuildAverageCache` 派生。
+`InvalidateLevelCaches(lev)` 在本层 DDF 定义、重建或释放前清除本层边界任务、
+两侧传输资源及相邻覆盖掩码；原 `ClearOsiTransferCaches` 已退役。
+`level_cache_dirty` 构造时全部置位，存储生命周期回调置位，所有构建完成后清零。
+边界任务按本层标记、掩码/插值/平均按相邻两层标记的并集重建；合法空缓存也由此
+保持有效。OSI 同布局 Remake 保留 raw DDF 和 phase，不因派生宏观场更换而失效 DDF 缓存。
 初始化和完整 valid 平均复用相同建表函数，但任务及暂存区由当前调用持有；
 调用返回或替换底层存储前先完成 GPU/MPI 同步，不依赖持久缓存失效来管理其生命周期。
 缩放任务持有stage的Array4；计算标签保存几何与本地索引，执行时取得当前数组和共享
@@ -660,6 +662,10 @@ OSI 通信/缓存搬运的嵌套细分计时由 `RuntimeParams` 中一次读取�
 用法和配对结果见[README](../README.md#构建运行与实验记录)。
 
 验证时机由 `OsiAbVerification` 根据配置安排，实际比较仍由驱动类诊断函数执行；
+重构后的全 valid 有限值检查和逐值比较共用 `osi_ab_check` 及目标步调度，覆盖
+covered/interface valid、不读 ghost。生产 `RefineMesh()` 不为该检查解码整层 DDF，
+原独立开关 `verification.regrid_valid_check` 已移除；checkpoint 与其他显式诊断的
+canonical 转换仍有各自用途，不属于误放入生产重构的检查路径。
 底层保护及 CPU 独立逐值复核保留。`verification.osi_ab_continue_on_mismatch`
 由 `ReadParameters` 一次写入 `ProbeParams`，阶段比较和步末报告只读同一配置。
 `CompareDdfCheckpoint` 在 valid 差值尚未屏蔽 covered 单元时，按 Fab 回拷全部 Q 分量和掩码一次，
