@@ -20,7 +20,7 @@ PS1 下载桥客户端，在编译节点启动 pvserver 并建立 SSH 隧道，�
 启动编号、客户端源码和实际连接的回执匹配后显示 `Bridge ready`。
 它不重建上次管线、不自动加载数据。端口被占用时先检查已有窗口和隧道，避免重复启动。
 
-默认服务为 4 进程，可在新建连接时配置：
+默认服务为 1 进程，可在新建连接时配置：
 
 ```powershell
 & 'D:\OneDrive\Desktop\connect_paraview.ps1' -ServerProcesses 4 -RemoteParaViewPrefix '/absolute/path/to/paraview-mpi/env'
@@ -176,10 +176,13 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 ## 故障处理与验证边界
 
 - 服务端断线：启动器自动将服务 stdout/stderr 同时写入共享仓库
-  `.tools/paraview-mpi/logs/pvserver_日期时间_随机后缀.log`，路径也显示在启动窗口中；
+  `.tools/paraview-mpi/logs/launch-启动编号/pvserver_日期时间_随机后缀.log`，路径也显示在启动窗口中；
   关闭 Windows 窗口后日志仍保留。版本预检不生成日志，日志不自动清理。
-  已使用当前远端启动器的 PS1 无需因该日志功能重新下载。该日志不包含 Windows 客户端
-  Output Messages、SSH 客户端错误或自动调用栈；客户端窗口用 `Save to File…` 单独保存。
+  新版 PS1 在脚本旁 `paraview_logs/` 保存带时间、端口、唯一启动编号的 `.cmd` 与 `.json`，
+  后者关联服务进程数、远端日志目录、客户端 stdout/stderr 和成功后的桥接回执 `.bridge.json`。
+  同端口再次启动不会覆盖旧记录；旧 PS1 须重新下载，已有窗口无需为此重连。
+  客户端 stdout/stderr 仅捕获实际写入这两个流的内容，不保证包含完整 Output Messages
+  或调用栈；GUI 的 Output Messages 仍可用 `Save to File…` 单独保存。启动命令窗口仍需保持打开。
   `PARAVIEW_SERVER_LOG_DIR` 可覆盖远端日志目录。退出码 0 不代表此前没有协议错误。
   已观察到的 `Tag mismatch`（188968 为取消检查标签）仍未确定根因，不能把涡量修复或
   Linux 客户端层级切换通过当作 Windows GUI 断线已修复；需保留首次错误和触发操作。

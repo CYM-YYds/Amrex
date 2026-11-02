@@ -4,7 +4,7 @@
 param(
     [switch]$BridgeStatus,
     [switch]$UpdateBridge,
-    [ValidateRange(1,256)][int]$ServerProcesses = 4,
+    [ValidateRange(1,256)][int]$ServerProcesses = 1,
     [ValidatePattern('^(/[A-Za-z0-9_./-]+)?$')][string]$RemoteParaViewPrefix = ""
 )
 
@@ -244,7 +244,9 @@ $REMOTE_PORT = $availablePort
 Write-Host "Using remote port: $REMOTE_PORT" -ForegroundColor Green
 
 # 隧道目的地与实际服务节点一致；不在 SSH 登录节点启动 pvserver。
-$serverCommand = Get-ServerCommand "bash '$REMOTE_SERVER_SCRIPT' $serverOptions --server-port=$REMOTE_PORT"
+# 每次启动使用独立服务日志目录，与本机启动记录通过同一编号关联。
+$remoteLogDir = "$REMOTE_REPO_ROOT/.tools/paraview-mpi/logs/launch-$BRIDGE_LAUNCH_ID"
+$serverCommand = Get-ServerCommand "PARAVIEW_SERVER_LOG_DIR='$remoteLogDir' bash '$REMOTE_SERVER_SCRIPT' $serverOptions --server-port=$REMOTE_PORT"
 $sshCommand = "ssh -o ExitOnForwardFailure=yes -o BatchMode=yes -o ServerAliveInterval=30 -CL 127.0.0.1:${LOCAL_PORT}:${TUNNEL_TARGET}:${REMOTE_PORT} ${REMOTE_USERNAME}@${REMOTE_HOST} -p${SSH_PORT} -T `"$serverCommand`""
 Write-Host "Server node: $SERVER_HOST, remote port: $REMOTE_PORT" -ForegroundColor Cyan
 
@@ -253,7 +255,27 @@ $logDir = Join-Path $scriptRoot "paraview_logs"
 if (-not (Test-Path -LiteralPath $logDir)) {
     New-Item -ItemType Directory -Path $logDir | Out-Null
 }
-$batchFile = Join-Path $logDir "pvserver_start_port${REMOTE_PORT}.cmd"
+$launchStem = "pvserver_$(Get-Date -Format 'yyyyMMdd_HHmmss')_port${REMOTE_PORT}_$BRIDGE_LAUNCH_ID"
+$batchFile = Join-Path $logDir "$launchStem.cmd"
+$launchRecord = Join-Path $logDir "$launchStem.json"
+$clientStdout = Join-Path $logDir "$launchStem.client.stdout.log"
+$clientStderr = Join-Path $logDir "$launchStem.client.stderr.log"
+$receiptFile = Join-Path $logDir "$launchStem.bridge.json"
+$launchInfo = [ordered]@{
+    launch_id = $BRIDGE_LAUNCH_ID
+    started_at = [DateTimeOffset]::Now.ToString('o')
+    server_host = $SERVER_HOST
+    server_processes = $ServerProcesses
+    local_port = $LOCAL_PORT
+    remote_port = $REMOTE_PORT
+    paraview_version = $PARAVIEW_VERSION
+    remote_log_directory = $remoteLogDir
+    startup_script = $batchFile
+    client_stdout = $clientStdout
+    client_stderr = $clientStderr
+    bridge_receipt = $receiptFile
+}
+[IO.File]::WriteAllText($launchRecord, ($launchInfo | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 
 $batchLines = @(
     '@echo off'
@@ -283,6 +305,8 @@ $batchContent = $batchLines -join [Environment]::NewLine
 Write-Host "`nStarting ParaView server..." -ForegroundColor Cyan
 Start-Process -FilePath "cmd.exe" -ArgumentList @("/k", "`"$batchFile`"") -WorkingDirectory $logDir -WindowStyle Normal
 Write-Host "Server startup script: $batchFile" -ForegroundColor Cyan
+Write-Host "Launch record: $launchRecord" -ForegroundColor Cyan
+Write-Host "Remote server logs: $remoteLogDir" -ForegroundColor Cyan
 
 # 检查监听状态，不建立 TCP 探测连接，避免消耗 pvserver 的客户端连接。
 Write-Host "Waiting for remote pvserver listener..." -ForegroundColor Cyan
@@ -311,7 +335,7 @@ if ($resolvedParaViewPath) {
             $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
             [Environment]::SetEnvironmentVariable($name, $bridgeEnvironment[$name], "Process")
         }
-        $paraViewProcess = Start-Process -PassThru -FilePath $resolvedParaViewPath -ArgumentList @("--url=cs://localhost:${LOCAL_PORT}", "--script=`"$BRIDGE_SCRIPT`"")
+        $paraViewProcess = Start-Process -PassThru -FilePath $resolvedParaViewPath -RedirectStandardOutput $clientStdout -RedirectStandardError $clientStderr -ArgumentList @("--url=cs://localhost:${LOCAL_PORT}", "--script=`"$BRIDGE_SCRIPT`"")
     } finally {
         foreach ($name in $savedEnvironment.Keys) {
             [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")
@@ -358,7 +382,9 @@ if ($paraViewProcess.HasExited) {
     throw "ParaView exited during bridge startup."
 }
 Write-Host "Bridge ready: version $($receipt.version), GUI response OK, source hash verified." -ForegroundColor Green
+[IO.File]::WriteAllText($receiptFile, ($receipt | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
 Write-Host "Session: $($receipt.directory)" -ForegroundColor Cyan
+Write-Host "Client stdout/stderr: $clientStdout / $clientStderr" -ForegroundColor Cyan
 
 # Show connection info
 Write-Host "`n=== Connection Settings ===" -ForegroundColor Yellow
