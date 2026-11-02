@@ -1,0 +1,1 @@
+../.agents/skills/paraview/scripts/connect_paraview.cmd

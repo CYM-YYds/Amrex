@@ -28,6 +28,9 @@ class LauncherFailureTests(unittest.TestCase):
                 env=dict(os.environ, TMPDIR=str(fallback), TMP=str(fallback), TEMP=str(fallback)))
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Choose either -BridgeStatus or -UpdateBridge.', result.stdout + result.stderr)
+            transcripts = [p for p in root.rglob('launcher_*.log') if not p.name.startswith('launcher_error_')]
+            self.assertEqual(len(transcripts), 1)
+            self.assertIn('Launcher transcript:', transcripts[0].read_text(encoding='utf-8-sig'))
             logs = list(root.rglob('launcher_error_*.log'))
             self.assertEqual(len(logs), 1)
             self.assertIn('Choose either -BridgeStatus or -UpdateBridge.', logs[0].read_text())

@@ -184,7 +184,9 @@ dsub -s ./scripts/submit.sh
 该环境中补齐。
 
 ParaView 独立批处理使用应用自带的 `pvbatch` 解释器读取数据；后续 CSV 分析和绘图仍使用
-本节的 `.venv`。使用方式和核心脚本统一维护在 [ParaView skill](.agents/skills/paraview/SKILL.md)，
+本节的 `.venv`。Windows 双击启动可使用 [connect_paraview.cmd](后处理脚本/connect_paraview.cmd)，
+与 [connect_paraview.ps1](后处理脚本/connect_paraview.ps1) 下载到同一目录；CMD 入口保留 PowerShell 窗口，
+便于查看脚本解析或执行策略等早期错误。使用方式和核心脚本统一维护在 [ParaView skill](.agents/skills/paraview/SKILL.md)，
 可用 `$paraview` 调用，包含当前 GUI 桥接与独立批处理。批处理入口自动跳转编译节点
 `whshare-agent-1`，不在登录节点运行 ParaView。
 

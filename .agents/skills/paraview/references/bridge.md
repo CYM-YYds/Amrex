@@ -11,6 +11,11 @@
 & 'D:\OneDrive\Desktop\connect_paraview.ps1'
 ```
 
+若通过双击启动，建议同时下载 [connect_paraview.cmd](../scripts/connect_paraview.cmd) 与上述 PS1，
+放在同一目录后双击 CMD。它优先调用 PowerShell 7，缺失时使用 Windows PowerShell，并使用
+`-NoExit` 保留控制台；不绕过执行策略。即使 PS1 解析或策略检查失败，也能看到错误；
+PowerShell 进程退出后 CMD 仍暂停。成功连接后也保留窗口，服务端窗口仍须单独保持打开。
+
 本机需 OpenSSH、已核验的主机指纹和免密认证。默认 GUI 路径为
 `D:\Software\ParaView 6.2.0\bin\paraview.exe`，客户端和服务端须同版本。
 SSH 账号、入口和本机路径在 PS1 配置区维护；远端安装与执行节点见 [主入口](../SKILL.md#环境与执行方式)。
@@ -188,6 +193,9 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
   Linux 客户端层级切换通过当作 Windows GUI 断线已修复；需保留首次错误和触发操作。
 - PS1 窗口立即关闭：新版会把启动异常写入脚本旁 `paraview_logs/launcher_error_*.log`，
   若该目录不可写则退回系统临时目录；交互式控制台会等待回车后再以失败退出。
+  PS1 在首次 SSH 前开始 `launcher_时间_启动编号.log` 完整终端记录，结束时停止记录，
+  不依赖较晚才生成的 pvserver 参数 JSON。文件解析及执行策略拒绝发生在脚本运行前，
+  无法由 PS1 自身记录，使用上述 CMD 入口保留窗口。
   自动化可使用 `-NoPauseOnError`，重定向输入或非交互式控制台不会暂停。
   尚未更新脚本或需要查看解析/参数绑定错误时，在已打开的 PowerShell 中使用
   `pwsh -NoProfile -NoExit -File "本机实际路径/connect_paraview.ps1"` 保留完整报错。

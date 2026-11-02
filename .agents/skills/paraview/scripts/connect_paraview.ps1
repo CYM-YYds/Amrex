@@ -39,6 +39,23 @@ trap {
     throw $startupError
 }
 
+# 在首次版本检查、SSH 或端口检查之前开启记录，finally 保证不记录调用者后续操作。
+$scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$BRIDGE_LAUNCH_ID = [Guid]::NewGuid().ToString('N')
+$transcriptStarted = $false
+$transcriptPath = $null
+try {
+    foreach ($transcriptRoot in @((Join-Path $scriptRoot 'paraview_logs'), [IO.Path]::GetTempPath())) {
+        try {
+            [IO.Directory]::CreateDirectory($transcriptRoot) | Out-Null
+            $transcriptPath = Join-Path $transcriptRoot "launcher_$(Get-Date -Format 'yyyyMMdd_HHmmss')_$BRIDGE_LAUNCH_ID.log"
+            Start-Transcript -LiteralPath $transcriptPath -ErrorAction Stop | Out-Null
+            $transcriptStarted = $true
+            break
+        } catch { }
+    }
+    if (-not $transcriptStarted) { throw 'Cannot create launcher transcript in script or temporary directory.' }
+    Write-Host "Launcher transcript: $transcriptPath" -ForegroundColor Cyan
 # Configuration
 $PARAVIEW_PATH = "D:\Software\ParaView 6.2.0\bin\paraview.exe"
 $LOCAL_PORT = "11115"        # Local port
@@ -48,12 +65,10 @@ $PARAVIEW_VERSION = "6.2.0"
 $MAX_PORT_ATTEMPTS = 10      # Max port attempts
 $REMOTE_USERNAME = "Liuzhaohui" # Remote SSH account
 # 本机控制桥固定放在启动脚本旁，每次启动从仓库同步最新版。
-$scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $BRIDGE_SCRIPT = Join-Path $scriptRoot "paraview_bridge_client.py"
 $REMOTE_HOST = "27.18.114.25"
 $SSH_PORT = 6022
 # 每次启动使用独立编号，自检不会把旧会话当作本次启动成功。
-$BRIDGE_LAUNCH_ID = [Guid]::NewGuid().ToString("N")
 $BRIDGE_STARTUP_SECONDS = 180
 $REMOTE_REPO_ROOT = "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex"
 $REMOTE_SERVER_SCRIPT = "$REMOTE_REPO_ROOT/.agents/skills/paraview/scripts/run_paraview_server.sh"
@@ -294,6 +309,7 @@ $clientStderr = Join-Path $logDir "$launchStem.client.stderr.log"
 $receiptFile = Join-Path $logDir "$launchStem.bridge.json"
 $launchInfo = [ordered]@{
     launch_id = $BRIDGE_LAUNCH_ID
+    launcher_transcript = $transcriptPath
     started_at = [DateTimeOffset]::Now.ToString('o')
     server_host = $SERVER_HOST
     server_processes = $ServerProcesses
@@ -435,6 +451,7 @@ Write-Host "OK: Keep server window open, closing it will disconnect" -Foreground
 Write-Host "OK: Auto-selected remote port is $REMOTE_PORT" -ForegroundColor Cyan
 
 # Keep the server startup script under paraview_logs for inspection.
-
-
-
+} finally {
+    # 成功、异常、状态查询提前 return 均须结束本次记录。
+    if ($transcriptStarted) { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null }
+}
