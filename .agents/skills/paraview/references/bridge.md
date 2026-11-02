@@ -94,10 +94,10 @@ PS1 本身更新后须重新下载，它不会更新自身；正常启动时会�
 
 ```bash
 .venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current apply_2d_vorticity_trace \
-  --input /absolute/shared/plt_128000 --timeout 600
+  --input /absolute/shared/plt_128000 --time 1000 --timeout 600
 ```
 
-回执包含实际输入、时间、出图视图 ID、切片单元数及标量范围。当前入口只加载指定单帧。
+回执包含实际输入、时间、出图视图 ID、切片单元数及标量范围。当前入口只加载指定单帧；`--time` 必须与输入 Header 的物理时间一致（单帧读取器可能不提供 TimestepValues）。
 
 ## 常用操作
 

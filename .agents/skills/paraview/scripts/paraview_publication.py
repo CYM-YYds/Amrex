@@ -684,7 +684,7 @@ def apply_2d_vorticity_trace(command):
     scene = pvs.GetAnimationScene()
     scene.UpdateAnimationUsingDataTimeSteps()
     times = list(reader.TimestepValues)
-    time = float(times[-1]) if times else float(scene.EndTime)
+    time = float(times[-1]) if times else float(command['time'])
     scene.StartTime = scene.EndTime = scene.AnimationTime = time
     view = namespace['renderView2']
     view.ViewTime = time

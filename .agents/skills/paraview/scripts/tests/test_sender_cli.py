@@ -57,8 +57,8 @@ class SenderCliTests(unittest.TestCase):
         self.assertEqual(sent[2], [0.1, 0.2, 0.3])
 
     def test_fixed_vorticity_trace_input(self):
-        _, sent = self.run_cli('current', 'apply_2d_vorticity_trace', '--input', '/run/plt_128000')
-        self.assertEqual(sent[4], {'input': '/run/plt_128000'})
+        _, sent = self.run_cli('current', 'apply_2d_vorticity_trace', '--input', '/run/plt_128000', '--time', '1000')
+        self.assertEqual(sent[4], {'input': '/run/plt_128000', 'time': 1000.0})
 
     def test_bundled_vorticity_trace_matches_repository(self):
         import ast

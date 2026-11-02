@@ -26,7 +26,7 @@ DEFAULT_BRIDGE_ROOT = '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-brid
 # 客户端能力由本表派生，运行层的实际分发仍由回归检查。
 BRIDGE_ACTIONS = {
     'inspect': {},
-    'apply_2d_vorticity_trace': {'required': ('input',)},
+    'apply_2d_vorticity_trace': {'required': ('input', 'time')},
     'disable_fxaa': {'optional': ('view_id',)},
     'background': {},
     'restore_background': {},
@@ -1108,7 +1108,7 @@ def apply_2d_vorticity_trace(command):
     scene = pvs.GetAnimationScene()
     scene.UpdateAnimationUsingDataTimeSteps()
     times = list(reader.TimestepValues)
-    time = float(times[-1]) if times else float(scene.EndTime)
+    time = float(times[-1]) if times else float(command['time'])
     scene.StartTime = scene.EndTime = scene.AnimationTime = time
     view = namespace['renderView2']
     view.ViewTime = time
