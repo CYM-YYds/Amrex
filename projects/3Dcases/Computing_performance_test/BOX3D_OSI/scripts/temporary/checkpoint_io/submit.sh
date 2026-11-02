@@ -22,4 +22,6 @@ nvidia-smi > "$OUT/gpu.txt"
 mount | grep whcs-share47 > "$OUT/mount.txt" || true
 nvcc -O2 "$OUT/probe.cu" -o "$OUT/probe.ex" > "$OUT/compile.log" 2>&1
 cd "$OUT"
-strace -o syscalls.log -e trace=write,writev,pwrite64,fsync -s 0 ./probe.ex > result.log 2>&1
+read -r -a probe_args <<< "${IO_PROBE_ARGS:-}"
+printf '%s\n' "${probe_args[*]}" > probe_args.txt
+strace -o syscalls.log -e trace=write,writev,pwrite64,fsync -s 0 ./probe.ex "${probe_args[@]}" > result.log 2>&1

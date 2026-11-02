@@ -1,0 +1,19 @@
+{
+  "job": 622850,
+  "status": "FAILED",
+  "phase": "production velocity PlotFile write before checkpoint",
+  "completed_steps": 12800,
+  "physical_time": 25,
+  "node": "whshare-agent-75",
+  "syscall": "writev",
+  "errno": "EIO",
+  "file": "production/plt_012800/Level_0/Cell_D_00000",
+  "production_checkpoint_written": false,
+  "preflight_checkpoint_steps": [
+    32,
+    64
+  ],
+  "writev_probe_job": 622957,
+  "writev_probe_result": "six 1536MiB+81B writev+fsync calls succeeded",
+  "root_cause": "system-call I/O error confirmed; underlying intermittent DPC cause unresolved"
+}

@@ -15,5 +15,8 @@
   "initial_validation_job": 622846,
   "arena_release_threshold": 0,
   "reused_unchanged_prechecks": true,
-  "uniform512_restart_and_resave_passed": true
+  "uniform512_restart_and_resave_passed": true,
+  "status": "FAILED during first production field output",
+  "production_completed_steps": 12800,
+  "production_errno": "EIO"
 }

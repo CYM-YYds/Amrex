@@ -1,0 +1,2 @@
+/etc/auto.mnt on /home/iosoeqkp/whcs-share47 type autofs (rw,relatime,fd=5,pgrp=4985,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=31740)
+/whcs-share47 on /home/iosoeqkp/whcs-share47 type dpc (rw,relatime)

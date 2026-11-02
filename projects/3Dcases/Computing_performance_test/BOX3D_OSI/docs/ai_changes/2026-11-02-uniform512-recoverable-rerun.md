@@ -11,3 +11,9 @@ ReadCheckpoint已有canonical.ParallelCopy机制可复用，不新增数据结�
 622850复用完全相同源/程序与已通过门槛，只加release_threshold=0，512³恢复到64步重新写场和checkpoint成功；输出Header时间/组件及数据长度核对，gate.json通过。随后production/正式从静止长程已启动，尚未完成。仅复用未改变的编译/数值证据，不重复无关性能矩阵。Python AST、Shell语法、diff及相关链接检查通过。
 
 后续：核对t1000最终场与checkpoint、全部收敛数据和显存高水位；此前共享存储偶发写失败根因仍未知，不能把本次预检通过宣称为永久修复。旧失败输入/日志均保留。[实验范围与当前清单](../../runs/uniform512_recovery_t1000/README.md)。
+
+## 失败错误码与补充验证
+
+622850正式段12800步/t25首次速度场写入失败，writev(fd指向plt_012800/Level_0/Cell_D_00000,iovcnt2)返回EIO，退出6；此次不是显存不足。由于场先写、checkpoint后写，正式段没有checkpoint，只有通过预检的32/64步恢复点。旧未知VisMF错误现在取得了新的明确系统调用证据，但不能反推旧每次失败都是同因。
+
+扩展既有独立probe，支持writev及数据大小参数，不新增入口；622957在同失败节点75对普通和cudaHostAllocMapped内存，各三次1536MiB+81B writev及fsync全部成功。编译和运行通过、Shell语法检查通过。实际共享挂载DPC，间歇EIO更底层触发条件仍未确定，未据此改数值路径或盲目重复长跑。[失败摘要](../../runs/uniform512_recovery_t1000/failure_summary.json)。

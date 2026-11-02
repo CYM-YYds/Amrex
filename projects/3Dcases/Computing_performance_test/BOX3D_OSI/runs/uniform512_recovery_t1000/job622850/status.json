@@ -2,5 +2,9 @@
   {
     "name": "large_restart",
     "exit_code": 0
+  },
+  {
+    "name": "production",
+    "exit_code": 6
   }
 ]
