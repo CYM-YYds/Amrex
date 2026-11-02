@@ -700,3 +700,50 @@ def apply_2d_vorticity_trace(command):
             'source': scalar.GetGlobalIDAsString(), 'cells': info.GetNumberOfCells(),
             'range': list(scalar.CellData['PublicationVorticityMagnitude'].GetRange()),
             'layout': 'Slice3_independent_axis_titles'}
+
+
+def color_outline_levels(command):
+    """为已核对为三层AMR分组的框线显式配色，复用显示属性事务。"""
+    from paraview import servermanager
+    matches = [s for (name, _), s in pvs.GetSources().items() if name == command['source']]
+    if len(matches) != 1:
+        raise ValueError('source must match exactly one existing grouped AMR slice')
+    source = matches[0]
+    view = next((v for v in pvs.GetViews() if v.GetGlobalIDAsString() == command.get('view_id')), None)
+    view = view if command.get('view_id') else pvs.GetActiveView()
+    if view is None:
+        raise ValueError('Select the view containing the existing outline')
+    displays = [r for r in view.Representations if r.GetProperty('Input') and r.Input == source
+                and r.GetProperty('Representation') and r.Representation == 'Outline']
+    if len(displays) != 1:
+        raise ValueError('Expected exactly one existing Outline representation in this view')
+    hierarchy = source.GetDataInformation().GetHierarchy()
+    if hierarchy is None or hierarchy.GetNumberOfChildren(0) != 3:
+        raise ValueError('Expected three top-level groups corresponding to AMR levels 0, 1, 2')
+    paths = [hierarchy.GetNodePath(hierarchy.GetChild(0, i)) for i in range(3)]
+    display = displays[0]
+    colors = [(1, 1, 1), (1, 0, 0), (0, 1, 0)]
+    before = {'color_array': list(display.ColorArrayName), 'block_colors': list(display.BlockColors)}
+    with _publication_edit(view):
+        pvs.ColorBy(display, None)
+        # BlockColors为字符串向量；显式颜色绑定到层级分组选择器，不依赖自动块号。
+        display.BlockColors = [str(v) for path, color in zip(paths, colors) for v in (path, *color)]
+        # 自动块色已停用；只隐藏此视图里不再被可见表示使用的旧块色图例。
+        for bar in view.Representations:
+            if bar.GetXMLName() == 'ScalarBarWidgetRepresentation' and bar.Title == 'vtkBlockColors':
+                used = any(r.GetProperty('ColorArrayName') and r.GetProperty('LookupTable')
+                           and r.Visibility and r.LookupTable == bar.LookupTable
+                           and r.ColorArrayName.GetArrayName() for r in view.Representations)
+                if not used:
+                    bar.Visibility = 0
+        pvs.Render(view)
+        if command.get('output'):
+            pvs.SaveScreenshot(command['output'], view, ImageResolution=list(view.ViewSize),
+                               FontScaling='Do not scale fonts',
+                               location=servermanager.vtkPVSession.DATA_SERVER)
+    return {'source': command['source'], 'view_id': view.GetGlobalIDAsString(),
+            'time': float(view.ViewTime), 'before': before,
+            'color_array': list(display.ColorArrayName), 'block_colors': list(display.BlockColors),
+            'levels': [{'level': i, 'selector': path, 'rgb': color}
+                       for i, (path, color) in enumerate(zip(paths, colors))],
+            'output': command.get('output')}

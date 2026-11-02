@@ -130,6 +130,22 @@ PS1 本身更新后须重新下载，它不会更新自身；正常启动时会�
 .venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current snapshot_state --timeout 60
 ```
 
+## 固定 AMR 框线的层级颜色
+
+`color_outline_levels` 用于已核对为三层AMR分组的切片：顶层三个分组必须依次对应lev0/1/2。
+它查找指定视图中已有的Outline表示，关闭其自动数组着色，按层级分组选择器显式指定
+白/红/绿。`vtkBlockColors`是自动块色，不能当作AMR层号；分组实际含义须先按数据确认。
+操作复用排版事务保存显示属性，异常时恢复；不改求导、切面或输入文件。
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current color_outline_levels \
+  --source Slice3 --view-id '<inspect返回的涡量视图ID>' --timeout 180
+```
+
+可用`--output /absolute/shared/proof.png`保存当前GUI视图供核对；截图保持原视图尺寸且不缩放字体。
+成功回传包括旧数组/块颜色、实际层级选择器、新颜色及视图时间。用GUI保存状态或`snapshot_state`
+可保留设置；此操作不更新原有动画PNG。
+
 ## 常用操作
 
 ```bash

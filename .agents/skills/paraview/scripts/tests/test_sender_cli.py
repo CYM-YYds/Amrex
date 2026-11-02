@@ -74,6 +74,11 @@ class SenderCliTests(unittest.TestCase):
         self.assertEqual(sent[4], {'source': 'plt_..',
                                   'files': ['/run/plt_003200', '/run/plt_006400']})
 
+    def test_outline_level_color_options(self):
+        _, sent = self.run_cli('current', 'color_outline_levels', '--source', 'Slice3',
+                              '--view-id', '14857', '--output', '/shared/proof.png')
+        self.assertEqual(sent[4], {'source': 'Slice3', 'view_id': '14857', 'output': '/shared/proof.png'})
+
     def test_export_centerline_options(self):
         _, sent = self.run_cli('current', 'export_centerline', '--input', '/a', '--output', '/b.csv')
         self.assertEqual(sent[4], {'input': '/a', 'output': '/b.csv', 'resolution': 1024, 'max_level': 2})

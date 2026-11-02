@@ -26,6 +26,7 @@ DEFAULT_BRIDGE_ROOT = '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-brid
 # 客户端能力由本表派生，运行层的实际分发仍由回归检查。
 BRIDGE_ACTIONS = {
     'inspect': {},
+    'color_outline_levels': {'required': ('source',), 'optional': ('view_id', 'output')},
     'snapshot_state': {},
     'set_plotfile_series': {'required': ('source', 'files')},
     'apply_2d_vorticity_trace': {'required': ('input', 'time')},
@@ -1195,8 +1196,55 @@ def apply_2d_vorticity_trace(command):
             'layout': 'Slice3_independent_axis_titles'}
 
 
+def color_outline_levels(command):
+    """为已核对为三层AMR分组的框线显式配色，复用显示属性事务。"""
+    from paraview import servermanager
+    matches = [s for (name, _), s in pvs.GetSources().items() if name == command['source']]
+    if len(matches) != 1:
+        raise ValueError('source must match exactly one existing grouped AMR slice')
+    source = matches[0]
+    view = next((v for v in pvs.GetViews() if v.GetGlobalIDAsString() == command.get('view_id')), None)
+    view = view if command.get('view_id') else pvs.GetActiveView()
+    if view is None:
+        raise ValueError('Select the view containing the existing outline')
+    displays = [r for r in view.Representations if r.GetProperty('Input') and r.Input == source
+                and r.GetProperty('Representation') and r.Representation == 'Outline']
+    if len(displays) != 1:
+        raise ValueError('Expected exactly one existing Outline representation in this view')
+    hierarchy = source.GetDataInformation().GetHierarchy()
+    if hierarchy is None or hierarchy.GetNumberOfChildren(0) != 3:
+        raise ValueError('Expected three top-level groups corresponding to AMR levels 0, 1, 2')
+    paths = [hierarchy.GetNodePath(hierarchy.GetChild(0, i)) for i in range(3)]
+    display = displays[0]
+    colors = [(1, 1, 1), (1, 0, 0), (0, 1, 0)]
+    before = {'color_array': list(display.ColorArrayName), 'block_colors': list(display.BlockColors)}
+    with _publication_edit(view):
+        pvs.ColorBy(display, None)
+        # BlockColors为字符串向量；显式颜色绑定到层级分组选择器，不依赖自动块号。
+        display.BlockColors = [str(v) for path, color in zip(paths, colors) for v in (path, *color)]
+        # 自动块色已停用；只隐藏此视图里不再被可见表示使用的旧块色图例。
+        for bar in view.Representations:
+            if bar.GetXMLName() == 'ScalarBarWidgetRepresentation' and bar.Title == 'vtkBlockColors':
+                used = any(r.GetProperty('ColorArrayName') and r.GetProperty('LookupTable')
+                           and r.Visibility and r.LookupTable == bar.LookupTable
+                           and r.ColorArrayName.GetArrayName() for r in view.Representations)
+                if not used:
+                    bar.Visibility = 0
+        pvs.Render(view)
+        if command.get('output'):
+            pvs.SaveScreenshot(command['output'], view, ImageResolution=list(view.ViewSize),
+                               FontScaling='Do not scale fonts',
+                               location=servermanager.vtkPVSession.DATA_SERVER)
+    return {'source': command['source'], 'view_id': view.GetGlobalIDAsString(),
+            'time': float(view.ViewTime), 'before': before,
+            'color_array': list(display.ColorArrayName), 'block_colors': list(display.BlockColors),
+            'levels': [{'level': i, 'selector': path, 'rgb': color}
+                       for i, (path, color) in enumerate(zip(paths, colors))],
+            'output': command.get('output')}
 
-BRIDGE_VERSION = '25'
+
+
+BRIDGE_VERSION = '26'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 
@@ -1204,7 +1252,7 @@ REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.a
 
 # 经操作层执行的动作；inspect、背景与热更新由运行层自身处理。
 # 与 CAPABILITIES 的一致性由 test_action_registry 保证。
-OPERATIONS = {'snapshot_state': snapshot_state, 'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
+OPERATIONS = {'color_outline_levels': color_outline_levels, 'snapshot_state': snapshot_state, 'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
               'repair_vorticity_slice': repair_vorticity_slice,
               'publication_vorticity': publication_vorticity,
               'add_axis_title_view': add_axis_title_view,

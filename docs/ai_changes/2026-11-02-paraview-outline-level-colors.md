@@ -1,0 +1,11 @@
+# GUI 按真实 AMR 层级固定框线颜色
+
+目的：用户确认后将已验证的显示配色修正应用于当前GUI。t=175的Slice3有lev2几何，但送往渲染器的vtkBlockColors在lev1/lev2上均为1，导致都显示红色。自动块颜色不能当作AMR层号。
+
+范围：ParaView桥协议、排版操作模块、运行层分发、生成客户端、CLI回归与GUI操作说明。增加color_outline_levels动作，只操作指定视图中唯一现有Outline表示。数据需已核对为顶层三个分组依次对应lev0/1/2；按实际hierarchy选择器关闭自动数组着色，再写入白/红/绿BlockColors。复用_publication_edit保存显示属性和异常恢复，不新增状态或替代求导路径。
+
+验证：打包与--check通过，57项Python回归通过（12项条件跳过），新增CLI字段检查。独立真实PlotFile诊断中显式层级配色渲染通过；本次GUI热更新从25到26并保留现有源、视图和连接。现场目标Slice3(id13500)、视图14857、时间175。现有40张PNG及用户的data_post_processing/2DVorticity.pvsm不覆盖。
+
+诊断及GUI结果保存在BOX3D_OSI/runs/a5_B_three_plot3200/job622356/B/figures/lev2_outline_diagnosis/，包括原始自动色实际值、层级交叉数据、对照图、GUI截图与更新后状态。单帧显示验证不替代求解器或涡量离散误差验证。
+
+最终GUI验收：color_outline_levels回执63bff4da05144f07bc83454c2398c81c成功，Slice3视图14857、time175，数组着色为空，BlockColors实际绑定/Root/Block0白、Block1红、Block2绿。截图gui_applied.png已目视核对，10509个近纯绿色像素，右侧空白区无旧vtkBlockColors图例。操作仅隐藏当前视图里不再被其他可见表示使用的旧块色图例，保留涡量色标。回执与修正后GUI场景保存至诊断结果目录。
