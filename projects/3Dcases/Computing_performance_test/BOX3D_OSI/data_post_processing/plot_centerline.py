@@ -85,7 +85,7 @@ def reference_errors(simulation, reference, *, outside="error"):
 def plot_profiles(profiles, references, output, *, title="Centerline velocity comparison",
                   reference_source="none", reference_labels=None, xlim=(-1, 1), ylim=(0, 1),
                   xlabel=r"$u_x/U_{lid}$", ylabel=r"$z/H$", figsize=(6.4, 5.8),
-                  linewidth=0.9, markersize=8, dpi=220):
+                  linewidth=0.9, markersize=8, dpi=220, square_axes=False):
     """共用绘图实现；曲线、来源、步数和各自标度由调用方传入，不绑定作业号或 Re。"""
     # 延迟加载绘图库，使提取入口复用数据校验时不依赖绘图环境。
     import matplotlib
@@ -96,6 +96,8 @@ def plot_profiles(profiles, references, output, *, title="Centerline velocity co
     with plt.rc_context({"font.family": "serif", "font.serif": ["STIXGeneral"],
                          "mathtext.fontset": "stix", "font.size": 12}):
         fig, ax = plt.subplots(figsize=figsize)
+        if square_axes:
+            ax.set_box_aspect(1)
         colors = ["black"]
         linestyles = ["-", "--", "-.", ":"]
         for index, profile in enumerate(profiles):
@@ -158,6 +160,7 @@ def main():
     parser.add_argument("--xlabel", default=r"$u_x/U_{lid}$")
     parser.add_argument("--ylabel", default=r"$z/H$")
     parser.add_argument("--figsize", nargs=2, type=float, default=(6.4, 5.8), metavar=("WIDTH", "HEIGHT"))
+    parser.add_argument("--square-axes", action="store_true", help="绘图区横纵轴显示长度相同")
     parser.add_argument("--linewidth", type=float, default=0.9)
     parser.add_argument("--markersize", type=float, default=8)
     parser.add_argument("--dpi", type=int, default=220)
@@ -195,7 +198,7 @@ def main():
         reference_source += f" ({args.reference_source})"
     plot_profiles(profiles, references, args.output, title=args.title, reference_source=reference_source,
                   xlim=args.xlim, ylim=args.ylim, xlabel=args.xlabel, ylabel=args.ylabel, figsize=args.figsize,
-                  linewidth=args.linewidth, markersize=args.markersize, dpi=args.dpi)
+                  linewidth=args.linewidth, markersize=args.markersize, dpi=args.dpi, square_axes=args.square_axes)
     with args.output.with_suffix(".csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
         writer.writerow(["profile", "step", "z_over_H", "u_over_ulid"])
@@ -208,7 +211,7 @@ def main():
             writer.writerows(metrics)
     report = {"profiles": [{key: value for key, value in p.items() if key != "points"} for p in profiles],
               "plot": {"xlim": args.xlim, "ylim": args.ylim, "xlabel": args.xlabel, "ylabel": args.ylabel,
-                       "figsize": args.figsize, "linewidth": args.linewidth, "markersize": args.markersize, "dpi": args.dpi},
+                       "figsize": args.figsize, "square_axes": args.square_axes, "linewidth": args.linewidth, "markersize": args.markersize, "dpi": args.dpi},
               "reference": reference_source, "errors": metrics, "outside_reference": args.outside_reference,
               "allow_unmasked": args.allow_unmasked, "round_z": args.round_z,
               "input_hashes": {str(p.resolve()): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},

@@ -57,9 +57,10 @@
     "xlabel": "$u_x/U_{lid}$",
     "ylabel": "$z/H$",
     "figsize": [
-      8.0,
-      6.5
+      6.4,
+      5.8
     ],
+    "square_axes": true,
     "linewidth": 1.3,
     "markersize": 8,
     "dpi": 220

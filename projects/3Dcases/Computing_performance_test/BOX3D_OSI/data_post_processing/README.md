@@ -171,3 +171,5 @@ Level-0、128³、三分量双精度的现有布局，并核对数据与 Cell_H 
 不带该选项会调用选定的ParaView后端。掩码检查仍严格，内部缺口拒绝跨越插值。
 原有 `report.json`、`comparison.png`、`reference_errors.csv` 作为历史结果保留，
 提取入口不再生成或更新它们。需要新的参考比较时使用绘图入口的新输出路径。
+
+绘图区需横纵轴等长时，给 `plot_centerline.py` 传入 `--square-axes`；它控制绘图区为正方形，不改变数据单位比例，默认保持既有排版。
