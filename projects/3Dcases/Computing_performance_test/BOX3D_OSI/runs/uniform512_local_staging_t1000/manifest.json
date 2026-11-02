@@ -1,0 +1,16 @@
+{
+  "job": 623012,
+  "source_job": 622850,
+  "local_root": "/var/tmp/box512_stage_622970_csj9bnr4",
+  "transfer_chunk_bytes": 8388608,
+  "export_verification": "fsync + full SHA256 reread",
+  "production_segment_steps": 12800,
+  "target_step": 512000,
+  "target_time": 1000,
+  "keep_all_shared_outputs": true,
+  "local_cleanup_only_after_verified_export": true,
+  "status": "formal run submitted after successful local/export/restart gates",
+  "gate_job": 622970,
+  "overall_time_limit_seconds": 86400,
+  "precheck_job_stopped_after_gate": true
+}

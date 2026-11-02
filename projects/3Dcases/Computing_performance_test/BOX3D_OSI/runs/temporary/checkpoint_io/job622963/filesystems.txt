@@ -1,0 +1,4 @@
+Filesystem                                   Type  Size  Used Avail Use% Mounted on
+/dev/mapper/klas_host--192--168--0--117-tmp  ext4   20G  523M   19G   3% /tmp
+/dev/mapper/klas_host--192--168--0--117-root ext4   53G   27G   24G  54% /
+/whcs-share47                                dpc   9.8T  7.0T  2.8T  72% /home/iosoeqkp/whcs-share47

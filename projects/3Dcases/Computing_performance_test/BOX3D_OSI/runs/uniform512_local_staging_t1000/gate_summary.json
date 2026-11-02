@@ -1,0 +1,16 @@
+{
+  "probe32": {
+    "files": 20,
+    "bytes": 17179937021,
+    "step": 32,
+    "time": 0.0625,
+    "sha256_verified_by_runner": true
+  },
+  "probe64": {
+    "files": 20,
+    "bytes": 17179936998,
+    "step": 64,
+    "time": 0.125,
+    "sha256_verified_by_runner": true
+  }
+}

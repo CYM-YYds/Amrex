@@ -1,0 +1,82 @@
+{
+  "chk00000064/Header": {
+    "bytes": 103,
+    "sha256": "05fb9aa321e1483a3db8826d480202c584510bc0ebf6a55c71fc8c002d5cc0dc"
+  },
+  "chk00000064/Lattice": {
+    "bytes": 20,
+    "sha256": "7cbc8531963dfefb21bd0771d157afae1c04e103d0d44616f26fb603a3c67150"
+  },
+  "chk00000064/Level_0/f_old_D_00000": {
+    "bytes": 14495514706,
+    "sha256": "29f5e7bf2cca1ba55d63f05a6f65cb9e7890e75354f42acdf8a262f7a4b29aa5"
+  },
+  "chk00000064/Level_0/f_old_H": {
+    "bytes": 1388,
+    "sha256": "e1b4b1689d522bf3eb1915c66cd824567960d173f2d2b0a7f728ec600d044304"
+  },
+  "command.json": {
+    "bytes": 2329,
+    "sha256": "fad9e13cf339ec4b92b7048064002d360261ff2e5ba6b0bccccaaa85518cb06e"
+  },
+  "exit_status.json": {
+    "bytes": 199,
+    "sha256": "846b61a885118f462474e77317d1f8c68a3f95634ca38b5cdcafd031c9e864a4"
+  },
+  "io_trace.2703224": {
+    "bytes": 51856,
+    "sha256": "75725749c4024a97d6621f1674f8d3d3e6508a2f101002f8c6bdb5627e36d0e8"
+  },
+  "io_trace.2703226": {
+    "bytes": 22,
+    "sha256": "29d50c6fb633dc49972d8ca854afcecf7e4bb5f479cb870f89ccdf6ff854bf31"
+  },
+  "io_trace.2703227": {
+    "bytes": 22,
+    "sha256": "29d50c6fb633dc49972d8ca854afcecf7e4bb5f479cb870f89ccdf6ff854bf31"
+  },
+  "io_trace.2703228": {
+    "bytes": 22,
+    "sha256": "29d50c6fb633dc49972d8ca854afcecf7e4bb5f479cb870f89ccdf6ff854bf31"
+  },
+  "io_trace.2703248": {
+    "bytes": 22,
+    "sha256": "29d50c6fb633dc49972d8ca854afcecf7e4bb5f479cb870f89ccdf6ff854bf31"
+  },
+  "io_trace.2703249": {
+    "bytes": 22,
+    "sha256": "29d50c6fb633dc49972d8ca854afcecf7e4bb5f479cb870f89ccdf6ff854bf31"
+  },
+  "launcher.pid": {
+    "bytes": 8,
+    "sha256": "954104f9b504c72a0b2d89805795f27068e4d31d3f374bd48e3a280553ad4a1d"
+  },
+  "plt_000064/Header": {
+    "bytes": 167,
+    "sha256": "c8a9512b89e1822ca2261c1b92f2c54b0e597fff2e34ac4a736ed3965cc3f4f7"
+  },
+  "plt_000064/Level_0/Cell_D_00000": {
+    "bytes": 1610612817,
+    "sha256": "47de4f0aed8e5ca227fa8cdfe2b40b5b3c056fbd32f290c0162ab2a73a583b98"
+  },
+  "plt_000064/Level_0/Cell_H": {
+    "bytes": 235,
+    "sha256": "978e4e835be8abf428e63c15eb149b601e7d2737f90628888cccc19727a30b6f"
+  },
+  "plt_vort_000064/Header": {
+    "bytes": 170,
+    "sha256": "45da00413e300f4453c5276b9d600ae43937df65a57a49e16258621d4f1a35c9"
+  },
+  "plt_vort_000064/Level_0/Cell_D_00000": {
+    "bytes": 1073741905,
+    "sha256": "a3f4c8625376951cd3e94fde8fd0ad7c6d28733f0749b45f49df159b99157a78"
+  },
+  "plt_vort_000064/Level_0/Cell_H": {
+    "bytes": 185,
+    "sha256": "9cd8c8c645106a49dde15e1a7c4eeb70e3b32e8eef4faafb9a70cd1e0803be85"
+  },
+  "run.log": {
+    "bytes": 10800,
+    "sha256": "2338bb15c888a9891936a9439db6622aae30fda25966eae3910f155d49859204"
+  }
+}

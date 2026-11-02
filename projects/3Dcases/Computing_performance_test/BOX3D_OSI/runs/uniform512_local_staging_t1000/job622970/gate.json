@@ -1,0 +1,6 @@
+{
+  "local_512_write_passed": true,
+  "export_sha256_passed": true,
+  "shared_checkpoint_restart_passed": true,
+  "second_export_passed": true
+}
