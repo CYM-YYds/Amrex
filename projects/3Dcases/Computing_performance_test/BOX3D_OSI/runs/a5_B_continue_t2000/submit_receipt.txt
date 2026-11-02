@@ -1,0 +1,2 @@
+JOBID        MESSAGE
+623697       submit job successfully
