@@ -186,7 +186,12 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
   `PARAVIEW_SERVER_LOG_DIR` 可覆盖远端日志目录。退出码 0 不代表此前没有协议错误。
   已观察到的 `Tag mismatch`（188968 为取消检查标签）仍未确定根因，不能把涡量修复或
   Linux 客户端层级切换通过当作 Windows GUI 断线已修复；需保留首次错误和触发操作。
-- PS1 窗口立即关闭：在已打开的 PowerShell 中用 `pwsh -NoExit -File "本机实际路径/connect_paraview.ps1"` 保留完整报错。
+- PS1 窗口立即关闭：新版会把启动异常写入脚本旁 `paraview_logs/launcher_error_*.log`，
+  若该目录不可写则退回系统临时目录；交互式控制台会等待回车后再以失败退出。
+  自动化可使用 `-NoPauseOnError`，重定向输入或非交互式控制台不会暂停。
+  尚未更新脚本或需要查看解析/参数绑定错误时，在已打开的 PowerShell 中使用
+  `pwsh -NoProfile -NoExit -File "本机实际路径/connect_paraview.ps1"` 保留完整报错。
+  错误日志是定位依据，窗口保留不代表连接故障本身已解决。
 - 版本预检得到空值：重新下载 PS1；当前实现读 EXE 版本资源，缺失时用同目录 pvpython，不能依赖 GUI `paraview.exe --version` 的管道输出。
 - PythonQt 缺失：确认使用最新桥客户端，且在 ParaView GUI 内加载，而非普通 Python。
 - 只有 timer/registered 输出：检查 GUI、SSH stderr 与启动回执；注册或新鲜心跳不代表 GUI 已响应。

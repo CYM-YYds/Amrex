@@ -4,9 +4,40 @@
 param(
     [switch]$BridgeStatus,
     [switch]$UpdateBridge,
+    [switch]$NoPauseOnError,
     [ValidateRange(1,256)][int]$ServerProcesses = 1,
     [ValidatePattern('^(/[A-Za-z0-9_./-]+)?$')][string]$RemoteParaViewPrefix = ""
 )
+
+# 启动失败必须留存错误；从资源管理器运行时避免窗口立即消失。
+$ErrorActionPreference = 'Stop'
+trap {
+    $startupError = $_
+    Write-Host "ParaView startup failed: $($startupError.Exception.Message)" -ForegroundColor Red
+    $errorName = "launcher_error_$(Get-Date -Format 'yyyyMMdd_HHmmss')_$([Guid]::NewGuid().ToString('N')).log"
+    $errorText = ($startupError | Format-List * -Force | Out-String) +
+        [Environment]::NewLine + $startupError.ScriptStackTrace
+    $savedError = $false
+    # 桌面或 OneDrive 不可写时退回临时目录，保留最初错误。
+    foreach ($errorRoot in @((Join-Path $PSScriptRoot 'paraview_logs'), [IO.Path]::GetTempPath())) {
+        try {
+            [IO.Directory]::CreateDirectory($errorRoot) | Out-Null
+            $errorPath = Join-Path $errorRoot $errorName
+            [IO.File]::WriteAllText($errorPath, $errorText, [Text.UTF8Encoding]::new($false))
+            Write-Host "Failure details: $errorPath" -ForegroundColor Yellow
+            $savedError = $true
+            break
+        } catch {
+            # 日志写入失败不能覆盖原始启动错误。
+        }
+    }
+    if (-not $savedError) { Write-Host $errorText -ForegroundColor Red }
+    if (-not $NoPauseOnError -and $Host.Name -eq 'ConsoleHost' -and
+        [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+        try { Read-Host 'Press Enter to close this failed launch' | Out-Null } catch { }
+    }
+    throw $startupError
+}
 
 # Configuration
 $PARAVIEW_PATH = "D:\Software\ParaView 6.2.0\bin\paraview.exe"
