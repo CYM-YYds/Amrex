@@ -1,0 +1,77 @@
+{
+  "job": 623707,
+  "source_checkpoint": "job621436/B/chk00128000",
+  "thresholds": [
+    0.25,
+    0.5,
+    1,
+    2
+  ],
+  "begin_step": 128000,
+  "end_step": 128128,
+  "end_time": 1001,
+  "mesh_records": [
+    {
+      "cells": [
+        2097152,
+        8110080,
+        20832256
+      ],
+      "total": 31039488,
+      "saved_pct": 76.873779296875,
+      "compression_factor": 4.3240960675640014
+    },
+    {
+      "cells": [
+        2097152,
+        13168640,
+        40767488
+      ],
+      "total": 56033280,
+      "saved_pct": 58.251953125,
+      "compression_factor": 2.3953216374269006
+    },
+    {
+      "cells": [
+        2097152,
+        3784704,
+        11866112
+      ],
+      "total": 17747968,
+      "saved_pct": 86.7767333984375,
+      "compression_factor": 7.562427879067621
+    },
+    {
+      "cells": [
+        2097152,
+        3760128,
+        11866112
+      ],
+      "total": 17723392,
+      "saved_pct": 86.7950439453125,
+      "compression_factor": 7.572914259302057
+    },
+    {
+      "cells": [
+        2097152,
+        3768320,
+        11866112
+      ],
+      "total": 17731584,
+      "saved_pct": 86.7889404296875,
+      "compression_factor": 7.569415569415569
+    },
+    {
+      "cells": [
+        2097152,
+        3768320,
+        11866112
+      ],
+      "total": 17731584,
+      "saved_pct": 86.7889404296875,
+      "compression_factor": 7.569415569415569
+    }
+  ],
+  "reduction_vs_B_pct": 42.87410926365796,
+  "scope": "all allocated valid cells including covered coarse cells, excluding ghosts; denominator 512^3; not memory or speedup"
+}
