@@ -17,6 +17,47 @@ using namespace Box3dDetail;
 // 网格生命周期与通用粗细层传输。
 
 namespace {
+#ifdef AMREX_USE_CUDA
+// 区域描述仅在本次建表期间有效；每个区域保存原标签模板及首个 block 索引。
+struct RestrictionTagRegionDescription {
+    RestrictionBlockTag tag;
+    Long begin;
+};
+
+void GenerateRestrictionTags(
+    const Vector<RestrictionTagRegionDescription>& descriptions,
+    Gpu::DeviceVector<RestrictionBlockTag>& work) {
+    Long total = 0;
+    for (const auto& description : descriptions) {
+        total = std::max(total, description.begin +
+            (description.tag.region.numPts() + restriction_parents_per_block - 1) /
+            restriction_parents_per_block);
+    }
+    work.resize(total);
+    if (total == 0) { return; }
+    Gpu::DeviceVector<RestrictionTagRegionDescription> device_regions(descriptions.size());
+    Gpu::copy(Gpu::hostToDevice, descriptions.begin(), descriptions.end(),
+              device_regions.begin());
+    const auto* regions = device_regions.data();
+    const int nregions = static_cast<int>(descriptions.size());
+    auto* destination = work.data();
+    amrex::ParallelFor(total, [=] AMREX_GPU_DEVICE(Long block) noexcept {
+        int lo = 0, hi = nregions;
+        while (lo + 1 < hi) {
+            const int mid = lo + (hi - lo) / 2;
+            if (regions[mid].begin <= block) { lo = mid; }
+            else { hi = mid; }
+        }
+        auto tag = regions[lo].tag;
+        tag.first_parent = (block - regions[lo].begin) * restriction_parents_per_block;
+        destination[block] = tag;
+    });
+    // 描述缓冲为局部资源，必须等展开 kernel 完成后才能释放。
+    Gpu::streamSynchronize();
+}
+
+#endif
+
 amrex::BoxList MissingInterpolationSources(
     const amrex::Box& coarse_stencil, const amrex::BoxArray& coarse_valid,
     const amrex::Geometry& coarse_geom) {
@@ -284,23 +325,23 @@ void AmrCoreLBM::BuildRestrictionWork(
     Gpu::DeviceVector<RestrictionBlockTag>& work, const OSI::FabPhaseCache* phases) const {
     work.clear();
 #ifdef AMREX_USE_CUDA
-    Vector<RestrictionBlockTag> tags;
+    // 每个区域只上传一个描述与任务起点；单次 kernel 展开完整任务表。
     AMREX_ALWAYS_ASSERT(result.size() == fine_indices.size());
+    Vector<RestrictionTagRegionDescription> descriptions;
+    Long total = 0;
     for (MFIter mfi(result, false); mfi.isValid(); ++mfi) {
         const int fi = fine_indices.at(mfi.index());
         const int local_fine = fine.localindex(fi);
         AMREX_ALWAYS_ASSERT(local_fine >= 0);
-        const auto fab = OSI::MakeOsiFabContext(
-                             amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0)
-                             .fab;
         const Box region = mfi.validbox();
-        for (Long parent = 0; parent < region.numPts(); parent += restriction_parents_per_block) {
-            tags.push_back({region, fab, parent, mfi.LocalIndex(), local_fine,
-                            phases ? phases->slot(fi) : -1});
-        }
+        const auto fab = OSI::MakeOsiFabContext(
+            amrex::grow(fine.boxArray()[fi], fine.nGrowVect()), 0).fab;
+        descriptions.push_back({{region, fab, 0, mfi.LocalIndex(), local_fine,
+                                 phases ? phases->slot(fi) : -1}, total});
+        total += (region.numPts() + restriction_parents_per_block - 1)
+                 / restriction_parents_per_block;
     }
-    work.resize(tags.size());
-    Gpu::copy(Gpu::hostToDevice, tags.begin(), tags.end(), work.begin());
+    GenerateRestrictionTags(descriptions, work);
 #endif
 }
 
