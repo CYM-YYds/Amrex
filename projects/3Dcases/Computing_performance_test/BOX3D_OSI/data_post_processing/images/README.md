@@ -50,3 +50,14 @@
 | [job621699_uniform_256_lev0_t1000__analysis__centerline_t1000_with_reference_AB.png](job621699_uniform_256_lev0_t1000__analysis__centerline_t1000_with_reference_AB.png) | `data_post_processing/results/t1000_uniform_AB/centerline_t1000_with_reference_AB.png` | 621699 / A:621435 / B:621436 |
 
 | [job621699_uniform_256_lev0_t1000__analysis__centerline_t1000_with_reference_AB_z0p3.png](job621699_uniform_256_lev0_t1000__analysis__centerline_t1000_with_reference_AB_z0p3.png) | `data_post_processing/results/t1000_uniform_AB/centerline_t1000_with_reference_AB_z0p3.png` | 621699 / A:621435 / B:621436 |
+
+## job622356/B 动画序列补帧（2026-11-02）
+
+`job622356_job622356__B__victory.0000.png` 至 `.0039.png` 共40张，2080×1066。
+原GUI导出的0000–0006保持不变；批处理补齐0007–0039，对应step25600–128000、物理时间200–1000。
+完整序列对应step3200–128000、物理时间25–1000、间隔25。输入为同一B运行的ux/uy/uz，
+沿用GUI的三维旋度、y=0.5切片和`mag(Vorticity)*1.0`，色标范围0–1；排版以原七张GUI图片为参考。
+
+[导出与校验清单](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_completion/completion_report.json)、
+[冻结GUI场景](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_completion/gui_scene.pvsm)及
+[复现命令](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_completion/run_batch.sh)保存在运行结果中。
