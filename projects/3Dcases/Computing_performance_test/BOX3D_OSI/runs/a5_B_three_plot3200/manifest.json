@@ -14,8 +14,17 @@
   "worktree_solver_changes_included": false,
   "io_failed_syscalls_trace": true,
   "jobs": [
+    622356
+  ],
+  "submitted_jobs": [
     622355,
     622356,
     622357
-  ]
+  ],
+  "retained_replicas": 1,
+  "removed_jobs": [
+    622355,
+    622357
+  ],
+  "cleanup_reason": "explicit user instruction: retain only job622356"
 }
