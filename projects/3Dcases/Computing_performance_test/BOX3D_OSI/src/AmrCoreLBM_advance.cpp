@@ -280,13 +280,7 @@ void AmrCoreLBM::FillGhostLevel(int coarse_lev, amrex::Real time, bool is_scale)
 
 void AmrCoreLBM::FillMacroGhostLevel(int lev, amrex::Real time) {
     amrex::MultiFab& u_lev = velocity[lev];
-
-    if (lev == 0) {
-        u_lev.FillBoundary(geom[lev].periodicity());
-    } else {
-        // FillPatchTwoLevels 内部已执行同层/周期 FillBoundary。
-        FillMacroPatch(lev, time, u_lev);
-    }
+    FillMacroPatch(lev, time, u_lev);
 }
 
 void AmrCoreLBM::FillForceGhostLevel(int lev, amrex::Real time) {
@@ -316,7 +310,9 @@ void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
     // 支持路径逐步采样并累计到当前报告窗口，main按samples输出窗口平均。
     const bool sample = uniformSampleEligible() && lev == 0 && layout == DdfLayout::Osi;
     uniform_sample_active = sample;
-    if (sample) { uniform_gpu_events.reset(); }
+    if (sample) {
+        uniform_gpu_events.reset();
+    }
     const double sample_start = sample ? amrex::second() : 0.0;
     auto& timing = perf_stats.uniform_sample;
     const double finalize_before = timing.cpu_collide_finalize;
@@ -340,11 +336,15 @@ void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
     const double phase_start = sample ? amrex::second() : 0.0;
     const auto phase_event = sample ? uniform_gpu_events.begin(UniformGpuEvents::Phase) : 0;
     Stream(lev, nghost, layout);
-    if (sample) { uniform_gpu_events.end(phase_event); }
+    if (sample) {
+        uniform_gpu_events.end(phase_event);
+    }
     const double boundary_start = sample ? amrex::second() : 0.0;
     const auto boundary_event = sample ? uniform_gpu_events.begin(UniformGpuEvents::Boundary) : 0;
     Boundary(lev, layout);
-    if (sample) { uniform_gpu_events.end(boundary_event); }
+    if (sample) {
+        uniform_gpu_events.end(boundary_event);
+    }
     const double wait_start = sample ? amrex::second() : 0.0;
     if (useUniformReducedSync()) {
         // phase、本地复制和边界在默认 stream 有序执行，步末等待覆盖它们。
@@ -543,111 +543,116 @@ void AmrCoreLBM::CollideLayoutLevel(int lev, int n, DdfLayout layout, int send_s
     }
     double finalize_start = 0.0;
     {
-    MFIter mfi(state_lev, collision_info);
-    for (; mfi.isValid(); ++mfi) {
-        if (send_subset >= 0 &&
-            osi_fillboundary_cache.at(lev).send_fabs.at(mfi.index()) != send_subset) {
-            continue;
-        }
-        const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
-        // 周期域外 ghost 可参与碰撞；非周期 ghost 由物理边界条件处理。
-        const Box bx = amrex::grow(mfi.validbox(), n) & collision_domain;
-        level_launch_cells += bx.numPts();
-        const Array4<Real> state = state_lev.array(mfi);
-        Array4<Real> s;
-        Array4<Real> Ft;
-        if (!use_osi && collide_mode == 0) {
-            s = shear_lev.array(mfi);
-            Ft = force_lev.array(mfi);
-        }
-
-        const Array4<const int> covered =
-            has_fine_level ? covered_mask[lev].const_array(mfi)
-                           : Array4<const int>{};
-        const Array4<const int> interface =
-            has_fine_level ? interface_mask[lev].const_array(mfi)
-                           : Array4<const int>{};
-
-        const auto collision_event = uniform_sample_active
-            ? uniform_gpu_events.begin(UniformGpuEvents::Collision) : 0;
-        // host 侧编译期分派使无 mask 闭包不捕获掩码参数；碰撞公式仍共用。
-        if constexpr (!UseMask) {
-            if (use_osi) {
-                const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
-#if defined(AMREX_USE_CUDA) && defined(AMREX_USE_FLOAT)
-                // CUDA单精度二维/三维采用相同碰撞策略；mask语义保持不变。
-                amrex::ParallelFor<128>(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        collide_bgk_register_impl<true, true>(
-                            i, j, k, state, fab, phase_shift, omega_lev);
-                    });
-#else
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        collide_bgk_register_osi(
-                            i, j, k, state, fab, phase_shift, omega_lev);
-                    });
-#endif
-            } else if (collide_mode == 0) {
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        collide(i, j, k, state, s, Ft, tau_lev, dt, hi);
-                    });
-            } else {
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        collide_bgk_register(i, j, k, state, omega_lev);
-                    });
+        MFIter mfi(state_lev, collision_info);
+        for (; mfi.isValid(); ++mfi) {
+            if (send_subset >= 0 &&
+                osi_fillboundary_cache.at(lev).send_fabs.at(mfi.index()) != send_subset) {
+                continue;
             }
-        } else {
-            if (use_osi) {
-                const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
+            const Box ring = amrex::grow(mfi.validbox(), state_lev.nGrowVect());
+            // 周期域外 ghost 可参与碰撞；非周期 ghost 由物理边界条件处理。
+            const Box bx = amrex::grow(mfi.validbox(), n) & collision_domain;
+            level_launch_cells += bx.numPts();
+            const Array4<Real> state = state_lev.array(mfi);
+            Array4<Real> s;
+            Array4<Real> Ft;
+            if (!use_osi && collide_mode == 0) {
+                s = shear_lev.array(mfi);
+                Ft = force_lev.array(mfi);
+            }
+
+            const Array4<const int> covered =
+                has_fine_level ? covered_mask[lev].const_array(mfi)
+                               : Array4<const int>{};
+            const Array4<const int> interface =
+                has_fine_level ? interface_mask[lev].const_array(mfi)
+                               : Array4<const int>{};
+
+            const auto collision_event = uniform_sample_active
+                                             ? uniform_gpu_events.begin(UniformGpuEvents::Collision)
+                                             : 0;
+            // host 侧编译期分派使无 mask 闭包不捕获掩码参数；碰撞公式仍共用。
+            if constexpr (!UseMask) {
+                if (use_osi) {
+                    const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
 #if defined(AMREX_USE_CUDA) && defined(AMREX_USE_FLOAT)
-                // CUDA单精度二维/三维采用相同碰撞策略；mask语义保持不变。
-                amrex::ParallelFor<128>(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        if (has_fine_level && covered(i, j, k) != 0 &&
-                            interface(i, j, k) == 0) {
-                            return;
-                        }
-                        collide_bgk_register_impl<true, true>(
-                            i, j, k, state, fab, phase_shift, omega_lev);
-                    });
+                    // CUDA单精度二维/三维采用相同碰撞策略；mask语义保持不变。
+                    amrex::ParallelFor<128>(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            collide_bgk_register_impl<true, true>(
+                                i, j, k, state, fab, phase_shift, omega_lev);
+                        });
 #else
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        if (has_fine_level && covered(i, j, k) != 0 &&
-                            interface(i, j, k) == 0) {
-                            return;
-                        }
-                        collide_bgk_register_osi(
-                            i, j, k, state, fab, phase_shift, omega_lev);
-                    });
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            collide_bgk_register_osi(
+                                i, j, k, state, fab, phase_shift, omega_lev);
+                        });
 #endif
-            } else if (collide_mode == 0) {
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        if (has_fine_level && covered(i, j, k) != 0 &&
-                            interface(i, j, k) == 0) {
-                            return;
-                        }
-                        collide(i, j, k, state, s, Ft, tau_lev, dt, hi);
-                    });
+                } else if (collide_mode == 0) {
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            collide(i, j, k, state, s, Ft, tau_lev, dt, hi);
+                        });
+                } else {
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            collide_bgk_register(i, j, k, state, omega_lev);
+                        });
+                }
             } else {
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-                        if (has_fine_level && covered(i, j, k) != 0 &&
-                            interface(i, j, k) == 0) {
-                            return;
-                        }
-                        collide_bgk_register(i, j, k, state, omega_lev);
-                    });
+                if (use_osi) {
+                    const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
+#if defined(AMREX_USE_CUDA) && defined(AMREX_USE_FLOAT)
+                    // CUDA单精度二维/三维采用相同碰撞策略；mask语义保持不变。
+                    amrex::ParallelFor<128>(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            if (has_fine_level && covered(i, j, k) != 0 &&
+                                interface(i, j, k) == 0) {
+                                return;
+                            }
+                            collide_bgk_register_impl<true, true>(
+                                i, j, k, state, fab, phase_shift, omega_lev);
+                        });
+#else
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            if (has_fine_level && covered(i, j, k) != 0 &&
+                                interface(i, j, k) == 0) {
+                                return;
+                            }
+                            collide_bgk_register_osi(
+                                i, j, k, state, fab, phase_shift, omega_lev);
+                        });
+#endif
+                } else if (collide_mode == 0) {
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            if (has_fine_level && covered(i, j, k) != 0 &&
+                                interface(i, j, k) == 0) {
+                                return;
+                            }
+                            collide(i, j, k, state, s, Ft, tau_lev, dt, hi);
+                        });
+                } else {
+                    amrex::ParallelFor(
+                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                            if (has_fine_level && covered(i, j, k) != 0 &&
+                                interface(i, j, k) == 0) {
+                                return;
+                            }
+                            collide_bgk_register(i, j, k, state, omega_lev);
+                        });
+                }
+            }
+            if (uniform_sample_active) {
+                uniform_gpu_events.end(collision_event);
             }
         }
-        if (uniform_sample_active) { uniform_gpu_events.end(collision_event); }
-    }
-    // MFIter析构保持原有多stream等待；这里只包围它计时，不另加等待。
-    if (uniform_sample_active) { finalize_start = amrex::second(); }
+        // MFIter析构保持原有多stream等待；这里只包围它计时，不另加等待。
+        if (uniform_sample_active) {
+            finalize_start = amrex::second();
+        }
     }
     if (uniform_sample_active) {
         perf_stats.uniform_sample.cpu_collide_finalize += amrex::second() - finalize_start;
