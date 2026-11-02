@@ -56,6 +56,18 @@ class SenderCliTests(unittest.TestCase):
         code, sent = self.run_cli('current', 'background', '--color', '0.1', '0.2', '0.3')
         self.assertEqual(sent[2], [0.1, 0.2, 0.3])
 
+    def test_fixed_vorticity_trace_input(self):
+        _, sent = self.run_cli('current', 'apply_2d_vorticity_trace', '--input', '/run/plt_128000')
+        self.assertEqual(sent[4], {'input': '/run/plt_128000'})
+
+    def test_bundled_vorticity_trace_matches_repository(self):
+        import ast
+        tree = ast.parse((SCRIPTS / 'paraview_bridge_client.py').read_text(encoding='utf-8'))
+        trace = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+                     and any(isinstance(t, ast.Name) and t.id == 'VORTICITY_TRACE_SOURCE'
+                             for t in n.targets))
+        self.assertEqual(trace, (SCRIPTS.parents[3] / '后处理脚本/2DVorticity.py').read_text(encoding='utf-8'))
+
     def test_export_centerline_options(self):
         _, sent = self.run_cli('current', 'export_centerline', '--input', '/a', '--output', '/b.csv')
         self.assertEqual(sent[4], {'input': '/a', 'output': '/b.csv', 'resolution': 1024, 'max_level': 2})

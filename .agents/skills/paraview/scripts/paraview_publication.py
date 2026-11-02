@@ -650,3 +650,53 @@ def add_axis_title_view(command):
         pvs.SetActiveView(old_view)
         pvs.SetActiveSource(source)
         raise
+
+
+# 打包器嵌入仓库唯一的用户排版脚本，不接收命令指定的 Python。
+VORTICITY_TRACE_SOURCE = None
+
+
+def apply_2d_vorticity_trace(command):
+    """在空场景应用固定排版，只替换单帧输入并同步时间。"""
+    import ast
+    from pathlib import PurePosixPath
+    plotfile = command['input']
+    if not PurePosixPath(plotfile).is_absolute() or not PurePosixPath(plotfile).name.startswith('plt_'):
+        raise ValueError('input must be an absolute AMReX plotfile path')
+    if pvs.GetSources():
+        raise ValueError('Apply the trace in an empty scene to preserve existing pipelines')
+    if VORTICITY_TRACE_SOURCE is None:
+        raise RuntimeError('Use the generated bridge client containing the repository trace')
+    tree = ast.parse(VORTICITY_TRACE_SOURCE)
+    readers = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+               and isinstance(n.func, ast.Name) and n.func.id == 'AMReXBoxLibGridReader']
+    if len(readers) != 1:
+        raise ValueError('Expected exactly one reader in the repository trace')
+    for keyword in readers[0].keywords:
+        if keyword.arg == 'FileNames':
+            keyword.value = ast.List(elts=[ast.Constant(plotfile)], ctx=ast.Load())
+        elif keyword.arg == 'registrationName':
+            keyword.value = ast.Constant(PurePosixPath(plotfile).name)
+    namespace = {'__name__': '_repository_vorticity_trace'}
+    exec(compile(ast.fix_missing_locations(tree), '后处理脚本/2DVorticity.py', 'exec'), namespace)
+    reader = namespace['plt_003200']
+    reader.UpdatePipelineInformation()
+    scene = pvs.GetAnimationScene()
+    scene.UpdateAnimationUsingDataTimeSteps()
+    times = list(reader.TimestepValues)
+    time = float(times[-1]) if times else float(scene.EndTime)
+    scene.StartTime = scene.EndTime = scene.AnimationTime = time
+    view = namespace['renderView2']
+    view.ViewTime = time
+    namespace['renderView1'].ViewTime = time
+    scalar = namespace['publication_vorticity_magnitude']
+    scalar.UpdatePipeline(time)
+    pvs.SetActiveSource(scalar)
+    pvs.SetActiveView(view)
+    pvs.Render(view)
+    info = scalar.GetDataInformation()
+    return {'input': list(reader.FileNames), 'time': time,
+            'script': '后处理脚本/2DVorticity.py', 'view_id': view.GetGlobalIDAsString(),
+            'source': scalar.GetGlobalIDAsString(), 'cells': info.GetNumberOfCells(),
+            'range': list(scalar.CellData['PublicationVorticityMagnitude'].GetRange()),
+            'layout': 'Slice3_independent_axis_titles'}

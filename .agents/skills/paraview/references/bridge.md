@@ -85,6 +85,20 @@ PS1 本身更新后须重新下载，它不会更新自身；正常启动时会�
 临时消息收集器在成功或异常后均恢复。保留连接、数据、相机和显示对象，不清空历史错误。
 新建视图仍可能使用默认开启设置；本操作不修改全局首选项，也不解决显卡驱动或 shader 编译根因。
 
+## 应用已有 2DVorticity 排版脚本
+
+`apply_2d_vorticity_trace` 在空数据管线中加载仓库 `后处理脚本/2DVorticity.py` 的原始排版。
+仅替换读取器的单帧输入、注册名称，并按该帧实际时间同步动画和视图；保留原脚本的两个
+布局、求导与切片、坐标标题、色标及相机。已有数据源时拒绝操作，避免覆盖用户管线。
+脚本由打包器嵌入客户端，不接受外部 Python 或脚本路径；修改原脚本后须重新打包并热更新。
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current apply_2d_vorticity_trace \
+  --input /absolute/shared/plt_128000 --timeout 600
+```
+
+回执包含实际输入、时间、出图视图 ID、切片单元数及标量范围。当前入口只加载指定单帧。
+
 ## 常用操作
 
 ```bash

@@ -23,6 +23,10 @@ def client_source():
         if len(imports) != 1:
             raise ValueError('运行层必须有且仅有一个 %s 导入' % module)
         source = (DIRECTORY / (module + '.py')).read_text(encoding='utf-8')
+        if module == 'paraview_publication':
+            trace = (DIRECTORY.parents[3] / '后处理脚本/2DVorticity.py').read_text(encoding='utf-8')
+            source = source.replace('VORTICITY_TRACE_SOURCE = None',
+                                    'VORTICITY_TRACE_SOURCE = ' + repr(trace))
         exported = {n.name for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)}
         exported.update(target.id for node in ast.parse(source).body if isinstance(node, ast.Assign)
                         for target in node.targets if isinstance(target, ast.Name))
