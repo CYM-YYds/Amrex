@@ -1,0 +1,162 @@
+{
+  "profiles": [
+    {
+      "label": "Uniform 128^3",
+      "step": 128000,
+      "source": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/archive/history_20261101/uniform_256_lev0_t1000/analysis/n128_t1000/centerline.csv",
+      "normalization": {
+        "H": 1.0,
+        "U_lid": 0.05,
+        "z_origin": 0
+      },
+      "invalid_samples": 0
+    },
+    {
+      "label": "Uniform 256^3",
+      "step": 256000,
+      "source": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/archive/history_20261101/uniform_256_lev0_t1000/analysis/n256_t1000/centerline.csv",
+      "normalization": {
+        "H": 1.0,
+        "U_lid": 0.05,
+        "z_origin": 0
+      },
+      "invalid_samples": 0
+    },
+    {
+      "label": "AMR A",
+      "step": 128000,
+      "source": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/results/t1000_uniform_AB/A/centerline.csv",
+      "normalization": {
+        "H": 1.0,
+        "U_lid": 0.05,
+        "z_origin": 0
+      },
+      "invalid_samples": 0
+    },
+    {
+      "label": "AMR B",
+      "step": 128000,
+      "source": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/archive/history_20261101/a5_threshold_128000/job621436/B/profile/centerline.csv",
+      "normalization": {
+        "H": 1.0,
+        "U_lid": 0.05,
+        "z_origin": 0
+      },
+      "invalid_samples": 0
+    }
+  ],
+  "plot": {
+    "xlim": [
+      -0.35,
+      0.05
+    ],
+    "ylim": [
+      0.0,
+      0.3
+    ],
+    "xlabel": "$u_x/U_{lid}$",
+    "ylabel": "$z/H$",
+    "figsize": [
+      6.4,
+      5.8
+    ],
+    "square_axes": true,
+    "linewidth": 1.3,
+    "markersize": 8,
+    "dpi": 220
+  },
+  "reference": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/archive/history_20261101/a5_threshold_128000/reference/fig18a_velocity_profiles.csv (Jaber et al., Fig.18(a), existing digitized AMR and Cortes-Miller points)",
+  "errors": [
+    {
+      "profile": "Uniform 128^3",
+      "step": 128000,
+      "reference": "AMR_triangle",
+      "n_used": 20,
+      "n_excluded": 0,
+      "mae": 0.00976413483444816,
+      "rmse": 0.015516018393980266,
+      "max_abs_error": 0.04738009859435971
+    },
+    {
+      "profile": "Uniform 128^3",
+      "step": 128000,
+      "reference": "Cortes_and_Miller_circle",
+      "n_used": 44,
+      "n_excluded": 0,
+      "mae": 0.008468714634551122,
+      "rmse": 0.01139813265967894,
+      "max_abs_error": 0.031608049900818114
+    },
+    {
+      "profile": "Uniform 256^3",
+      "step": 256000,
+      "reference": "AMR_triangle",
+      "n_used": 20,
+      "n_excluded": 0,
+      "mae": 0.006629021023468662,
+      "rmse": 0.010525669350548371,
+      "max_abs_error": 0.03139905533640355
+    },
+    {
+      "profile": "Uniform 256^3",
+      "step": 256000,
+      "reference": "Cortes_and_Miller_circle",
+      "n_used": 44,
+      "n_excluded": 0,
+      "mae": 0.008269964598634591,
+      "rmse": 0.015364511587950063,
+      "max_abs_error": 0.06777230895290398
+    },
+    {
+      "profile": "AMR A",
+      "step": 128000,
+      "reference": "AMR_triangle",
+      "n_used": 20,
+      "n_excluded": 0,
+      "mae": 0.0047319362410090625,
+      "rmse": 0.00833964081916685,
+      "max_abs_error": 0.02929224689524144
+    },
+    {
+      "profile": "AMR A",
+      "step": 128000,
+      "reference": "Cortes_and_Miller_circle",
+      "n_used": 44,
+      "n_excluded": 0,
+      "mae": 0.0107959290171471,
+      "rmse": 0.020243675591706166,
+      "max_abs_error": 0.08514557300701164
+    },
+    {
+      "profile": "AMR B",
+      "step": 128000,
+      "reference": "AMR_triangle",
+      "n_used": 20,
+      "n_excluded": 0,
+      "mae": 0.0052507971187357675,
+      "rmse": 0.009380410110570917,
+      "max_abs_error": 0.030097880460072758
+    },
+    {
+      "profile": "AMR B",
+      "step": 128000,
+      "reference": "Cortes_and_Miller_circle",
+      "n_used": 44,
+      "n_excluded": 0,
+      "mae": 0.01352628720644517,
+      "rmse": 0.021566457620542562,
+      "max_abs_error": 0.08512775004215267
+    }
+  ],
+  "outside_reference": "error",
+  "allow_unmasked": false,
+  "round_z": null,
+  "input_hashes": {
+    "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/archive/history_20261101/uniform_256_lev0_t1000/analysis/n128_t1000/centerline.csv": "1a6c3acec9c5d14d35e54deebbe48b20bffee6e5725cc12efa9536e64e3acc43",
+    "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/archive/history_20261101/uniform_256_lev0_t1000/analysis/n256_t1000/centerline.csv": "c08548232975204e1e77c03433ed9c37a3b3b13fea87d576a5ea3f6bd9df3f26",
+    "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/results/t1000_uniform_AB/A/centerline.csv": "3366279fb62226406c4a7900684c53ced0deb31d616838e9bfa6133a300fb4a3",
+    "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/archive/history_20261101/a5_threshold_128000/job621436/B/profile/centerline.csv": "3e0f3543416303a1fe563f953e606770af64e11048869c1b020c103c7b044e3d",
+    "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/archive/history_20261101/a5_threshold_128000/reference/fig18a_velocity_profiles.csv": "6b202219e9c72ee6c67b9d5802c555efa25ecad03737b34822bccc3fd2551ed7"
+  },
+  "convergence_verdict": "Not assessed; reference agreement is not convergence"
+}

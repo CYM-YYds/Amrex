@@ -118,14 +118,16 @@ def plot_profiles(profiles, references, output, *, title="Centerline velocity co
         ax.set(xlabel=xlabel, ylabel=ylabel, xlim=xlim, ylim=ylim, title=title)
         ax.grid(False)
         ax.tick_params(direction="in", top=True, right=True, width=0.7)
-        ax.xaxis.set_major_locator(plt.MultipleLocator(0.5))
-        ax.yaxis.set_major_locator(plt.MultipleLocator(0.2))
+        ax.xaxis.set_major_locator(plt.MultipleLocator(0.5) if xlim[1] - xlim[0] >= 1
+                                       else plt.MaxNLocator(nbins=5))
+        ax.yaxis.set_major_locator(plt.MultipleLocator(0.2) if ylim[1] - ylim[0] >= 1
+                                       else plt.MaxNLocator(nbins=6))
         ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda value, _: f"{value:g}"))
         ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda value, _: f"{value:g}"))
         ax.set_title(title, fontsize=14, fontweight="bold", pad=12)
         for spine in ax.spines.values():
             spine.set_linewidth(0.8)
-        ax.legend(fontsize=11, loc="lower right", frameon=False, markerfirst=False,
+        ax.legend(fontsize=11, loc="best" if ylim[1] - ylim[0] < 1 else "lower right", frameon=False, markerfirst=False,
                   handlelength=1.8, labelspacing=0.35)
         # 页脚只保留可复核的步数与标度；完整来源和误差保存在同名 JSON。
         steps = "; ".join(f'{p["label"]}: n={p["step"]}' for p in profiles)
