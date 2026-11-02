@@ -422,3 +422,16 @@ def set_plotfile_series(command):
         for v, time in old_views:
             v.ViewTime = time
         raise
+
+
+def snapshot_state(command):
+    """只读保存当前场景为 XML 回传，供远端批处理复用 GUI 排版。"""
+    import tempfile
+    from pathlib import Path
+    view = pvs.GetActiveView()
+    with tempfile.TemporaryDirectory(prefix='paraview_state_') as directory:
+        path = Path(directory) / 'scene.pvsm'
+        pvs.SaveState(str(path))
+        state = path.read_text(encoding='utf-8')
+    return {'state_xml': state, 'active_view_id': view.GetGlobalIDAsString() if view else None,
+            'active_view_size': list(view.ViewSize) if view else None}

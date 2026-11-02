@@ -50,7 +50,7 @@ class SenderCliTests(unittest.TestCase):
         self.assertFalse(values['operations'] & self_handled)
 
     def test_actions_without_options_send_none(self):
-        for action in ('inspect', 'restore_background'):
+        for action in ('inspect', 'restore_background', 'snapshot_state'):
             code, sent = self.run_cli('current', action)
             self.assertEqual((code, sent[4]), (0, None))
         code, sent = self.run_cli('current', 'background', '--color', '0.1', '0.2', '0.3')

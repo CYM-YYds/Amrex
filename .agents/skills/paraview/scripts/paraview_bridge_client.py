@@ -26,6 +26,7 @@ DEFAULT_BRIDGE_ROOT = '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-brid
 # 客户端能力由本表派生，运行层的实际分发仍由回归检查。
 BRIDGE_ACTIONS = {
     'inspect': {},
+    'snapshot_state': {},
     'set_plotfile_series': {'required': ('source', 'files')},
     'apply_2d_vorticity_trace': {'required': ('input', 'time')},
     'disable_fxaa': {'optional': ('view_id',)},
@@ -475,6 +476,19 @@ def set_plotfile_series(command):
         for v, time in old_views:
             v.ViewTime = time
         raise
+
+
+def snapshot_state(command):
+    """只读保存当前场景为 XML 回传，供远端批处理复用 GUI 排版。"""
+    import tempfile
+    from pathlib import Path
+    view = pvs.GetActiveView()
+    with tempfile.TemporaryDirectory(prefix='paraview_state_') as directory:
+        path = Path(directory) / 'scene.pvsm'
+        pvs.SaveState(str(path))
+        state = path.read_text(encoding='utf-8')
+    return {'state_xml': state, 'active_view_id': view.GetGlobalIDAsString() if view else None,
+            'active_view_size': list(view.ViewSize) if view else None}
 
 # 以下定义由 paraview_publication.py 自动嵌入。
 """论文/参考图风格的涡量切片排版与独立标题视图；不启动桥接、线程或计时器。
@@ -1182,7 +1196,7 @@ def apply_2d_vorticity_trace(command):
 
 
 
-BRIDGE_VERSION = '24'
+BRIDGE_VERSION = '25'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 
@@ -1190,7 +1204,7 @@ REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.a
 
 # 经操作层执行的动作；inspect、背景与热更新由运行层自身处理。
 # 与 CAPABILITIES 的一致性由 test_action_registry 保证。
-OPERATIONS = {'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
+OPERATIONS = {'snapshot_state': snapshot_state, 'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
               'repair_vorticity_slice': repair_vorticity_slice,
               'publication_vorticity': publication_vorticity,
               'add_axis_title_view': add_axis_title_view,

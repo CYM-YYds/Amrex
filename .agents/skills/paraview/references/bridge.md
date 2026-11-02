@@ -119,6 +119,17 @@ PS1 本身更新后须重新下载，它不会更新自身；正常启动时会�
 最后一帧并渲染活动视图。失败时尝试恢复原文件列表与时间设置；断线不在恢复保证内。
 调用前核对各输入 Header 和数据文件完整性，避免把缺失输出当作可用快照。
 
+## 保存 GUI 场景供批处理复用
+
+`snapshot_state` 只读保存当前场景，回传 `state_xml`、活动视图 ID 与尺寸，不改变 GUI
+管线或相机。XML 通过客户端临时文件生成并回传，临时目录随后清理。投递端可将 XML
+保存为共享目录的 `.pvsm`，由独立 `pvbatch` 加载；输入文件路径仍以场景记录为准。
+这用于保留用户实际调整后的色标、边界线、相机和排版，避免从旧脚本近似重建。
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current snapshot_state --timeout 60
+```
+
 ## 常用操作
 
 ```bash
