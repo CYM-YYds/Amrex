@@ -7,6 +7,7 @@ DEFAULT_BRIDGE_ROOT = '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-brid
 # 客户端能力由本表派生，运行层的实际分发仍由回归检查。
 BRIDGE_ACTIONS = {
     'inspect': {},
+    'add_level_array_outline': {'required': ('source',), 'optional': ('view_id', 'time', 'output', 'existing_source')},
     'color_outline_levels': {'required': ('source',), 'optional': ('view_id', 'output')},
     'snapshot_state': {},
     'set_plotfile_series': {'required': ('source', 'files')},

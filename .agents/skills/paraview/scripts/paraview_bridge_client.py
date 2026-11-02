@@ -26,6 +26,7 @@ DEFAULT_BRIDGE_ROOT = '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-brid
 # 客户端能力由本表派生，运行层的实际分发仍由回归检查。
 BRIDGE_ACTIONS = {
     'inspect': {},
+    'add_level_array_outline': {'required': ('source',), 'optional': ('view_id', 'time', 'output', 'existing_source')},
     'color_outline_levels': {'required': ('source',), 'optional': ('view_id', 'output')},
     'snapshot_state': {},
     'set_plotfile_series': {'required': ('source', 'files')},
@@ -503,7 +504,7 @@ from paraview import simple as pvs
 
 
 @contextmanager
-def _publication_edit(view):
+def _publication_edit(view, extra_proxies=()):
     """为原位排版保存属性和对象归属；失败恢复原对象，不重载用户场景。"""
     from paraview import servermanager
     manager = servermanager.ProxyManager()
@@ -526,6 +527,7 @@ def _publication_edit(view):
     # 仅这些已有数据节点会被排版修改，原始求解数据与过滤器不纳入可写范围。
     proxies.extend(proxy for (name, _), proxy in pvs.GetSources().items()
                    if name.startswith(('Publication_vorticity_magnitude', 'Publication_axis_')))
+    proxies.extend(extra_proxies)
     snapshots = []
     for proxy in proxies:
         for name in proxy.ListProperties():
@@ -1243,8 +1245,160 @@ def color_outline_levels(command):
             'output': command.get('output')}
 
 
+# 在每次RequestData中重新写入真实分组层号，不依赖显示属性中的块选择器。
+AMR_LEVEL_FIELD_SCRIPT = """
+from vtkmodules.vtkCommonCore import vtkIntArray
+source = self.GetInputDataObject(0, 0)
+output = self.GetOutputDataObject(0)
+if not source.IsA('vtkMultiBlockDataSet') or source.GetNumberOfBlocks() != 3:
+    raise RuntimeError('Select the verified three-level Slice3 as input')
+if not output.IsA('vtkMultiBlockDataSet'):
+    raise RuntimeError('Keep Output Data Set Type as Same as Input')
+def add_level(block, level):
+    if block is None:
+        return None
+    result = block.NewInstance()
+    if block.IsA('vtkCompositeDataSet'):
+        result.CopyStructure(block)
+        iterator = block.NewIterator()
+        if hasattr(iterator, 'VisitOnlyLeavesOn'):
+            iterator.VisitOnlyLeavesOn()
+        iterator.InitTraversal()
+        while not iterator.IsDoneWithTraversal():
+            child = iterator.GetCurrentDataObject()
+            if child is not None:
+                result.SetDataSet(iterator, add_level(child, level))
+            iterator.GoToNextItem()
+    elif block.IsA('vtkDataSet'):
+        result.ShallowCopy(block)
+        array = vtkIntArray()
+        array.SetName('AMRLevel')
+        array.InsertNextValue(level)
+        result.GetFieldData().AddArray(array)
+    else:
+        raise RuntimeError('Expected dataset leaves under the AMR level groups')
+    return result
+output.CopyStructure(source)
+for level in range(3):
+    output.SetBlock(level, add_level(source.GetBlock(level), level))
+# 根节点也提供同名数组，避免字段在数据属性中被标为partial。
+root_level = vtkIntArray()
+root_level.SetName('AMRLevel')
+root_level.InsertNextValue(0)
+output.GetFieldData().AddArray(root_level)
+"""
 
-BRIDGE_VERSION = '26'
+
+def add_level_array_outline(command):
+    """建立随时间重算的层级字段框线，支持往返时间验证并恢复当前时刻。"""
+    from paraview import servermanager
+    matches = [s for (name, _), s in pvs.GetSources().items() if name == command['source']]
+    if len(matches) != 1:
+        raise ValueError('source must identify the verified three-level AMR slice')
+    source = matches[0]
+    view = next((v for v in pvs.GetViews() if v.GetGlobalIDAsString() == command.get('view_id')), None)
+    view = view if command.get('view_id') else pvs.GetActiveView()
+    if view is None:
+        raise ValueError('Select the existing vorticity view')
+    hierarchy = source.GetDataInformation().GetHierarchy()
+    if hierarchy is None or hierarchy.GetNumberOfChildren(0) != 3:
+        raise ValueError('Expected three top-level AMR level groups')
+    old_displays = [r for r in view.Representations if r.GetProperty('Input') and r.Input == source
+                    and r.GetProperty('Representation') and r.Representation == 'Outline']
+    if len(old_displays) != 1:
+        raise ValueError('Expected one existing outline display to replace')
+    name = command.get('existing_source') or command['source'] + '_AMRLevel'
+    existing = [s for (n, _), s in pvs.GetSources().items() if n == name]
+    node = None
+    if command.get('existing_source'):
+        if len(existing) != 1 or existing[0].GetXMLName() != 'ProgrammableFilter' or existing[0].Input != source:
+            raise ValueError('existing_source must be the named Programmable Filter directly connected to source')
+        node = existing[0]
+    elif existing:
+        raise ValueError('The AMRLevel node already exists; use existing_source explicitly to repair it')
+    scene, keeper = pvs.GetAnimationScene(), pvs.GetTimeKeeper()
+    views = [v for v in pvs.GetViews() if v.GetProperty('ViewTime')]
+    original_times = [(v, float(v.ViewTime)) for v in views]
+    original_scene, original_keeper = float(scene.AnimationTime), float(keeper.Time)
+    current = float(view.ViewTime)
+    cycle = [current]
+    if command.get('time') is not None:
+        probe = float(command['time'])
+        if probe == current or probe not in list(keeper.TimestepValues):
+            raise ValueError('time must be a different available physical time')
+        cycle += [probe, current]
+    results = []
+    with _publication_edit(view, [node] if node else []):
+        if node is None:
+            node = pvs.ProgrammableFilter(registrationName=name, Input=source)
+        node.Script = AMR_LEVEL_FIELD_SCRIPT
+        display = pvs.Show(node, view)
+        display.Representation = 'Outline'
+        display.LineWidth = old_displays[0].LineWidth
+        pvs.ColorBy(display, ('FIELD', 'AMRLevel'), separate=True)
+        lut = pvs.GetColorTransferFunction('AMRLevel', display, separate=True)
+        lut.InterpretValuesAsCategories = 1
+        lut.Annotations = ['0', 'lev0', '1', 'lev1', '2', 'lev2']
+        lut.IndexedColors = [1, 1, 1, 1, 0, 0, 0, 1, 0]
+        display.SetScalarBarVisibility(view, False)
+        old_displays[0].SetScalarBarVisibility(view, False)
+        old_displays[0].Visibility = 0
+        try:
+            for time in cycle:
+                scene.AnimationTime = time
+                keeper.Time = time
+                for v in views:
+                    v.ViewTime = time
+                node.UpdatePipeline(time)
+                if node.GetDataInformation().GetNumberOfCells() == 0:
+                    raise RuntimeError('Empty filter output after update; stop before Fetch/render')
+                data = servermanager.Fetch(node)
+                counts = [0, 0, 0]
+                def check(block, level):
+                    if block is None:
+                        return
+                    if block.IsA('vtkCompositeDataSet'):
+                        iterator = block.NewIterator()
+                        if hasattr(iterator, 'VisitOnlyLeavesOn'):
+                            iterator.VisitOnlyLeavesOn()
+                        iterator.InitTraversal()
+                        while not iterator.IsDoneWithTraversal():
+                            check(iterator.GetCurrentDataObject(), level)
+                            iterator.GoToNextItem()
+                    elif block.IsA('vtkDataSet') and block.GetNumberOfCells():
+                        array = block.GetFieldData().GetArray('AMRLevel')
+                        if array is None or array.GetNumberOfTuples() != 1 or array.GetValue(0) != level:
+                            raise RuntimeError('AMRLevel did not match the verified level group')
+                        counts[level] += 1
+                if not data.IsA('vtkMultiBlockDataSet') or data.GetNumberOfBlocks() != 3:
+                    raise RuntimeError('Unexpected temporal output structure')
+                for level in range(3):
+                    check(data.GetBlock(level), level)
+                if not any(counts):
+                    raise RuntimeError('AMRLevel output is empty; a pipeline script may have failed')
+                pvs.Render(view)
+                if display.ColorArrayName.GetArrayName() != 'AMRLevel' or old_displays[0].Visibility:
+                    raise RuntimeError('Display coloring changed during the time cycle')
+                results.append({'time': time, 'nonempty_blocks_by_level': counts,
+                                'color_array': list(display.ColorArrayName)})
+        finally:
+            scene.AnimationTime = original_scene
+            keeper.Time = original_keeper
+            for v, time in original_times:
+                v.ViewTime = time
+        pvs.Render(view)
+        if command.get('output'):
+            pvs.SaveScreenshot(command['output'], view, ImageResolution=list(view.ViewSize),
+                               FontScaling='Do not scale fonts',
+                               location=servermanager.vtkPVSession.DATA_SERVER)
+    pvs.SetActiveSource(node)
+    return {'source': name, 'id': node.GetGlobalIDAsString(), 'view_id': view.GetGlobalIDAsString(),
+            'script': node.Script, 'output_type': str(node.OutputDataSetType), 'cycle': results,
+            'time': float(view.ViewTime), 'output': command.get('output')}
+
+
+
+BRIDGE_VERSION = '27'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 
@@ -1252,7 +1406,7 @@ REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.a
 
 # 经操作层执行的动作；inspect、背景与热更新由运行层自身处理。
 # 与 CAPABILITIES 的一致性由 test_action_registry 保证。
-OPERATIONS = {'color_outline_levels': color_outline_levels, 'snapshot_state': snapshot_state, 'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
+OPERATIONS = {'add_level_array_outline': add_level_array_outline, 'color_outline_levels': color_outline_levels, 'snapshot_state': snapshot_state, 'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
               'repair_vorticity_slice': repair_vorticity_slice,
               'publication_vorticity': publication_vorticity,
               'add_axis_title_view': add_axis_title_view,

@@ -130,12 +130,33 @@ PS1 本身更新后须重新下载，它不会更新自身；正常启动时会�
 .venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current snapshot_state --timeout 60
 ```
 
+## 使用层级字段生成动态 AMR 框线
+
+`add_level_array_outline`针对已核对为顶层lev0/1/2三组的切片，增加一个Programmable Filter。
+默认输出类型保持`Same as Input`，每次RequestData按真实分组重新写入Field Data数组AMRLevel，
+其Outline表示按该字段分类着色（白/红/绿），隐藏旧的自动块色框线；保留旧节点与涡量面。
+Script内的`self`由过滤器执行环境提供，不能直接粘贴到Python Shell。当前6.2菜单中的显式
+类型拼写为`vtkMultiblockDataSet`，与VTK类名`vtkMultiBlockDataSet`大小写不一致。
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current add_level_array_outline \
+  --source Slice3 --view-id '<涡量视图ID>' --time 200 --timeout 600
+```
+
+可选`--time`执行当前时间→指定时间→当前时间往返检查：核对各非空块字段等于真实分组层号，
+并核对显示仍使用AMRLevel、旧框线仍隐藏；结束恢复原时刻。可选`--output`保存原尺寸GUI截图。
+操作拒绝默认覆盖同名节点；仅显式指定`--existing-source NAME`时修复对应的同输入Programmable Filter。
+显示事务同时保存既有节点Script，异常恢复或回收新对象。更新后先检查输出非空，再Fetch和渲染，
+避免VTK脚本错误未转成Python异常时把空输出误判为成功。脚本支持MultiBlock/MultiPiece等
+Composite分组，不能仅递归MultiBlock。保存PVSM可保留Script和配色。
+
 ## 固定 AMR 框线的层级颜色
 
 `color_outline_levels` 用于已核对为三层AMR分组的切片：顶层三个分组必须依次对应lev0/1/2。
 它查找指定视图中已有的Outline表示，关闭其自动数组着色，按层级分组选择器显式指定
 白/红/绿。`vtkBlockColors`是自动块色，不能当作AMR层号；分组实际含义须先按数据确认。
 操作复用排版事务保存显示属性，异常时恢复；不改求导、切面或输入文件。
+这是直接显示属性设置；实际GUI中曾在时间切换后被重置，动画优先使用上述字段方法。
 
 ```bash
 .venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current color_outline_levels \

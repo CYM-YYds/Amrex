@@ -1,0 +1,20 @@
+# 动态 AMR 层级字段框线与执行环境修正
+
+目的：用户报告显式BlockColors在时间切换后消失，新增Field Data脚本在Python Shell报错。此前只做单帧显示验证，不足以支持时间往返可靠性结论。
+
+已确认：当前GUI快照中旧Slice3框线BlockColors=[]，ColorArrayName恢复vtkBlockColors。具体GUI重置回调未定位，停止把静态块选择器设置当作动态动画可靠方案。用户错误文本为<console>中的self未定义与后续IndentationError，说明将Programmable Filter脚本粘贴到了Python Shell；self仅由过滤器Script环境提供。另实测ParaView6.2菜单显式选项为vtkMultiblockDataSet（小写b），不是VTK类名vtkMultiBlockDataSet；本方案保持Same as Input。
+
+实现：排版模块集中保存AMR_LEVEL_FIELD_SCRIPT，每次RequestData按已核对的三个顶层分组生成Field Data AMRLevel=0/1/2，根也提供同名字段以避免partial标记。新增桥操作add_level_array_outline创建Slice3_AMRLevel，沿用Outline宽度，用独立分类LUT白/红/绿，隐藏旧框线。数据字段随时间重算，不依赖显示属性中的层级选择器。可选--time做当前→指定→当前的往返验证，检查真实输出字段、显示数组及旧框线隐藏状态，结束恢复原时间；复用显示事务回收失败对象。旧color_outline_levels保留为静态操作并补充限制说明。
+
+验证：合成三层数据的各层分块数1→3→1变化后，实际渲染几何AMRLevel仍为0/1/2，红绿框线保持。CLI回归58项通过（12项条件跳过），新参数解析和生成物一致性检查通过。真实GUI往返验收结果另附本记录末尾。
+
+复现材料：BOX3D_OSI/runs/a5_B_three_plot3200/job622356/B/figures/level_array_verify/下的合成试验、脚本与日志；用户原始2DVorticity.pvsm、已有PNG及求解器代码不覆盖。
+
+
+真实验证与修正：Slice3各层下面实际含MultiPiece分组，初版仅递归MultiBlock导致RequestData报错。现改为Composite迭代器CopyStructure/SetDataSet，覆盖MultiPiece等结构；更新后先检查单元数非零才Fetch，Fetch后核对真实层号与非空块数，禁止空输出通过。初版错误地把全零块计数作为成功的报告已改名actual_cycle_failed_multiblock_only.json保留，不作为有效结果。新增显式existing_source修复入口，复用事务的extra_proxies保存既有过滤器Script，默认仍拒绝覆盖同名节点。
+
+修正后的真实PlotFile独立单进程往返175→200→175通过，非空块数依次[1,6,4]、[1,7,5]、[1,6,4]，三个时刻均按FIELD/AMRLevel着色，最终绿色框线截图目视通过。actual_cycle.pvsm里的Script已逐字核对与当前常量一致；programmable_filter_script.txt为仅供过滤器Script编辑器使用的正文。
+
+GUI边界：旧版首轮请求在MultiPiece处报错后长时间未回传，600秒投递超时不代表取消。服务端栈曾显示仍在vtkGradientFilter计算，后续采样为等待网络请求；无法据此认定具体卡死机制。用户报告窗口无响应。当前不能安全覆盖未决命令或宣称GUI修复成功；已准备并请求用户重连加载验证过的actual_cycle.pvsm。原始场景快照与失败日志均保留。该恢复要求来自当前窗口不可响应、未决协议请求及远端不能重启Windows GUI，不是新的审批要求。
+
+最终本地检查：58项回归、12项条件跳过，生成物检查与diff空白检查通过。一次整套回归的启动夹具临时bash执行权限报错；未修改启动代码，随后原样重跑通过，保留为环境/夹具偶发边界，不当作功能失败已定位根因。GUI窗口仍需用户恢复，不能用独立批处理的通过替代该窗口现场验收。

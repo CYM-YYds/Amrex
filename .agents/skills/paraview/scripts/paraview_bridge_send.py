@@ -124,6 +124,7 @@ def build_parser():
                         help='按正常 GUI 视图尺寸导出；批处理时使用指定尺寸')
     parser.add_argument('--view-id', help='明确指定 publication_vorticity 目标视图 ID')
     parser.add_argument('--max-level', type=int, default=2)
+    parser.add_argument('--existing-source', help='明确指定要修复的已有AMRLevel过滤器名称')
     parser.add_argument('--source', help='现有管线中完整的注册名称，不作通配符展开')
     parser.add_argument('--reset-view', help='复位已创建的独立标题视图 ID，按切片边界居中')
     parser.add_argument('--slice-axis', choices=['x', 'y', 'z'], default='y')

@@ -79,6 +79,12 @@ class SenderCliTests(unittest.TestCase):
                               '--view-id', '14857', '--output', '/shared/proof.png')
         self.assertEqual(sent[4], {'source': 'Slice3', 'view_id': '14857', 'output': '/shared/proof.png'})
 
+    def test_level_array_outline_time_probe(self):
+        _, sent = self.run_cli('current', 'add_level_array_outline', '--source', 'Slice3',
+                              '--view-id', '14857', '--time', '200', '--existing-source', 'Slice3_AMRLevel')
+        self.assertEqual(sent[4], {'source': 'Slice3', 'view_id': '14857', 'time': 200.0,
+                                  'existing_source': 'Slice3_AMRLevel'})
+
     def test_export_centerline_options(self):
         _, sent = self.run_cli('current', 'export_centerline', '--input', '/a', '--output', '/b.csv')
         self.assertEqual(sent[4], {'input': '/a', 'output': '/b.csv', 'resolution': 1024, 'max_level': 2})

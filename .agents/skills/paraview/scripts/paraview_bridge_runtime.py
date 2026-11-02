@@ -17,10 +17,10 @@ from paraview import simple as pvs
 from paraview_protocol import DEFAULT_BRIDGE_ROOT, CAPABILITIES
 from paraview_operations import (AMR_CELL_VORTICITY_SCRIPT, export_centerline,
                                  add_vorticity_view, repair_vorticity_slice, update_background, render_diagnostics, disable_fxaa, set_plotfile_series, snapshot_state)
-from paraview_publication import publication_vorticity, add_axis_title_view, align_publication, apply_2d_vorticity_trace, color_outline_levels
+from paraview_publication import publication_vorticity, add_axis_title_view, align_publication, apply_2d_vorticity_trace, color_outline_levels, add_level_array_outline
 
 
-BRIDGE_VERSION = '26'
+BRIDGE_VERSION = '27'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 
@@ -28,7 +28,7 @@ REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.a
 
 # 经操作层执行的动作；inspect、背景与热更新由运行层自身处理。
 # 与 CAPABILITIES 的一致性由 test_action_registry 保证。
-OPERATIONS = {'color_outline_levels': color_outline_levels, 'snapshot_state': snapshot_state, 'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
+OPERATIONS = {'add_level_array_outline': add_level_array_outline, 'color_outline_levels': color_outline_levels, 'snapshot_state': snapshot_state, 'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
               'repair_vorticity_slice': repair_vorticity_slice,
               'publication_vorticity': publication_vorticity,
               'add_axis_title_view': add_axis_title_view,
