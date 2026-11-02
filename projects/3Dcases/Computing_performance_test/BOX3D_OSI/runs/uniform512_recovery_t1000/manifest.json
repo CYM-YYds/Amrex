@@ -1,0 +1,19 @@
+{
+  "job": 622850,
+  "aborted_compile_job": 622845,
+  "baseline": 622116,
+  "steps": 512000,
+  "time": 1000,
+  "plot_int": 12800,
+  "checkpoint_int": 12800,
+  "keep_latest_only": false,
+  "convergence_trend_int": 4000,
+  "convergence_check_int": 12800,
+  "convergence_stop": false,
+  "source_change": "synchronize and clear stored_old before allocating OSI restart state",
+  "production_only_after_gates": true,
+  "initial_validation_job": 622846,
+  "arena_release_threshold": 0,
+  "reused_unchanged_prechecks": true,
+  "uniform512_restart_and_resave_passed": true
+}

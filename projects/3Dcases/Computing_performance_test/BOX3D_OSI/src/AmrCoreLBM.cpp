@@ -1110,6 +1110,10 @@ void AmrCoreLBM::ReadCheckpoint() {
             stored_old, 0, 0, Q, IntVect(0), IntVect(0),
             Geom(lev).periodicity());
 
+        // 拷贝完成后先释放读入缓冲，避免大网格恢复时三份 DDF 同时驻留。
+        Gpu::synchronize();
+        stored_old.clear();
+
         if (streamMode() == 1) {
             InitializeOsiLevel(
                 lev, boxArray(lev), DistributionMap(lev));

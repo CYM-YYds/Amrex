@@ -1,0 +1,18 @@
+[
+  {
+    "name": "small_reference",
+    "exit_code": 0
+  },
+  {
+    "name": "small_restart",
+    "exit_code": 0
+  },
+  {
+    "name": "large_write",
+    "exit_code": 0
+  },
+  {
+    "name": "large_restart",
+    "exit_code": 6
+  }
+]

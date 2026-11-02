@@ -1,0 +1,5 @@
+{
+  "small_restart_exact": true,
+  "uniform512_checkpoint_read_write_passed": true,
+  "convergence_enabled": true
+}

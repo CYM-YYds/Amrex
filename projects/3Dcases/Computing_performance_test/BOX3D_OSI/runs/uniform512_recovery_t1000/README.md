@@ -1,0 +1,17 @@
+# 512³可恢复长程至物理时间1000
+
+本轮正式重跑，沿用622116冻结Q27数值推进源码，仅在ReadCheckpoint的canonical.ParallelCopy完成后同步并清空stored_old读入缓冲，避免恢复时stored_old/canonical/osi_state三份DDF同时驻留。当前用户推进文件未提交修改不纳入程序，正式用户inputs不改。
+
+单A100 40GB、FP32、D3Q27、Re1000、lev0、单Fab、512000步/t1000，amrex.the_arena_init_size=0、amrex.the_arena_release_threshold=0。每12800步（物理时间25）输出速度及Q/涡量，并保存checkpoint；本轮先保留全部40份checkpoint和40组场，不引入自动清理，防止误删恢复点。按单份checkpoint约13.5GiB估算，连同场约650GiB磁盘需求，提交前共享目录空闲约2.9TB。
+
+收敛趋势4000步、正式检查12800步，对应AMR1000/3200粗步相同物理间隔7.8125/25；阈值1e-4、连续3次、convergence_stop=false。记录全部收敛数据而不提前停算。性能report12800，记录Arena高水位及1秒设备采样峰值；strace保留失败写入系统调用，性能有诊断开销。
+
+初次验证作业622846先编译，再做64³多Fab非平衡checkpoint恢复逐值回归；随后512³32步场/checkpoint试写，读回到64步并再次写出。所有门槛通过才自动开始production/长程；任一失败停止，不盲跑。622845在编译阶段因缓存隔离检查而主动终止，不作为有效样本。缓存只复用AMReX对象，算例源码强制重编。
+
+运行入口复用scripts/temporary/collision_amr/submit.sh的uniform512-recovery分支，实验阶段由scripts/temporary/uniform512_recovery.py串联。输入、源、程序、命令、编译日志、验证、场、checkpoint和跟踪材料保留；最终验收需exit0、step512000/t1000、有效场输出和完整最终checkpoint，不以门槛或启动成功代替完成。
+
+## 验证及实际启动
+
+622846小网格逐值回归和512³初次写出通过；512³读回本身成功，但随后再保存时Arena碎片导致连续分配失败。622850复用同一已编译程序、先前逐值结果及有效checkpoint，仅增加原生release_threshold=0及时释放空闲池块；恢复后继续推进至64步、重新输出两场及checkpoint成功，Header时间和数据长度核对通过。随后自动开始production/从静止完整重跑。所有40份checkpoint先保留，不执行自动删除。
+
+本轮只对原冻结推进程序做读取缓冲生命周期小改，未纳入用户AmrCoreLBM_advance.cpp修改；正式工作区源中的相同修复已同步，但未替换算例顶层正式可执行文件。
