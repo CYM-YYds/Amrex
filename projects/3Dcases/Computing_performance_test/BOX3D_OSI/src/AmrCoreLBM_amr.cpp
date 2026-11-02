@@ -515,7 +515,9 @@ void AmrCoreLBM::RebuildCoarseFineMasks() {
 void AmrCoreLBM::RebuildCoarseFineMasksForState(
     const Vector<MultiFab>& state) {
     for (int lev = 0; lev < finest_level; ++lev) {
-        if (!level_cache_dirty[lev] && !level_cache_dirty[lev + 1]) { continue; }
+        if (!level_cache_dirty[lev] && !level_cache_dirty[lev + 1]) {
+            continue;
+        }
         ++perf_stats.regrid_mask_builds;
         AMREX_ALWAYS_ASSERT(state.at(lev).isDefined());
         AMREX_ALWAYS_ASSERT(state.at(lev + 1).isDefined());
@@ -573,7 +575,9 @@ void AmrCoreLBM::RebuildCoarseFineMasksForState(
 
 void AmrCoreLBM::BuildBoundaryWorkCache() {
     for (int lev = 0; lev <= finest_level; ++lev) {
-        if (!level_cache_dirty[lev]) { continue; }
+        if (!level_cache_dirty[lev]) {
+            continue;
+        }
         ++perf_stats.regrid_boundary_builds;
         const BoxArray& ba = boxArray(lev);
         const Box domain = Geom(lev).Domain();
@@ -631,7 +635,9 @@ void AmrCoreLBM::BuildBoundaryWorkCache() {
 
 void AmrCoreLBM::BuildInterpolationCache() {
     for (int lev = 1; lev <= finest_level; ++lev) {
-        if (!level_cache_dirty[lev - 1] && !level_cache_dirty[lev]) { continue; }
+        if (!level_cache_dirty[lev - 1] && !level_cache_dirty[lev]) {
+            continue;
+        }
         const double start = amrex::second();
         AMREX_ALWAYS_ASSERT(lev > 0 && lev <= max_level);
 
@@ -683,7 +689,9 @@ void AmrCoreLBM::BuildInterpolationCache() {
 
 void AmrCoreLBM::BuildAverageCache() {
     for (int lev = 0; lev < finest_level; ++lev) {
-        if (!level_cache_dirty[lev] && !level_cache_dirty[lev + 1]) { continue; }
+        if (!level_cache_dirty[lev] && !level_cache_dirty[lev + 1]) {
+            continue;
+        }
         ++perf_stats.regrid_average_builds;
         average_down_cache.at(lev).clear();
         const MultiFab& fine_layout =
@@ -757,7 +765,9 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
         amrex::Abort("Cannot construct level 0 from a coarser level.");
     }
 
-    if (streamMode() == 0) { InvalidateLevelCaches(lev); }
+    if (streamMode() == 0) {
+        InvalidateLevelCaches(lev);
+    }
 
     amrex::MultiFab& u_lev = velocity.at(lev);
     amrex::MultiFab& rho_lev = density.at(lev);
@@ -1024,7 +1034,9 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
                       ├─ 生成 level 1 的网格
                       └─ MakeNewLevelFromScratch(1, ...) */
 
-    if (streamMode() == 0) { InvalidateLevelCaches(lev); }
+    if (streamMode() == 0) {
+        InvalidateLevelCaches(lev);
+    }
 
     amrex::MultiFab& u_lev = velocity.at(lev);
     amrex::MultiFab& rho_lev = density.at(lev);
@@ -1188,12 +1200,12 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
             const int points_num = particle_num;
 
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
-    #if AMREX_SPACEDIM == 3
+#if AMREX_SPACEDIM == 3
                 // state_error_6(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
                 state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
-    #else
+#else
                 state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
-    #endif
+#endif
                 // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
                 // state_error_4(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
                 // state_error_5(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);

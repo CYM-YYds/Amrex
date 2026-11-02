@@ -13,11 +13,10 @@
 
 ## 中文题目
 
-基于 OSI 的自适应网格 LBM 求解器优化/自适应网格 LBM 求解器的 GPU 性能优化
+自适应网格 LBM 求解器的 GPU 性能优化
 
 ## 英文题目
 
-GPU Optimization of Adaptive-Mesh Lattice Boltzmann Method
 
 ## 作者与单位
 
@@ -52,31 +51,6 @@ GPU Optimization of Adaptive-Mesh Lattice Boltzmann Method
 4. 为后续 OSI 与浸入边界颗粒流的完整耦合提供流体求解基础。
 
 当前不将本工作表述为“已经完成 OSI-IB-LBM 颗粒流求解器”，因为现有 OSI 生产路径采用无外力、无 SGS 的 D3Q27 专用碰撞核，OSI 与浸入边界力的完整耦合仍需进一步实现和验证。
-
-## 性能与正确性证据
-
-摘要中的数据来自仓库内现有受控测试：
-
-- 专用 D3Q27 碰撞核：碰撞耗时降低 50.05%，求解吞吐率提高 28.19%；64 步 valid-DDF 对照为 `rel_l2=1.0699e-15`、`linf=1.3878e-15`。
-- OSI 相位位移预计算：相较动态取模实现，`MLUPS_solv` 从 407.13 提升至 658.48，提高 61.7%。该结果尚不能外推为多层动态 AMR 的严格逐点等价证明。
-- 单 GPU、Re=1000、三级动态 AMR、128000 步完整算例：OSI 与 A-B 的 40 个统计窗口具有相同的网格规模，全程平均 `MLUPS_total` 由 934.699 提升至 1090.556，提高 16.68%；累计计算耗时由 5273.57 s 降至 4522.74 s，降低 14.24%；AMReX 设备 Arena 峰值有效使用量由 14410 MB 降至 9091 MB，降低 36.9%。本次测试未执行终态 DDF 逐点误差比较。
-- 周期和六面非周期双 GPU 单层测试分别完成 384/384 次六阶段对照，均为 `linf=0`。
-
-详细记录见：
-
-- `projects/3Dcases/Computing_performance_test/BOX3D_OSI/docs/performance_profiling.md`
-- `projects/3Dcases/Computing_performance_test/BOX3D_OSI/docs/current_status.md`
-- `projects/3Dcases/Computing_performance_test/BOX3D_OSI/logs/submit/596890-re1000-128k-ab.log`
-- `projects/3Dcases/Computing_performance_test/BOX3D_OSI/logs/submit/596891-re1000-128k-osi.log`
-
-## 投稿前必须核对
-
-1. “首次”应保留“据我们所知”的限定，并在全文或报告中补充系统的 Web of Science、Scopus 或 Google Scholar 文献检索。
-2. Wang 等原论文中的 128 GPU 弱扩展效率 97.95% 和 AMR 相对均匀网格加速 18.2 倍属于原论文成果，不能作为本次代码优化的新结果。
-3. 当前 Re=1000、160000 步速度剖面对应的检查点布局为 `canonical_ab_two_array_v1`，不能作为 OSI 物理验证结果。
-4. 当前 Re=3200、192000 步检查点为 `canonical_osi_single_array_v1`，但尚未达到设定的速度场收敛判据，不应写成“已收敛稳态解”。
-5. 多层动态重网格下的 OSI/A-B 严格逐网格等价，以及 OSI 与浸入边界力的完整耦合，仍是正式论文投稿前需要补充的关键验证。
-6. Jaber 等已将基于 Esoteric Twist 的原位单数组迁移用于 GPU 原生动态 AMR-LBM，因此不能声称本文首次实现“单数组 AMR-LBM”；本文的首次性仅限定为 OSI 向动态 AMR-LBM 的扩展。
 
 ## 主要参考文献
 
