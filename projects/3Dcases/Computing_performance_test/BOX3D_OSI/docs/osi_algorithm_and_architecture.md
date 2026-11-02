@@ -587,6 +587,12 @@ Q27 半 warp 每 lane 保存 q=lane 及 q=lane+16 两槽，分别对每个细子
 2026-11-02 修正了 Q9 原有的 32 线程重复处理同一父单元配置；按用户要求未编译或运行测试，
 新映射的二维数值验收仍 pending，已有程序不自动包含该源码修改。
 缓存建表与执行共用 `restriction_parents_per_block` 及对应 group/thread 常量。
+CUDA 的 `BuildRestrictionWork` 由 CPU 按 result 区域生成标签模板和 block 起点，
+上传每区域一个描述，再由单次 GPU kernel 二分定位所属区域并展开完整 `RestrictionBlockTag`。
+数值消费端的标签格式、父单元映射、布局索引和 phase 槽位不变；空本地任务直接返回。
+描述设备缓冲仅属于本次建表，展开完成后同步释放；输出 work 继续由原调用者持有。
+完整 valid 的 work 随调用释放，界面的 block_tags 随现有粗细缓存失效；不新增持久状态或运行开关。
+采纳性能与逐值回归范围见[GPU 建表记录](ai_changes/2026-11-02-gpu-restriction-tags.md)。
 任务只绑定几何和布局索引，执行时取当前数组与 phase，避免 A-B 双缓冲交换后访问旧数组。
 CPU 的两种平均范围保持逐盒提交，共用 `average_down_to_canonical` 标量核。
 `AverageDownValidLevel(..., DdfLayout)` 创建函数局部的 coarsen(fine valid) canonical 结果区，

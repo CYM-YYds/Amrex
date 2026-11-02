@@ -6,15 +6,32 @@
 传输机制以[架构说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)为准。
 历史验收只覆盖各自冻结的源码、程序、输入和网格范围，不自动代表当前 HEAD。
 
-## 2026-11-02：重构检查、缓存生命周期与成本结论（现役）
+## 2026-11-02：GPU restriction 建表现役状态
 
-- 当前源码基线为 `5373085`，包含 `f1caa16` 的生产重构检查剥离和 `673305f` 的缓存复用、
-  重复速度交换删除。三维 FLOAT 程序与 622773 的生产计时快照一致；本轮未更新或验收二维、DOUBLE 程序。
+- `11c7450` 已将 CUDA restriction 任务展开移到 GPU，完整 valid 与界面平均共用
+  `BuildRestrictionWork`；机制以[粗细传输说明](osi_algorithm_and_architecture.md#11-静态-coarse-fine-传输)为准。
+  正式源码不含 `benchmark.gpu_restriction_tags` 或实验专用计时字段。
+- 当前三维 FLOAT 程序 SHA256 为
+  `a098bb75c1ec334b211484cb9be5de2e7ac0c298303b012127afdb669753fb3c`，
+  与集成回归 623351 的冻结程序一致；当前源文件也与其快照一致，包含用户未提交的
+  `AmrCoreLBM_advance.cpp` 修改，因此不能称为纯提交源码的干净构建。
+- 623302 单 GPU 短测 total 降低约 0.94%；623333 同节点双 GPU 约 0.41%，
+  后者样本范围重叠，只按未观察到下降采纳，不宣称稳定多 GPU 加速。
+  候选及正式程序的双 GPU 192 步回归 DDF 全 valid 有限且逐位一致；最终布局到 level 1，
+  不扩大为任意 level 2、二维、DOUBLE、多节点或长期收敛验收。
+- 冻结参数、工作量核对、构建与保留材料统一见
+  [GPU 建表验证记录](ai_changes/2026-11-02-gpu-restriction-tags.md)。
+  规则、记忆只读边界及清理预览见[本轮知识收尾](ai_changes/2026-11-02-gpu-restriction-tags-closeout.md)。
+
+## 2026-11-02：重构检查、缓存生命周期与成本结论（此前冻结基线）
+
+- 该阶段源码基线为 `5373085`，包含 `f1caa16` 的生产重构检查剥离和 `673305f` 的缓存复用、
+  重复速度交换删除。当时三维 FLOAT 程序与 622773 的生产计时快照一致；本轮未更新或验收二维、DOUBLE 程序。
 - 全 valid 检查仅随 OSI/A-B 验证目标步执行；`regrid_valid_check` 已退役。缓存生命周期、
   phase 与现役判据统一见[架构说明](osi_algorithm_and_architecture.md#10-动态-regrid保留或重建-phase)。
 - 数值边界、B 动态窗口无稳定加速、固定布局窗口的有限范围收益，见
   [检查职责回归](ai_changes/2026-11-01-regrid-verification-boundary.md)和
-  [缓存复用记录](ai_changes/2026-11-01-regrid-cache-reuse.md)。当前定量结论唯一入口为
+  [缓存复用记录](ai_changes/2026-11-01-regrid-cache-reuse.md)。该阶段定量结论入口为
   [重构成本报告](ai_changes/2026-11-02-regrid-cost-quantification.md)，不把旧的约 10.9% 长跑、
   固定布局 9.3% 收益及同步诊断相互替代。
 - 622137/B 的冻结优化程序已正常完成 t=1000，但不是当前 HEAD 的长程验收；
