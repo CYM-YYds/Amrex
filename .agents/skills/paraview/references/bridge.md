@@ -195,6 +195,11 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 - 版本预检得到空值：重新下载 PS1；当前实现读 EXE 版本资源，缺失时用同目录 pvpython，不能依赖 GUI `paraview.exe --version` 的管道输出。
 - PythonQt 缺失：确认使用最新桥客户端，且在 ParaView GUI 内加载，而非普通 Python。
 - 只有 timer/registered 输出：检查 GUI、SSH stderr 与启动回执；注册或新鲜心跳不代表 GUI 已响应。
+  若客户端 stdout 显示 `startup failed: Connection closed by ... port 6022`，故障在桥接的 SSH
+  初始化阶段，即使 pvserver 已显示 Client connected 也不代表桥已就绪。版本 23 将目录创建
+  和会话注册合并为一次 SSH，仅对已识别的连接关闭、重置、超时最多尝试三次（间隔 2、4 秒）。
+  认证失败和主机指纹错误不重试；不重放 GUI 命令。持续失败仍需检查 SSH 入口日志，不能
+  单凭连接关闭判定为服务器限流。启动脚本会自动下载新版客户端，已有窗口无需为此重启。
 - 超时、源码哈希或 URI 不匹配：保留窗口与诊断文件，先定位连接、客户端或传输层；不自动关闭用户窗口。
 - SSH 指纹或认证失败：核验目标和认证，不关闭主机验证来绕过。
 

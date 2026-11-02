@@ -20,7 +20,7 @@ from paraview_operations import (AMR_CELL_VORTICITY_SCRIPT, export_centerline,
 from paraview_publication import publication_vorticity, add_axis_title_view, align_publication, apply_2d_vorticity_trace
 
 
-BRIDGE_VERSION = '22'
+BRIDGE_VERSION = '23'
 RUNTIME_UPDATE_PROTOCOL = 1
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 
@@ -218,22 +218,40 @@ class ParaViewBridge:
                                    stderr=subprocess.PIPE, timeout=45,
                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         if completed.returncode:
-            raise RuntimeError(completed.stderr.decode('utf-8', errors='replace').strip())
+            message = completed.stderr.decode('utf-8', errors='replace').strip()
+            # 只将已识别的 SSH 连接中断标为可重试，不掩盖认证或远端命令错误。
+            if completed.returncode == 255 and any(text in message.lower() for text in (
+                    'connection closed by', 'connection reset by', 'connection timed out')):
+                raise ConnectionError(message)
+            raise RuntimeError(message)
         return completed.stdout
 
     def poll(self):
         path = shlex.quote(self.directory)
         try:
             root = shlex.quote(self.root)
-            self.remote('umask 077; mkdir -p ' + root + ' && mkdir -m 700 ' + path
-                        + ' && date +%s > ' + path + '/heartbeat')
+            registration = json.dumps({'directory': self.directory, 'protocol': 1,
+                                       'launch_id': self.launch_id, 'version': BRIDGE_VERSION,
+                                       'source_sha256': self.source_sha256}).encode('utf-8')
+            # 初始化只有建目录和原子发布同一份注册数据，丢失回执后可安全重试。
+            # 不在此处重放 GUI 操作；最多三次，等待可被 stop 中断。
+            for attempt in range(3):
+                if self.closed.is_set():
+                    return
+                try:
+                    self.remote('umask 077; mkdir -p ' + root + ' && mkdir -p -m 700 ' + path
+                                + ' && date +%s > ' + path + '/heartbeat'
+                                + ' && cat > ' + path + '/registration.tmp && mv '
+                                + path + '/registration.tmp ' + root + '/current.json', registration)
+                    break
+                except (ConnectionError, subprocess.TimeoutExpired) as exc:
+                    if attempt == 2:
+                        raise
+                    print('ParaView bridge startup transport retry %d/3: %s' % (attempt + 1, exc), flush=True)
+                    if self.closed.wait(2 * (attempt + 1)):
+                        return
             if self.closed.is_set():
                 return
-            # 固定入口只由新会话启动时发布，旧会话心跳不会覆盖它。
-            self.remote('umask 077; cat > ' + path + '/registration.tmp && mv '
-                        + path + '/registration.tmp ' + root + '/current.json',
-                        json.dumps({'directory': self.directory, 'protocol': 1, 'launch_id': self.launch_id,
-                                    'version': BRIDGE_VERSION, 'source_sha256': self.source_sha256}).encode('utf-8'))
             print('ParaView bridge registered (GUI check pending): ' + self.directory)
             previous = None
             pending = None
@@ -281,7 +299,7 @@ class ParaViewBridge:
                     print('ParaView bridge transport: ' + str(exc))
                 self.closed.wait(2)
         except Exception as exc:
-            print('ParaView bridge startup failed: ' + str(exc))
+            print('ParaView bridge startup failed: ' + str(exc), flush=True)
             self.closed.set()
 
     def tick(self):
