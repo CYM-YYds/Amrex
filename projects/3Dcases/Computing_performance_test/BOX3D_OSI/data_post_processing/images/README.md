@@ -23,13 +23,13 @@
 | [job622356_job622356__B__convergence.png](job622356_job622356__B__convergence.png) | `runs/a5_B_three_plot3200/job622356/B/convergence.png` | 622356 |
 | [job622356_figures__previous_layout__vorticity_y05_step128000.png](job622356_figures__previous_layout__vorticity_y05_step128000.png) | `runs/a5_B_three_plot3200/job622356/B/figures/previous_layout/vorticity_y05_step128000.png` | 622356 |
 | [job622356_B__figures__vorticity_y05_step128000.png](job622356_B__figures__vorticity_y05_step128000.png) | `runs/a5_B_three_plot3200/job622356/B/figures/vorticity_y05_step128000.png` | 622356 |
-| [job622356_job622356__B__victory.0000.png](job622356_job622356__B__victory.0000.png) | `runs/a5_B_three_plot3200/job622356/B/victory.0000.png` | 622356 |
-| [job622356_job622356__B__victory.0001.png](job622356_job622356__B__victory.0001.png) | `runs/a5_B_three_plot3200/job622356/B/victory.0001.png` | 622356 |
-| [job622356_job622356__B__victory.0002.png](job622356_job622356__B__victory.0002.png) | `runs/a5_B_three_plot3200/job622356/B/victory.0002.png` | 622356 |
-| [job622356_job622356__B__victory.0003.png](job622356_job622356__B__victory.0003.png) | `runs/a5_B_three_plot3200/job622356/B/victory.0003.png` | 622356 |
-| [job622356_job622356__B__victory.0004.png](job622356_job622356__B__victory.0004.png) | `runs/a5_B_three_plot3200/job622356/B/victory.0004.png` | 622356 |
-| [job622356_job622356__B__victory.0005.png](job622356_job622356__B__victory.0005.png) | `runs/a5_B_three_plot3200/job622356/B/victory.0005.png` | 622356 |
-| [job622356_job622356__B__victory.0006.png](job622356_job622356__B__victory.0006.png) | `runs/a5_B_three_plot3200/job622356/B/victory.0006.png` | 622356 |
+| [job622356_job622356__B__victory.0000.png](job622356_job622356__B__victory.0000.png) | `runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/frames/job622356_job622356__B__victory.0000.png` | 622356 |
+| [job622356_job622356__B__victory.0001.png](job622356_job622356__B__victory.0001.png) | `runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/frames/job622356_job622356__B__victory.0001.png` | 622356 |
+| [job622356_job622356__B__victory.0002.png](job622356_job622356__B__victory.0002.png) | `runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/frames/job622356_job622356__B__victory.0002.png` | 622356 |
+| [job622356_job622356__B__victory.0003.png](job622356_job622356__B__victory.0003.png) | `runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/frames/job622356_job622356__B__victory.0003.png` | 622356 |
+| [job622356_job622356__B__victory.0004.png](job622356_job622356__B__victory.0004.png) | `runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/frames/job622356_job622356__B__victory.0004.png` | 622356 |
+| [job622356_job622356__B__victory.0005.png](job622356_job622356__B__victory.0005.png) | `runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/frames/job622356_job622356__B__victory.0005.png` | 622356 |
+| [job622356_job622356__B__victory.0006.png](job622356_job622356__B__victory.0006.png) | `runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/frames/job622356_job622356__B__victory.0006.png` | 622356 |
 | [job621435_job621435__A__convergence.png](job621435_job621435__A__convergence.png) | `runs/archive/history_20261101/a5_threshold_128000/job621435/A/convergence.png` | 621435 |
 | [job621436_job621436__B__convergence.png](job621436_job621436__B__convergence.png) | `runs/archive/history_20261101/a5_threshold_128000/job621436/B/convergence.png` | 621436 |
 | [job621436_B__profile__reference_comparison.png](job621436_B__profile__reference_comparison.png) | `runs/archive/history_20261101/a5_threshold_128000/job621436/B/profile/reference_comparison.png` | 621436 |
@@ -51,13 +51,15 @@
 
 | [job621699_uniform_256_lev0_t1000__analysis__centerline_t1000_with_reference_AB_z0p3.png](job621699_uniform_256_lev0_t1000__analysis__centerline_t1000_with_reference_AB_z0p3.png) | `data_post_processing/results/t1000_uniform_AB/centerline_t1000_with_reference_AB_z0p3.png` | 621699 / A:621435 / B:621436 |
 
-## job622356/B 动画序列补帧（2026-11-02）
+## job622356/B 动画序列（2026-11-02 原尺寸重导出）
 
-`job622356_job622356__B__victory.0000.png` 至 `.0039.png` 共40张，2080×1066。
-原GUI导出的0000–0006保持不变；批处理补齐0007–0039，对应step25600–128000、物理时间200–1000。
-完整序列对应step3200–128000、物理时间25–1000、间隔25。输入为同一B运行的ux/uy/uz，
-沿用GUI的三维旋度、y=0.5切片和`mag(Vorticity)*1.0`，色标范围0–1；排版以原七张GUI图片为参考。
+`job622356_job622356__B__victory.0000.png` 至 `.0039.png` 共40张，统一2110×1066。
+对应step3200–128000、物理时间25–1000、间隔25。输入为同一B运行的ux/uy/uz，
+沿用GUI的三维旋度、y=0.5切片和`mag(Vorticity)*1.0`，色标范围0–1。
+按最新GUI场景原尺寸渲染（view-scale=1），不再放大半尺寸视图；全部40帧标题位置已核对。
+使用20个独立单进程任务并发；旧40帧（含用户更新的0006参考图）完整备份。
 
-[导出与校验清单](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_completion/completion_report.json)、
-[冻结GUI场景](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_completion/gui_scene.pvsm)及
-[复现命令](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_completion/run_batch.sh)保存在运行结果中。
+[导出与校验清单](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/completion_report.json)、
+[冻结GUI场景](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/gui_scene.pvsm)、
+[复现命令](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/run_batch.sh)及
+[旧版备份](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/previous_images/)保存在运行结果中。
