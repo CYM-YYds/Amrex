@@ -148,7 +148,13 @@ Script内的`self`由过滤器执行环境提供，不能直接粘贴到Python S
 操作拒绝默认覆盖同名节点；仅显式指定`--existing-source NAME`时修复对应的同输入Programmable Filter。
 显示事务同时保存既有节点Script，异常恢复或回收新对象。更新后先检查输出非空，再Fetch和渲染，
 避免VTK脚本错误未转成Python异常时把空输出误判为成功。脚本支持MultiBlock/MultiPiece等
-Composite分组，不能仅递归MultiBlock。保存PVSM可保留Script和配色。
+Composite分组，不能仅递归MultiBlock。MPI `Fetch` 可能按进程再次包装输出，校验遍历所有
+非空叶子的整数 AMRLevel 字段，不把聚合后的外层序号当成 AMR 层号。保存PVSM可保留Script和配色。
+
+遇到 “Could not initialize annotations for categorical coloring” 时，先检查过滤器是否 Apply 成功、
+输出是否非空以及 AMRLevel 是否为整数 Field Data；该提示本身不证明数据有超过32个层级。
+操作会先更新有效输出，再设置 `0→lev0 / 1→lev1 / 2→lev2` 注释和颜色，最后启用分类着色。
+空输出或旧脚本须先修复，单纯点击不再提示不能修复管线。
 
 ## 固定 AMR 框线的层级颜色
 

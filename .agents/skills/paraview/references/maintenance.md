@@ -54,8 +54,10 @@ pv_bridge.stop()
 
 - `scripts/paraview_protocol.py`：动作、命令字段、能力列表与默认桥目录的唯一声明，
   不依赖 ParaView；投递器按文件位置加载，打包器将其嵌入 Windows 客户端。
-- `scripts/paraview_bridge_runtime.py`：SSH、命令队列、GUI 主线程调度、计时器、热更新、
-  状态诊断和背景备份生命周期；通过明确导入调用操作层。
+- `scripts/paraview_bridge_runtime.py`：SSH长连接、命令队列、GUI主线程调度、计时器、热更新、
+  状态诊断和背景备份生命周期；通过明确导入调用操作层。传输只由后台线程拥有，停止时回收
+  SSH进程及读取线程，断线后退避重连；[重试与协议升级边界](bridge.md#故障处理与验证边界)
+  统一在桥接说明维护，不用热更新替换旧传输协议。
 - `scripts/paraview_operations.py`：中心线、AMR 旋度与背景操作。
   不启动桥接、线程或计时器；独立批处理直接加载此模块。
 - `scripts/paraview_publication.py`：涡量切片的论文/参考图排版（`publication_vorticity`）与

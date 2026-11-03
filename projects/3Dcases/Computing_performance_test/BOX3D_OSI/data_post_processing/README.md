@@ -19,6 +19,26 @@ post_dir="$case_dir/data_post_processing"
 三个绘图入口使用明确的 `--output`；以下示例使用独立 `results/` 路径。
 重复使用同一输出路径会覆盖已有文件，运行时应选新名称。
 
+## job622356/B 涡量动画
+
+现役序列为 [images/job622356_job622356__B__victory.gif](images/job622356_job622356__B__victory.gif)
+与同前缀 `.0000.png` 至 `.0039.png` 共40张图。GIF 每帧500 ms、无限循环，完整一轮20秒；
+它是调色板预览，PNG 保留为逐帧图像。
+
+输入为 `runs/a5_B_three_plot3200/job622356/B/plt_003200` 至 `plt_128000` 的三维速度，
+步长3200、物理时间25至1000（间隔25）。沿用 GUI 场景先求三维旋度，再取 y=0.5 切片，
+显示 `mag(Vorticity)*1.0`，不额外归一化、不平滑、无外部参考数据；色标0–0.5，超出部分饱和。
+AMR lev0/1/2 以整数 Field Data `AMRLevel` 分类为白/红/绿，不能按自动 `vtkBlockColors` 推断层级。
+
+原尺寸2110×1066渲染保持GUI字号；随后所有帧统一裁剪 `(616,0,1493,1066)`，最终877×1066，
+无缩放或插值。正式输入/状态、驱动、逐任务日志、40帧回执、旧图和未裁剪图保存在
+[`animation_reexport_amrlevel/`](../runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_amrlevel/)，
+具体依据见[重导出记录](../docs/ai_changes/2026-11-03-vorticity-40frames-amrlevel.md)。这些是复现材料，保留。
+
+`B/figures/vorticity_y05_step128000.*` 是早期读取求解器原生涡量模长的单帧结果，
+不代表上述速度求导序列。其他早期补帧或原尺寸导出目录也不作为当前图像入口。
+批处理复用当前GUI场景的方法见[时间序列出图](../../../../../.agents/skills/paraview/references/publication.md#从-gui-场景导出时间序列)。
+
 ## 中心线：多步叠加
 
 ```bash
