@@ -193,3 +193,8 @@ Level-0、128³、三分量双精度的现有布局，并核对数据与 Cell_H 
 提取入口不再生成或更新它们。需要新的参考比较时使用绘图入口的新输出路径。
 
 绘图区需横纵轴等长时，给 `plot_centerline.py` 传入 `--square-axes`；它控制绘图区为正方形，不改变数据单位比例，默认保持既有排版。
+
+## C 阈值涡量动画（job624717）
+
+[查看 GIF](images/gif-C/job624717_C_vorticity.gif)：40帧、每帧500ms、无限循环，一轮20秒，输入t25..1000。与B动画相同的速度求旋度、y=0.5切片、色标0..1和AMR白/红/绿框线；C阈值0.25/0.5。裁剪PNG在images/gif-C/frames/，原图、场景及逐帧来源在runs/a5_C_t1000_gif/job624717/C/figures/animation_C/。
+合成命令见该目录pack_command.txt，复用原B渲染脚本；最终合成由scripts/temporary/pack_animation_gif.py执行。GIF为调色板预览，保留PNG用于逐帧查看。

@@ -1,0 +1,1 @@
+C job624717 40帧t25..1000正式动画；复用B animation_reexport_amrlevel/render_frames.py原脚本和场景，仅替换40个速度PlotFile路径。原脚本输出B前缀的原始PNG保留于frames_raw，最终裁剪副本改C前缀。保持2110×1066原尺寸渲染与统一裁剪(616,0,1493,1066)，GIF每帧500ms循环。来源、场景、命令、日志、PNG及GIF全部保留。

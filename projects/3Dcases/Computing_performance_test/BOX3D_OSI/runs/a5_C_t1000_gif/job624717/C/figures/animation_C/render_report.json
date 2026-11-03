@@ -1,0 +1,722 @@
+[
+  {
+    "index": 0,
+    "time": 25.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_003200",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0000.png",
+    "cells": 94720,
+    "range": [
+      7.035656548809754e-07,
+      25.599997459951698
+    ],
+    "amr_blocks": [
+      1,
+      2,
+      3
+    ],
+    "seconds": 42.421794179826975,
+    "peak_rss_kib": 2659968
+  },
+  {
+    "index": 1,
+    "time": 50.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_006400",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0001.png",
+    "cells": 103424,
+    "range": [
+      6.774297238486131e-07,
+      25.60000725620481
+    ],
+    "amr_blocks": [
+      1,
+      2,
+      3
+    ],
+    "seconds": 43.16009424068034,
+    "peak_rss_kib": 3667520
+  },
+  {
+    "index": 2,
+    "time": 75.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_009600",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0002.png",
+    "cells": 100352,
+    "range": [
+      6.863428569240448e-07,
+      25.600009516024507
+    ],
+    "amr_blocks": [
+      1,
+      2,
+      4
+    ],
+    "seconds": 44.20255195721984,
+    "peak_rss_kib": 3744704
+  },
+  {
+    "index": 3,
+    "time": 100.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_012800",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0003.png",
+    "cells": 98816,
+    "range": [
+      4.2665697160673193e-07,
+      25.600016820632035
+    ],
+    "amr_blocks": [
+      1,
+      2,
+      4
+    ],
+    "seconds": 45.060375828295946,
+    "peak_rss_kib": 3744704
+  },
+  {
+    "index": 4,
+    "time": 125.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_016000",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0004.png",
+    "cells": 99840,
+    "range": [
+      2.980911233407827e-07,
+      25.600007266056377
+    ],
+    "amr_blocks": [
+      1,
+      2,
+      4
+    ],
+    "seconds": 45.05755418725312,
+    "peak_rss_kib": 3763008
+  },
+  {
+    "index": 5,
+    "time": 150.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_019200",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0005.png",
+    "cells": 101888,
+    "range": [
+      9.317663129041014e-07,
+      25.600009469639048
+    ],
+    "amr_blocks": [
+      1,
+      3,
+      4
+    ],
+    "seconds": 47.61870438233018,
+    "peak_rss_kib": 2767744
+  },
+  {
+    "index": 6,
+    "time": 175.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_022400",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0006.png",
+    "cells": 102912,
+    "range": [
+      1.2014247987254308e-06,
+      25.60001015775827
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 43.87174813263118,
+    "peak_rss_kib": 3804160
+  },
+  {
+    "index": 7,
+    "time": 200.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_025600",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0007.png",
+    "cells": 103936,
+    "range": [
+      5.496085487658747e-07,
+      25.600014697925616
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 47.45398614555597,
+    "peak_rss_kib": 3828608
+  },
+  {
+    "index": 8,
+    "time": 225.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_028800",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0008.png",
+    "cells": 103936,
+    "range": [
+      5.331911321753415e-07,
+      25.60000857278603
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 47.33710145018995,
+    "peak_rss_kib": 3842560
+  },
+  {
+    "index": 9,
+    "time": 250.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_032000",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0009.png",
+    "cells": 103936,
+    "range": [
+      1.457876803782263e-06,
+      25.600006804747295
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 49.411671325564384,
+    "peak_rss_kib": 3848064
+  },
+  {
+    "index": 10,
+    "time": 275.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_035200",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0010.png",
+    "cells": 101888,
+    "range": [
+      8.183058335952108e-07,
+      25.600006120700694
+    ],
+    "amr_blocks": [
+      1,
+      3,
+      5
+    ],
+    "seconds": 48.25343329273164,
+    "peak_rss_kib": 2757120
+  },
+  {
+    "index": 11,
+    "time": 300.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_038400",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0011.png",
+    "cells": 101888,
+    "range": [
+      8.438936328177317e-07,
+      25.600004196167
+    ],
+    "amr_blocks": [
+      1,
+      3,
+      5
+    ],
+    "seconds": 45.88308439962566,
+    "peak_rss_kib": 3778752
+  },
+  {
+    "index": 12,
+    "time": 325.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_041600",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0012.png",
+    "cells": 103424,
+    "range": [
+      5.280132182376772e-07,
+      25.600007964344314
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 46.79487122222781,
+    "peak_rss_kib": 3788224
+  },
+  {
+    "index": 13,
+    "time": 350.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_044800",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0013.png",
+    "cells": 103424,
+    "range": [
+      1.150893316850481e-06,
+      25.600003932231218
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 45.42453536577523,
+    "peak_rss_kib": 3800256
+  },
+  {
+    "index": 14,
+    "time": 375.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_048000",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0014.png",
+    "cells": 103424,
+    "range": [
+      3.8153914278850236e-07,
+      25.60000419616746
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 50.41528370603919,
+    "peak_rss_kib": 3815104
+  },
+  {
+    "index": 15,
+    "time": 400.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_051200",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0015.png",
+    "cells": 103424,
+    "range": [
+      1.8841175641288237e-07,
+      25.600005177377547
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 49.62307707965374,
+    "peak_rss_kib": 2770112
+  },
+  {
+    "index": 16,
+    "time": 425.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_054400",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0016.png",
+    "cells": 103424,
+    "range": [
+      1.293297370509208e-06,
+      25.60001295497751
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 45.513012271374464,
+    "peak_rss_kib": 3800768
+  },
+  {
+    "index": 17,
+    "time": 450.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_057600",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0017.png",
+    "cells": 103424,
+    "range": [
+      1.9449815162296356e-06,
+      25.60001471296908
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 45.90406163968146,
+    "peak_rss_kib": 3805184
+  },
+  {
+    "index": 18,
+    "time": 475.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_060800",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0018.png",
+    "cells": 103424,
+    "range": [
+      2.1682478297542656e-07,
+      25.600010177809068
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 47.89027900248766,
+    "peak_rss_kib": 3806080
+  },
+  {
+    "index": 19,
+    "time": 500.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_064000",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0019.png",
+    "cells": 103424,
+    "range": [
+      9.823072015915922e-07,
+      25.60001896911558
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 47.39807013235986,
+    "peak_rss_kib": 3810304
+  },
+  {
+    "index": 20,
+    "time": 525.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_067200",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0020.png",
+    "cells": 103424,
+    "range": [
+      5.326875741532805e-07,
+      25.600000121596178
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 48.44265749119222,
+    "peak_rss_kib": 2767296
+  },
+  {
+    "index": 21,
+    "time": 550.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_070400",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0021.png",
+    "cells": 103424,
+    "range": [
+      8.573063674423329e-07,
+      25.600010030164647
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 45.42436667531729,
+    "peak_rss_kib": 3798144
+  },
+  {
+    "index": 22,
+    "time": 575.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_073600",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0022.png",
+    "cells": 103424,
+    "range": [
+      4.5446942634248194e-07,
+      25.600001796844186
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 46.03621141240001,
+    "peak_rss_kib": 3802048
+  },
+  {
+    "index": 23,
+    "time": 600.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_076800",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0023.png",
+    "cells": 103424,
+    "range": [
+      8.174738936215636e-07,
+      25.60000892704768
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 47.719114668667316,
+    "peak_rss_kib": 3802432
+  },
+  {
+    "index": 24,
+    "time": 625.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_080000",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0024.png",
+    "cells": 103936,
+    "range": [
+      4.799983300179372e-07,
+      25.599986979703356
+    ],
+    "amr_blocks": [
+      1,
+      5,
+      4
+    ],
+    "seconds": 48.02537352219224,
+    "peak_rss_kib": 3811904
+  },
+  {
+    "index": 25,
+    "time": 650.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_083200",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0025.png",
+    "cells": 103424,
+    "range": [
+      2.823825171915223e-07,
+      25.60000448202856
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 48.840006571263075,
+    "peak_rss_kib": 2769088
+  },
+  {
+    "index": 26,
+    "time": 675.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_086400",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0026.png",
+    "cells": 103424,
+    "range": [
+      1.9421539374969156e-06,
+      25.60000990601143
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 44.69239286519587,
+    "peak_rss_kib": 3797888
+  },
+  {
+    "index": 27,
+    "time": 700.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_089600",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0027.png",
+    "cells": 103424,
+    "range": [
+      1.0918551730927465e-06,
+      25.600009892594734
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 46.59705870784819,
+    "peak_rss_kib": 3802496
+  },
+  {
+    "index": 28,
+    "time": 725.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_092800",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0028.png",
+    "cells": 103424,
+    "range": [
+      8.665769795693754e-07,
+      25.600008010864617
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 46.70377535559237,
+    "peak_rss_kib": 3802752
+  },
+  {
+    "index": 29,
+    "time": 750.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_096000",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0029.png",
+    "cells": 104448,
+    "range": [
+      7.736535501129199e-07,
+      25.600010635581594
+    ],
+    "amr_blocks": [
+      1,
+      5,
+      4
+    ],
+    "seconds": 49.63279505260289,
+    "peak_rss_kib": 3808576
+  },
+  {
+    "index": 30,
+    "time": 775.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_099200",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0030.png",
+    "cells": 103424,
+    "range": [
+      8.011376386195246e-07,
+      25.600006565321646
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 48.9937530066818,
+    "peak_rss_kib": 2766528
+  },
+  {
+    "index": 31,
+    "time": 800.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_102400",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0031.png",
+    "cells": 103424,
+    "range": [
+      6.712123224846238e-07,
+      25.600004849116342
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 43.3734923414886,
+    "peak_rss_kib": 3797248
+  },
+  {
+    "index": 32,
+    "time": 825.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_105600",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0032.png",
+    "cells": 103424,
+    "range": [
+      1.4359688327861195e-06,
+      25.599996358049513
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 43.85732946358621,
+    "peak_rss_kib": 3801536
+  },
+  {
+    "index": 33,
+    "time": 850.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_108800",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0033.png",
+    "cells": 103424,
+    "range": [
+      5.271023747426723e-07,
+      25.600006815653913
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 47.808189284056425,
+    "peak_rss_kib": 3802048
+  },
+  {
+    "index": 34,
+    "time": 875.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_112000",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0034.png",
+    "cells": 103424,
+    "range": [
+      5.386823075521662e-07,
+      25.5999989232117
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 50.38090776838362,
+    "peak_rss_kib": 3808448
+  },
+  {
+    "index": 35,
+    "time": 900.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_115200",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0035.png",
+    "cells": 103424,
+    "range": [
+      6.131287156232235e-07,
+      25.600010596535224
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 48.207259906455874,
+    "peak_rss_kib": 2768000
+  },
+  {
+    "index": 36,
+    "time": 925.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_118400",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0036.png",
+    "cells": 103424,
+    "range": [
+      8.946353239003368e-07,
+      25.600020160082032
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 44.50998394750059,
+    "peak_rss_kib": 3800128
+  },
+  {
+    "index": 37,
+    "time": 950.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_121600",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0037.png",
+    "cells": 104448,
+    "range": [
+      3.324611438068472e-07,
+      25.600008484431616
+    ],
+    "amr_blocks": [
+      1,
+      5,
+      4
+    ],
+    "seconds": 46.39734315499663,
+    "peak_rss_kib": 3805376
+  },
+  {
+    "index": 38,
+    "time": 975.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_124800",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0038.png",
+    "cells": 103424,
+    "range": [
+      7.343708863173695e-07,
+      25.599999097152754
+    ],
+    "amr_blocks": [
+      1,
+      4,
+      4
+    ],
+    "seconds": 46.73452274873853,
+    "peak_rss_kib": 3805952
+  },
+  {
+    "index": 39,
+    "time": 1000.0,
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_128000",
+    "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/figures/animation_C/frames_raw/job622356_job622356__B__victory.0039.png",
+    "cells": 104960,
+    "range": [
+      1.0342113984684099e-06,
+      25.599997451751772
+    ],
+    "amr_blocks": [
+      1,
+      3,
+      4
+    ],
+    "seconds": 48.38375638984144,
+    "peak_rss_kib": 3817792
+  }
+]
