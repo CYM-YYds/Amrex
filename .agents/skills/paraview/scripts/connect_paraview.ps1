@@ -349,7 +349,7 @@ Write-Host "ParaView $PARAVIEW_VERSION; server: $SERVER_HOST; processes: $Server
 # 每次启动使用独立服务日志目录，与本机启动记录通过同一编号关联。
 $remoteLogDir = "$REMOTE_REPO_ROOT/.tools/paraview-mpi/logs/launch-$BRIDGE_LAUNCH_ID"
 $serverCommand = Get-ServerCommand "PARAVIEW_SERVER_LOG_DIR='$remoteLogDir' bash '$REMOTE_SERVER_SCRIPT' $serverOptions --server-port=$REMOTE_PORT"
-$sshCommand = "ssh -o ExitOnForwardFailure=yes -o BatchMode=yes -o ServerAliveInterval=30 -CL 127.0.0.1:${LOCAL_PORT}:${TUNNEL_TARGET}:${REMOTE_PORT} ${REMOTE_USERNAME}@${REMOTE_HOST} -p${SSH_PORT} -T `"$serverCommand`""
+$sshCommand = "ssh -o ExitOnForwardFailure=yes -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=1 -o ServerAliveInterval=30 -CL 127.0.0.1:${LOCAL_PORT}:${TUNNEL_TARGET}:${REMOTE_PORT} ${REMOTE_USERNAME}@${REMOTE_HOST} -p${SSH_PORT} -T `"$serverCommand`""
 Write-Host "Server node: $SERVER_HOST, remote port: $REMOTE_PORT" -ForegroundColor Cyan
 
 # Create server startup window
@@ -395,12 +395,33 @@ $stem = '__STEM__'
 $started = [DateTimeOffset]::Now.ToString('o')
 $code = 1
 try {
-    __SSH_COMMAND__ 2>&1 | ForEach-Object {
-        $line = "[{0}] {1}" -f [DateTimeOffset]::Now.ToString('o'), $_
-        $line | Out-File -LiteralPath (Join-Path $root "$stem.server.log") -Append -Encoding utf8
-        Write-Host $line
+    for ($attempt = 0; $attempt -lt 6; $attempt++) {
+        $tracePath = Join-Path $root "$stem.ssh-attempt-$attempt.log"
+        $attemptLines = [System.Collections.Generic.List[string]]::new()
+        __SSH_COMMAND__ 2>&1 | ForEach-Object {
+            $attemptLines.Add([string]$_)
+            $line = "[{0}] {1}" -f [DateTimeOffset]::Now.ToString('o'), $_
+            $line | Out-File -LiteralPath (Join-Path $root "$stem.server.log") -Append -Encoding utf8
+            Write-Host $line
+        }
+        $code = $LASTEXITCODE
+        $trace = if (Test-Path -LiteralPath $tracePath) { Get-Content -LiteralPath $tracePath -Raw } else { '' }
+        $diagnostic = $trace + "`n" + ($attemptLines -join "`n")
+        # 只重试有握手记录且尚未认证的瞬断；认证成功后绝不重放服务命令。
+        $handshakeStarted = $trace -match 'Connecting to |Local version string'
+        $authenticated = $trace -match 'Authenticated to |Authentication succeeded|Sending command:|Entering interactive session'
+        $rejected = $diagnostic -match 'Permission denied|Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED'
+        $interrupted = $diagnostic -match 'Connection closed|Connection reset|kex_exchange_identification|Exceeded MaxStartups'
+        if ($code -eq 255 -and $handshakeStarted -and -not $authenticated -and -not $rejected -and $interrupted -and $attempt -lt 5) {
+            $delay = [Math]::Min(60, [Math]::Pow(2, $attempt + 2))
+            $message = "SSH interrupted before authentication; retry $($attempt + 1)/5 in $delay seconds."
+            $message | Out-File -LiteralPath (Join-Path $root "$stem.server.log") -Append -Encoding utf8
+            Write-Host $message
+            Start-Sleep -Seconds $delay
+            continue
+        }
+        break
     }
-    $code = $LASTEXITCODE
 } catch {
     $_ | Out-String | Out-File -LiteralPath (Join-Path $root "$stem.server.log") -Append -Encoding utf8
 } finally {
@@ -410,7 +431,7 @@ try {
 Write-Host "Server exited with code $code. Logs: $root"
 exit $code
 '@
-$runnerText = $runnerTemplate.Replace('__EXPORT_FUNCTION__', "function Export-LaunchDiagnostics {`n${function:Export-LaunchDiagnostics}`n}").Replace('__LAUNCH_ID__', $BRIDGE_LAUNCH_ID).Replace('__STEM__', $launchStem).Replace('__SSH_COMMAND__', $sshCommand)
+$runnerText = $runnerTemplate.Replace('__EXPORT_FUNCTION__', "function Export-LaunchDiagnostics {`n${function:Export-LaunchDiagnostics}`n}").Replace('__LAUNCH_ID__', $BRIDGE_LAUNCH_ID).Replace('__STEM__', $launchStem).Replace('__SSH_COMMAND__', $sshCommand.Replace('ssh -o', 'ssh -v -E "$tracePath" -o'))
 [IO.File]::WriteAllText($serverRunner, $runnerText, [Text.UTF8Encoding]::new($true))
 $batchLines = @(
     '@echo off'
@@ -431,13 +452,23 @@ Write-Host "Server startup script: $batchFile" -ForegroundColor Cyan
 Write-Host "Launch record: $launchRecord" -ForegroundColor Cyan
 Write-Host "Remote server logs: $remoteLogDir" -ForegroundColor Cyan
 
-# 检查监听状态，不建立 TCP 探测连接，避免消耗 pvserver 的客户端连接。
-Write-Host "Waiting for remote pvserver listener..." -ForegroundColor Cyan
-$attempts = (1..30) -join ' '
-$readyCommand = Get-ServerCommand "for i in $attempts; do if netstat -lnt 2>/dev/null | grep -Eq '[:.]${REMOTE_PORT}[[:space:]]'; then exit 0; fi; sleep 1; done; exit 1"
-Invoke-StartupReadOnlySsh -T -o BatchMode=yes -o ConnectTimeout=5 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $readyCommand
-if ($LASTEXITCODE -ne 0) {
-    throw "pvserver listener did not become ready. Read the server startup window; it is kept open."
+# 读取本地服务输出，不与服务握手并发新建SSH，也不建立会消耗客户端名额的TCP探测。
+Write-Host "Waiting for remote pvserver listener (automatic SSH recovery enabled)..." -ForegroundColor Cyan
+$listenerReady = $false
+for ($wait = 0; $wait -lt 210; $wait++) {
+    if (Test-Path -LiteralPath $serverExit) {
+        $ended = Get-Content -LiteralPath $serverExit -Raw | ConvertFrom-Json
+        throw "Server SSH exited with code $($ended.exit_code). See $serverOutput and SSH attempt logs."
+    }
+    if ((Test-Path -LiteralPath $serverOutput) -and
+        ((Get-Content -LiteralPath $serverOutput -Raw) -match 'Waiting for client\.\.\.')) {
+        $listenerReady = $true
+        break
+    }
+    Start-Sleep -Seconds 1
+}
+if (-not $listenerReady) {
+    throw "pvserver listener did not become ready. Logs: $serverOutput. Server window retained."
 }
 
 Write-Host "Starting ParaView client..." -ForegroundColor Cyan

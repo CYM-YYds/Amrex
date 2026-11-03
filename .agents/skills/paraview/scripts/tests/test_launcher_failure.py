@@ -110,3 +110,35 @@ class DiagnosticBundleTests(unittest.TestCase):
                 self.assertIn('server output', log)
                 self.assertIn('Connection closed by host', log)
                 self.assertIn(stem + '.server-exit.json', archive.namelist())
+
+
+@unittest.skipUnless(PWSH, 'native PowerShell is unavailable')
+class ServerHandshakeRetryTests(unittest.TestCase):
+    def test_retry_only_before_authentication(self):
+        source = (SCRIPTS / 'connect_paraview.ps1').read_text(encoding='utf-8-sig')
+        helper = source[source.index('function Export-LaunchDiagnostics'):source.index('# 崩溃后可随时重打包')]
+        template = source.split("$runnerTemplate = @'\n", 1)[1].split("\n'@", 1)[0]
+        for mode, expected in [('closed', 2), ('authenticated', 1), ('auth_rejected', 1), ('crash', 1), ('always_closed', 6)]:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                fake = root / 'ssh.py'
+                fake.write_text("""import sys,pathlib
+trace=pathlib.Path(sys.argv[1]); mode=sys.argv[2]; count=trace.parent/'count'
+n=int(count.read_text())+1 if count.exists() else 1; count.write_text(str(n))
+text='debug1: Connecting to host port 6022.\\n'
+if mode=='authenticated': text+='Authenticated to host\\nSending command: bash\\n'
+if mode=='auth_rejected': text+='Permission denied (publickey)\\n'
+trace.write_text(text)
+if mode=='crash': sys.exit(139)
+if n==1 or mode=='always_closed':
+ print('Connection closed by host',file=sys.stderr);sys.exit(255)
+print('Waiting for client...')
+""")
+                quote = lambda x: "'" + str(x).replace("'", "''") + "'"
+                command = '& ' + quote(sys.executable) + ' ' + quote(fake) + ' $tracePath ' + quote(mode)
+                runner = template.replace('__EXPORT_FUNCTION__', helper).replace('__LAUNCH_ID__', 'a'*32).replace('__STEM__', 'server_'+'a'*32).replace('__SSH_COMMAND__', command)
+                script = root / 'server.ps1'
+                script.write_text('function Start-Sleep { param($Seconds) }\n' + runner)
+                result = subprocess.run([PWSH, '-NoProfile', '-NonInteractive', '-File', str(script)], capture_output=True, text=True, timeout=30)
+                self.assertEqual(int((root/'count').read_text()), expected, result.stdout + result.stderr)
+                self.assertEqual(result.returncode, 0 if mode=='closed' else (139 if mode=='crash' else 255))
