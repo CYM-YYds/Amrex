@@ -1,0 +1,48 @@
+{
+  "job": 624717,
+  "windows": 40,
+  "steps": 128000,
+  "window_steps": 3200,
+  "sums_s": {
+    "interp": "317.809719172",
+    "average": "140.411797382",
+    "collide": "2345.66944136",
+    "stream": "8.2509684609",
+    "comm": "105.400629936",
+    "boundary": "416.648757109",
+    "solv": "3333.34967574",
+    "total": "3483.08831249"
+  },
+  "last_window": {
+    "step": 128000,
+    "osi_detail_timing": "0",
+    "interp": "8.342062131",
+    "collide": "58.78392773",
+    "stream": "0.197677611",
+    "average": "3.587239564",
+    "comm": "2.529563722",
+    "osi_decode": "0",
+    "osi_parallel_copy": "0",
+    "osi_fillboundary": "0",
+    "osi_encode": "0",
+    "osi_mpi_pack": "0",
+    "osi_mpi_pack_kernel": "0",
+    "osi_mpi_dtoh": "0",
+    "osi_mpi_wait": "0",
+    "osi_mpi_htod": "0",
+    "osi_mpi_unpack": "0",
+    "osi_mpi_unpack_kernel": "0",
+    "boundary": "10.57231896",
+    "swap": "0",
+    "solv": "83.99124219",
+    "total": "88.06917187",
+    "steps": "3200",
+    "MLUPS_solv": "2001.301988",
+    "MLUPS_total": "1908.634275"
+  },
+  "fields": {
+    "velocity": 40,
+    "vorticity": 40
+  },
+  "definition": "phase and solv/total sums over 40 windows; MLUPS last window only; excludes init/output; no device peak sampler for this job"
+}
