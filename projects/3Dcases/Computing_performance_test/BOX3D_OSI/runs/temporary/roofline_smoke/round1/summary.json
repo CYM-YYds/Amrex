@@ -1,0 +1,208 @@
+{
+  "job": "job624743",
+  "node": "whshare-agent-82",
+  "status": {
+    "baseline_1": "0",
+    "baseline_2": "0",
+    "baseline_3": "0",
+    "ncu_collision": "1"
+  },
+  "baseline": [
+    {
+      "run": "baseline_1",
+      "steps": 80.0,
+      "total_s": 0.372054126,
+      "total_ms_per_step": 4.650676575,
+      "collide_gpu_ms_per_step": 3.6658431737499995,
+      "collide_gpu_s": 0.2932674539,
+      "boundary_gpu_ms_per_step": 0.9553279980999999,
+      "mlups_total": 3607.478552730793,
+      "logical_bytes": 289910292480.0,
+      "logical_effective_GB_s": 988.5525605540098,
+      "final_state": {
+        "level": 0.0,
+        "phase": 100.0,
+        "ddf_min": 0.0036495151,
+        "ddf_max": 0.2982881367,
+        "rho_min": 0.995421946,
+        "rho_max": 1.006722569,
+        "velocity_linf": 0.05000006035
+      },
+      "windows": [
+        {
+          "step_end": 256040,
+          "total_s": 0.094046879,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.714355195,
+          "phase": 0.006451200205,
+          "boundary": 0.9597951978
+        },
+        {
+          "step_end": 256060,
+          "total_s": 0.093609093,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.694080019,
+          "phase": 0.006348800217,
+          "boundary": 0.9586176008
+        },
+        {
+          "step_end": 256080,
+          "total_s": 0.092225788,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.631718349,
+          "phase": 0.006246400205,
+          "boundary": 0.9519616008
+        },
+        {
+          "step_end": 256100,
+          "total_s": 0.092172366,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.623219132,
+          "phase": 0.006809600117,
+          "boundary": 0.950937593
+        }
+      ]
+    },
+    {
+      "run": "baseline_2",
+      "steps": 80.0,
+      "total_s": 0.369281894,
+      "total_ms_per_step": 4.616023675,
+      "collide_gpu_ms_per_step": 3.633011186,
+      "collide_gpu_s": 0.29064089488,
+      "boundary_gpu_ms_per_step": 0.9551104024000001,
+      "mlups_total": 3634.5602148585167,
+      "logical_bytes": 289910292480.0,
+      "logical_effective_GB_s": 997.4862367517081,
+      "final_state": {
+        "level": 0.0,
+        "phase": 100.0,
+        "ddf_min": 0.0036495151,
+        "ddf_max": 0.2982881367,
+        "rho_min": 0.995421946,
+        "rho_max": 1.006722569,
+        "velocity_linf": 0.05000006035
+      },
+      "windows": [
+        {
+          "step_end": 256040,
+          "total_s": 0.091948343,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.616614425,
+          "phase": 0.00629760013,
+          "boundary": 0.9531392008
+        },
+        {
+          "step_end": 256060,
+          "total_s": 0.092978787,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.66602242,
+          "phase": 0.006502400152,
+          "boundary": 0.9543680042
+        },
+        {
+          "step_end": 256080,
+          "total_s": 0.092180116,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.625727963,
+          "phase": 0.006144000171,
+          "boundary": 0.9558528036
+        },
+        {
+          "step_end": 256100,
+          "total_s": 0.092174648,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.623679936,
+          "phase": 0.006400000188,
+          "boundary": 0.957081601
+        }
+      ]
+    },
+    {
+      "run": "baseline_3",
+      "steps": 80.0,
+      "total_s": 0.36978511199999997,
+      "total_ms_per_step": 4.6223139,
+      "collide_gpu_ms_per_step": 3.6358271804999993,
+      "collide_gpu_s": 0.29086617443999996,
+      "boundary_gpu_ms_per_step": 0.952588798125,
+      "mlups_total": 3629.6141635902313,
+      "logical_bytes": 289910292480.0,
+      "logical_effective_GB_s": 996.7136709456151,
+      "final_state": {
+        "level": 0.0,
+        "phase": 100.0,
+        "ddf_min": 0.0036495151,
+        "ddf_max": 0.2982881367,
+        "rho_min": 0.995421946,
+        "rho_max": 1.006722569,
+        "velocity_linf": 0.05000006035
+      },
+      "windows": [
+        {
+          "step_end": 256040,
+          "total_s": 0.092339109,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.638425612,
+          "phase": 0.006297600199,
+          "boundary": 0.9510912031
+        },
+        {
+          "step_end": 256060,
+          "total_s": 0.092715915,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.655628812,
+          "phase": 0.006246400205,
+          "boundary": 0.9526783973
+        },
+        {
+          "step_end": 256080,
+          "total_s": 0.092617933,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.62531836,
+          "phase": 0.006144000171,
+          "boundary": 0.9541119874
+        },
+        {
+          "step_end": 256100,
+          "total_s": 0.092112155,
+          "rank": 0.0,
+          "eligible": 1.0,
+          "samples": 20.0,
+          "collide_sum": 3.623935938,
+          "phase": 0.007475200156,
+          "boundary": 0.9524736047
+        }
+      ]
+    }
+  ],
+  "ncu_permission_denied": true,
+  "ncu_report_exists": false,
+  "mean_total_ms_per_step": 4.629671383333333,
+  "mean_collide_gpu_ms_per_step": 3.6448938467499996,
+  "aggregate_logical_effective_GB_s": 994.2343476563143,
+  "aggregate_mlups_total": 3623.845973257936,
+  "limits": "Logical bytes only; no measured DRAM bandwidth, utilization, executed FLOPs or roofline point. Short uniform-grid probe with automatic CUDA-event sampling; no AMR or numerical-equivalence claim."
+}
