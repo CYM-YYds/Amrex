@@ -1313,8 +1313,12 @@ def add_level_array_outline(command):
     existing = [s for (n, _), s in pvs.GetSources().items() if n == name]
     node = None
     if command.get('existing_source'):
-        if len(existing) != 1 or existing[0].GetXMLName() != 'ProgrammableFilter' or existing[0].Input != source:
-            raise ValueError('existing_source must be the named Programmable Filter directly connected to source')
+        if len(existing) != 1 or existing[0].GetXMLName() != 'ProgrammableFilter':
+            raise ValueError('existing_source must identify exactly one Programmable Filter')
+        inputs = existing[0].GetProperty('Input').SMProperty
+        # Programmable Filter的Input支持多输入，Python getter可能返回列表；按SM连接核对。
+        if inputs.GetNumberOfProxies() != 1 or inputs.GetProxy(0).GetGlobalIDAsString() != source.GetGlobalIDAsString():
+            raise ValueError('existing_source must connect directly and exclusively to source')
         node = existing[0]
     elif existing:
         raise ValueError('The AMRLevel node already exists; use existing_source explicitly to repair it')
@@ -1334,16 +1338,21 @@ def add_level_array_outline(command):
         if node is None:
             node = pvs.ProgrammableFilter(registrationName=name, Input=source)
         node.Script = AMR_LEVEL_FIELD_SCRIPT
+        node.UpdatePipeline(current)
+        if node.GetDataInformation().GetNumberOfCells() == 0:
+            raise RuntimeError('AMRLevel filter output is empty; stop before configuring categorical colors')
         display = pvs.Show(node, view)
         display.Representation = 'Outline'
         display.LineWidth = old_displays[0].LineWidth
-        pvs.ColorBy(display, ('FIELD', 'AMRLevel'), separate=True)
         lut = pvs.GetColorTransferFunction('AMRLevel', display, separate=True)
-        lut.InterpretValuesAsCategories = 1
+        # 先提供已知的整数类别，再启用分类着色，避免GUI自动探测空数组/浮点数组。
         lut.Annotations = ['0', 'lev0', '1', 'lev1', '2', 'lev2']
         lut.IndexedColors = [1, 1, 1, 1, 0, 0, 0, 1, 0]
+        lut.InterpretValuesAsCategories = 1
+        pvs.ColorBy(display, ('FIELD', 'AMRLevel'), separate=True)
         display.SetScalarBarVisibility(view, False)
-        old_displays[0].SetScalarBarVisibility(view, False)
+        if old_displays[0].ColorArrayName.GetArrayName() and old_displays[0].LookupTable:
+            old_displays[0].SetScalarBarVisibility(view, False)
         old_displays[0].Visibility = 0
         try:
             for time in cycle:
