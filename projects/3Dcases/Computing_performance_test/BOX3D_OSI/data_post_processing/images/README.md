@@ -73,3 +73,5 @@
 B动画的现役显示文件在 [gif-B/](gif-B/)，40张PNG已与生成目录crop_horizontal/report.json的cropped_sha256逐个核对；表中该组来源列指向渲染/裁剪记录目录，不再指向被替代的native版本。历史脚本可能固定旧输出路径，复现前按记录核对，勿直接覆盖现役图片。
 
 已移除汇总副本的条目优先链接仍存在的原图；两端均未找到的条目标注为历史记录，不表示本轮删除或已恢复。
+
+| [job621436_B_job624717_C_job623012_uniform512__centerline_t1000_with_Cortes.png](job621436_B_job624717_C_job623012_uniform512__centerline_t1000_with_Cortes.png) | `data_post_processing/results/BC_uniform512_Cortes/centerline_t1000_AMR_BC_uniform512_Cortes.png` | 621436 / 624717 / 623012 |

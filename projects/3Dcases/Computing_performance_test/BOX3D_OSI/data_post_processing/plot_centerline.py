@@ -146,6 +146,8 @@ def plot_profiles(profiles, references, output, *, title="Centerline velocity co
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", nargs=3, action="append", required=True, metavar=("CSV", "LABEL", "STEP"))
+    parser.add_argument("--profile-style", nargs=3, action="append", default=[],
+                        metavar=("LABEL", "COLOR", "LINESTYLE"), help="按曲线标签指定颜色和线型，可重复")
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--reference-source", help="参考数据出处说明；默认记录参考 CSV 路径")
     parser.add_argument("--height", type=float, required=True)
@@ -195,6 +197,18 @@ def main():
         for name, reference in references.items():
             metrics.append({"profile": label, "step": step, "reference": name,
                             **reference_errors(points, reference, outside=args.outside_reference)})
+    # 复用绘图函数已有的逐曲线样式字段，保持数据和默认排版独立。
+    styled = set()
+    for label, color, linestyle in args.profile_style:
+        if label not in labels or label in styled:
+            parser.error("样式标签必须对应已有曲线且不能重复")
+        from matplotlib.lines import Line2D
+        try:
+            Line2D([], [], color=color, linestyle=linestyle)
+        except ValueError as exc:
+            parser.error(str(exc))
+        next(p for p in profiles if p["label"] == label).update(color=color, linestyle=linestyle)
+        styled.add(label)
     reference_source = str(args.reference.resolve()) if args.reference else "none"
     if args.reference_source:
         reference_source += f" ({args.reference_source})"
