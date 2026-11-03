@@ -1,0 +1,13 @@
+{
+  "trend_points": 256,
+  "formal_points": 80,
+  "final_step": 256000,
+  "final_relative": 0.0002571148216,
+  "plot_tolerance": 9.999999747e-05,
+  "final_over_tolerance": 2.5711482810500517,
+  "runtime_last_formal_converged": false,
+  "runtime_tolerance": 9.999999747e-05,
+  "convergence_verdict": "Runtime formal flag reported only for log input; no inference from CSV or PlotFile",
+  "output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_B_continue_t2000/analysis/B_t0_t2000_convergence.png",
+  "csv_output": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_B_continue_t2000/analysis/B_t0_t2000_convergence.csv"
+}

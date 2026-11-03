@@ -63,3 +63,5 @@
 [冻结GUI场景](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/gui_scene.pvsm)、
 [复现命令](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/run_batch.sh)及
 [旧版备份](../../runs/a5_B_three_plot3200/job622356/B/figures/animation_reexport_native/previous_images/)保存在运行结果中。
+
+| [job623697_B_t0_t2000_convergence.png](job623697_B_t0_t2000_convergence.png) | `runs/a5_B_continue_t2000/analysis/B_t0_t2000_convergence.png` | 621436 / 623697 |
