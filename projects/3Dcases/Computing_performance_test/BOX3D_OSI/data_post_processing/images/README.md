@@ -67,3 +67,5 @@
 | [job623697_B_t0_t2000_convergence.png](job623697_B_t0_t2000_convergence.png) | `runs/a5_B_continue_t2000/analysis/B_t0_t2000_convergence.png` | 621436 / 623697 |
 
 | [job624717_C__centerline_t1000_with_Cortes.png](job624717_C__centerline_t1000_with_Cortes.png) | `data_post_processing/results/C_t1000_Cortes/centerline_t1000_AMR_C_Cortes.png` | 624717 |
+
+| [job624717_C_job623012_uniform512__centerline_t1000_with_Cortes.png](job624717_C_job623012_uniform512__centerline_t1000_with_Cortes.png) | `data_post_processing/results/C_uniform512_Cortes/centerline_t1000_AMR_C_uniform512_Cortes.png` | 624717 / 623012 |

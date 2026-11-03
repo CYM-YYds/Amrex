@@ -1,0 +1,16 @@
+{
+  "samples": 1025,
+  "invalid_samples": 0,
+  "z_range": [
+    0.0,
+    1.0
+  ],
+  "Re": 1000,
+  "time": 1000,
+  "step": 512000,
+  "normalization": {
+    "H": 1,
+    "U_lid": 0.05
+  },
+  "csv_sha256": "2715066fab47a2462521a9e0a0ba600b1873f46aa13b2849ba4aa23fc5fc7a1b"
+}
