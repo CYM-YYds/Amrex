@@ -1,0 +1,17 @@
+{
+  "candidates": [
+    {
+      "path": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/scripts/__pycache__",
+      "files": 1,
+      "bytes": 5258,
+      "tracked": false
+    },
+    {
+      "path": "projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/__pycache__",
+      "files": 7,
+      "bytes": 92122,
+      "tracked": false
+    }
+  ],
+  "deleted": []
+}

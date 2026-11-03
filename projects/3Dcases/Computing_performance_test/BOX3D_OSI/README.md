@@ -9,14 +9,14 @@
 
 常用脚本：[构建/提交索引](scripts/README.md) · [后处理入口](data_post_processing/README.md) · [临时实验索引](scripts/temporary/README.md) · [仓库脚本导航](../../../../docs/script-guide.md)。
 
-更新时间：2026-10-29。
+更新时间：2026-11-03。
 
 
 ## 二维与三维统一入口
 
-默认三维。2026-10-29 核对的工作树三维输入为 Re=1000，ErrorEst 选择 `state_error_3`；
-该选择器及输入数值属于用户尚未提交的修改，与 HEAD 的历史默认值不同。
-本轮实验复现使用已冻结的程序和输入，见[当前交接状态](docs/current_status.md)。二维使用 `state_error_3` 与
+默认三维。当前 config/inputs 为 Re=1000，ErrorEst 选择 `state_error_3`，由 `lbm.err[lev]` 控制阈值。
+2026-11-03 核对时相关源码/配置没有未提交差异；旧记录中“用户未提交”的表述只描述当时状态。
+近期 C/双数组 A-B 实验使用历史冻结程序和输入，不能视为当前优化程序的长程验收；运行结果见[计算结果入口](runs/README.md)。二维使用 `state_error_3` 与
 [config/inputs.2d](config/inputs.2d)（Re=1000）。维度由构建宏唯一决定：
 
 ```bash

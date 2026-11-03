@@ -1,0 +1,427 @@
+[
+  {
+    "script": "scripts/temporary/a5_threshold_probe.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/C_AB_t1000_peak_memory_rerun/job624780/submit.sh",
+      "runs/C_AB_t1000_peak_memory_rerun/job624811/submit.sh",
+      "runs/C_AB_t1000_peak_memory_rerun/job624781/submit.sh",
+      "runs/C_AB_t1000_peak_memory_rerun/job624810/submit.sh",
+      "runs/C_AB_OSI_t1000_peak_memory/job624739/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/analyze_a5_threshold_probe.py",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/analyze_a5_threshold_probe.py",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/analyze_a5_threshold_probe.py",
+      "runs/temporary/a5_grid_eff_restart/job621485/analysis_source.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/analyze_ghost_collision.py",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/analyze_ghost_collision.py",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/analyze_ghost_collision.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/analyze_regrid_cache_reuse.py",
+    "callers": [
+      "scripts/temporary/regrid_cache_reuse.sh"
+    ],
+    "identical_snapshots": [
+      "runs/temporary/regrid_cache_reuse/round1/job622351/analyze_regrid_cache_reuse.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/analyze_regrid_quantification.py",
+    "callers": [
+      "scripts/temporary/regrid_quantification.sh"
+    ],
+    "identical_snapshots": [
+      "runs/temporary/regrid_quantification/round1/job622773/analyze_regrid_quantification.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/analyze_regrid_stage_evaluation.py",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/temporary/regrid_stage_evaluation/round1/analyze_regrid_stage_evaluation.py",
+      "runs/temporary/regrid_stage_evaluation/round1/job622982/analyze_regrid_stage_evaluation.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/analyze_restriction_gpu_tags.py",
+    "callers": [
+      "scripts/temporary/submit_restriction_gpu_tags.sh"
+    ],
+    "identical_snapshots": []
+  },
+  {
+    "script": "scripts/temporary/analyze_roofline_smoke.py",
+    "callers": [],
+    "identical_snapshots": []
+  },
+  {
+    "script": "scripts/temporary/analyze_transfer_fusion.py",
+    "callers": [
+      "scripts/temporary/analyze_regrid_cache_reuse.py",
+      "scripts/temporary/submit_transfer_fusion.sh",
+      "scripts/temporary/analyze_restriction_gpu_tags.py"
+    ],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/analyze_transfer_fusion.py",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/analyze_transfer_fusion.py",
+      "runs/temporary/ab_osi_transfer_complete/job620331/analyze_final.py",
+      "runs/temporary/ab_osi_transfer_complete/job620330/analyze_final.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/analyze_uniform_dispatch.py",
+    "callers": [
+      "scripts/temporary/uniform_dispatch.sh"
+    ],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/analyze_uniform_dispatch.py",
+      "runs/temporary/uniform_sampling/round3/analyze_uniform_dispatch.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/analyze_uniform_kernels.py",
+    "callers": [
+      "scripts/temporary/uniform_dispatch.sh"
+    ],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/analyze_uniform_kernels.py",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/analyze_uniform_kernels.py",
+      "runs/temporary/uniform_kernels/round1/job621544/analyze.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/build_transfer_restriction_gpu.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/build_transfer_restriction_gpu.sh",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/build_transfer_restriction_gpu.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/build_uniform_kernels.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/build_uniform_kernels.sh",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/build_uniform_kernels.sh",
+      "runs/temporary/uniform_kernels/round1/build_uniform_kernels.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/checkpoint_io/submit.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/temporary/checkpoint_io/job622997/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/collision_amr/analyze.py",
+    "callers": [
+      "scripts/temporary/collision_amr/submit.sh"
+    ],
+    "identical_snapshots": []
+  },
+  {
+    "script": "scripts/temporary/collision_amr/multigpu.py",
+    "callers": [
+      "scripts/temporary/collision_amr/submit.sh"
+    ],
+    "identical_snapshots": [
+      "runs/temporary/other_coordinates/round1/job621982/multigpu.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/collision_amr/prepare.py",
+    "callers": [],
+    "identical_snapshots": []
+  },
+  {
+    "script": "scripts/temporary/collision_amr/q19_uniform.py",
+    "callers": [
+      "scripts/temporary/collision_amr/submit.sh"
+    ],
+    "identical_snapshots": [
+      "runs/temporary/q19_uniform/round1/job621996/q19_uniform.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/collision_amr/stages.py",
+    "callers": [
+      "scripts/temporary/collision_amr/submit.sh"
+    ],
+    "identical_snapshots": [
+      "runs/temporary/uniform_dispatch_removal/round1/job621977/stages.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/collision_amr/submit.sh",
+    "callers": [
+      "scripts/temporary/collision_amr/stages.py",
+      "scripts/temporary/collision_amr/multigpu.py"
+    ],
+    "identical_snapshots": []
+  },
+  {
+    "script": "scripts/temporary/collision_factors/analyze.py",
+    "callers": [
+      "scripts/temporary/collision_factors/submit.sh"
+    ],
+    "identical_snapshots": []
+  },
+  {
+    "script": "scripts/temporary/collision_factors/prepare.py",
+    "callers": [],
+    "identical_snapshots": []
+  },
+  {
+    "script": "scripts/temporary/collision_factors/submit.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/temporary/collision_factors/round1/job621730/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/flat_q27/analyze.py",
+    "callers": [],
+    "identical_snapshots": []
+  },
+  {
+    "script": "scripts/temporary/flat_q27/prepare.py",
+    "callers": [],
+    "identical_snapshots": []
+  },
+  {
+    "script": "scripts/temporary/flat_q27/submit.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/temporary/flat_original/round1/job621728/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/main_lifecycle_refactor_test.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/main_lifecycle_refactor_test.sh",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/main_lifecycle_refactor_test.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/pack_animation_gif.py",
+    "callers": [],
+    "identical_snapshots": []
+  },
+  {
+    "script": "scripts/temporary/precision_switch/summarize.py",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/precision_switch/summarize.py",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/precision_switch/summarize.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/precision_switch/validate.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/precision_switch/validate.sh",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/precision_switch/validate.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/prepare_uniform_kernels.py",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/prepare_uniform_kernels.py",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/prepare_uniform_kernels.py",
+      "runs/temporary/uniform_kernels/round1/prepare_uniform_kernels.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/profile_collision.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/profile_collision.sh",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/profile_collision.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/profile_uniform_hw.sh",
+    "callers": [],
+    "identical_snapshots": []
+  },
+  {
+    "script": "scripts/temporary/regrid_cache_reuse.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/temporary/regrid_cache_reuse/round1/submit_steady.sh",
+      "runs/temporary/regrid_cache_reuse/round1/job622351/submit_steady.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/regrid_quantification.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/temporary/regrid_quantification/round1/submit.sh",
+      "runs/temporary/regrid_quantification/round1/job622773/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/regrid_stage_evaluation.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/temporary/regrid_stage_evaluation/round1/submit.sh",
+      "runs/temporary/regrid_stage_evaluation/round1/job622982/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/regrid_verification_boundary.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/temporary/regrid_verification_boundary/round1/job622316/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/restriction_tag_layout/analyze.py",
+    "callers": [
+      "scripts/temporary/restriction_tag_layout/submit.sh"
+    ],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/restriction_tag_layout/analyze.py",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/restriction_tag_layout/analyze.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/restriction_tag_layout/prepare.py",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/restriction_tag_layout/prepare.py",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/restriction_tag_layout/prepare.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/restriction_tag_layout/sizes.py",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/restriction_tag_layout/sizes.py",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/restriction_tag_layout/sizes.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/restriction_tag_layout/submit.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/restriction_tag_layout/submit.sh",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/restriction_tag_layout/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/roofline_smoke.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/temporary/roofline_smoke/round1/job624743/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/single_precision_particles/check.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/single_precision_particles/check.sh",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/single_precision_particles/check.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/submit_restart_memory.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/20261020_203826_job615978/submit_restart_memory.sh",
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/submit_restart_memory.sh",
+      "runs/archive/history_20261101/20261021_120737_job616234/submit_restart_memory.sh",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/submit_restart_memory.sh",
+      "runs/archive/history_20261101/20261021_120737_job616235/submit_restart_memory.sh",
+      "runs/archive/history_20261101/20261020_221834_job615992/submit_restart_memory.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/submit_restriction_gpu_tags.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/temporary/restriction_gpu_tags/integration/job623351/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/submit_transfer_fusion.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/submit_transfer_fusion.sh",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/submit_transfer_fusion.sh",
+      "runs/temporary/ab_osi_transfer_complete/job620331/submit.sh",
+      "runs/temporary/ab_osi_transfer_complete/job620330/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/summarize_restart_memory.py",
+    "callers": [
+      "scripts/temporary/a5_threshold_probe.sh"
+    ],
+    "identical_snapshots": [
+      "runs/C_AB_t1000_peak_memory_rerun/job624780/summarize_memory.py",
+      "runs/C_AB_t1000_peak_memory_rerun/job624811/summarize_memory.py",
+      "runs/C_AB_t1000_peak_memory_rerun/job624781/summarize_memory.py",
+      "runs/C_AB_t1000_peak_memory_rerun/job624810/summarize_memory.py",
+      "runs/C_AB_OSI_t1000_peak_memory/job624739/summarize_memory.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/test_ghost_collision.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/test_ghost_collision.sh",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/test_ghost_collision.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/uniform512_local_staging.py",
+    "callers": [
+      "scripts/temporary/collision_amr/submit.sh"
+    ],
+    "identical_snapshots": [
+      "runs/uniform512_local_staging_t1000/job623012/runner.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/uniform512_recovery.py",
+    "callers": [
+      "scripts/temporary/collision_amr/submit.sh"
+    ],
+    "identical_snapshots": [
+      "runs/uniform512_recovery_t1000/job622850/runner.py"
+    ]
+  },
+  {
+    "script": "scripts/temporary/uniform_dispatch.sh",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/uniform_dispatch.sh",
+      "runs/temporary/uniform_sampling/round3/uniform_dispatch.sh",
+      "runs/temporary/uniform_sampling/round3/job621696/submit.sh"
+    ]
+  },
+  {
+    "script": "scripts/temporary/validate_a5_plotfiles.py",
+    "callers": [],
+    "identical_snapshots": [
+      "runs/archive/history_20261101/uniform_256_lev0_t1000/scripts/temporary/validate_a5_plotfiles.py",
+      "runs/archive/history_20261101/a5_threshold_fields/job621375/validate_plotfiles.py",
+      "runs/archive/history_20261101/uniform_256_lev0_128000/launch_source/temporary/validate_a5_plotfiles.py"
+    ]
+  }
+]

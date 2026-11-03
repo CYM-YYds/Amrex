@@ -1,0 +1,7 @@
+JOB_ID              JOB_NAME        USER            JOB_STATE       QUEUE           ACCOUNT         SUBMIT_NODE     JOB_CREATE_TIME
+624811              C_AB_retry4     Liuzhaohui      FAILED          root.default    root.iosoeqkp   whshare-ccs-cl* 2026/11/03 19:12:04
+624810              C_AB_retry3     Liuzhaohui      FAILED          root.default    root.iosoeqkp   whshare-ccs-cl* 2026/11/03 19:12:03
+624781              C_AB_replica2   Liuzhaohui      FAILED          root.default    root.iosoeqkp   whshare-ccs-cl* 2026/11/03 18:42:31
+624780              C_AB_replica1   Liuzhaohui      FAILED          root.default    root.iosoeqkp   whshare-ccs-cl* 2026/11/03 18:42:31
+624739              a5_threshold_p* Liuzhaohui      FAILED          root.default    root.iosoeqkp   whshare-ccs-cl* 2026/11/03 17:35:31
+624717              a5_threshold_p* Liuzhaohui      SUCCEEDED       root.default    root.iosoeqkp   whshare-ccs-cl* 2026/11/03 16:31:20

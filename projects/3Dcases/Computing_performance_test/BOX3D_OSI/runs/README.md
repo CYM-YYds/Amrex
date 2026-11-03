@@ -1,6 +1,22 @@
 # 计算结果入口
 
-整理日期：2026-11-02。下面两组优化生产计算使用各自冻结程序；均早于本轮重构优化，不代表当前 HEAD 的长程验收。目录存在不代表已经完成或通过数值验收。
+整理日期：2026-11-03。目录存在不代表已经完成或通过数值验收；每组均按各自冻结程序与输入解读。
+
+## 近期阈值、续跑与显存实验
+
+| 用途 | 入口 | 已核实状态 |
+|---|---|---|
+| C从静止到t1000、GIF流场 | [a5_C_t1000_gif](a5_C_t1000_gif/README.md) | 624717 SUCCEEDED/exit0，step128000/t1000，速度和Q/涡量各40份；末次converged=0 |
+| B续跑到t2000 | [a5_B_continue_t2000](a5_B_continue_t2000/analysis/report.md) | 623697 SUCCEEDED/exit0，step256000/t2000，末次正式相对变化2.571148216e-4，未收敛 |
+| C/D从B检查点短测 | [C](temporary/C_from_B_compression/report.md)、[D及流场索引](temporary/D_from_B_compression/report.md) | 623707/623748均成功至step128128/t1001，仅短期网格规模证据 |
+| C双数组A-B/OSI性能与显存 | [原对比](C_AB_OSI_t1000_peak_memory/README.md)、[A-B重试](C_AB_t1000_peak_memory_rerun/README.md) | 624739、624780/624781、624810/624811全部FAILED/exit6，VisMF写失败；624810到step6400，其余step3200，无完整全程性能结论 |
+| 均匀512³恢复成功终态 | [源结果](uniform512_local_staging_t1000/)、[来源核验](../data_post_processing/results/C_uniform512_Cortes/README.md) | 623012恢复分段计算completed，step512000/t1000终态用于中心线；与下方失败的622116区分 |
+
+曲线和动画请查[后处理README](../data_post_processing/README.md)。具体命令、程序指纹及原始失败材料保留，I/O根因仍pending，不自动重新提交。
+
+## 此前优化计算与兜底结果
+
+下面优化生产计算使用各自冻结程序，不能替代当前HEAD的长程验收。
 
 | 用途 | 入口 | 本次整理时核实的状态 |
 |---|---|---|

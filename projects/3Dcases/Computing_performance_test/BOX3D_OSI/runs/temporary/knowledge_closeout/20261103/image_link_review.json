@@ -1,0 +1,158 @@
+[
+  {
+    "name": "job613495_data_post_processing__20261015_171801_job613495_step256000_paraview__comparison.png",
+    "old_target": "job613495_data_post_processing__20261015_171801_job613495_step256000_paraview__comparison.png",
+    "source": "data_post_processing/20261015_171801_job613495_step256000_paraview/comparison.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job613495_data_post_processing__20261015_171801_job613495_step256000_paraview_batch__comparison.png",
+    "old_target": "job613495_data_post_processing__20261015_171801_job613495_step256000_paraview_batch__comparison.png",
+    "source": "data_post_processing/20261015_171801_job613495_step256000_paraview_batch/comparison.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job615364_data_post_processing__20261019_124153_job615364_step256000_paraview_batch__Re3200_3D_overlap_256000_fig18b.png",
+    "old_target": "job615364_data_post_processing__20261019_124153_job615364_step256000_paraview_batch__Re3200_3D_overlap_256000_fig18b.png",
+    "source": "data_post_processing/20261019_124153_job615364_step256000_paraview_batch/Re3200_3D_overlap_256000_fig18b.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job615364_data_post_processing__20261019_124153_job615364_step256000_paraview_batch__comparison.png",
+    "old_target": "job615364_data_post_processing__20261019_124153_job615364_step256000_paraview_batch__comparison.png",
+    "source": "data_post_processing/20261019_124153_job615364_step256000_paraview_batch/comparison.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job615364_data_post_processing__20261019_job615364_last10_227200_256000_centerlines__centerlines_lower_zoom.png",
+    "old_target": "job615364_data_post_processing__20261019_job615364_last10_227200_256000_centerlines__centerlines_lower_zoom.png",
+    "source": "data_post_processing/20261019_job615364_last10_227200_256000_centerlines/centerlines_lower_zoom.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job615364_data_post_processing__20261019_job615364_last10_227200_256000_centerlines__centerlines_overlay.png",
+    "old_target": "job615364_data_post_processing__20261019_job615364_last10_227200_256000_centerlines__centerlines_overlay.png",
+    "source": "data_post_processing/20261019_job615364_last10_227200_256000_centerlines/centerlines_overlay.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job615364_data_post_processing__20261019_job615364_last10_227200_256000_centerlines__temporal_diagnostics.png",
+    "old_target": "job615364_data_post_processing__20261019_job615364_last10_227200_256000_centerlines__temporal_diagnostics.png",
+    "source": "data_post_processing/20261019_job615364_last10_227200_256000_centerlines/temporal_diagnostics.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job586660_data_post_processing__586660_convergence.png",
+    "old_target": "job586660_data_post_processing__586660_convergence.png",
+    "source": "data_post_processing/586660_convergence.png",
+    "action": "汇总副本与登记原图未找到，取消失效链接并保留记录"
+  },
+  {
+    "name": "job596154_data_post_processing__596154_Re3200_convergence.png",
+    "old_target": "job596154_data_post_processing__596154_Re3200_convergence.png",
+    "source": "data_post_processing/596154_Re3200_convergence.png",
+    "action": "汇总副本与登记原图未找到，取消失效链接并保留记录"
+  },
+  {
+    "name": "job615364_data_post_processing__615364_Re3200_convergence.png",
+    "old_target": "job615364_data_post_processing__615364_Re3200_convergence.png",
+    "source": "data_post_processing/615364_Re3200_convergence.png",
+    "action": "汇总副本与登记原图未找到，取消失效链接并保留记录"
+  },
+  {
+    "name": "job_unknown_data_post_processing__Re1000_3D_comparison_96000.png",
+    "old_target": "job_unknown_data_post_processing__Re1000_3D_comparison_96000.png",
+    "source": "data_post_processing/Re1000_3D_comparison_96000.png",
+    "action": "汇总副本与登记原图未找到，取消失效链接并保留记录"
+  },
+  {
+    "name": "job_unknown_data_post_processing__Re1000_3D_overlap_160000_fig18a.png",
+    "old_target": "job_unknown_data_post_processing__Re1000_3D_overlap_160000_fig18a.png",
+    "source": "data_post_processing/Re1000_3D_overlap_160000_fig18a.png",
+    "action": "汇总副本与登记原图未找到，取消失效链接并保留记录"
+  },
+  {
+    "name": "job622137_job622137__B__convergence.png",
+    "old_target": "job622137_job622137__B__convergence.png",
+    "source": "runs/a5_B_optimized_128000/job622137/B/convergence.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job622356_figures__previous_layout__vorticity_y05_step128000.png",
+    "old_target": "job622356_figures__previous_layout__vorticity_y05_step128000.png",
+    "source": "runs/a5_B_three_plot3200/job622356/B/figures/previous_layout/vorticity_y05_step128000.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job622356_B__figures__vorticity_y05_step128000.png",
+    "old_target": "job622356_B__figures__vorticity_y05_step128000.png",
+    "source": "runs/a5_B_three_plot3200/job622356/B/figures/vorticity_y05_step128000.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job621436_B__profile__reference_comparison.png",
+    "old_target": "job621436_B__profile__reference_comparison.png",
+    "source": "runs/archive/history_20261101/a5_threshold_128000/job621436/B/profile/reference_comparison.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job621375_A__figures__vorticity_script_preview_t100.png",
+    "old_target": "job621375_A__figures__vorticity_script_preview_t100.png",
+    "source": "runs/archive/history_20261101/a5_threshold_fields/job621375/A/figures/vorticity_script_preview_t100.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job621699_uniform_256_lev0_t1000__analysis__centerline_t1000.png",
+    "old_target": "job621699_uniform_256_lev0_t1000__analysis__centerline_t1000.png",
+    "source": "runs/archive/history_20261101/uniform_256_lev0_t1000/analysis/centerline_t1000.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job621432_job621432__A__convergence.png",
+    "old_target": "job621432_job621432__A__convergence.png",
+    "source": "runs/temporary/a5_longrun_preflight/job621432/A/convergence.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job621433_job621433__A__convergence.png",
+    "old_target": "job621433_job621433__A__convergence.png",
+    "source": "runs/temporary/a5_longrun_preflight/job621433/A/convergence.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job621433_A__profile__reference_comparison.png",
+    "old_target": "job621433_A__profile__reference_comparison.png",
+    "source": "runs/temporary/a5_longrun_preflight/job621433/A/profile/reference_comparison.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job_unknown_temporary__paraview_axis_titles__preview.png",
+    "old_target": "job_unknown_temporary__paraview_axis_titles__preview.png",
+    "source": "runs/temporary/paraview_axis_titles/preview.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job_unknown_temporary__paraview_axis_titles__reset_preview.png",
+    "old_target": "job_unknown_temporary__paraview_axis_titles__reset_preview.png",
+    "source": "runs/temporary/paraview_axis_titles/reset_preview.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job615364_temporary__paraview_reference_export__draft.png",
+    "old_target": "job615364_temporary__paraview_reference_export__draft.png",
+    "source": "runs/temporary/paraview_reference_export/draft.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job_unknown_temporary__paraview_user_alignment__preview.png",
+    "old_target": "job_unknown_temporary__paraview_user_alignment__preview.png",
+    "source": "runs/temporary/paraview_user_alignment/preview.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  },
+  {
+    "name": "job621699_uniform_256_lev0_t1000__analysis__centerline_t1000_with_reference_AB_z0p3.png",
+    "old_target": "job621699_uniform_256_lev0_t1000__analysis__centerline_t1000_with_reference_AB_z0p3.png",
+    "source": "data_post_processing/results/t1000_uniform_AB/centerline_t1000_with_reference_AB_z0p3.png",
+    "action": "汇总副本缺失，改链仍存在的原图"
+  }
+]

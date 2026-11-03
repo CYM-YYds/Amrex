@@ -24,8 +24,8 @@ post_dir="$case_dir/data_post_processing"
 
 ## job622356/B 涡量动画
 
-现役序列为 [images/job622356_job622356__B__victory.gif](images/job622356_job622356__B__victory.gif)
-与同前缀 `.0000.png` 至 `.0039.png` 共40张图。GIF 每帧500 ms、无限循环，完整一轮20秒；
+现役序列为 [images/gif-B/job622356_job622356__B__victory.gif](images/gif-B/job622356_job622356__B__victory.gif)
+与 [gif-B目录](images/gif-B/) 内同前缀 `.0000.png` 至 `.0039.png` 共40张图。GIF 每帧500 ms、无限循环，完整一轮20秒；
 它是调色板预览，PNG 保留为逐帧图像。
 
 输入为 `runs/a5_B_three_plot3200/job622356/B/plt_003200` 至 `plt_128000` 的三维速度，
@@ -201,3 +201,10 @@ Level-0、128³、三分量双精度的现有布局，并核对数据与 Cell_H 
 
 [查看 GIF](images/gif-C/job624717_C_vorticity.gif)：40帧、每帧500ms、无限循环，一轮20秒，输入t25..1000。与B动画相同的速度求旋度、y=0.5切片、色标0..1和AMR白/红/绿框线；C阈值0.25/0.5。裁剪PNG在images/gif-C/frames/，原图、场景及逐帧来源在runs/a5_C_t1000_gif/job624717/C/figures/animation_C/。
 合成命令见该目录pack_command.txt，复用原B渲染脚本；最终合成由scripts/temporary/pack_animation_gif.py执行。GIF为调色板预览，保留PNG用于逐帧查看。
+
+## C 中心线对比入口
+
+- [仅AMR C与Cortes–Miller](results/C_t1000_Cortes/README.md)：保留原始两组对比图及数据。
+- [AMR C、均匀512³与Cortes–Miller](results/C_uniform512_Cortes/README.md)：后续另存版本，来源和参考点解释以各自README/JSON为准。
+
+两图均为t1000，采用相同H/U标度及正方形绘图区，不相互覆盖；不能由参考吻合推导时间收敛。

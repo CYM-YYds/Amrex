@@ -9,3 +9,7 @@
 比较时间应分别汇总perf(s).solv、total（含重构但不含初始化/流场输出）、日志Total Time及guard.elapsed_seconds（进程启动至退出含I/O和MPI）。100ms监控开销对两模式一致，但不能声称无扰动。仅一轮mode0→mode1，不是交替重复统计，微小差异不作稳定因果结论；各自动态AMR网格可能不同，须同时比较每层网格和launch_cells/调用数。
 
 预检job624737：128步两模式退出0、显存链路成功、三层速度FAB逐字节一致，lev1/2 Q涡量一致，lev0 Q涡量存在差异（含active区域），故不宣称长期逐值等价，正式结果按独立动态AMR运行解释。详细证据见runs/temporary/C_AB_OSI_memory_preflight/job624737/preflight_check.json。
+
+## 终态复核（2026-11-03）
+
+job624739最终FAILED，C_mode0及C_mode1均exit6，在step3200首次写速度场时VisMF::Write failed。没有完整t1000性能/峰值显存结果；启动状态文件仅为历史快照，失败材料和局部采样保留。后续A-B重试终态见../C_AB_t1000_peak_memory_rerun/README.md。
