@@ -1,0 +1,96 @@
+[
+  {
+    "job": "job624889",
+    "node": "whshare-agent-193 slots=32",
+    "exit_status": {
+      "reason": "launcher_exit",
+      "exit_code": 0,
+      "launcher_returncode": 0,
+      "elapsed_seconds": 13.342570543289185,
+      "completion_seen": true,
+      "wall_seconds": 1800.0,
+      "exit_grace_seconds": 60
+    },
+    "field_write_syscalls": 272,
+    "field_syscall_errors": [],
+    "plots": [
+      {
+        "plot": "plt_032001",
+        "fabs": 34,
+        "finite_values": 52592640,
+        "all_fabs_complete": true
+      },
+      {
+        "plot": "plt_032002",
+        "fabs": 34,
+        "finite_values": 52592640,
+        "all_fabs_complete": true
+      },
+      {
+        "plot": "plt_032003",
+        "fabs": 34,
+        "finite_values": 52592640,
+        "all_fabs_complete": true
+      },
+      {
+        "plot": "plt_032004",
+        "fabs": 34,
+        "finite_values": 52592640,
+        "all_fabs_complete": true
+      },
+      {
+        "plot": "plt_vort_032001",
+        "fabs": 34,
+        "finite_values": 35061760,
+        "all_fabs_complete": true
+      },
+      {
+        "plot": "plt_vort_032002",
+        "fabs": 34,
+        "finite_values": 35061760,
+        "all_fabs_complete": true
+      },
+      {
+        "plot": "plt_vort_032003",
+        "fabs": 34,
+        "finite_values": 35061760,
+        "all_fabs_complete": true
+      },
+      {
+        "plot": "plt_vort_032004",
+        "fabs": 34,
+        "finite_values": 35061760,
+        "all_fabs_complete": true
+      }
+    ]
+  },
+  {
+    "job": "job624890",
+    "node": "whshare-agent-67 slots=32",
+    "exit_status": {
+      "reason": "launcher_exit",
+      "exit_code": 0,
+      "launcher_returncode": 0,
+      "elapsed_seconds": 95.3807393279858,
+      "completion_seen": true,
+      "wall_seconds": 1800.0,
+      "exit_grace_seconds": 60
+    },
+    "field_write_syscalls": 28,
+    "field_syscall_errors": [],
+    "plots": [
+      {
+        "plot": "plt_003200",
+        "fabs": 14,
+        "finite_values": 46252032,
+        "all_fabs_complete": true
+      },
+      {
+        "plot": "plt_vort_003200",
+        "fabs": 14,
+        "finite_values": 30834688,
+        "all_fabs_complete": true
+      }
+    ]
+  }
+]

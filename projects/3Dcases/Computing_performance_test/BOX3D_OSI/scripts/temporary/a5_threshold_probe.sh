@@ -158,6 +158,11 @@ for index in "${!names[@]}"; do
     cd "$OUT/$name"
     ln -s ../application.ex main3d.gnu.TPROF.MPI.CUDA.ex
     cp "$RANK_SCRIPT" run_rank.sh
+    if [[ "${PROBE_TRACE_IO:-0}" == 1 ]]; then
+        # 只包装应用进程，不跟踪MPI启动器；保留原始errno、路径、耗时与rank退出回执。
+        [[ "$(grep -Fxc '"$app" "$@"' run_rank.sh)" == 1 ]] || { echo "不支持的rank包装器" >&2; exit 1; }
+        sed -i 's|^"$app" "$@"$|strace -ff -tt -T -yy -s 0 -e trace=write,writev,pwrite64,fsync,fdatasync,openat,close -o "io_trace_rank${rank}" "$app" "$@"|' run_rank.sh
+    fi
     if [[ -n "$RESTART_ROOT" ]]; then
         ln -s "$RESTART_CHECKPOINT" "$RESTART_NAME"
     fi

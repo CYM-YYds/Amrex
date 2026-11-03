@@ -1,0 +1,1 @@
+真实冻结A-B程序VisMF写入短测，临时诊断但保留全部复现证据。checkpoint4从C step32000 checkpoint重启后仅4步、逐步写速度与Q涡量；fresh3200从静止重复原先首输出路径。两者均C阈值、stream_mode0，strace记录应用write/writev/fsync等系统调用、路径、errno与耗时。诊断开销不用于性能比较；原有结果只读；故障跟踪、日志、输入、程序与输出全部保留。

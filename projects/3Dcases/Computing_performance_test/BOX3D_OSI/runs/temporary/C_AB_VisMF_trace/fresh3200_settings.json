@@ -1,0 +1,19 @@
+{
+  "PROBE_SNAPSHOT_ROOT": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/archive/history_20261101/a5_threshold_128000/frozen_20261029",
+  "PROBE_RANK_SCRIPT": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/archive/history_20261101/a5_threshold_128000/frozen_20261029/B/run_rank.sh",
+  "PROBE_CASES": "C",
+  "PROBE_STREAM_MODES": "0",
+  "PROBE_GPU_MEMORY_MS": "0",
+  "PROBE_END_STEP": "3200",
+  "PROBE_PLOT_INT": "3200",
+  "PROBE_CHECKPOINT_INT": "-1",
+  "PROBE_REPORT_INT": "3200",
+  "PROBE_CONVERGENCE": "false",
+  "PROBE_CONVERGENCE_STOP": "false",
+  "PROBE_REFINEMENT_DIAGNOSTICS": "false",
+  "PROBE_WALL_SECONDS": "1800",
+  "PROBE_OUTPUT_ROOT": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/C_AB_VisMF_trace",
+  "PROBE_PROFILE": "false",
+  "AMREX_RUN_ARGS": "verification.regrid_valid_check=true",
+  "PROBE_TRACE_IO": "1"
+}
