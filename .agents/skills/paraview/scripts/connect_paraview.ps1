@@ -2,6 +2,8 @@
 
 # 已连接窗口可只检查状态或更新客户端，不创建新隧道、服务或GUI。
 param(
+    [switch]$CollectDiagnostics,
+    [string]$DiagnosticsRoot = "",
     [switch]$BridgeStatus,
     [switch]$UpdateBridge,
     [switch]$NoPauseOnError,
@@ -9,12 +11,67 @@ param(
     [ValidatePattern('^(/[A-Za-z0-9_./-]+)?$')][string]$RemoteParaViewPrefix = ""
 )
 
+
+# 打包仍在写入的文件时允许共享读取；归档失败不能掩盖原始故障。
+function Export-LaunchDiagnostics {
+    param([string]$Root, [string]$LaunchId, [string]$Label = 'startup')
+    if (-not $Root -or -not $LaunchId) { return }
+    $staging = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N'))
+    try {
+        [IO.Directory]::CreateDirectory($staging) | Out-Null
+        foreach ($file in Get-ChildItem -LiteralPath $Root -File | Where-Object { $_.Name.Contains($LaunchId) -and $_.Extension -ne '.zip' }) {
+            $inputStream = $null
+            $outputStream = $null
+            try {
+                $inputStream = [IO.File]::Open($file.FullName, 'Open', 'Read', 'ReadWrite')
+                $outputStream = [IO.File]::Create((Join-Path $staging $file.Name))
+                $inputStream.CopyTo($outputStream)
+            } catch {
+                Add-Content -LiteralPath (Join-Path $staging 'collection-errors.txt') -Value "$($file.Name): $_"
+            } finally {
+                if ($outputStream) { $outputStream.Dispose() }
+                if ($inputStream) { $inputStream.Dispose() }
+            }
+        }
+        # 原生GUI崩溃未必进入stdout/stderr，补充Windows应用错误与WER记录。
+        if ($env:OS -eq 'Windows_NT') {
+            try {
+                $events = Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddDays(-1); Id=1000,1001} -ErrorAction Stop |
+                    Where-Object { $_.Message -match '(?i)paraview|pvpython|pvserver' } |
+                    Select-Object -Property @('TimeCreated', 'Id', 'ProviderName', 'Message')
+                $events | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $staging 'windows-crash-events.json') -Encoding utf8
+            } catch {
+                "Windows event query: $_" | Set-Content -LiteralPath (Join-Path $staging 'windows-events-query.txt')
+            }
+        }
+        $archive = Join-Path $Root "diagnostics_${LaunchId}_${Label}.zip"
+        Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive -Force
+        Write-Host "Send this diagnostic bundle: $archive" -ForegroundColor Yellow
+    } catch {
+        Write-Host "Diagnostic archive failed: $_; original logs remain in $Root" -ForegroundColor Yellow
+    } finally {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# 崩溃后可随时重打包最新启动；不连接远端、不启动或关闭任何窗口。
+if ($CollectDiagnostics) {
+    $root = if ($DiagnosticsRoot) { $DiagnosticsRoot } else { Join-Path $PSScriptRoot 'paraview_logs' }
+    $latest = Get-ChildItem -LiteralPath $root -Filter 'launcher_*.log' -File |
+        Where-Object { $_.Name -match '^launcher_\d{8}_\d{6}_[a-f0-9]{32}\.log$' } |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $latest) { throw 'No launcher transcript found.' }
+    $id = [IO.Path]::GetFileNameWithoutExtension($latest.Name).Split('_')[-1]
+    Export-LaunchDiagnostics -Root $root -LaunchId $id -Label 'collected'
+    return
+}
+
 # 启动失败必须留存错误；从资源管理器运行时避免窗口立即消失。
 $ErrorActionPreference = 'Stop'
 trap {
     $startupError = $_
     Write-Host "ParaView startup failed: $($startupError.Exception.Message)" -ForegroundColor Red
-    $errorName = "launcher_error_$(Get-Date -Format 'yyyyMMdd_HHmmss')_$([Guid]::NewGuid().ToString('N')).log"
+    $errorName = "launcher_error_$(Get-Date -Format 'yyyyMMdd_HHmmss')_$BRIDGE_LAUNCH_ID.log"
     $errorText = ($startupError | Format-List * -Force | Out-String) +
         [Environment]::NewLine + $startupError.ScriptStackTrace
     $savedError = $false
@@ -32,6 +89,8 @@ trap {
         }
     }
     if (-not $savedError) { Write-Host $errorText -ForegroundColor Red }
+    if ($transcriptStarted) { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null; $transcriptStarted = $false }
+    Export-LaunchDiagnostics -Root $transcriptRoot -LaunchId $BRIDGE_LAUNCH_ID -Label 'failure'
     if (-not $NoPauseOnError -and $Host.Name -eq 'ConsoleHost' -and
         [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
         try { Read-Host 'Press Enter to close this failed launch' | Out-Null } catch { }
@@ -56,6 +115,9 @@ try {
     }
     if (-not $transcriptStarted) { throw 'Cannot create launcher transcript in script or temporary directory.' }
     Write-Host "Launcher transcript: $transcriptPath" -ForegroundColor Cyan
+    $collector = Join-Path $transcriptRoot 'collect_latest.cmd'
+    $collectorText = "@echo off`r`npowershell.exe -NoLogo -NoProfile -File `"$PSCommandPath`" -CollectDiagnostics -DiagnosticsRoot `"$transcriptRoot`"`r`npause`r`n"
+    [IO.File]::WriteAllText($collector, $collectorText, [Text.UTF8Encoding]::new($false))
 # Configuration
 $PARAVIEW_PATH = "D:\Software\ParaView 6.2.0\bin\paraview.exe"
 $LOCAL_PORT = "11115"        # Local port
@@ -93,6 +155,10 @@ function Invoke-StartupNative {
             $diagnostic = [IO.File]::ReadAllText($stderrPath)
         } finally {
             Remove-Item -LiteralPath $stderrPath -ErrorAction SilentlyContinue
+        }
+        if ($transcriptPath) {
+            $nativeLog = "$transcriptPath.native.log"
+            Add-Content -LiteralPath $nativeLog -Value ("[{0}] {1} attempt={2} exit={3}`nSTDOUT:`n{4}`nSTDERR:`n{5}" -f [DateTimeOffset]::Now.ToString('o'), $Program, ($attempt + 1), $nativeExit, ($output -join "`n"), $diagnostic)
         }
         $authenticationFailure = $diagnostic -match 'Permission denied|Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED'
         $preAuthBusy = $diagnostic -match 'Exceeded MaxStartups'
@@ -296,6 +362,9 @@ $batchFile = Join-Path $logDir "$launchStem.cmd"
 $launchRecord = Join-Path $logDir "$launchStem.json"
 $clientStdout = Join-Path $logDir "$launchStem.client.stdout.log"
 $clientStderr = Join-Path $logDir "$launchStem.client.stderr.log"
+$serverRunner = Join-Path $logDir "$launchStem.server.ps1"
+$serverOutput = Join-Path $logDir "$launchStem.server.log"
+$serverExit = Join-Path $logDir "$launchStem.server-exit.json"
 $receiptFile = Join-Path $logDir "$launchStem.bridge.json"
 $launchInfo = [ordered]@{
     launch_id = $BRIDGE_LAUNCH_ID
@@ -308,31 +377,48 @@ $launchInfo = [ordered]@{
     paraview_version = $PARAVIEW_VERSION
     remote_log_directory = $remoteLogDir
     startup_script = $batchFile
+    server_output = $serverOutput
+    server_exit = $serverExit
     client_stdout = $clientStdout
     client_stderr = $clientStderr
     bridge_receipt = $receiptFile
 }
 [IO.File]::WriteAllText($launchRecord, ($launchInfo | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 
+# 独立服务窗口先落本地SSH输出，认证、跳板和远端脚本之前的错误也能保存。
+$runnerTemplate = @'
+$ErrorActionPreference = 'Continue'
+__EXPORT_FUNCTION__
+$root = $PSScriptRoot
+$id = '__LAUNCH_ID__'
+$stem = '__STEM__'
+$started = [DateTimeOffset]::Now.ToString('o')
+$code = 1
+try {
+    __SSH_COMMAND__ 2>&1 | ForEach-Object {
+        $line = "[{0}] {1}" -f [DateTimeOffset]::Now.ToString('o'), $_
+        $line | Out-File -LiteralPath (Join-Path $root "$stem.server.log") -Append -Encoding utf8
+        Write-Host $line
+    }
+    $code = $LASTEXITCODE
+} catch {
+    $_ | Out-String | Out-File -LiteralPath (Join-Path $root "$stem.server.log") -Append -Encoding utf8
+} finally {
+    @{started_at=$started; ended_at=[DateTimeOffset]::Now.ToString('o'); exit_code=$code} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root "$stem.server-exit.json") -Encoding utf8
+    Export-LaunchDiagnostics -Root $root -LaunchId $id -Label 'server-exit'
+}
+Write-Host "Server exited with code $code. Logs: $root"
+exit $code
+'@
+$runnerText = $runnerTemplate.Replace('__EXPORT_FUNCTION__', "function Export-LaunchDiagnostics {`n${function:Export-LaunchDiagnostics}`n}").Replace('__LAUNCH_ID__', $BRIDGE_LAUNCH_ID).Replace('__STEM__', $launchStem).Replace('__SSH_COMMAND__', $sshCommand)
+[IO.File]::WriteAllText($serverRunner, $runnerText, [Text.UTF8Encoding]::new($true))
 $batchLines = @(
     '@echo off'
     'chcp 65001 >nul'
     "title ParaView-${PARAVIEW_VERSION}-port${REMOTE_PORT}"
     'cd /d "%~dp0"'
-    'echo ================================================'
-    "echo ParaView $PARAVIEW_VERSION server on $SERVER_HOST ($ServerProcesses processes)"
-    "echo Remote port: ${REMOTE_PORT}"
-    'echo If successful, output should include "Waiting for client..."'
-    'echo Keep this window open.'
-    'echo This debug window is launched with cmd /k, so it should stay open after errors.'
-    "echo Startup script: $batchFile"
-    'echo ================================================'
-    $sshCommand
-    'set PVSERVER_EXIT_CODE=%ERRORLEVEL%'
-    'echo ================================================'
-    'echo Server exited with code %PVSERVER_EXIT_CODE%'
-    'echo If ParaView crashed while loading a .py file, read the last red/error lines above.'
-    'echo This window is intentionally kept open. Close it manually when done.'
+    "powershell.exe -NoLogo -NoProfile -File `"$serverRunner`""
+    'echo Server window retained. Logs and diagnostic ZIP are beside this script.'
 )
 
 $batchContent = $batchLines -join [Environment]::NewLine
@@ -443,5 +529,6 @@ Write-Host "OK: Auto-selected remote port is $REMOTE_PORT" -ForegroundColor Cyan
 # Keep the server startup script under paraview_logs for inspection.
 } finally {
     # 成功、异常、状态查询提前 return 均须结束本次记录。
-    if ($transcriptStarted) { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null }
+    if ($transcriptStarted) { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null; $transcriptStarted = $false }
+    Export-LaunchDiagnostics -Root $transcriptRoot -LaunchId $BRIDGE_LAUNCH_ID
 }

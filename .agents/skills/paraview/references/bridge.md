@@ -249,6 +249,20 @@ AMReX 单元速度在求导副本中暂时清除 `REFINEDCELL`，使被细层覆
 
 ## 故障处理与验证边界
 
+启动器现在保存独立服务窗口的 SSH 合并输出（带本地时间戳的 `.server.log`），包括认证、
+跳板和远端日志初始化之前的错误；服务正常退出时保存 `.server-exit.json` 的退出码。
+每次启动检查结束、启动异常及服务退出分别生成 `diagnostics_启动编号_*.zip`，各快照互不覆盖。
+原生预检每次尝试的 stdout/stderr 与退出码另存 `.native.log`。
+
+出现后续 GUI 崩溃或手动关闭服务窗口时，双击 `paraview_logs/collect_latest.cmd`，
+将最新的 `diagnostics_启动编号_collected.zip` 发送即可；也可运行 PS1 的 `-CollectDiagnostics`。
+此操作只收集最新启动已有的本地日志，不连接远端或关闭窗口。归档允许共享读取正在写入的日志，
+并附带过去24小时中涉及ParaView的Windows应用崩溃/WER事件；无事件或权限不足时保留查询说明。
+启动器和服务窗口被强制终止时，退出码与自动归档可能来不及生成，已落盘输出仍可重新打包。
+GUI未写入stdout/stderr且未产生Windows崩溃事件的消息，仍不能保证全部捕获；本地服务日志
+也无法替代SSH服务器内部的拒绝原因。旧版本须重新下载PS1后才具备这些功能。
+
+
 - 服务端断线：启动器自动将服务 stdout/stderr 同时写入共享仓库
   `.tools/paraview-mpi/logs/launch-启动编号/pvserver_日期时间_随机后缀.log`，路径也显示在启动窗口中；
   关闭 Windows 窗口后日志仍保留。版本预检不生成日志，日志不自动清理。

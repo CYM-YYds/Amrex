@@ -85,3 +85,28 @@ print(json.dumps(sys.argv[3:]))
                 self.assertEqual(response['code'], 0 if success else 255)
                 if success:
                     self.assertEqual(json.loads(response['output'][0]), ['a b', 'last'])
+
+
+@unittest.skipUnless(PWSH, 'native PowerShell is unavailable')
+class DiagnosticBundleTests(unittest.TestCase):
+    def test_server_ssh_failure_is_recorded_and_archived(self):
+        import zipfile
+        source = (SCRIPTS / 'connect_paraview.ps1').read_text(encoding='utf-8-sig')
+        helper = source[source.index('function Export-LaunchDiagnostics'):source.index('# 崩溃后可随时重打包')]
+        runner = source.split("$runnerTemplate = @'\n", 1)[1].split("\n'@", 1)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            launch = 'a' * 32
+            stem = 'pvserver_' + launch
+            command = "& '" + sys.executable.replace("'", "''") + "' -c \"import sys; print('server output'); print('Connection closed by host', file=sys.stderr); sys.exit(255)\""
+            script = root / (stem + '.ps1')
+            script.write_text(runner.replace('__EXPORT_FUNCTION__', helper).replace('__LAUNCH_ID__', launch).replace('__STEM__', stem).replace('__SSH_COMMAND__', command))
+            result = subprocess.run([PWSH, '-NoProfile', '-NonInteractive', '-File', str(script)], capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            record = json.loads((root / (stem + '.server-exit.json')).read_text(encoding='utf-8-sig'))
+            self.assertEqual(record['exit_code'], 255, result.stdout + result.stderr)
+            with zipfile.ZipFile(root / ('diagnostics_' + launch + '_server-exit.zip')) as archive:
+                log = archive.read(stem + '.server.log').decode('utf-8-sig')
+                self.assertIn('server output', log)
+                self.assertIn('Connection closed by host', log)
+                self.assertIn(stem + '.server-exit.json', archive.namelist())
