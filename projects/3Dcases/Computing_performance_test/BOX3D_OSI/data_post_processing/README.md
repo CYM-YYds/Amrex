@@ -1,5 +1,8 @@
 # 参数化后处理入口
 
+本目录集中保存日常提取与绘图入口；构建/提交见 [scripts 索引](../scripts/README.md)，完整位置导航见[仓库脚本导航](../../../../../docs/script-guide.md)。
+`convergence_logs.py` 是供 `plot_convergence.py` 导入的内部模块，不是单独绘图命令。
+
 从仓库根执行，统一使用根 `.venv/bin/python`。先设置算例相对路径：
 
 ```bash

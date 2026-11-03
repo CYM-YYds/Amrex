@@ -7,6 +7,8 @@
 相邻 `BOX3D` 是另一套基准算例。本文说明当前文件架构与使用入口，详细数值证据见
 [当前交接状态](docs/current_status.md)，算法见 [OSI 架构](docs/osi_algorithm_and_architecture.md)。
 
+常用脚本：[构建/提交索引](scripts/README.md) · [后处理入口](data_post_processing/README.md) · [临时实验索引](scripts/temporary/README.md) · [仓库脚本导航](../../../../docs/script-guide.md)。
+
 更新时间：2026-10-29。
 
 

@@ -1,5 +1,15 @@
 # 后处理脚本使用指南
 
+先看[仓库脚本导航](../docs/script-guide.md)；BOX3D_OSI 的中心线、收敛和性能图入口在[算例后处理目录](../projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/README.md)。
+
+| 本目录常见文件 | 定位 |
+|---|---|
+| `connect_paraview.cmd` / `connect_paraview.ps1` | Windows 用户连接入口；仓库内为指向 ParaView skill 实现的兼容路径 |
+| `paraview_bridge_client.py` | 自动生成的客户端；维护源在 skill 下，不在此直接修改 |
+| `repair_amr_gradient.py` | 用户在 ParaView 中手动运行的 AMR Gradient 修复入口 |
+| `dispalt vorticity 3d.py` 等 trace | 特定 GUI 操作记录，可能固定层级/变量与旧场景；按具体脚本检查，不作为通用批处理入口 |
+| `.pvsm` | ParaView 场景状态，不是 Python 脚本 |
+
 当前 ParaView 连接、桥接、AMR 涡量修复和日志获取统一见 [ParaView skill](../.agents/skills/paraview/SKILL.md)。下文介绍两项独立的二维提取与 CSV 比较工具，不代表整个目录仅有这两个脚本。
 
 手动修复入口：[repair_amr_gradient.py](repair_amr_gradient.py)。在 ParaView 中选中普通 Gradient，

@@ -30,6 +30,8 @@ Amrex/
 └── README.md
 ```
 
+日常查找脚本请先看 [脚本导航](docs/script-guide.md)：按任务定位构建、提交、后处理、ParaView 与实验入口。
+
 ## 2. 各目录作用说明
 
 ### 2.1 AMReX 版本目录
