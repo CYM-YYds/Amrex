@@ -1,0 +1,33 @@
+{
+  "tests": [
+    {
+      "job": 624881,
+      "node": "whshare-agent-187",
+      "syscall": "write",
+      "payload_MiB": 216,
+      "header_bytes": 0,
+      "heap_repeats": 3,
+      "cuda_pinned_repeats": 3,
+      "writes_passed": 6,
+      "fsync_passed": 6,
+      "full_byte_readback_passed": 6,
+      "strace_exit_line": "+++ exited with 0 +++"
+    },
+    {
+      "job": 624882,
+      "node": "whshare-agent-67",
+      "syscall": "writev",
+      "payload_MiB": 1536,
+      "header_bytes": 81,
+      "heap_repeats": 3,
+      "cuda_pinned_repeats": 3,
+      "writes_passed": 6,
+      "fsync_passed": 6,
+      "full_byte_readback_passed": 6,
+      "strace_exit_line": "+++ exited with 0 +++"
+    }
+  ],
+  "total_writes": 12,
+  "total_payload_MiB": 10512,
+  "conclusion": "Passed current standalone write+fsync+full readback probes; did not reproduce prior AMReX VisMF failure; not proof of long-run I/O reliability"
+}

@@ -13,7 +13,9 @@ module use /home/HPCBase/modulefiles/
 module purge
 module load mpi/hmpi/1.2.0_bs2.4.0_sp1 compilers/cuda/12.8.0 compilers/gcc/11.3.0
 CASE=$(cd "$(dirname "$0")/../../.." && pwd)
-OUT="$CASE/runs/temporary/checkpoint_io/job${CCS_JOB_ID:?}"
+ROOT="${IO_OUTPUT_ROOT:-$CASE/runs/temporary/checkpoint_io}"
+mkdir -p "$ROOT"
+OUT="$ROOT/job${CCS_JOB_ID:?}"
 mkdir "$OUT"
 cp "$0" "$OUT/submit.sh"
 cp "$CASE/scripts/temporary/checkpoint_io/probe.cu" "$OUT/probe.cu"

@@ -1,0 +1,2 @@
+cd /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI
+env CCS_CLI_HOME=/opt/batch/cli dsub -n C_IO_write216 -x 'all;IO_OUTPUT_ROOT=/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/C_AB_write_probe;IO_PROBE_ARGS=write 216 3;' -s scripts/temporary/checkpoint_io/submit.sh
