@@ -1,0 +1,2 @@
+JOBID        MESSAGE
+624811       submit job successfully
