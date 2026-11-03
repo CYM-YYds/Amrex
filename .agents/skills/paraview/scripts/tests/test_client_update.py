@@ -100,7 +100,7 @@ class ClientUpdateTests(unittest.TestCase):
         self.assertFalse(self.local.with_suffix('.py.update').exists())
 
     def test_incompatible_transport_requires_restart(self):
-        self.target = self.target.replace(b'RUNTIME_UPDATE_PROTOCOL = 1', b'RUNTIME_UPDATE_PROTOCOL = 2')
+        self.target = self.target.replace(b'RUNTIME_UPDATE_PROTOCOL = 2', b'RUNTIME_UPDATE_PROTOCOL = 999')
         with self.assertRaisesRegex(ValueError, 'Runtime protocol changed'):
             self.command()
         self.assertEqual(self.local.read_bytes(), self.original)

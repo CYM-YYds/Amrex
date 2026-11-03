@@ -1,5 +1,6 @@
 """桥接注册只对瞬时连接中断有限重试，丢失回执后可重复发布同一会话。"""
 import json
+import queue
 from pathlib import Path
 import runpy
 import subprocess
@@ -70,9 +71,60 @@ class StartupTransportTests(unittest.TestCase):
     def test_only_connection_failures_are_classified_for_retry(self):
         with tempfile.TemporaryDirectory() as tmp:
             bridge = self.bridge(Path(tmp))
-            for message, error in [('Connection closed by host port 6022', ConnectionError),
+            for message, error in [('Exceeded MaxStartups', ConnectionError),
                                    ('Permission denied (publickey)', RuntimeError),
                                    ('REMOTE HOST IDENTIFICATION HAS CHANGED', RuntimeError)]:
-                result = types.SimpleNamespace(returncode=255, stderr=message.encode(), stdout=b'')
-                with patch('subprocess.run', return_value=result), self.assertRaises(error):
+                # 本地模拟SSH握手失败，不连接网络。
+                bridge.ssh = ['bash', '-c', 'printf "%s" "$1" >&2; exit 255', '--', message]
+                with self.assertRaises(error):
                     bridge.remote('true')
+                self.assertIsNone(bridge._transport)
+
+    def test_connection_is_reused_and_reopened_after_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge = self.bridge(Path(tmp))
+            bridge.ssh = ['bash', '-c']
+            real_popen = subprocess.Popen
+            with patch('subprocess.Popen', wraps=real_popen) as start:
+                try:
+                    payload = b'zero\x00\xff\nlast'
+                    self.assertEqual(bridge.remote('cat', payload), payload)
+                    self.assertEqual(bridge.remote('printf second'), b'second')
+                    self.assertEqual(start.call_count, 1)
+                    process = bridge._transport[0]
+                    process.kill()
+                    process.wait()
+                    with self.assertRaises(ConnectionError):
+                        bridge.remote('true')
+                    self.assertEqual(bridge.remote('printf recovered'), b'recovered')
+                    self.assertEqual(start.call_count, 2)
+                finally:
+                    bridge.close_transport()
+            self.assertIsNone(bridge._transport)
+            self.assertIsNotNone(process.poll())
+
+    def test_remote_command_error_is_not_reported_as_authentication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge = self.bridge(Path(tmp))
+            bridge.ssh = ['bash', '-c']
+            with self.assertRaisesRegex(RuntimeError, 'command failed'):
+                bridge.remote('echo command failed >&2; exit 3')
+            self.assertIsNone(bridge._transport)
+
+    def test_poll_backoff_grows_and_resets_after_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge = self.bridge(Path(tmp))
+            bridge.outgoing = queue.Queue()
+            bridge.incoming = queue.Queue()
+            calls = []
+            def remote(command, data=None):
+                calls.append(command)
+                if len(calls) in (2, 3, 5):
+                    raise ConnectionError('Exceeded MaxStartups')
+                if len(calls) == 6:
+                    bridge.closed.set()
+                return b''
+            bridge.remote = remote
+            with patch.object(bridge.closed, 'wait', return_value=False) as wait:
+                bridge.poll()
+            self.assertEqual([c.args[0] for c in wait.call_args_list], [4, 8, 2, 4, 2])

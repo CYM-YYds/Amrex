@@ -75,10 +75,44 @@ $REMOTE_SERVER_SCRIPT = "$REMOTE_REPO_ROOT/.agents/skills/paraview/scripts/run_p
 $REMOTE_PYTHON = "$REMOTE_REPO_ROOT/.venv/bin/python"
 $REMOTE_SENDER = "$REMOTE_REPO_ROOT/.agents/skills/paraview/scripts/paraview_bridge_send.py"
 
+# 只重试明确发生在认证前的入口限流，不能重放已可能执行的远端命令。
+function Invoke-StartupNative {
+    param([string]$Program, [string[]]$NativeArguments)
+    for ($attempt = 0; $attempt -lt 6; $attempt++) {
+        $stderrPath = [IO.Path]::GetTempFileName()
+        try {
+            # Windows PowerShell 5.1会把原生命令stderr包装为错误；先保留诊断再分类。
+            $savedErrorPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                $output = & $Program @NativeArguments 2> $stderrPath
+                $nativeExit = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $savedErrorPreference
+            }
+            $diagnostic = [IO.File]::ReadAllText($stderrPath)
+        } finally {
+            Remove-Item -LiteralPath $stderrPath -ErrorAction SilentlyContinue
+        }
+        if ($nativeExit -eq 255 -and $diagnostic -match 'Exceeded MaxStartups' -and $attempt -lt 5) {
+            $delay = [Math]::Min(60, [Math]::Pow(2, $attempt + 2))
+            Write-Host "SSH entry busy (MaxStartups); retry $($attempt + 1)/5 in $delay seconds." -ForegroundColor Yellow
+            Start-Sleep -Seconds $delay
+            continue
+        }
+        if ($diagnostic) { [Console]::Error.WriteLine($diagnostic.TrimEnd()) }
+        $global:LASTEXITCODE = $nativeExit
+        $output
+        return
+    }
+}
+function Invoke-StartupSsh { Invoke-StartupNative -Program 'ssh' -NativeArguments $args }
+function Invoke-StartupScp { Invoke-StartupNative -Program 'scp' -NativeArguments $args }
+
 if ($BridgeStatus -and $UpdateBridge) { throw "Choose either -BridgeStatus or -UpdateBridge." }
 if ($BridgeStatus -or $UpdateBridge) {
     $action = if ($UpdateBridge) { "reload_client" } else { "client_status" }
-    $replyOutput = & ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" "'$REMOTE_PYTHON' '$REMOTE_SENDER' current $action --timeout 180"
+    $replyOutput = Invoke-StartupSsh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" "'$REMOTE_PYTHON' '$REMOTE_SENDER' current $action --timeout 180"
     $replyExit = $LASTEXITCODE
     try { $reply = ($replyOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop }
     catch { throw "Bridge status/update failed. Check SSH and the existing ParaView window; no new connection was started." }
@@ -125,7 +159,7 @@ function Test-RemotePort {
     $testCommand = Get-ServerCommand $probe
     
     try {
-        $result = & ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $Port "${Username}@${RemoteHost}" $testCommand
+        $result = Invoke-StartupSsh -T -o BatchMode=yes -o ConnectTimeout=10 -p $Port "${Username}@${RemoteHost}" $testCommand
         
         # If occupied, netstat returns listener info; otherwise PORT_AVAILABLE.
         if ($LASTEXITCODE -ne 0) {
@@ -230,14 +264,14 @@ if ($clientVersion -ne $PARAVIEW_VERSION) {
 }
 Write-Host "Local ParaView version: $clientVersion" -ForegroundColor Cyan
 # 外部入口可能已映射编译节点，此时使用回环隧道且不再 SSH 回连自身。
-$gatewayNode = (& ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" 'hostname -s' | Out-String).Trim()
+$gatewayNode = (Invoke-StartupSsh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" 'hostname -s' | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) { throw "Cannot identify SSH endpoint node." }
 $TUNNEL_TARGET = if ($gatewayNode -eq $SERVER_HOST) { "localhost" } else { $SERVER_HOST }
 # 同一组参数同时用于预检和实际启动，避免检查串行环境却启动另一套服务。
 $serverOptions = "--processes $ServerProcesses"
 if ($RemoteParaViewPrefix) { $serverOptions += " --prefix '$RemoteParaViewPrefix'" }
 $versionCommand = Get-ServerCommand "bash '$REMOTE_SERVER_SCRIPT' $serverOptions --version"
-$serverVersion = (& ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $versionCommand | Out-String)
+$serverVersion = (Invoke-StartupSsh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $versionCommand | Out-String)
 if ($LASTEXITCODE -ne 0 -or $serverVersion -notmatch "(?<![0-9.])6\.2\.0(?![0-9.])") {
     throw "ParaView server preflight failed: need version $PARAVIEW_VERSION and MPI support for $ServerProcesses processes. Check the selected prefix and the preceding error. Got: $serverVersion"
 }
@@ -251,7 +285,7 @@ try {
     $localListener.Stop()
 }
 # 从同一仓库源码提取版本/能力，不在PS1内复制一套需要手动维护的版本号。
-$manifestOutput = & ssh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" "'$REMOTE_PYTHON' '$REMOTE_SENDER' current client_manifest"
+$manifestOutput = Invoke-StartupSsh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" "'$REMOTE_PYTHON' '$REMOTE_SENDER' current client_manifest"
 if ($LASTEXITCODE -ne 0) { throw "Cannot read repository client manifest; existing bridge was retained." }
 $bridgeManifest = ($manifestOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop
 $REMOTE_BRIDGE_ROOT = $bridgeManifest.bridge_root
@@ -260,9 +294,9 @@ if (-not $REMOTE_BRIDGE_ROOT -or -not $REMOTE_BRIDGE_SCRIPT) { throw "Repository
 $BRIDGE_EXPECTED_VERSION = $bridgeManifest.version
 $BRIDGE_REQUIRED_CAPABILITIES = @($bridgeManifest.capabilities)
 $bridgeDownload = "$BRIDGE_SCRIPT.download"
-& scp -B -o ConnectTimeout=5 -P $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}:${REMOTE_BRIDGE_SCRIPT}" $bridgeDownload
+Invoke-StartupScp -B -o ConnectTimeout=5 -P $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}:${REMOTE_BRIDGE_SCRIPT}" $bridgeDownload
 if ($LASTEXITCODE -ne 0) {
-    throw "Bridge download failed. Check SSH key authentication; existing bridge was retained."
+    throw "Bridge download failed. See preceding SSH/scp diagnostic (MaxStartups means SSH entry capacity, not a key error); existing bridge was retained."
 }
 $bridgeHash = (Get-FileHash -LiteralPath $bridgeDownload -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($bridgeHash -ne $bridgeManifest.source_sha256) {
@@ -359,7 +393,7 @@ Write-Host "Remote server logs: $remoteLogDir" -ForegroundColor Cyan
 Write-Host "Waiting for remote pvserver listener..." -ForegroundColor Cyan
 $attempts = (1..30) -join ' '
 $readyCommand = Get-ServerCommand "for i in $attempts; do if netstat -lnt 2>/dev/null | grep -Eq '[:.]${REMOTE_PORT}[[:space:]]'; then exit 0; fi; sleep 1; done; exit 1"
-& ssh -T -o BatchMode=yes -o ConnectTimeout=5 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $readyCommand
+Invoke-StartupSsh -T -o BatchMode=yes -o ConnectTimeout=5 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $readyCommand
 if ($LASTEXITCODE -ne 0) {
     throw "pvserver listener did not become ready. Read the server startup window; it is kept open."
 }
@@ -400,7 +434,7 @@ Write-Host "Checking bridge GUI response (up to $BRIDGE_STARTUP_SECONDS seconds)
 $receiptPath = "$REMOTE_BRIDGE_ROOT/launch-$BRIDGE_LAUNCH_ID.json"
 $checkAttempts = (1..$BRIDGE_STARTUP_SECONDS) -join ' '
 $checkCommand = "for i in $checkAttempts; do if test -s '$receiptPath'; then cat '$receiptPath'; exit 0; fi; sleep 1; done; exit 1"
-$receiptOutput = & ssh -T -o BatchMode=yes -o ConnectTimeout=5 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $checkCommand
+$receiptOutput = Invoke-StartupSsh -T -o BatchMode=yes -o ConnectTimeout=5 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $checkCommand
 if ($LASTEXITCODE -ne 0) {
     throw "Bridge GUI check timed out. ParaView may be connected but the bridge is not ready. Check ParaView Output Messages and $BRIDGE_SCRIPT. Server window is retained."
 }

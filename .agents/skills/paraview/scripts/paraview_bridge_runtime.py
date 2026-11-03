@@ -1,4 +1,6 @@
 """在本机 ParaView Python Shell 加载；通过 SSH 接收有限的界面操作。"""
+import base64
+import tempfile
 import builtins
 import ctypes
 import hashlib
@@ -20,8 +22,8 @@ from paraview_operations import (AMR_CELL_VORTICITY_SCRIPT, export_centerline,
 from paraview_publication import publication_vorticity, add_axis_title_view, align_publication, apply_2d_vorticity_trace, color_outline_levels, add_level_array_outline
 
 
-BRIDGE_VERSION = '27'
-RUNTIME_UPDATE_PROTOCOL = 1
+BRIDGE_VERSION = '28'
+RUNTIME_UPDATE_PROTOCOL = 2
 REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.agents/skills/paraview/scripts/paraview_bridge_client.py'
 
 
@@ -194,6 +196,7 @@ class ParaViewBridge:
                 self.source_sha256 = hashlib.sha256(stream.read()).hexdigest()
         self.startup_id = 'startup-' + self.launch_id
         self.ssh = ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5',
+                    '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=2',
                     '-p', os.environ.get('PV_BRIDGE_SSH_PORT', '6022'),
                     os.environ.get('PV_BRIDGE_SSH_TARGET', 'Liuzhaohui@27.18.114.25')]
         self.incoming = queue.Queue()
@@ -212,19 +215,81 @@ class ParaViewBridge:
         self.worker = threading.Thread(target=self.poll, daemon=True)
         self.worker.start()
 
+    def close_transport(self):
+        # 仅后台线程拥有传输；断线后下次调用新建连接，不重放本次请求。
+        transport = getattr(self, '_transport', None)
+        if transport is None:
+            return
+        self._transport = None
+        process, replies, errors, reader = transport
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        reader.join(timeout=5)
+        try:
+            process.stdin.close()
+        except OSError:
+            # 连接已断开时flush可能再次报BrokenPipe，仍须关闭其他资源。
+            pass
+        process.stdout.close()
+        errors.close()
+
     def remote(self, command, data=None):
-        # 网络调用只在后台线程运行，不触碰 ParaView 对象。
-        completed = subprocess.run(self.ssh + [command], input=data, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, timeout=45,
-                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        if completed.returncode:
-            message = completed.stderr.decode('utf-8', errors='replace').strip()
-            # 只将已识别的 SSH 连接中断标为可重试，不掩盖认证或远端命令错误。
-            if completed.returncode == 255 and any(text in message.lower() for text in (
-                    'connection closed by', 'connection reset by', 'connection timed out')):
-                raise ConnectionError(message)
-            raise RuntimeError(message)
-        return completed.stdout
+        # 单个 SSH 长连接承载逐行请求，远端子进程仍单独执行原有固定命令。
+        # stdout 使用 JSON/base64 定界；stderr 单独落临时文件，避免管道阻塞。
+        if getattr(self, '_transport', None) is None:
+            server = """import sys,json,base64,subprocess
+for line in sys.stdin.buffer:
+    request=json.loads(line)
+    result=subprocess.run(request['command'],shell=True,input=base64.b64decode(request['data']),stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=35)
+    print(json.dumps({'code':result.returncode,'out':base64.b64encode(result.stdout).decode(),'err':base64.b64encode(result.stderr).decode()}),flush=True)
+"""
+            python = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.venv/bin/python'
+            errors = tempfile.TemporaryFile()
+            try:
+                process = subprocess.Popen(self.ssh + [shlex.quote(python) + ' -u -c ' + shlex.quote(server)],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            except Exception:
+                errors.close()
+                raise
+            replies = queue.Queue()
+            def read_replies():
+                try:
+                    for line in process.stdout:
+                        replies.put(line)
+                finally:
+                    replies.put(None)
+            reader = threading.Thread(target=read_replies, daemon=True)
+            self._transport = (process, replies, errors, reader)
+            reader.start()
+        process, replies, errors, reader = self._transport
+        try:
+            request = json.dumps({'command': command, 'data': base64.b64encode(data or b'').decode()})
+            process.stdin.write(request.encode() + b'\n')
+            process.stdin.flush()
+            line = replies.get(timeout=45)
+            if line is None:
+                errors.seek(0)
+                message = errors.read().decode('utf-8', errors='replace').strip()
+                if any(value in message.lower() for value in (
+                        'permission denied', 'host key verification failed', 'host identification has changed')):
+                    raise RuntimeError(message)
+                raise ConnectionError(message or 'SSH connection closed')
+            response = json.loads(line)
+            if response['code']:
+                raise RuntimeError(base64.b64decode(response['err']).decode('utf-8', errors='replace'))
+            return base64.b64decode(response['out'])
+        except (queue.Empty, BrokenPipeError, OSError) as exc:
+            self.close_transport()
+            raise ConnectionError('SSH transport interrupted or timed out: ' + str(exc)) from exc
+        except Exception:
+            self.close_transport()
+            raise
 
     def poll(self):
         path = shlex.quote(self.directory)
@@ -255,6 +320,7 @@ class ParaViewBridge:
             print('ParaView bridge registered (GUI check pending): ' + self.directory)
             previous = None
             pending = None
+            failures = 0
             while not self.closed.is_set():
                 try:
                     if pending is None:
@@ -296,11 +362,20 @@ class ParaViewBridge:
                                     continue
                             self.incoming.put(command)
                 except Exception as exc:
-                    print('ParaView bridge transport: ' + str(exc))
+                    failures += 1
+                    delay = min(60, 2 ** min(failures + 1, 6))
+                    print('ParaView bridge transport (retry in %ds): %s' % (delay, exc))
+                    if isinstance(exc, RuntimeError):
+                        raise
+                    self.closed.wait(delay)
+                    continue
+                failures = 0
                 self.closed.wait(2)
         except Exception as exc:
             print('ParaView bridge startup failed: ' + str(exc), flush=True)
             self.closed.set()
+        finally:
+            self.close_transport()
 
     def tick(self):
         if self.closed.is_set():
