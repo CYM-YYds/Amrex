@@ -111,8 +111,6 @@ function Invoke-StartupNative {
 }
 function Invoke-StartupSsh { Invoke-StartupNative -Program 'ssh' -NativeArguments $args }
 function Invoke-StartupReadOnlySsh { Invoke-StartupNative -Program 'ssh' -ReadOnly -NativeArguments $args }
-# 当前scp仅从远端下载到.download文件，失败时允许覆盖不完整临时文件。
-function Invoke-StartupScp { Invoke-StartupNative -Program 'scp' -ReadOnly -NativeArguments $args }
 
 if ($BridgeStatus -and $UpdateBridge) { throw "Choose either -BridgeStatus or -UpdateBridge." }
 if ($BridgeStatus -or $UpdateBridge) {
@@ -146,66 +144,6 @@ function Get-ServerCommand {
     param([string]$Command)
     $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Command))
     return "if hostname -s | grep -Fxq '$SERVER_HOST'; then echo $encoded | base64 -d | bash; else ssh -T -o BatchMode=yes -o ConnectTimeout=10 ${SERVER_HOST} 'echo $encoded | base64 -d | bash'; fi"
-}
-
-# Check whether remote port is available
-function Test-RemotePort {
-    param(
-        [string]$RemoteHost = $REMOTE_HOST,
-        [int]$Port = $SSH_PORT,
-        [string]$Username = $REMOTE_USERNAME,
-        [int]$RemotePort
-    )
-    
-    Write-Host "Checking remote port $RemotePort..." -ForegroundColor Yellow
-    
-    # Test remote port and return quickly
-    $probe = "if netstat -lnt >/dev/null 2>&1; then if netstat -lnt | grep -Eq '[:.]${RemotePort}[[:space:]]'; then echo PORT_BUSY; else echo PORT_AVAILABLE; fi; else echo 'netstat unavailable' >&2; exit 1; fi"
-    $testCommand = Get-ServerCommand $probe
-    
-    try {
-        $result = Invoke-StartupReadOnlySsh -T -o BatchMode=yes -o ConnectTimeout=10 -p $Port "${Username}@${RemoteHost}" $testCommand
-        
-        # If occupied, netstat returns listener info; otherwise PORT_AVAILABLE.
-        if ($LASTEXITCODE -ne 0) {
-            throw "SSH port check failed (exit $LASTEXITCODE)"
-        }
-        if ($result -match "PORT_AVAILABLE") {
-            Write-Host "OK: Port $RemotePort is available" -ForegroundColor Green
-            return $true
-        } else {
-            Write-Host "ERR: Port $RemotePort is in use" -ForegroundColor Red
-            return $false
-        }
-    } catch {
-        Write-Host "ERR: Port test failed for ${RemotePort}: $($_.Exception.Message)" -ForegroundColor Red
-        return $false
-    }
-}
-
-# Find available remote port
-function Find-AvailablePort {
-    param(
-        [int]$StartPort = 11115,
-        [int]$MaxAttempts = 10
-    )
-    
-    Write-Host "`n=== Search Available Ports ===" -ForegroundColor Cyan
-    
-    for ($i = 0; $i -lt $MaxAttempts; $i++) {
-        $testPort = $StartPort + $i
-        Write-Host "[$($i + 1)/$MaxAttempts] " -NoNewline -ForegroundColor Gray
-        
-        if (Test-RemotePort -RemotePort $testPort) {
-            Write-Host "Selected available port: $testPort" -ForegroundColor Green
-            return $testPort
-        }
-        
-        Start-Sleep -Seconds 1
-    }
-    
-    Write-Host "ERR: No available port found after $MaxAttempts attempts" -ForegroundColor Red
-    return $null
 }
 
 # Locate ParaView executable using configured path first, then common folders.
@@ -268,21 +206,6 @@ if ($clientVersion -ne $PARAVIEW_VERSION) {
     throw "Expected local ParaView $PARAVIEW_VERSION; got: $clientVersion ($resolvedParaViewPath)"
 }
 Write-Host "Local ParaView version: $clientVersion" -ForegroundColor Cyan
-# 外部入口可能已映射编译节点，此时使用回环隧道且不再 SSH 回连自身。
-$gatewayNode = (Invoke-StartupReadOnlySsh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" 'hostname -s' | Out-String).Trim()
-if ($LASTEXITCODE -ne 0) { throw "SSH connection failed while querying endpoint hostname after retries. See preceding SSH diagnostic." }
-$TUNNEL_TARGET = if ($gatewayNode -eq $SERVER_HOST) { "localhost" } else { $SERVER_HOST }
-# 同一组参数同时用于预检和实际启动，避免检查串行环境却启动另一套服务。
-$serverOptions = "--processes $ServerProcesses"
-if ($RemoteParaViewPrefix) { $serverOptions += " --prefix '$RemoteParaViewPrefix'" }
-$versionCommand = Get-ServerCommand "bash '$REMOTE_SERVER_SCRIPT' $serverOptions --version"
-$serverVersion = (Invoke-StartupReadOnlySsh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" $versionCommand | Out-String)
-if ($LASTEXITCODE -ne 0) {
-    throw "SSH connection failed during read-only ParaView version preflight after retries; this does not establish a ParaView version mismatch. See preceding SSH diagnostic."
-}
-if ($serverVersion -notmatch "(?<![0-9.])6\.2\.0(?![0-9.])") {
-    throw "ParaView server preflight failed: need version $PARAVIEW_VERSION and MPI support for $ServerProcesses processes. Check the selected prefix and the preceding error. Got: $serverVersion"
-}
 # 固定本机端口已被占用时停止，不连接到旧窗口对应的远端服务。
 $localListener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, [int]$LOCAL_PORT)
 try {
@@ -292,44 +215,69 @@ try {
 } finally {
     $localListener.Stop()
 }
-# 从同一仓库源码提取版本/能力，不在PS1内复制一套需要手动维护的版本号。
-$manifestOutput = Invoke-StartupReadOnlySsh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" "'$REMOTE_PYTHON' '$REMOTE_SENDER' current client_manifest"
-if ($LASTEXITCODE -ne 0) { throw "SSH connection or repository manifest query failed after retries; see preceding diagnostic. Existing bridge was retained." }
-$bridgeManifest = ($manifestOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop
+# 五项只读预检在同一次SSH中完成，减少入口认证和每个端口单独查询。
+$serverOptions = "--processes $ServerProcesses"
+if ($RemoteParaViewPrefix) { $serverOptions += " --prefix '$RemoteParaViewPrefix'" }
+$firstRemotePort = [int]$REMOTE_PORT
+$bundleConfig = @{
+    version_command = (Get-ServerCommand "bash '$REMOTE_SERVER_SCRIPT' $serverOptions --version")
+    ports_command = (Get-ServerCommand 'netstat -lnt')
+    sender = $REMOTE_SENDER
+    start_port = $firstRemotePort
+    max_ports = $MAX_PORT_ATTEMPTS
+} | ConvertTo-Json -Compress
+$config64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bundleConfig))
+$bundlePython = @'
+import base64, hashlib, json, pathlib, re, socket, subprocess, sys
+config = json.loads(base64.b64decode('__CONFIG64__'))
+def query(command):
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=60)
+    if result.stderr:
+        print(result.stderr, file=sys.stderr, end='')
+    if result.returncode:
+        raise RuntimeError('Read-only preflight failed: ' + command)
+    return result.stdout
+version = query(config['version_command'])
+if not re.search(r'(?<![0-9.])6\.2\.0(?![0-9.])', version):
+    raise RuntimeError('ParaView version preflight failed: ' + version)
+manifest = json.loads(subprocess.check_output([sys.executable, config['sender'], 'current', 'client_manifest'], text=True))
+client = pathlib.Path(manifest['client_source']).read_bytes()
+if hashlib.sha256(client).hexdigest() != manifest['source_sha256']:
+    raise RuntimeError('Repository bridge changed during preflight; retry')
+listeners = query(config['ports_command'])
+busy = {int(port) for port in re.findall(r'[:.](\d+)\s', listeners)}
+port = next((p for p in range(config['start_port'], config['start_port'] + config['max_ports']) if p not in busy), None)
+if port is None:
+    raise RuntimeError('No available remote port in configured range')
+print(json.dumps(dict(gateway=socket.gethostname().split('.')[0], server_version=version, manifest=manifest,
+                     client_base64=base64.b64encode(client).decode(), available_port=port)))
+'@
+$bundlePython = $bundlePython.Replace('__CONFIG64__', $config64)
+$bundle64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bundlePython))
+Write-Host "Checking server, bridge and ports in one SSH connection..." -ForegroundColor Cyan
+$bundleOutput = Invoke-StartupReadOnlySsh -T -o BatchMode=yes -o ConnectTimeout=10 -p $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}" "echo $bundle64 | base64 -d | '$REMOTE_PYTHON'"
+if ($LASTEXITCODE -ne 0) { throw "Combined read-only preflight failed after retries; see preceding diagnostic. Existing bridge was retained." }
+$bundle = ($bundleOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop
+$TUNNEL_TARGET = if ($bundle.gateway -eq $SERVER_HOST) { "localhost" } else { $SERVER_HOST }
+$bridgeManifest = $bundle.manifest
 $REMOTE_BRIDGE_ROOT = $bridgeManifest.bridge_root
 $REMOTE_BRIDGE_SCRIPT = $bridgeManifest.client_source
 if (-not $REMOTE_BRIDGE_ROOT -or -not $REMOTE_BRIDGE_SCRIPT) { throw "Repository manifest is missing bridge paths." }
 $BRIDGE_EXPECTED_VERSION = $bridgeManifest.version
 $BRIDGE_REQUIRED_CAPABILITIES = @($bridgeManifest.capabilities)
 $bridgeDownload = "$BRIDGE_SCRIPT.download"
-Invoke-StartupScp -B -o ConnectTimeout=5 -P $SSH_PORT "${REMOTE_USERNAME}@${REMOTE_HOST}:${REMOTE_BRIDGE_SCRIPT}" $bridgeDownload
-if ($LASTEXITCODE -ne 0) {
-    throw "Bridge download failed. See preceding SSH/scp diagnostic (MaxStartups means SSH entry capacity, not a key error); existing bridge was retained."
-}
+[IO.File]::WriteAllBytes($bridgeDownload, [Convert]::FromBase64String($bundle.client_base64))
 $bridgeHash = (Get-FileHash -LiteralPath $bridgeDownload -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($bridgeHash -ne $bridgeManifest.source_sha256) {
     Remove-Item -LiteralPath $bridgeDownload -ErrorAction SilentlyContinue
-    throw "Downloaded client does not match repository manifest; existing bridge was retained. Retry after checking repository changes."
+    throw "Downloaded client does not match repository manifest; existing bridge was retained."
 }
 Move-Item -LiteralPath $bridgeDownload -Destination $BRIDGE_SCRIPT -Force
+$REMOTE_PORT = [int]$bundle.available_port
+if ($REMOTE_PORT -lt $firstRemotePort -or $REMOTE_PORT -ge ($firstRemotePort + $MAX_PORT_ATTEMPTS)) { throw "Invalid remote port in preflight reply." }
 Write-Host "Bridge script: $BRIDGE_SCRIPT" -ForegroundColor Cyan
 Write-Host "Remote bridge entry: $REMOTE_BRIDGE_ROOT/current.json" -ForegroundColor Cyan
-
-Write-Host "=== ParaView Remote HPC Launcher ===" -ForegroundColor Green
-Write-Host "ParaView $PARAVIEW_VERSION; server: $SERVER_HOST; processes: $ServerProcesses" -ForegroundColor Yellow
-
-# Find available remote port
-$availablePort = Find-AvailablePort -StartPort $REMOTE_PORT -MaxAttempts $MAX_PORT_ATTEMPTS
-
-if ($availablePort -eq $null) {
-    Write-Host "ERR: No available remote port found. Connection aborted." -ForegroundColor Red
-    Write-Host "Retry later or check server status with admin." -ForegroundColor Yellow
-    throw "No available remote port on $SERVER_HOST"
-}
-
-# Update remote port
-$REMOTE_PORT = $availablePort
-Write-Host "Using remote port: $REMOTE_PORT" -ForegroundColor Green
+Write-Host "ParaView $PARAVIEW_VERSION; server: $SERVER_HOST; processes: $ServerProcesses; remote port: $REMOTE_PORT" -ForegroundColor Cyan
 
 # 隧道目的地与实际服务节点一致；不在 SSH 登录节点启动 pvserver。
 # 每次启动使用独立服务日志目录，与本机启动记录通过同一编号关联。
