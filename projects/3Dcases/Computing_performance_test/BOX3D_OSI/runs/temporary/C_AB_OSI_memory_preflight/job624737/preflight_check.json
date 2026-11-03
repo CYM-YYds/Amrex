@@ -1,0 +1,61 @@
+{
+  "plotfile_data": [
+    {
+      "file": "plt_000128/Level_0/Cell_D_00000",
+      "identical": true
+    },
+    {
+      "file": "plt_000128/Level_0/Cell_H",
+      "identical": true
+    },
+    {
+      "file": "plt_000128/Level_1/Cell_D_00000",
+      "identical": true
+    },
+    {
+      "file": "plt_000128/Level_1/Cell_H",
+      "identical": true
+    },
+    {
+      "file": "plt_000128/Level_2/Cell_D_00000",
+      "identical": true
+    },
+    {
+      "file": "plt_000128/Level_2/Cell_H",
+      "identical": true
+    },
+    {
+      "file": "plt_vort_000128/Level_0/Cell_D_00000",
+      "identical": false
+    },
+    {
+      "file": "plt_vort_000128/Level_0/Cell_H",
+      "identical": false
+    },
+    {
+      "file": "plt_vort_000128/Level_1/Cell_D_00000",
+      "identical": true
+    },
+    {
+      "file": "plt_vort_000128/Level_1/Cell_H",
+      "identical": true
+    },
+    {
+      "file": "plt_vort_000128/Level_2/Cell_D_00000",
+      "identical": true
+    },
+    {
+      "file": "plt_vort_000128/Level_2/Cell_H",
+      "identical": true
+    }
+  ],
+  "all_compared_equal": false,
+  "scope": "128 coarse steps, velocity and vorticity FAB outputs only; not all DDF or long-run equivalence",
+  "coarse_vorticity_difference": {
+    "all_valid_linf": 3.2954526,
+    "uncovered_coarse_valid_linf": 0.007469721,
+    "uncovered_nonzero_components": 145544,
+    "both_all_finite": true
+  },
+  "note": "velocity FABs at levels 0/1/2 byte-identical; Q/vorticity differ at level0, including uncovered cells; do not assert full numerical equivalence"
+}

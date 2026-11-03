@@ -30,6 +30,8 @@ REFINEMENT_DIAGNOSTICS="${PROBE_REFINEMENT_DIAGNOSTICS:-true}"
 [[ "$END_STEP" =~ ^[1-9][0-9]*$ ]] && (( END_STEP % 128 == 0 )) || {
     echo "PROBE_END_STEP 必须为正整数且为 128 的倍数" >&2; exit 1;
 }
+MEMORY_MS="${PROBE_GPU_MEMORY_MS:-0}"
+[[ "$MEMORY_MS" =~ ^[0-9]+$ ]] || exit 1
 BEGIN_STEP=0
 read -r -a names <<< "${PROBE_CASES:-A B C}"
 for name in "${names[@]}"; do
@@ -76,6 +78,26 @@ if [[ -n "${PROBE_GRID_EFFS:-}" ]]; then
         names+=("${RESTART_CASE}_eff${eff/./p}")
     done
 fi
+# 同节点串行比较存储模式；阈值组与 stream_mode 独立，避免混淆 A/B 阈值名。
+if [[ -n "${PROBE_STREAM_MODES:-}" ]]; then
+    (( ${#grid_effs[@]} == 0 )) || { echo "模式对比不同时扫描grid_eff" >&2; exit 1; }
+    read -r -a stream_modes <<< "$PROBE_STREAM_MODES"
+    original_names=("${names[@]}")
+    names=()
+    for threshold in "${original_names[@]}"; do
+        for mode in "${stream_modes[@]}"; do
+            [[ "$mode" == 0 || "$mode" == 1 ]] || exit 1
+            names+=("${threshold}_mode${mode}")
+        done
+    done
+fi
+monitor_pids=()
+stop_memory_monitor() {
+    for pid in "${monitor_pids[@]}"; do kill "$pid" 2>/dev/null || true; done
+    for pid in "${monitor_pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+    monitor_pids=()
+}
+trap stop_memory_monitor EXIT
 source /home/HPCBase/tools/module-5.2.0/init/profile.sh
 module use /home/HPCBase/modulefiles/
 module purge
@@ -91,6 +113,9 @@ cp -a "$SNAPSHOT/src" "$OUT/src"
 cp -a "$SNAPSHOT/config" "$OUT/config"
 cp "$APP" "$OUT/application.ex"
 cp "$0" "$OUT/submit.sh"
+if (( MEMORY_MS > 0 )); then
+    cp "$CASE/scripts/temporary/summarize_restart_memory.py" "$OUT/summarize_memory.py"
+fi
 git -C "$CASE" rev-parse HEAD > "$OUT/git_head.txt"
 git -C "$CASE" diff > "$OUT/source.diff"
 sha256sum "$OUT/application.ex" "$OUT/inputs" > "$OUT/fingerprints.sha256"
@@ -118,7 +143,7 @@ common=(max_step="$END_STEP" stop_time="$((END_STEP / 128))"
 failed=0
 for index in "${!names[@]}"; do
     name="${names[$index]}"
-    threshold_case="$name"
+    threshold_case="${name%%_mode*}"
     grid_eff=0.7
     if (( ${#grid_effs[@]} > 0 )); then
         threshold_case="$RESTART_CASE"
@@ -142,6 +167,9 @@ for index in "${!names[@]}"; do
     args+=("${extra_args[@]}")
     # 扫描值放在公共参数之后，确保覆盖默认的 0.7。
     if (( ${#grid_effs[@]} > 0 )); then args+=(amr.grid_eff="$grid_eff"); fi
+    if [[ -n "${PROBE_STREAM_MODES:-}" ]]; then
+        args+=(lbm.stream_mode="${name##*_mode}")
+    fi
     ln -s ../inputs inputs
     printf 'case=%s\nprecision=FLOAT\nexecutable=%s\n' "$name" "$OUT/application.ex" > manifest.txt
     cat "$OUT/fingerprints.sha256" >> manifest.txt
@@ -149,6 +177,17 @@ for index in "${!names[@]}"; do
     printf '\n' >> overrides.txt
     printf '%q ' "$OUT/application.ex" "$OUT/inputs" "${args[@]}" > command.txt
     printf '\n' >> command.txt
+    if (( MEMORY_MS > 0 )); then
+        # 从应用启动前到退出持续采样，保留整卡基线与进程明细以检查其他进程干扰。
+        nvidia-smi > gpu-before.txt
+        nvidia-smi --query-compute-apps=gpu_uuid,pid,used_gpu_memory --format=csv > processes-before.csv
+        stdbuf -oL nvidia-smi --query-gpu=timestamp,index,uuid,memory.used,memory.total --format=csv,noheader,nounits --loop-ms="$MEMORY_MS" > gpu-memory.csv 2> gpu-memory.err &
+        monitor_pids+=("$!")
+        stdbuf -oL nvidia-smi --query-compute-apps=timestamp,gpu_uuid,pid,used_gpu_memory --format=csv,noheader,nounits --loop-ms="$MEMORY_MS" > gpu-process-memory.csv 2> gpu-process-memory.err &
+        monitor_pids+=("$!")
+        sleep 1
+        for pid in "${monitor_pids[@]}"; do kill -0 "$pid"; done
+    fi
     code=0
     "$REPO/.venv/bin/python" "$CASE/scripts/guard_run.py" --wall-seconds "${PROBE_WALL_SECONDS:-1800}" -- \
         mpirun -hostfile "$OUT/hostfile" -n 1 -npernode 1 -x PATH -x LD_LIBRARY_PATH \
@@ -156,6 +195,11 @@ for index in "${!names[@]}"; do
         env -u BASH_ENV bash --noprofile --norc -c \
         'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK:-0}; exec bash ./run_rank.sh "$@"' \
         bash "$OUT/inputs" "${args[@]}" || code=$?
+    if (( MEMORY_MS > 0 )); then
+        stop_memory_monitor
+        nvidia-smi > gpu-after.txt
+        "$REPO/.venv/bin/python" "$OUT/summarize_memory.py" "$OUT/$name" --job "$CCS_JOB_ID" --sample-ms "$MEMORY_MS" > memory-summary.log
+    fi
     printf '%s\t%s\n' "$name" "$code" >> "$OUT/status.tsv"
     echo "case=$name exit=$code output=$OUT/$name"
     if (( code == 0 )) && [[ "$CONVERGENCE" == true ]]; then
