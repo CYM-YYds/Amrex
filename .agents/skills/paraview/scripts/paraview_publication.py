@@ -868,7 +868,7 @@ def add_level_array_outline(command):
                     raise RuntimeError('Empty filter output after update; stop before Fetch/render')
                 data = servermanager.Fetch(node)
                 counts = [0, 0, 0]
-                def check(block, level):
+                def check(block):
                     if block is None:
                         return
                     if block.IsA('vtkCompositeDataSet'):
@@ -877,17 +877,19 @@ def add_level_array_outline(command):
                             iterator.VisitOnlyLeavesOn()
                         iterator.InitTraversal()
                         while not iterator.IsDoneWithTraversal():
-                            check(iterator.GetCurrentDataObject(), level)
+                            check(iterator.GetCurrentDataObject())
                             iterator.GoToNextItem()
                     elif block.IsA('vtkDataSet') and block.GetNumberOfCells():
                         array = block.GetFieldData().GetArray('AMRLevel')
-                        if array is None or array.GetNumberOfTuples() != 1 or array.GetValue(0) != level:
-                            raise RuntimeError('AMRLevel did not match the verified level group')
+                        if array is None or not array.IsA('vtkIntArray') or array.GetNumberOfTuples() != 1:
+                            raise RuntimeError('Expected one integer AMRLevel on every nonempty leaf')
+                        level = array.GetValue(0)
+                        if level not in (0, 1, 2):
+                            raise RuntimeError('AMRLevel must be 0, 1 or 2')
                         counts[level] += 1
-                if not data.IsA('vtkMultiBlockDataSet') or data.GetNumberOfBlocks() != 3:
-                    raise RuntimeError('Unexpected temporal output structure')
-                for level in range(3):
-                    check(data.GetBlock(level), level)
+                # MPI Fetch可能按进程再次包装层级；按叶子中明确存储的字段检查，
+                # 不把客户端聚合结构当作原始的三个AMR层分组。
+                check(data)
                 if not any(counts):
                     raise RuntimeError('AMRLevel output is empty; a pipeline script may have failed')
                 pvs.Render(view)
