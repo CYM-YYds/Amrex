@@ -1,0 +1,2 @@
+JOB_ID              JOB_NAME        USER            JOB_STATE       QUEUE           ACCOUNT         SUBMIT_NODE     JOB_CREATE_TIME
+624899              C_AB_retry5_IO  Liuzhaohui      RUNNING         root.default    root.iosoeqkp   whshare-ccs-cl* 2026/11/03 20:51:03
