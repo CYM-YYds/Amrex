@@ -62,6 +62,9 @@ elif [[ -n "$SNAPSHOT_ROOT" ]]; then
     APP="$SNAPSHOT/application.ex"
     RANK_SCRIPT="$SNAPSHOT/${names[0]}/run_rank.sh"
 fi
+# 阈值组共用相同的 rank 包装器，允许冻结快照缺少目标组目录时显式复用。
+RANK_SCRIPT="${PROBE_RANK_SCRIPT:-$RANK_SCRIPT}"
+[[ -f "$RANK_SCRIPT" ]] || { echo "缺少 rank 包装器: $RANK_SCRIPT" >&2; exit 1; }
 # 同一检查点的聚类效率扫描复用阈值算例入口，不改变原有 A/B/C 阈值对照。
 grid_effs=()
 if [[ -n "${PROBE_GRID_EFFS:-}" ]]; then

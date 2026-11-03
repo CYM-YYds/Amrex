@@ -1,0 +1,21 @@
+JOB_ID              JOB_NAME        USER            JOB_STATE       QUEUE           ACCOUNT         SUBMIT_NODE     JOB_CREATE_TIME
+624717              a5_threshold_p* Liuzhaohui      RUNNING         root.default    root.iosoeqkp   whshare-ccs-cl* 2026/11/03 16:31:20
+
+Initializing AMReX (26.06)...
+MPI initialized with 1 MPI processes
+MPI initialized with thread support level 0
+Initializing CUDA...
+CUDA initialized with 1 device.
+AMReX (26.06) initialized
+[Precision] Real=FLOAT bytes=4
+Successfully read inputs file ...
+[Params] checkpoint:
+  begin_step       = 0
+  chk_int          = 32000
+  chk_prefix       = 'chk'
+  keep_latest_only = false
+  write_particles  = false
+[Params] amr:
+  plot_int         = 3200
+  begin_plot       = 0
+  regrid_int       = 32
