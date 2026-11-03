@@ -1,0 +1,8 @@
+{
+  "source": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/archive/history_20261101/a5_threshold_128000/reference/fig18a_velocity_profiles.csv",
+  "source_sha256": "6b202219e9c72ee6c67b9d5802c555efa25ecad03737b34822bccc3fd2551ed7",
+  "selection": "series == Cortes_and_Miller_circle",
+  "points": 44,
+  "normalization": "already nondimensional z/H and ux/U_lid; no further normalization",
+  "citation": "Cortes and Miller points from existing digitized Jaber Fig.18(a)"
+}

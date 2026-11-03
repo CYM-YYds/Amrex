@@ -1,0 +1,1 @@
+.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/extract_run_centerline.py projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C --backend batch --output-dir projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/results/C_t1000_Cortes/profile

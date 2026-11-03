@@ -1,0 +1,55 @@
+{
+  "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_128000",
+  "step": 128000,
+  "Re": 1000.0,
+  "backend": "batch",
+  "export": {
+    "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/plt_128000",
+    "output": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/results/C_t1000_Cortes/profile/centerline.csv",
+    "bounds": [
+      0.0,
+      1.0,
+      0.0,
+      1.0,
+      0.0,
+      1.0
+    ],
+    "point1": [
+      0.5,
+      0.5,
+      0.0
+    ],
+    "point2": [
+      0.5,
+      0.5,
+      1.0
+    ],
+    "resolution": 1024,
+    "requested_max_level": 2,
+    "samples": 1025,
+    "method": "AMReX reader -> ExtractBlock /Root -> CellDataToPointData -> PlotOverLine"
+  },
+  "normalization": {
+    "H": 1.0,
+    "U_lid": 0.05,
+    "z_origin": 0.0
+  },
+  "input_hashes": {
+    "inputs": "b4741ead4d5e652cc657484c2bc427d0154eaa69caaf93df2670ae2355ebf42b",
+    "overrides.txt": "e167e231bb02b46f42068777d7f6b045e11cfb31b0a70067fb7f1ad503d42b53",
+    "manifest.txt": "5025f300d2e2303016ed1c51048ef1c16493179a8cee49976efe9645049cda61"
+  },
+  "plot_header_sha256": "8a41da1124a1a963d58de8ac448467f4977e832365d04326d27850d40a0644c1",
+  "valid_unique_z": 1025,
+  "invalid_samples": 0,
+  "z_over_H_range": [
+    0.0,
+    1.0
+  ],
+  "ux_over_ulid_range": [
+    -0.27150264009833336,
+    0.9999999403953552
+  ],
+  "csv_sha256": "154faa734e5bcc6a4150932aacdb54c9bf7514b0992fb95a70c07a98fab04529",
+  "convergence_verdict": "Not assessed; extraction validates samples only"
+}
