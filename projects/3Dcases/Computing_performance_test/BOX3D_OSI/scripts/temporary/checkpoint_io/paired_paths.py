@@ -11,7 +11,10 @@ import time
 
 CASE = Path(__file__).resolve().parents[3]
 REPO = CASE.parents[3]
-ROOT = CASE / 'runs/temporary/C_AB_IO_path_pair'
+ROOT = Path(os.environ.get('IO_OUTPUT_ROOT', str(CASE / 'runs/temporary/C_AB_IO_path_pair')))
+TRIALS = os.environ.get('IO_PATH_TRIALS', 'local_original shared_heap shared_original').split()
+assert TRIALS and len(set(TRIALS)) == len(TRIALS)
+assert set(TRIALS) <= {'local_original', 'shared_heap', 'shared_original'}
 JOB = os.environ['CCS_JOB_ID']
 OUT = ROOT / f'job{JOB}'
 OUT.mkdir(parents=True)
@@ -55,7 +58,7 @@ def publish(source):
 
 
 save('environment.json', {'job': JOB, 'node': subprocess.check_output(['hostname'], text=True).strip(),
-                          'scope': 'same GPU sequential: local_original, shared_heap, shared_original'})
+                          'scope': 'same GPU sequential: ' + ', '.join(TRIALS)})
 for name in ['paired_paths.py', 'paired_submit.sh', 'heap_write.c']:
     shutil.copy2(Path(__file__).parent / name, OUT / name)
 compile_result = subprocess.run(['gcc', '-std=c11', '-shared', '-fPIC', '-O2', '-Wall', '-Wextra',
@@ -73,10 +76,10 @@ local = Path(tempfile.mkdtemp(prefix=f'C_AB_IO_{JOB}_', dir=local_root))
 save('local_disk.json', {'path': str(local), 'filesystem': filesystem,
                          'free_bytes': shutil.disk_usage(local).free})
 base = json.loads((CASE / 'runs/C_AB_t1000_peak_memory_rerun/settings.json').read_text())
-base.update(PROBE_END_STEP='6400', PROBE_PLOT_INT='3200', PROBE_REPORT_INT='3200',
-            PROBE_GPU_MEMORY_MS='0', PROBE_TRACE_IO='1', PROBE_WALL_SECONDS='1800')
+base.update(PROBE_END_STEP=os.environ.get('IO_END_STEP', '6400'), PROBE_PLOT_INT='3200', PROBE_REPORT_INT='3200',
+            PROBE_GPU_MEMORY_MS=os.environ.get('IO_MEMORY_MS', '0'), PROBE_TRACE_IO='1', PROBE_WALL_SECONDS=os.environ.get('IO_WALL_SECONDS', '1800'))
 statuses = []
-for trial in ['local_original', 'shared_heap', 'shared_original']:
+for trial in TRIALS:
     env = os.environ.copy()
     env.pop('PROBE_HEAP_WRITE_LIBRARY', None)
     env.pop('PROBE_RESTART_ROOT', None)
@@ -106,7 +109,9 @@ for trial in ['local_original', 'shared_heap', 'shared_original']:
     save('status.json', statuses)
     print(json.dumps(status), flush=True)
 # 只对成功的共享普通内存组与本地组逐文件比较场数据，不把缺失当作相等。
-if statuses[0].get('published') and statuses[0]['returncode'] == statuses[1]['returncode'] == 0:
+if (len(statuses) >= 2 and statuses[0]['trial'] == 'local_original'
+        and statuses[1]['trial'] == 'shared_heap' and statuses[0].get('published')
+        and statuses[0]['returncode'] == statuses[1]['returncode'] == 0):
     first = Path(statuses[0]['published']) / 'C_mode0'
     second = Path(statuses[1]['directory']) / 'C_mode0'
     checks = []
@@ -115,4 +120,7 @@ if statuses[0].get('published') and statuses[0]['returncode'] == statuses[1]['re
         checks.append({'file': str(source.relative_to(first)),
                        'equal': other.exists() and digest(source) == digest(other)})
     save('local_vs_heap_field_hashes.json', checks)
-(OUT / 'completed.txt').write_text('all three trial processes returned; inspect each status\n')
+(OUT / 'completed.txt').write_text('selected trial processes returned; inspect each status\n')
+
+# 任一计算失败或本地回传校验失败均让调度器报告失败。
+raise SystemExit(1 if any(s['returncode'] != 0 or 'publish_error' in s for s in statuses) else 0)

@@ -1,0 +1,1 @@
+env CCS_CLI_HOME=/opt/batch/cli dsub -n C_AB_local_32000 -x 'all;IO_OUTPUT_ROOT=/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/C_AB_local_output_validation;IO_PATH_TRIALS=local_original;IO_END_STEP=32000;IO_MEMORY_MS=100;IO_WALL_SECONDS=0;' -s scripts/temporary/checkpoint_io/paired_submit.sh
