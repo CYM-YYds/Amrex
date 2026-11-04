@@ -34,7 +34,6 @@
     "boundary": 397.884242367,
     "swap": 3.16798412193,
     "regrid": 274.094752442,
-    "solv": 4060.03922634,
     "total": 4334.22430441
   },
   "OSI": {
@@ -46,7 +45,6 @@
     "boundary": 416.648757109,
     "swap": 0.0,
     "regrid": 149.676100341,
-    "solv": 3333.34967574,
     "total": 3483.08831249
   },
   "note": "A-B one restart and tracing; different nodes/output paths and evolving grids; not a controlled speedup benchmark"
