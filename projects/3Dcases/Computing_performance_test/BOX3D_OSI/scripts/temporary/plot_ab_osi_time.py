@@ -25,7 +25,7 @@ args = parser.parse_args()
 def summarize(paths):
     windows = [window for path in paths for window in parse_log(path)]
     assert [w.step for w in windows] == list(range(3200, 128001, 3200)), '必须覆盖40个连续3200步窗口'
-    totals = {phase: sum(w.phase[phase] for w in windows) for phase in PHASES}
+    totals = {phase: sum(w.phase[phase] for w in windows) for phase in PHASES if phase != 'swap'}
     totals['regrid'] = sum(w.regrid for w in windows)
     rows = [parse_values(line) for path in paths for line in path.read_text().splitlines() if ' perf(s):' in line]
     assert len(rows) == 40 and all(row['steps'] == 3200 for row in rows)
@@ -34,14 +34,14 @@ def summarize(paths):
 
 ab = summarize(args.ab_logs)
 osi = summarize([args.osi_log])
-phases = ['interp', 'average', 'collide', 'stream', 'comm', 'boundary', 'swap', 'regrid']
-labels = ['插值', '平均下传', '碰撞', '迁移', '通信', '边界处理', '数组交换', '网格重构']
+phases = ['interp', 'average', 'collide', 'stream', 'comm', 'boundary', 'regrid']
+labels = ['插值', '平均下传', '碰撞', '迁移', '通信', '边界处理', '网格重构']
 colors = ['#3676AB', '#E68A32']
 font_manager.fontManager.addfont('/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc')
 chinese_font = font_manager.FontProperties(fname='/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc').get_name()
 plt.rcParams.update({'font.family': chinese_font, 'font.size': 10, 'axes.spines.top': False, 'axes.spines.right': False})
-fig, axes = plt.subplots(1, 2, figsize=(13, 5.4), gridspec_kw={'width_ratios': [3, 1]})
-fig.subplots_adjust(left=.065, right=.98, top=.77, bottom=.15, wspace=.24)
+fig, ax = plt.subplots(figsize=(13, 5.4))
+fig.subplots_adjust(left=.065, right=.98, top=.77, bottom=.15)
 fig.suptitle('A-B模式与OSI模式耗时对比', fontsize=19, fontweight='bold', y=.97)
 
 def bars(ax, keys, names):
@@ -55,12 +55,8 @@ def bars(ax, keys, names):
     ax.grid(axis='y', alpha=.20, zorder=0)
     ax.tick_params(axis='x', length=0)
 
-bars(axes[0], phases, labels)
-axes[0].tick_params(axis='x', labelrotation=0)
-axes[0].set_title('分项耗时', loc='left', fontweight='bold', pad=15)
-bars(axes[1], ['total'], ['总耗时'])
-axes[1].set_title('推进总耗时', loc='left', fontweight='bold', pad=15)
-handles, names = axes[0].get_legend_handles_labels()
+bars(ax, phases + ['total'], labels + ['总耗时'])
+handles, names = ax.get_legend_handles_labels()
 fig.legend(handles, names, loc='upper center', bbox_to_anchor=(.5,.87), ncol=2, frameon=False)
 args.output.parent.mkdir(parents=True, exist_ok=True)
 fig.savefig(args.output, dpi=220, facecolor='white')
