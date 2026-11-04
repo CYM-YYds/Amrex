@@ -16,6 +16,7 @@ post_dir="$case_dir/data_post_processing"
 | [plot_convergence.py](plot_convergence.py) | 日志/CSV/受限 PlotFile 收敛趋势；图片与统一六列 CSV |
 | [plot_run_performance.py](plot_run_performance.py) | 已有性能日志概览；每窗步数通过 `--window-steps` 指定 |
 | [extract_run_centerline.py](extract_run_centerline.py) | 只负责 ParaView bridge/batch 导出、来源校验及提取报告；不绘图、不选择参考数据 |
+| [pack_animation_gif.py](pack_animation_gif.py) | PNG序列选取帧段、统一裁剪、合成GIF并记录来源哈希 |
 | [convergence_logs.py](convergence_logs.py) | 内部日志解析模块，供收敛入口调用 |
 
 作业号、步数、Re 标题、路径和图例改参数，不再为每次实验复制脚本。
@@ -212,3 +213,29 @@ Level-0、128³、三分量双精度的现有布局，并核对数据与 Cell_H 
 这些图均为t1000，采用相同H/U标度及正方形绘图区，历次版本保留；不能由参考吻合推导时间收敛。
 
 逐曲线指定颜色和线型可加 `--profile-style "AMR B" red -`，标签须与 `--profile` 一致，可重复指定其他曲线；未指定时保持原默认样式。
+
+## GIF：选择帧段并保留坐标指示
+
+长期入口为 `pack_animation_gif.py`；原 `scripts/temporary/pack_animation_gif.py` 为兼容软链，
+历史命令仍可运行。复用已有合成逻辑并参数化选帧，避免为每个动画复制脚本。
+输入须为同尺寸、从 `.0000.png` 开始连续编号的PNG序列。
+`--start-frame` 从0计数，`--frames` 为帧数，省略则取剩余全部帧。
+`--duration` 是每帧毫秒数，须为10的正整数倍；无限循环。
+输出已存在时拒绝覆盖；裁剪PNG保存在输出目录的 `frames/`，应为新版本选择独立目录。
+
+例如当前C/Viridis动画只取前15帧（t=25..375，每帧500ms，一轮7.5秒）：
+
+```bash
+case_dir=projects/3Dcases/Computing_performance_test/BOX3D_OSI
+.venv/bin/python "$case_dir/data_post_processing/pack_animation_gif.py" \
+  --input "$case_dir/runs/a5_C_t1000_gif/job624717/C/figures/animation_C_viridis_current/frames_final" \
+  --output "$case_dir/data_post_processing/images/gif-C-viridis-first15/job624717_C_viridis.gif" \
+  --prefix job624717_C_viridis --start-frame 0 --frames 15 \
+  --crop 367 77 1373 1012 --duration 500
+```
+
+`--crop` 为原图像素坐标 left/top/right/bottom，右和下边界不含在内；不缩放。
+示例只适用于本次1834×1066布局，新场景先检查坐标箭头、文字及色标的位置，
+不能直接套用旧裁剪范围。全帧共用调色板；JSON记录每帧来源索引和SHA256。
+渲染时的方向轴位置恢复和首次相机复位修复已在原导出驱动中实现，
+详见[本次导出记录](../docs/ai_changes/2026-11-04-C-viridis-current-gif.md)。
