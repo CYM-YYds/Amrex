@@ -1,0 +1,8 @@
+
+Authorized users only. All activities may be monitored and reported.
+(   7.779s) [pvbatch         ]vtkSMColorMapEditorHelp:703   WARN| Could not determine array range.
+{"host": "whshare-agent-1", "ranks": 1, "frames": 40, "size": [2110, 1066]}
+{"index": 39, "time": 1000.0, "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/C_AB_t1000_local_continuation/job625855/local_original/C_mode0/plt_128000", "output": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/C_AB_OSI_checkpoint_comparison/render_AB_t1000/frames_raw/job622356_job622356__B__victory.0039.png", "cells": 101888, "range": [2.741084275421293e-07, 25.59999970401424], "amr_blocks": [1, 3, 4], "seconds": 48.67555955424905, "peak_rss_kib": 2758976}
+(  56.765s) [pvbatch         ]     vtkOpenGLState.cxx:1866  WARN| There are still active textures when there should not be.
+(  56.765s) [pvbatch         ]     vtkOpenGLState.cxx:1871  WARN| Leaked for texture object: 0xaaaeb1baf8e0
+(  56.765s) [pvbatch         ]     vtkOpenGLState.cxx:1871  WARN| Leaked for texture object: 0xaaaeb1cca6b0
