@@ -1,0 +1,2 @@
+heap_copy kind=write bytes=3 result=3 errno=0
+heap_copy kind=writev bytes=6 result=6 errno=0

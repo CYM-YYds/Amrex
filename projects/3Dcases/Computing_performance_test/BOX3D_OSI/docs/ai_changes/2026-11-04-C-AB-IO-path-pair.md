@@ -1,0 +1,13 @@
+# 同节点真实A-B输出路径配对诊断
+
+目的：区分6400步前后的真实应用输出中，文件系统与写入缓冲区路径的影响。仅BOX3D_OSI诊断，不修改求解器、AMReX库、冻结程序或用户inputs。
+
+复用a5_threshold_probe.sh的同一C阈值冻结程序，从静止分别推进6400步，3200/6400步写速度与Q涡量；保持收敛监测和原32000步checkpoint间隔。单节点单GPU顺序运行local_original（原缓冲区写节点本地盘）、shared_heap（Cell_D的write/writev先memcpy到malloc内存后调用原写法）、shared_original（原缓冲区直接写共享盘）。顺序固定、跟踪和内存复制会改变时序，不能由一次成功推出根因或长期可靠性，不用于性能结论。
+
+新增checkpoint_io/heap_write.c作为LD_PRELOAD诊断库，仅对/proc/self/fd路径含/Cell_D_的write/writev做普通主机内存中转并记录每次结果；其他调用放行。新增paired_paths.py管理三组生命周期、逐次状态和本地文件转存，paired_submit.sh只负责GPU资源/环境。实际推进仍由原a5入口负责，新增PROBE_HEAP_WRITE_LIBRARY可选参数在rank脚本冻结库路径，默认不加载。
+
+既有uniform512_local_staging.py含顶层作业/恢复流程，不能安全导入作通用库，本次沿用8MiB分块、fsync、SHA256回读后发布协议，不改变历史入口。本地现场保留至检查结束，路径与可用容量记录于local_disk.json。普通内存组需核对heap_write.log验证拦截实际生效，成功输出可与本地组Cell_D文件SHA256逐项比较。失败系统调用及不完整输出全部保留。
+
+作业625321因入口缺少执行位未启动求解器；已补执行位并重提625322。后者RUNNING，节点agent50，本地/var/tmp文件系统ext2/ext3，开始时可用约23.38GiB。全部材料位于runs/temporary/C_AB_IO_path_pair/。
+
+已验证：Shell/Python语法；gcc编译诊断库通过；普通write与writev拦截及字节回读小测试通过；rank包装器生成语法检查通过；实际GPU作业已进入第一组。当前未作三组结果结论；以job625322/status.json、completed.txt、各组退出回执和原始strace为准。git diff --check通过。

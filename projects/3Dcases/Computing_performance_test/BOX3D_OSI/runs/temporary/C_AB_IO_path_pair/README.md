@@ -1,0 +1,6 @@
+# 同节点真实A-B三条I/O路径配对诊断
+
+临时诊断，所有源、命令、日志、系统调用、成功/失败输出和本地现场保留。同一单GPU作业按local_original、shared_heap、shared_original顺序各从静止推进6400步，3200/6400步输出，保留原C参数、冻结程序、收敛采样和32000步检查点间隔（本测试未到保存点）。
+local_original为原缓冲区写本地盘；shared_heap只对Cell_D文件write/writev拦截，将同一字节复制到malloc内存再调用原写法；shared_original为原缓冲区直接写共享盘。所有组有strace，计时仅供诊断。
+本地输出使用与512³方案相同的8MiB复制、fsync、SHA256回读后发布，节点本地原件不自动清理；原始路径记录于local_disk.json。shared_heap必须检查heap_write.log确认拦截实际生效。成功场文件做SHA256比较；失败看原始errno，不能只看AMReX错误文字。
+新驱动复用a5_threshold_probe.sh推进/输出，既有uniform512脚本含顶层提交与恢复状态，无法直接导入；本次仅复用其传输协议，独立管理三组诊断生命周期。LD_PRELOAD为诊断专用，不合入生产。

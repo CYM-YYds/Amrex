@@ -158,6 +158,13 @@ for index in "${!names[@]}"; do
     cd "$OUT/$name"
     ln -s ../application.ex main3d.gnu.TPROF.MPI.CUDA.ex
     cp "$RANK_SCRIPT" run_rank.sh
+    if [[ -n "${PROBE_HEAP_WRITE_LIBRARY:-}" ]]; then
+        [[ -f "$PROBE_HEAP_WRITE_LIBRARY" ]] || exit 1
+        # 在rank脚本中冻结诊断库路径，避免依赖MPI的隐式环境传递。
+        [[ "$PROBE_HEAP_WRITE_LIBRARY" != *[!a-zA-Z0-9_./-]* ]] || exit 1
+        sed -i -e '/^"$app" "$@"$/i export LD_PRELOAD="'"$PROBE_HEAP_WRITE_LIBRARY"'"' \
+            -e '/^"$app" "$@"$/i export IO_HEAP_LOG="$PWD/heap_write.log"' run_rank.sh
+    fi
     if [[ "${PROBE_TRACE_IO:-0}" == 1 ]]; then
         # 只包装应用进程，不跟踪MPI启动器；保留原始errno、路径、耗时与rank退出回执。
         [[ "$(grep -Fxc '"$app" "$@"' run_rank.sh)" == 1 ]] || { echo "不支持的rank包装器" >&2; exit 1; }

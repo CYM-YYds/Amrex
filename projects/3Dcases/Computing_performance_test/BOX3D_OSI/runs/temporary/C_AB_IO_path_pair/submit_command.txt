@@ -1,0 +1,2 @@
+cd /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI
+env CCS_CLI_HOME=/opt/batch/cli dsub -o logs/submit/%J-iopath.log -e logs/submit/%J-iopath.log -s scripts/temporary/checkpoint_io/paired_submit.sh
