@@ -1,0 +1,12 @@
+ M projects/3Dcases/Computing_performance_test/BOX3D_OSI/README.md
+ M projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/README.md
+ D projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/images/job621699_uniform_256_lev0_t1000__analysis__centerline_t1000_with_reference_AB_z0p3.png
+ M "projects/3Dcases/Computing_performance_test/BOX3D_OSI/docs/CCCM2026_MS04_AMReX_OSI_\346\221\230\350\246\201\350\215\211\347\250\277.md"
+ M "projects/3Dcases/Computing_performance_test/BOX3D_OSI/docs/MLUPS\350\256\260\345\275\225.md"
+ M projects/3Dcases/Computing_performance_test/BOX3D_OSI/docs/ai_changes/2026-11-04-C-AB-IO-path-pair.md
+ M projects/3Dcases/Computing_performance_test/BOX3D_OSI/docs/current_status.md
+ M projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/C_AB_t1000_peak_memory_rerun/README.md
+ M projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/README.md
+ M projects/3Dcases/Computing_performance_test/BOX3D_OSI/scripts/temporary/README.md
+?? "projects/3Dcases/Computing_performance_test/BOX3D_OSI/docs/CCCM2026_MS04_AmReX_OSI_\346\261\207\346\212\245\346\241\206\346\236\266.pptx"
+?? projects/3Dcases/Computing_performance_test/BOX3D_OSI/scripts/temporary/ppt_framework/

@@ -1,6 +1,6 @@
 # 任务专属脚本索引
 
-返回[算例脚本入口](../README.md)。本目录共52个Python/Shell脚本（顶层32个）；另有候选CUDA源码和patch等实验材料。
+返回[算例脚本入口](../README.md)。截至2026-11-04，本目录枚举到56个Python/Shell脚本（2026-11-03逐文件审计的52个为当时快照）；另有候选CUDA源码和patch等实验材料。
 下表为入口索引；逐文件静态引用、SHA256相同快照及KEEP/REVIEW决定见[维护审计](../../docs/script_maintenance_audit.md)。
 下表用途说明不单独证明删除资格，目录名不授权删除。
 新任务优先复用现有参数，不把下列任务驱动当作默认生产配置。
@@ -13,6 +13,15 @@
 | [summarize_restart_memory.py](summarize_restart_memory.py) | GPU/逐PID显存采样汇总，a5_threshold_probe.sh调用并冻结副本 | 当前依赖 |
 | [pack_animation_gif.py](pack_animation_gif.py) | PNG序列统一裁剪和GIF合成；C动画pack_command.txt记录具体参数 | 结果唯一合成入口 |
 | [roofline_smoke.sh](roofline_smoke.sh)、[analyze_roofline_smoke.py](analyze_roofline_smoke.py) | Roofline小测试与统计，输出在runs/temporary/roofline_smoke/ | 结果复现 |
+
+## I/O 诊断入口
+
+[checkpoint_io/submit.sh](checkpoint_io/submit.sh)运行独立write/writev探针；
+[analyze_vismf_trace.py](checkpoint_io/analyze_vismf_trace.py)检查真实输出的跟踪及FAB完整性；
+[paired_submit.sh](checkpoint_io/paired_submit.sh)调用[paired_paths.py](checkpoint_io/paired_paths.py)，在同GPU比较三条输出路径；
+[heap_write.c](checkpoint_io/heap_write.c)仅供诊断普通主机内存中转，不是生产修复。
+推进、冻结输入及rank管理仍复用a5_threshold_probe.sh；结果见[运行索引](../../runs/README.md)。
+这些新增入口和旧52个审计结论分开计数，不把旧审计视为已覆盖新增文件。
 
 ## 顶层完整清单
 

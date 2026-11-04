@@ -8,6 +8,6 @@
 
 既有uniform512_local_staging.py含顶层作业/恢复流程，不能安全导入作通用库，本次沿用8MiB分块、fsync、SHA256回读后发布协议，不改变历史入口。本地现场保留至检查结束，路径与可用容量记录于local_disk.json。普通内存组需核对heap_write.log验证拦截实际生效，成功输出可与本地组Cell_D文件SHA256逐项比较。失败系统调用及不完整输出全部保留。
 
-作业625321因入口缺少执行位未启动求解器；已补执行位并重提625322。后者RUNNING，节点agent50，本地/var/tmp文件系统ext2/ext3，开始时可用约23.38GiB。全部材料位于runs/temporary/C_AB_IO_path_pair/。
+作业625321因入口缺少执行位未启动求解器；已补执行位并重提625322。后者已SUCCEEDED，节点agent50，本地/var/tmp文件系统ext2/ext3，开始时可用约23.38GiB。全部材料位于runs/temporary/C_AB_IO_path_pair/。
 
-已验证：Shell/Python语法；gcc编译诊断库通过；普通write与writev拦截及字节回读小测试通过；rank包装器生成语法检查通过；实际GPU作业已进入第一组。当前未作三组结果结论；以job625322/status.json、completed.txt、各组退出回执和原始strace为准。git diff --check通过。
+已验证：Shell/Python语法；gcc编译诊断库通过；普通write与writev拦截及字节回读小测试通过；rank包装器生成语法检查通过；实际三组均退出0至6400步，12个对应场数据文件SHA256一致。完整结果见[三路径报告](../../runs/temporary/C_AB_IO_path_pair/job625322/report.md)，不能据此宣称根因已定位或长程修复；原始status.json、completed.txt及strace仍保留。git diff --check通过。

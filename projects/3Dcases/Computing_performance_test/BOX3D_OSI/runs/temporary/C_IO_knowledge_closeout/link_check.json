@@ -1,0 +1,14 @@
+{
+  "checked": 303,
+  "failures": [],
+  "scope": [
+    "README.md",
+    "docs/current_status.md",
+    "runs/README.md",
+    "data_post_processing/README.md",
+    "scripts/temporary/README.md",
+    "runs/C_AB_t1000_peak_memory_rerun/README.md",
+    "docs/ai_changes/2026-11-04-C-AB-IO-path-pair.md",
+    "docs/ai_changes/2026-11-04-C-IO-knowledge-closeout.md"
+  ]
+}

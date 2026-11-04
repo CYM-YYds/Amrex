@@ -467,11 +467,12 @@ device-direct 关闭，host-staging 分块为 2 MiB；最多 128000 步，PlotFi
 12800、checkpoint 间隔 32000，收敛容差为 `1e-4`。`verification.convergence_stop=false` 时仍输出真实收敛判定，
 但不因达标提前退出；设为 true 则恢复达标即停。当前 `WriteOutputsIfNeeded` 实际调用速度与涡量输出，
 密度独立输出调用仍被注释；不能仅按 inputs 中的输出说明推断所有文件都产生。
-这些是工作树配置与源码行为；其中 Re、块尺寸、阈值和三维判据选择器尚未提交。
-冻结 A/B 长跑已完成，但两组末次正式收敛检查均未通过，见[本轮完成记录](docs/ai_changes/2026-10-29-a5-128000-launch.md#完成状态与后处理复核)。
+这些是当前工作树配置与源码行为；历史运行必须读取各自冻结输入和命令覆盖，不能用这些默认值替代。
+近期 B续跑、C长跑、A-B写入故障和三路径诊断终态统一见[计算结果入口](runs/README.md)。
+历史冻结 A/B 长跑已完成，但两组末次正式收敛检查均未通过，见[本轮完成记录](docs/ai_changes/2026-10-29-a5-128000-launch.md#完成状态与后处理复核)。
 
 当前工作树及本轮冻结实验均由 `state_error_3` 比较涡量模与 `lbm.err[lev]`。
-HEAD 中三维原选择器仍是 `state_error_6`；该函数使用编译期层号映射、不读取 `lbm.err` 数值。
+`state_error_6` 仍作为历史可选实现保留，当前三维调用已是 `state_error_3`；前者使用编译期层号映射、不读取 `lbm.err` 数值。
 两种判据不能只按阈值倍率与论文等同；机制与覆盖比例定义见
 [加密判据与建块](docs/osi_algorithm_and_architecture.md#判据打标建块与覆盖统计)。
 BF32/BF16 的同起点 3200 步测量均已成功，但先前 BF16 的 32000 步续跑在首次

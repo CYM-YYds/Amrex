@@ -207,6 +207,8 @@ Level-0、128³、三分量双精度的现有布局，并核对数据与 Cell_H 
 - [仅AMR C与Cortes–Miller](results/C_t1000_Cortes/README.md)：保留原始两组对比图及数据。
 - [AMR C、均匀512³与Cortes–Miller](results/C_uniform512_Cortes/README.md)：后续另存版本，来源和参考点解释以各自README/JSON为准。
 
-两图均为t1000，采用相同H/U标度及正方形绘图区，不相互覆盖；不能由参考吻合推导时间收敛。
+- [最新：红色AMR B、AMR C、均匀512³与Cortes–Miller](results/BC_uniform512_Cortes/README.md)：B使用原t1000终态，不是续跑t2000。
+
+这些图均为t1000，采用相同H/U标度及正方形绘图区，历次版本保留；不能由参考吻合推导时间收敛。
 
 逐曲线指定颜色和线型可加 `--profile-style "AMR B" red -`，标签须与 `--profile` 一致，可重复指定其他曲线；未指定时保持原默认样式。
