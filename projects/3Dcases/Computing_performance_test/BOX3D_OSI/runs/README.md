@@ -9,6 +9,7 @@
 | C从静止到t1000、GIF流场 | [a5_C_t1000_gif](a5_C_t1000_gif/README.md) | 624717 SUCCEEDED/exit0，step128000/t1000，速度和Q/涡量各40份；末次converged=0 |
 | B续跑到t2000 | [a5_B_continue_t2000](a5_B_continue_t2000/analysis/report.md) | 623697 SUCCEEDED/exit0，step256000/t2000，末次正式相对变化2.571148216e-4，未收敛 |
 | C/D从B检查点短测 | [C](temporary/C_from_B_compression/report.md)、[D及流场索引](temporary/D_from_B_compression/report.md) | 623707/623748均成功至step128128/t1001，仅短期网格规模证据 |
+| 新A-B完整长跑 | [重跑入口](C_AB_t1000_peak_memory_rerun/README.md) | 625616已提交，目标step128000/t1000，单GPU C阈值，保留流场/检查点/显存采样及I/O跟踪；未宣称完成 |
 | C双数组A-B/OSI性能与显存 | [原对比](C_AB_OSI_t1000_peak_memory/README.md)、[A-B重试](C_AB_t1000_peak_memory_rerun/README.md) | 624739、624780/624781、624810/624811、624899均FAILED/exit6；624899在step6400捕获writev返回EIO并阻塞约1200.85秒，无完整全程性能或峰值显存结论 |
 | 真实写出与三路径配对诊断 | [三路径报告](temporary/C_AB_IO_path_pair/job625322/report.md)、[真实短测](temporary/C_AB_VisMF_trace/report.md)、[独立探针](temporary/C_AB_write_probe/report.md) | 625322同GPU三组均退出0至step6400，对应12个场文件一致；独立/短测亦成功，未复现EIO，不证明长程问题已修复 |
 | 均匀512³恢复成功终态 | [源结果](uniform512_local_staging_t1000/)、[来源核验](../data_post_processing/results/C_uniform512_Cortes/README.md) | 623012恢复分段计算completed，step512000/t1000终态用于中心线；与下方失败的622116区分 |
