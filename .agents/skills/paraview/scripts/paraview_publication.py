@@ -911,3 +911,51 @@ def add_level_array_outline(command):
     return {'source': name, 'id': node.GetGlobalIDAsString(), 'view_id': view.GetGlobalIDAsString(),
             'script': node.Script, 'output_type': str(node.OutputDataSetType), 'cycle': results,
             'time': float(view.ViewTime), 'output': command.get('output')}
+
+
+def domain_outline(command):
+    """用全域边界构造单个立方体框，隐藏目标视图中的分块框线。"""
+    import math
+    sources = [p for (name, _), p in pvs.GetSources().items()
+               if name == command['source']]
+    if len(sources) != 1:
+        raise ValueError('Expected exactly one source')
+    source = sources[0]
+    if source.GetXMLName() != 'AMReXGridReader':
+        raise ValueError('Select the original AMReX reader')
+    views = [v for v in pvs.GetViews()
+             if v.GetGlobalIDAsString() == str(command['view_id'])] if command.get('view_id') else [pvs.GetActiveView()]
+    if len(views) != 1 or views[0] is None:
+        raise ValueError('Select exactly one render view')
+    view = views[0]
+    bounds = tuple(source.GetDataInformation().GetBounds())
+    if len(bounds) != 6 or not all(math.isfinite(x) for x in bounds) or any(bounds[i] >= bounds[i+1] for i in (0, 2, 4)):
+        raise ValueError('Reader must have valid three-dimensional global bounds')
+    name = 'Domain_outline_' + view.GetGlobalIDAsString()
+    existing = [p for (n, _), p in pvs.GetSources().items() if n == name]
+    if existing and (command.get('existing_source') != name or existing[0].GetXMLName() != 'CubeSource'):
+        raise ValueError('Domain outline already exists; select it explicitly to reuse')
+    hidden = []
+    active = pvs.GetActiveSource()
+    with _publication_edit(view, extra_proxies=tuple(existing)):
+        cube = existing[0] if existing else pvs.Box(registrationName=name)
+        cube.Center = [(bounds[i] + bounds[i+1]) / 2 for i in (0, 2, 4)]
+        cube.XLength, cube.YLength, cube.ZLength = [bounds[i+1] - bounds[i] for i in (0, 2, 4)]
+        cube.UpdatePipeline()
+        display = pvs.Show(cube, view)
+        display.Representation = 'Wireframe'
+        display.ColorArrayName = ['POINTS', '']
+        display.DiffuseColor = [0, 0, 0]
+        display.AmbientColor = [0, 0, 0]
+        display.LineWidth = 1.0
+        for rep in view.Representations:
+            if rep != display and rep.GetProperty('Representation') and rep.Representation == 'Outline' and rep.Visibility:
+                rep.Visibility = 0
+                hidden.append(rep.GetGlobalIDAsString())
+        pvs.SetActiveSource(active)
+        pvs.Render(view)
+        return {'source': name, 'view_id': view.GetGlobalIDAsString(),
+                'bounds': list(bounds), 'hidden_outline_displays': hidden,
+                'representation': str(display.Representation),
+                'cells': cube.GetDataInformation().GetNumberOfCells(),
+                'time': float(view.ViewTime)}

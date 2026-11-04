@@ -308,3 +308,17 @@ GUI未写入stdout/stderr且未产生Windows崩溃事件的消息，仍不能保
 - SSH 指纹或认证失败：核验目标和认证，不关闭主机验证来绕过。
 
 当前操作是否成功以对应命令回传为准；远端测试不能代替 Windows 本机的完整启动验收。
+
+## 仅显示整体立方体外框
+
+`domain_outline` 使用已加载三维 AMReX 读取器的全域 bounds 创建独立 Box，
+以黑色 Wireframe 显示，隐藏目标视图内可见的 Outline 表示，保留切片、时间、相机和旧节点。
+采用单个几何盒避免 MPI 分块和 AMR 各块分别生成框线；动态切换时间仍保持此固定计算域。
+仅适用于计算域不随时间改变的场景。已有同名外框时拒绝重复创建；显式给出 `--existing-source Domain_outline_视图ID` 可复用该 Box。
+
+```bash
+.venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current domain_outline \
+  --source 'plt_..' --view-id '<目标视图ID>' --timeout 180
+```
+
+操作复用排版事务，异常时恢复显示并回收新对象。

@@ -28,6 +28,7 @@ DEFAULT_BRIDGE_ROOT = '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-brid
 # 客户端能力由本表派生，运行层的实际分发仍由回归检查。
 BRIDGE_ACTIONS = {
     'inspect': {},
+    'domain_outline': {'required': ('source',), 'optional': ('view_id', 'existing_source')},
     'add_level_array_outline': {'required': ('source',), 'optional': ('view_id', 'time', 'output', 'existing_source')},
     'color_outline_levels': {'required': ('source',), 'optional': ('view_id', 'output')},
     'snapshot_state': {},
@@ -1410,6 +1411,54 @@ def add_level_array_outline(command):
             'time': float(view.ViewTime), 'output': command.get('output')}
 
 
+def domain_outline(command):
+    """用全域边界构造单个立方体框，隐藏目标视图中的分块框线。"""
+    import math
+    sources = [p for (name, _), p in pvs.GetSources().items()
+               if name == command['source']]
+    if len(sources) != 1:
+        raise ValueError('Expected exactly one source')
+    source = sources[0]
+    if source.GetXMLName() != 'AMReXGridReader':
+        raise ValueError('Select the original AMReX reader')
+    views = [v for v in pvs.GetViews()
+             if v.GetGlobalIDAsString() == str(command['view_id'])] if command.get('view_id') else [pvs.GetActiveView()]
+    if len(views) != 1 or views[0] is None:
+        raise ValueError('Select exactly one render view')
+    view = views[0]
+    bounds = tuple(source.GetDataInformation().GetBounds())
+    if len(bounds) != 6 or not all(math.isfinite(x) for x in bounds) or any(bounds[i] >= bounds[i+1] for i in (0, 2, 4)):
+        raise ValueError('Reader must have valid three-dimensional global bounds')
+    name = 'Domain_outline_' + view.GetGlobalIDAsString()
+    existing = [p for (n, _), p in pvs.GetSources().items() if n == name]
+    if existing and (command.get('existing_source') != name or existing[0].GetXMLName() != 'CubeSource'):
+        raise ValueError('Domain outline already exists; select it explicitly to reuse')
+    hidden = []
+    active = pvs.GetActiveSource()
+    with _publication_edit(view, extra_proxies=tuple(existing)):
+        cube = existing[0] if existing else pvs.Box(registrationName=name)
+        cube.Center = [(bounds[i] + bounds[i+1]) / 2 for i in (0, 2, 4)]
+        cube.XLength, cube.YLength, cube.ZLength = [bounds[i+1] - bounds[i] for i in (0, 2, 4)]
+        cube.UpdatePipeline()
+        display = pvs.Show(cube, view)
+        display.Representation = 'Wireframe'
+        display.ColorArrayName = ['POINTS', '']
+        display.DiffuseColor = [0, 0, 0]
+        display.AmbientColor = [0, 0, 0]
+        display.LineWidth = 1.0
+        for rep in view.Representations:
+            if rep != display and rep.GetProperty('Representation') and rep.Representation == 'Outline' and rep.Visibility:
+                rep.Visibility = 0
+                hidden.append(rep.GetGlobalIDAsString())
+        pvs.SetActiveSource(active)
+        pvs.Render(view)
+        return {'source': name, 'view_id': view.GetGlobalIDAsString(),
+                'bounds': list(bounds), 'hidden_outline_displays': hidden,
+                'representation': str(display.Representation),
+                'cells': cube.GetDataInformation().GetNumberOfCells(),
+                'time': float(view.ViewTime)}
+
+
 
 BRIDGE_VERSION = '28'
 RUNTIME_UPDATE_PROTOCOL = 2
@@ -1419,7 +1468,7 @@ REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.a
 
 # 经操作层执行的动作；inspect、背景与热更新由运行层自身处理。
 # 与 CAPABILITIES 的一致性由 test_action_registry 保证。
-OPERATIONS = {'add_level_array_outline': add_level_array_outline, 'color_outline_levels': color_outline_levels, 'snapshot_state': snapshot_state, 'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
+OPERATIONS = {'domain_outline': domain_outline, 'add_level_array_outline': add_level_array_outline, 'color_outline_levels': color_outline_levels, 'snapshot_state': snapshot_state, 'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
               'repair_vorticity_slice': repair_vorticity_slice,
               'publication_vorticity': publication_vorticity,
               'add_axis_title_view': add_axis_title_view,
