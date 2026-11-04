@@ -433,5 +433,22 @@ def snapshot_state(command):
         path = Path(directory) / 'scene.pvsm'
         pvs.SaveState(str(path))
         state = path.read_text(encoding='utf-8')
+    # 方向轴拖动后的 viewport 属于客户端 renderer，不由 PVSM 代理属性保存。
+    orientation = []
+    for target in pvs.GetViews():
+        client = target.GetClientSideObject()
+        if not client or not hasattr(client, 'GetRenderWindow'):
+            continue
+        renderers = client.GetRenderWindow().GetRenderers()
+        renderers.InitTraversal()
+        for _ in range(renderers.GetNumberOfItems()):
+            renderer = renderers.GetNextItem()
+            props = renderer.GetViewProps()
+            props.InitTraversal()
+            classes = [props.GetNextProp().GetClassName() for _ in range(props.GetNumberOfItems())]
+            if any(name == 'vtkPVAxesActor' for name in classes):
+                orientation.append({'view_id': target.GetGlobalIDAsString(),
+                                    'viewport': list(renderer.GetViewport()), 'props': classes})
     return {'state_xml': state, 'active_view_id': view.GetGlobalIDAsString() if view else None,
-            'active_view_size': list(view.ViewSize) if view else None}
+            'active_view_size': list(view.ViewSize) if view else None,
+            'orientation_renderers': orientation}

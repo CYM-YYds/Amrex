@@ -21,11 +21,15 @@ args.output.parent.mkdir(parents=True, exist_ok=True)
 cropped = args.output.parent / 'frames'
 cropped.mkdir(exist_ok=True)
 frames, records = [], []
+source_size = None
 for i, source in enumerate(files):
     assert source.stem.endswith(f'.{i:04d}')
     with Image.open(source) as im:
         im.load()
-        assert im.size == (2110, 1066)
+        if source_size is None: source_size = im.size
+        assert im.size == source_size
+        left, top, right, bottom = args.crop
+        assert 0 <= left < right <= im.width and 0 <= top < bottom <= im.height
         frame = im.convert('RGB').crop(tuple(args.crop))
     target = cropped / f'{args.prefix}.{i:04d}.png'
     assert not target.exists()

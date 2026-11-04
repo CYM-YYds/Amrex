@@ -125,6 +125,9 @@ PS1 本身更新后须重新下载，它不会更新自身；正常启动时会�
 管线或相机。XML 通过客户端临时文件生成并回传，临时目录随后清理。投递端可将 XML
 保存为共享目录的 `.pvsm`，由独立 `pvbatch` 加载；输入文件路径仍以场景记录为准。
 这用于保留用户实际调整后的色标、边界线、相机和排版，避免从旧脚本近似重建。
+方向轴拖动位置不属于 PVSM 代理属性；回执另附 `orientation_renderers`，按视图 ID 记录
+`vtkPVAxesActor` 所属 renderer 的 viewport。批处理在渲染初始化后恢复该 viewport，
+并在加载场景前禁用首次 Render 的自动相机复位，避免坐标指示和缩放偏离 GUI。
 
 ```bash
 .venv/bin/python .agents/skills/paraview/scripts/paraview_bridge_send.py current snapshot_state --timeout 60
