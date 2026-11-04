@@ -1,0 +1,47 @@
+{
+  "logs": [
+    "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/C_AB_local_output_validation/job625774/local_original/C_mode0/run.log",
+    "projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/C_AB_t1000_local_continuation/job625855/local_original/C_mode0/run.log"
+  ],
+  "windows": 40,
+  "steps": 128000,
+  "sum_seconds": {
+    "interp": 305.400717286,
+    "average": 136.88367323399999,
+    "collide": 1536.6623094,
+    "stream": 1585.83168432,
+    "swap": 3.16798412193,
+    "comm": 94.939497644,
+    "boundary": 397.884242367,
+    "solv": 4060.03922634,
+    "total": 4334.22430441,
+    "regrid": 274.094752442
+  },
+  "last_window": {
+    "osi_detail_timing": 0.0,
+    "interp": 8.153927733,
+    "collide": 38.7585055,
+    "stream": 39.96198441,
+    "average": 3.531357289,
+    "comm": 2.308729242,
+    "osi_decode": 0.0,
+    "osi_parallel_copy": 0.0,
+    "osi_fillboundary": 0.0,
+    "osi_encode": 0.0,
+    "osi_mpi_pack": 0.0,
+    "osi_mpi_pack_kernel": 0.0,
+    "osi_mpi_dtoh": 0.0,
+    "osi_mpi_wait": 0.0,
+    "osi_mpi_htod": 0.0,
+    "osi_mpi_unpack": 0.0,
+    "osi_mpi_unpack_kernel": 0.0,
+    "boundary": 10.1748238,
+    "swap": 0.07756465696,
+    "solv": 102.9474687,
+    "total": 110.5545859,
+    "steps": 3200.0,
+    "MLUPS_solv": 1632.401222,
+    "MLUPS_total": 1520.077818,
+    "step": 128000
+  }
+}
