@@ -1,0 +1,53 @@
+{
+  "checks": [
+    {
+      "file": "plt_003200/Level_0/Cell_D_00000",
+      "equal": true
+    },
+    {
+      "file": "plt_003200/Level_1/Cell_D_00000",
+      "equal": true
+    },
+    {
+      "file": "plt_003200/Level_2/Cell_D_00000",
+      "equal": true
+    },
+    {
+      "file": "plt_006400/Level_0/Cell_D_00000",
+      "equal": true
+    },
+    {
+      "file": "plt_006400/Level_1/Cell_D_00000",
+      "equal": true
+    },
+    {
+      "file": "plt_006400/Level_2/Cell_D_00000",
+      "equal": true
+    },
+    {
+      "file": "plt_vort_003200/Level_0/Cell_D_00000",
+      "equal": true
+    },
+    {
+      "file": "plt_vort_003200/Level_1/Cell_D_00000",
+      "equal": true
+    },
+    {
+      "file": "plt_vort_003200/Level_2/Cell_D_00000",
+      "equal": true
+    },
+    {
+      "file": "plt_vort_006400/Level_0/Cell_D_00000",
+      "equal": true
+    },
+    {
+      "file": "plt_vort_006400/Level_1/Cell_D_00000",
+      "equal": true
+    },
+    {
+      "file": "plt_vort_006400/Level_2/Cell_D_00000",
+      "equal": true
+    }
+  ],
+  "field_errors": []
+}
