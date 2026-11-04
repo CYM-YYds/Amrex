@@ -959,3 +959,45 @@ def domain_outline(command):
                 'representation': str(display.Representation),
                 'cells': cube.GetDataInformation().GetNumberOfCells(),
                 'time': float(view.ViewTime)}
+
+
+def viridis(command):
+    """只替换已有标量色表，保留范围、透明度及视图布局。"""
+    matches = [p for (name, _), p in pvs.GetSources().items() if name == command['source']]
+    if len(matches) != 1:
+        raise ValueError('Expected one existing scalar source')
+    view = next((v for v in pvs.GetViews() if v.GetGlobalIDAsString() == command.get('view_id')), None) if command.get('view_id') else pvs.GetActiveView()
+    if view is None:
+        raise ValueError('Select a render view')
+    displays = [r for r in view.Representations if r.GetProperty('Input') and r.Input == matches[0]
+                and r.GetProperty('LookupTable') and r.LookupTable and r.Visibility]
+    if len(displays) != 1:
+        raise ValueError('Expected one visible scalar display')
+    lut = displays[0].LookupTable
+    points = list(lut.RGBPoints)
+    if len(points) < 8:
+        raise ValueError('Expected an existing continuous color table')
+    limits = [points[0], points[-4]]
+    with _publication_edit(view):
+        preset = None
+        for name in ('Viridis (matplotlib)', 'Viridis'):
+            try:
+                applied = lut.ApplyPreset(name, True)
+            except Exception as exc:
+                if 'no preset with name' not in str(exc):
+                    raise
+                continue
+            if applied:
+                preset = name
+                break
+        if preset is None:
+            raise ValueError('Viridis preset is unavailable')
+        lut.RescaleTransferFunction(*limits)
+        # 同一色表可能供多个视图使用，逐个刷新以避免残留旧色。
+        views = [v for v in pvs.GetViews() if any(r.GetProperty('LookupTable') and r.LookupTable == lut and r.Visibility for r in v.Representations)]
+        for target in views:
+            pvs.Render(target)
+        return {'preset': preset, 'range_before': limits,
+                'range_after': [float(lut.RGBPoints[0]), float(lut.RGBPoints[-4])],
+                'source': command['source'], 'views': [v.GetGlobalIDAsString() for v in views],
+                'time': float(view.ViewTime)}

@@ -28,6 +28,7 @@ DEFAULT_BRIDGE_ROOT = '/home/share/iosoeqkp/home/Liuzhaohui/.cache/paraview-brid
 # 客户端能力由本表派生，运行层的实际分发仍由回归检查。
 BRIDGE_ACTIONS = {
     'inspect': {},
+    'viridis': {'required': ('source',), 'optional': ('view_id',)},
     'domain_outline': {'required': ('source',), 'optional': ('view_id', 'existing_source')},
     'add_level_array_outline': {'required': ('source',), 'optional': ('view_id', 'time', 'output', 'existing_source')},
     'color_outline_levels': {'required': ('source',), 'optional': ('view_id', 'output')},
@@ -1459,6 +1460,48 @@ def domain_outline(command):
                 'time': float(view.ViewTime)}
 
 
+def viridis(command):
+    """只替换已有标量色表，保留范围、透明度及视图布局。"""
+    matches = [p for (name, _), p in pvs.GetSources().items() if name == command['source']]
+    if len(matches) != 1:
+        raise ValueError('Expected one existing scalar source')
+    view = next((v for v in pvs.GetViews() if v.GetGlobalIDAsString() == command.get('view_id')), None) if command.get('view_id') else pvs.GetActiveView()
+    if view is None:
+        raise ValueError('Select a render view')
+    displays = [r for r in view.Representations if r.GetProperty('Input') and r.Input == matches[0]
+                and r.GetProperty('LookupTable') and r.LookupTable and r.Visibility]
+    if len(displays) != 1:
+        raise ValueError('Expected one visible scalar display')
+    lut = displays[0].LookupTable
+    points = list(lut.RGBPoints)
+    if len(points) < 8:
+        raise ValueError('Expected an existing continuous color table')
+    limits = [points[0], points[-4]]
+    with _publication_edit(view):
+        preset = None
+        for name in ('Viridis (matplotlib)', 'Viridis'):
+            try:
+                applied = lut.ApplyPreset(name, True)
+            except Exception as exc:
+                if 'no preset with name' not in str(exc):
+                    raise
+                continue
+            if applied:
+                preset = name
+                break
+        if preset is None:
+            raise ValueError('Viridis preset is unavailable')
+        lut.RescaleTransferFunction(*limits)
+        # 同一色表可能供多个视图使用，逐个刷新以避免残留旧色。
+        views = [v for v in pvs.GetViews() if any(r.GetProperty('LookupTable') and r.LookupTable == lut and r.Visibility for r in v.Representations)]
+        for target in views:
+            pvs.Render(target)
+        return {'preset': preset, 'range_before': limits,
+                'range_after': [float(lut.RGBPoints[0]), float(lut.RGBPoints[-4])],
+                'source': command['source'], 'views': [v.GetGlobalIDAsString() for v in views],
+                'time': float(view.ViewTime)}
+
+
 
 BRIDGE_VERSION = '28'
 RUNTIME_UPDATE_PROTOCOL = 2
@@ -1468,7 +1511,7 @@ REMOTE_CLIENT_SOURCE = '/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/.a
 
 # 经操作层执行的动作；inspect、背景与热更新由运行层自身处理。
 # 与 CAPABILITIES 的一致性由 test_action_registry 保证。
-OPERATIONS = {'domain_outline': domain_outline, 'add_level_array_outline': add_level_array_outline, 'color_outline_levels': color_outline_levels, 'snapshot_state': snapshot_state, 'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
+OPERATIONS = {'viridis': viridis, 'domain_outline': domain_outline, 'add_level_array_outline': add_level_array_outline, 'color_outline_levels': color_outline_levels, 'snapshot_state': snapshot_state, 'set_plotfile_series': set_plotfile_series, 'apply_2d_vorticity_trace': apply_2d_vorticity_trace, 'disable_fxaa': disable_fxaa, 'export_centerline': export_centerline, 'add_vorticity_view': add_vorticity_view,
               'repair_vorticity_slice': repair_vorticity_slice,
               'publication_vorticity': publication_vorticity,
               'add_axis_title_view': add_axis_title_view,

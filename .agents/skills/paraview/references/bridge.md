@@ -322,3 +322,9 @@ GUI未写入stdout/stderr且未产生Windows崩溃事件的消息，仍不能保
 ```
 
 操作复用排版事务，异常时恢复显示并回收新对象。
+
+## 试用 Viridis 色标
+
+`viridis --source Publication_vorticity_magnitude --view-id <ID>` 仅修改现有可见标量的颜色传递函数，
+保留数值范围、透明度、时间、框线和布局；共享该色表的视图一起刷新。
+优先尝试 Viridis (matplotlib)，缺少时使用当前版本的 Viridis；失败复用排版事务回滚。
