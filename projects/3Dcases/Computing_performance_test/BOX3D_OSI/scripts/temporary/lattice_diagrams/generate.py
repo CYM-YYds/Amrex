@@ -53,9 +53,9 @@ def draw(model):
     for q, v in enumerate(velocities[1:], 1):
         end = project(v)
         ax.annotate('', xy=end, xytext=(0, 0), arrowprops=dict(arrowstyle='-|>', color=COLORS[sum(t != 0 for t in v)], lw=1.1, mutation_scale=13, shrinkA=2, shrinkB=0), zorder=4)
-        ax.annotate(str(q), xy=end, xytext=end / np.linalg.norm(end)*13, textcoords='offset points', fontsize=10, ha='center', va='center', color='#111111', bbox=dict(facecolor='white', edgecolor='none', alpha=.85, pad=.45), zorder=5)
+        ax.annotate(str(q), xy=end, xytext=end / np.linalg.norm(end)*13, textcoords='offset points', fontsize=20, ha='center', va='center', color='#111111', bbox=dict(facecolor='white', edgecolor='none', alpha=.85, pad=.45), zorder=5)
     ax.scatter([0], [0], color='purple', s=20, zorder=6)
-    ax.annotate('0', xy=(0, 0), xytext=(10, 6), textcoords='offset points', color='purple', fontsize=10, zorder=7, bbox=dict(facecolor='white', edgecolor='none', alpha=.85, pad=.45))
+    ax.annotate('0', xy=(0, 0), xytext=(10, 6), textcoords='offset points', color='purple', fontsize=20, zorder=7, bbox=dict(facecolor='white', edgecolor='none', alpha=.85, pad=.45))
     ax.text(0, -1.99 if not is2d else -1.55, model, fontsize=20, ha='center')
     ax.set_aspect('equal')
     ax.axis('off')
