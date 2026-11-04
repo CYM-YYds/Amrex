@@ -85,7 +85,7 @@ def reference_errors(simulation, reference, *, outside="error"):
 def plot_profiles(profiles, references, output, *, title="Centerline velocity comparison",
                   reference_source="none", reference_labels=None, xlim=(-1, 1), ylim=(0, 1),
                   xlabel=r"$u_x/U_{lid}$", ylabel=r"$z/H$", figsize=(6.4, 5.8),
-                  linewidth=0.9, markersize=8, dpi=220, square_axes=False):
+                  linewidth=0.9, markersize=8, dpi=220, square_axes=False, show_footer=True):
     """共用绘图实现；曲线、来源、步数和各自标度由调用方传入，不绑定作业号或 Re。"""
     # 延迟加载绘图库，使提取入口复用数据校验时不依赖绘图环境。
     import matplotlib
@@ -129,13 +129,14 @@ def plot_profiles(profiles, references, output, *, title="Centerline velocity co
             spine.set_linewidth(0.8)
         ax.legend(fontsize=11, loc="best" if ylim[1] - ylim[0] < 1 else "lower right", frameon=False, markerfirst=False,
                   handlelength=1.8, labelspacing=0.35)
-        # 页脚只保留可复核的步数与标度；完整来源和误差保存在同名 JSON。
-        steps = "; ".join(f'{p["label"]}: n={p["step"]}' for p in profiles)
-        scales = list(dict.fromkeys(
-            f'H={p["normalization"]["H"]:g}, U_lid={p["normalization"]["U_lid"]:g}' for p in profiles))
-        fig.text(0.5, 0.015, steps + "; " + "; ".join(scales),
-                 ha="center", va="bottom", fontsize=8, color="0.35")
-        fig.tight_layout(rect=(0, 0.04, 1, 1))
+        if show_footer:
+            # 完整来源和误差保存在同名 JSON。
+            steps = "; ".join(f'{p["label"]}: n={p["step"]}' for p in profiles)
+            scales = list(dict.fromkeys(
+                f'H={p["normalization"]["H"]:g}, U_lid={p["normalization"]["U_lid"]:g}' for p in profiles))
+            fig.text(0.5, 0.015, steps + "; " + "; ".join(scales),
+                     ha="center", va="bottom", fontsize=8, color="0.35")
+        fig.tight_layout(rect=(0, 0.04 if show_footer else 0, 1, 1))
         output = Path(output)
         output.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(output, dpi=dpi)
@@ -159,6 +160,7 @@ def main():
     parser.add_argument("--allow-unmasked", action="store_true", help="显式接受没有有效性掩码的旧 CSV")
     parser.add_argument("--outside-reference", choices=["error", "exclude"], default="error")
     parser.add_argument("--title", default="Centerline velocity comparison")
+    parser.add_argument("--no-footer", action="store_true", help="隐藏图底部的步数与归一化标度")
     parser.add_argument("--xlim", nargs=2, type=float, default=(-1, 1))
     parser.add_argument("--ylim", nargs=2, type=float, default=(0, 1))
     parser.add_argument("--xlabel", default=r"$u_x/U_{lid}$")
@@ -214,7 +216,8 @@ def main():
         reference_source += f" ({args.reference_source})"
     plot_profiles(profiles, references, args.output, title=args.title, reference_source=reference_source,
                   xlim=args.xlim, ylim=args.ylim, xlabel=args.xlabel, ylabel=args.ylabel, figsize=args.figsize,
-                  linewidth=args.linewidth, markersize=args.markersize, dpi=args.dpi, square_axes=args.square_axes)
+                  linewidth=args.linewidth, markersize=args.markersize, dpi=args.dpi, square_axes=args.square_axes,
+                  show_footer=not args.no_footer)
     with args.output.with_suffix(".csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
         writer.writerow(["profile", "step", "z_over_H", "u_over_ulid"])
