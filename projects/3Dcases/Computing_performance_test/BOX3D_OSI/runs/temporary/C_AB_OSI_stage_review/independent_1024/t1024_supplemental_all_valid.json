@@ -1,0 +1,67 @@
+{
+  "ab": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/C_AB_OSI_stage_review/independent_1024/job625934/local_original/C_mode0/chk00001024",
+  "osi": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/C_AB_OSI_stage_review/independent_1024/job625934/local_original/C_mode1/chk00001024",
+  "step_time_finest": [
+    "1024",
+    "8",
+    "2"
+  ],
+  "layouts": [
+    "canonical_ab_two_array_v1",
+    "canonical_osi_single_array_v1"
+  ],
+  "scope": "canonical f_old, same-level common valid cells; excludes ghosts; includes covered coarse cells; not a composite AMR error norm",
+  "levels": [
+    {
+      "level": 0,
+      "ab_boxes": 1,
+      "osi_boxes": 1,
+      "ab_valid_cells": 2097152,
+      "osi_valid_cells": 2097152,
+      "common_valid_cells": 2097152,
+      "ab_only_cells": 0,
+      "osi_only_cells": 0,
+      "compared_values": 56623104,
+      "unequal_values": 10174067,
+      "nonfinite_values": 0,
+      "max_abs_f_difference": 0.00854434072971344,
+      "rms_f_difference": 0.00010550613257803822,
+      "relative_l2_f_difference_osi_denominator": 0.0015506535442841639,
+      "same_box_order": true
+    },
+    {
+      "level": 1,
+      "ab_boxes": 1,
+      "osi_boxes": 1,
+      "ab_valid_cells": 3145728,
+      "osi_valid_cells": 3145728,
+      "common_valid_cells": 3145728,
+      "ab_only_cells": 0,
+      "osi_only_cells": 0,
+      "compared_values": 84934656,
+      "unequal_values": 27988037,
+      "nonfinite_values": 0,
+      "max_abs_f_difference": 0.011275254189968109,
+      "rms_f_difference": 0.00021776183550621325,
+      "relative_l2_f_difference_osi_denominator": 0.0032008227510999508,
+      "same_box_order": true
+    },
+    {
+      "level": 2,
+      "ab_boxes": 2,
+      "osi_boxes": 2,
+      "ab_valid_cells": 9175040,
+      "osi_valid_cells": 9175040,
+      "common_valid_cells": 9175040,
+      "ab_only_cells": 0,
+      "osi_only_cells": 0,
+      "compared_values": 247726080,
+      "unequal_values": 0,
+      "nonfinite_values": 0,
+      "max_abs_f_difference": 0.0,
+      "rms_f_difference": 0.0,
+      "relative_l2_f_difference_osi_denominator": 0.0,
+      "same_box_order": true
+    }
+  ]
+}

@@ -214,7 +214,8 @@ for index in "${!names[@]}"; do
     fi
     printf '%s\t%s\n' "$name" "$code" >> "$OUT/status.tsv"
     echo "case=$name exit=$code output=$OUT/$name"
-    if (( code == 0 )) && [[ "$CONVERGENCE" == true ]]; then
+    # 短测试尚未产生正式收敛记录时跳过绘图，继续运行其余对照组。
+    if (( code == 0 )) && [[ "$CONVERGENCE" == true ]] && grep -q '^CONVERGENCE step=' run.log; then
         "$REPO/.venv/bin/python" "$CASE/data_post_processing/plot_convergence.py" \
             --log run.log --output convergence.png --title "$name Re=1000 convergence"
     fi

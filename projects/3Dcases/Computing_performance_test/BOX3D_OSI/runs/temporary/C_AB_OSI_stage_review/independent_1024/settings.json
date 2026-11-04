@@ -1,0 +1,11 @@
+{
+  "IO_OUTPUT_ROOT": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/C_AB_OSI_stage_review/independent_1024",
+  "IO_PATH_TRIALS": "local_original",
+  "IO_END_STEP": "1024",
+  "IO_MEMORY_MS": "0",
+  "IO_WALL_SECONDS": "900",
+  "IO_PLOT_INT": "-1",
+  "IO_STREAM_MODES": "0 1",
+  "IO_CHECKPOINT_INT": "1024",
+  "IO_TRACE_IO": "0"
+}

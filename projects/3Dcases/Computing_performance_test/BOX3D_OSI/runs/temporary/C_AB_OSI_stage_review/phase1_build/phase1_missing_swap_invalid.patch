@@ -1,0 +1,174 @@
+--- frozen/src/AmrCoreLBM_advance.cpp
++++ phase1/src/AmrCoreLBM_advance.cpp
+@@ -336,48 +336,10 @@
+         "AdvanceLevel requires an initialized OSI state");
+ 
+     if (run_mode == RunMode::OsiLockstep) {
+-        // 诊断模式下两种布局锁步推进，阶段结束后立即定位第一处分歧。
+-        CompareOsiReferenceStage(lev, "Initial", f_old.at(lev), 0);
+-        if (lev > 0) {
+-            CompareOsiReferenceStage(
+-                lev, "InterpolationGhost", f_old.at(lev), nghost, true);
+-        }
+-        const bool overlap = osi_collide_comm_overlap &&
+-                             osi_fillboundary_cache.at(lev).overlap_collision;
+-        Collide(lev, nghost, DdfLayout::Osi, overlap ? 1 : -1);
+-        Collide(lev, nghost, DdfLayout::Canonical);
+-        if (overlap) {
+-            ScopedPerfTimer comm_timer(perf_stats.comm);
+-            FillBoundaryOsi(lev, [&]() {
+-                Collide(lev, nghost, DdfLayout::Osi, 0);
+-                CompareOsiReferenceStage(lev, "Collision", f_old.at(lev), 0);
+-            });
+-        } else {
+-            CompareOsiReferenceStage(lev, "Collision", f_old.at(lev), 0);
+-            CommunicateLevel(lev, DdfLayout::Osi);
+-        }
+-        CommunicateLevel(lev, DdfLayout::Canonical);
+-        CompareOsiReferenceStage(
+-            lev, "Communication", f_old.at(lev), 0);
+-        CompareOsiReferenceStage(
+-            lev, "CommunicationGhost", f_old.at(lev), nghost, true);
+-        // 直接比较所有 uncovered Stream 目标所读取的 source，覆盖 valid、
+-        // interface 和 ghost；该检查对每个 AMR 层级分别执行。
+-        CompareOsiStreamSources(lev, "AfterCommunication");
+-
+-        Stream(lev, nghost, DdfLayout::Osi);
+-        Stream(lev, nghost, DdfLayout::Canonical);
+-        CompareOsiReferenceStage(
+-            lev, "Stream", f_new.at(lev), 0, true);
+-
+-        Boundary(lev, DdfLayout::Osi);
+-        Boundary(lev, DdfLayout::Canonical);
+-        // 边界处理后再次确认该层所有 uncovered valid 单元。
+-        CompareOsiReferenceStage(lev, "BoundaryUncovered", f_new.at(lev), 0);
+-
+-        SwapLevel(lev, nghost, DdfLayout::Osi);
+-        SwapLevel(lev, nghost, DdfLayout::Canonical);
+-        CompareOsiReferenceStage(lev, "Swap", f_old.at(lev), 0);
++        // 阶段一只锁步推进，在完整粗步末按重构间隔检查 uncovered valid。
++        // 不进行逐阶段范数、ghost/source 主机遍历或全 valid 重构比较。
++        AdvanceOneLayout(lev, DdfLayout::Osi);
++        AdvanceOneLayout(lev, DdfLayout::Canonical);
+         return;
+     }
+ 
+--- frozen/src/OsiAbVerification.cpp
++++ phase1/src/OsiAbVerification.cpp
+@@ -21,43 +21,21 @@
+ }
+ 
+ void OsiAbVerification::BeforeRegrid(AmrCoreLBM& lid, int step) const {
+-    if (lid.osiReferenceEnabled() && IsTargetStep(step)) {
+-        lid.CheckOsiReferenceUncovered(step, "StepEntryUncovered");
++    if (lid.osiReferenceEnabled() && step == lid.params().begin_step + 1) {
++        lid.CheckOsiReferenceUncovered(step - 1, "InitialUncovered");
+     }
+ }
+ 
+-void OsiAbVerification::AfterAverageDown(
+-    AmrCoreLBM& lid, int step) const {
+-    if (lid.osiReferenceEnabled() && check_after_average_valid_ &&
+-        IsTargetStep(step)) {
+-        lid.CheckOsiReferenceLevel0(step, "AfterAverageDownValid");
++void OsiAbVerification::AfterAverageDown(AmrCoreLBM&, int) const {}
++
++void OsiAbVerification::AfterRepair(AmrCoreLBM&, int) const {}
++
++void OsiAbVerification::AfterRefineMesh(AmrCoreLBM&, int) const {}
++
++void OsiAbVerification::AfterFirstFillGhost(AmrCoreLBM&, int) {}
++
++void OsiAbVerification::AfterAdvance(AmrCoreLBM& lid, int lev, int step) const {
++    if (lev == 0 && lid.osiReferenceEnabled() && IsTargetStep(step)) {
++        lid.CheckOsiReferenceUncovered(step, "StepEndUncovered");
+     }
+ }
+-
+-void OsiAbVerification::AfterRepair(AmrCoreLBM& lid, int step) const {
+-    if (lid.osiReferenceEnabled() && IsTargetStep(step)) {
+-        lid.CheckOsiReferenceLevel0(step, "AfterRepair");
+-    }
+-}
+-
+-void OsiAbVerification::AfterRefineMesh(AmrCoreLBM& lid, int step) const {
+-    if (lid.osiReferenceEnabled() && IsTargetStep(step)) {
+-        lid.PrintRegridDiagnostics();
+-        lid.CheckOsiReferenceAllValid(step, "AfterRefineMeshAllValid");
+-    }
+-}
+-
+-void OsiAbVerification::AfterFirstFillGhost(AmrCoreLBM& lid, int lev) {
+-    if (lev == 0 && check_after_first_fill_ && !first_fill_checked_ &&
+-        lid.osiReferenceEnabled()) {
+-        first_fill_checked_ = true;
+-        lid.CheckOsiReferenceAllValid(-1, "AfterFirstFillGhostAllValid");
+-    }
+-}
+-
+-void OsiAbVerification::AfterAdvance(
+-    AmrCoreLBM& lid, int lev, int step) const {
+-    if (lid.osiReferenceEnabled()) {
+-        lid.AdvanceAndCheckOsiReference(lev, step);
+-    }
+-}
+--- frozen/src/AmrCoreLBM_diagnostics.cpp
++++ phase1/src/AmrCoreLBM_diagnostics.cpp
+@@ -576,23 +576,20 @@
+     output << '\n';
+ }
+ 
+-void AmrCoreLBM::CheckOsiReferenceUncovered(
+-    int step, const char* stage) {
+-    if (!osiReferenceEnabled()) {
+-        return;
+-    }
++void AmrCoreLBM::CheckOsiReferenceUncovered(int step, const char* stage) {
++    if (!osiReferenceEnabled()) { return; }
+     amrex::Print() << "osi_ab_uncovered_begin: step=" << step
+-                   << " stage=" << stage
+-                   << " finest_level=" << finest_level << '\n';
++                   << " stage=" << stage << " finest_level=" << finest_level << '\n';
+     for (int lev = 0; lev <= finest_level; ++lev) {
+-        const MultiFab& reference = f_old.at(lev);
+-        const bool nonfinite = reference.contains_nan(0, Q, 0) ||
+-                               reference.contains_inf(0, Q, 0);
+-        amrex::Print() << "osi_ab_uncovered_finite: step=" << step
+-                       << " stage=" << stage << " lev=" << lev
+-                       << " finite=" << (nonfinite ? 0 : 1) << '\n';
+-        AMREX_ALWAYS_ASSERT(!nonfinite);
+-        // 首个差异扫描只覆盖各层 uncovered valid，covered 数据留到重构/平均阶段。
++        const auto& reference = f_old.at(lev);
++        // 锁步共享拓扑和mask；记录来源，不将共享误写成独立生成后验证一致。
++        amrex::Print() << "PHASE1_MESH step=" << step << " lev=" << lev
++                       << " phase=" << osi_phase.at(lev)
++                       << " boxes=" << boxArray(lev).size()
++                       << " valid_cells=" << boxArray(lev).numPts()
++                       << " covered=" << covered_cell_counts.at(lev)
++                       << " interface=" << interface_cell_counts.at(lev)
++                       << " shared_topology=1 shared_masks=1" << '\n';
+         CompareOsiReferenceStage(lev, stage, reference, 0, false, true);
+     }
+ }
+@@ -681,7 +678,12 @@
+                           : raw_linf;
+     constexpr Real tolerance = 1.0e-12;
+     const bool comparison_failed =
++        difference.contains_nan(0, Q, 0) || difference.contains_inf(0, Q, 0) ||
+         !std::isfinite(linf) || linf > tolerance;
++    amrex::Print() << "PHASE1_VALUES step=" << probe_.coarse_advance_count
++                   << " lev=" << lev << " phase=" << phase
++                   << " nonfinite=" << (difference.contains_nan(0, Q, 0) || difference.contains_inf(0, Q, 0))
++                   << " scope=uncovered_valid" << '\n';
+     if (comparison_failed) {
+         // e 位于设备侧，主机诊断必须使用独立的同序速度表。
+ 
+@@ -775,7 +777,7 @@
+ 
+         auto output = amrex::AllPrint();
+         output.SetPrecision(17);
+-        output << "osi_ab_stage_failure: stage=" << stage
++        output << "osi_ab_stage_failure: step=" << probe_.coarse_advance_count << " stage=" << stage
+                << " lev=" << lev
+                << " phase=" << phase
+                << " global_linf=" << linf

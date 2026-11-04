@@ -75,9 +75,12 @@ assert shutil.disk_usage(local_root).free > 20 * 1024**3
 local = Path(tempfile.mkdtemp(prefix=f'C_AB_IO_{JOB}_', dir=local_root))
 save('local_disk.json', {'path': str(local), 'filesystem': filesystem,
                          'free_bytes': shutil.disk_usage(local).free})
-base = json.loads((CASE / 'runs/C_AB_t1000_peak_memory_rerun/settings.json').read_text())
-base.update(PROBE_END_STEP=os.environ.get('IO_END_STEP', '6400'), PROBE_PLOT_INT='3200', PROBE_REPORT_INT='3200',
-            PROBE_GPU_MEMORY_MS=os.environ.get('IO_MEMORY_MS', '0'), PROBE_TRACE_IO='1', PROBE_WALL_SECONDS=os.environ.get('IO_WALL_SECONDS', '1800'))
+settings_file = Path(os.environ.get('IO_SETTINGS_FILE', str(CASE / 'runs/C_AB_t1000_peak_memory_rerun/settings.json')))
+base = json.loads(settings_file.read_text())
+base.update(PROBE_END_STEP=os.environ.get('IO_END_STEP', '6400'), PROBE_PLOT_INT=os.environ.get('IO_PLOT_INT', '3200'), PROBE_REPORT_INT='3200',
+            PROBE_GPU_MEMORY_MS=os.environ.get('IO_MEMORY_MS', '0'), PROBE_TRACE_IO=os.environ.get('IO_TRACE_IO', '1'), PROBE_WALL_SECONDS=os.environ.get('IO_WALL_SECONDS', '1800'))
+base['PROBE_STREAM_MODES'] = os.environ.get('IO_STREAM_MODES', base['PROBE_STREAM_MODES'])
+base['PROBE_CHECKPOINT_INT'] = os.environ.get('IO_CHECKPOINT_INT', base['PROBE_CHECKPOINT_INT'])
 statuses = []
 for trial in TRIALS:
     env = os.environ.copy()

@@ -1,0 +1,27 @@
+# C 阈值 A-B/OSI 差异审查与阶段一定位
+
+本任务所有求解测试从静止t=0开始，不以checkpoint恢复作为初态。checkpoint仅用于事后离线对照。输入、命令、程序、诊断源码、日志、场和checkpoint均保留。
+
+## 已有证据和范围
+
+- t=250之前两次独立长跑已有差异，见t250_before_restart.json。该文件比较共同valid（含covered），只能排除重启解释全部终态差异，不能定位首个uncovered差异。
+- job625927为提前展开的256步多阶段锁步；在用户纠正流程后已主动停止。保留原日志；不再把它作为按技能完成阶段一/二的证据。
+- job625928简化GPU算术模型：1048576组直接除法/倒数乘法，fast-math差异0；未启用fast-math时276329组不同、最大3.7252903e-9。不是生产GPU宏观量验证。
+- job625929/625930是独立宏观量探针的构建失败记录，未运行生产宏观量对照。补齐RDC与AMReX constexpr/lambda编译选项后job625931成功：直接提取冻结compute_macro/compute_macro_osi，对相同非均匀32768-cell DDF、phase=0，rho及velocity逐值差异0。仅该fixture成立，不能证明任意phase、布局或原始编译上下文完全相同。
+- independent_1024：job625932求解器A-B退出0，但缺少正式收敛点导致自动绘图退出，未执行OSI；修正脚本跳过无正式点的收敛绘图后job625934两组独立单GPU均完成、回传校验成功。同一节点、同一冻结可执行文件，均从静止到1024步，原C阈值和收敛监测保留。t1024_uncovered.json显示三层共同uncovered valid的347701248个分布函数逐值差异0，Box顺序相同、从下一细层重建的covered mask无差异。全valid补充结果中仅covered粗层存在差异，不能当作active流场分歧。该离线checkpoint结果不等于ghost/interface阶段验证。
+
+## 严格阶段一扫描
+
+phase1_build是从长跑冻结20261029源复制的独立构建，不替换历史冻结程序或生产程序。prepare_phase1.py生成副本及phase1.patch；仅修改诊断调度和比较有限值处理，生产kernel和AMR数学公式不变。
+
+只用锁步推进，t=0检查InitialUncovered，之后每32个完整粗层步末检查各层StepEndUncovered。禁用逐阶段、全valid重构和ghost/source比较；每层打印finest_level上下文、Box数、valid cell数、covered/interface数、phase、nonfinite标志，并在失败时报告逻辑cell/q/raw/source/value。共享BoxArray/DistributionMap由原比较器断言，mask为锁步共享对象，日志明确shared_topology/shared_masks，不能当作独立网格标签一致性证明。interface标记covered侧过渡带。
+
+先扫描0--6400步，遇首个uncovered差异即停止；无差异只说明这段共享网格锁步前缀通过，不外推至128000步或独立加密选择。CONVERGENCE与每3200步输出保留以覆盖生产中的ComputeMacro/完整平均副作用；输出写节点本地盘后校验回传。阶段一未锁定首差异前，不重新展开阶段二。
+
+构建初次因三个const调度方法签名遗漏而失败，修正后重试；保留build_initial_failed.log。构建日志、补丁和SHA256位于phase1_build。运行命令与回执位于phase1_from_zero。
+
+阶段一job625948因诊断副本漏调用SwapLevel而在step32出现无效差异，不能用于定位生产程序。遗漏已在准备脚本和副本修复，旧源码/日志/程序保留于job625948发布副本，旧补丁另存phase1_missing_swap_invalid.patch。修正版保留两次AdvanceOneLayout和两种layout原有SwapLevel，再在步末检查。
+
+修正版独立CUDA+MPI FLOAT构建成功，application SHA256为9272d4d7362a056daca8e280e9e64e2af6b7a0bf636b73bc0731fa96cb8450ab。job625953从零到128步完成、退出0；检查步0/32/64/96/128共12条逐层uncovered比较，linf全部0，日志无阶段二比较，见phase1_smoke/job625953/smoke_validation.json。修正版0--6400扫描job625951已启动；本记录写入时尚未完成，不宣称6400步或长跑一致。
+
+源码中的正常重构有限值保护仍保留（不是A-B/OSI全valid逐值比较）；阶段一的A-B/OSI逐值范数和nonfinite标志仅针对uncovered valid。现有初值Oracle会复制OSI valid初值，故本轮共享初值/网格扫描不替代独立初始化与独立加密标签对照。
