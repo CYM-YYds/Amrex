@@ -84,6 +84,10 @@ for trial in TRIALS:
     env.pop('PROBE_HEAP_WRITE_LIBRARY', None)
     env.pop('PROBE_RESTART_ROOT', None)
     env.update(base)
+    if os.environ.get('IO_RESTART_ROOT'):
+        env.update(PROBE_RESTART_ROOT=os.environ['IO_RESTART_ROOT'],
+                   PROBE_RESTART_CASE='C',
+                   PROBE_RESTART_STEP=os.environ.get('IO_RESTART_STEP', '32000'))
     env['PROBE_OUTPUT_ROOT'] = str(local if trial == 'local_original' else OUT / trial)
     if trial == 'shared_heap':
         env['PROBE_HEAP_WRITE_LIBRARY'] = str(OUT / 'heap_write.so')

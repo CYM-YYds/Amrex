@@ -1,0 +1,9 @@
+{
+  "IO_OUTPUT_ROOT": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/C_AB_t1000_local_continuation",
+  "IO_PATH_TRIALS": "local_original",
+  "IO_END_STEP": "128000",
+  "IO_MEMORY_MS": "100",
+  "IO_WALL_SECONDS": "0",
+  "IO_RESTART_ROOT": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/C_AB_t1000_local_continuation/restart_snapshot",
+  "IO_RESTART_STEP": "32000"
+}
