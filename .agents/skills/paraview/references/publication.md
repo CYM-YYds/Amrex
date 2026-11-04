@@ -23,6 +23,9 @@
 先用 [`snapshot_state`](bridge.md#保存-gui-场景供批处理复用) 保存场景，记录视图 ID、
 `ViewSize`、实际输入列表、物理时间、旋度定义及显示范围，再按[批处理说明](batch.md)在编译节点导出。
 
+- 方向轴拖动位置不由PVSM代理属性保存，须从快照回执的 `orientation_renderers` 按目标视图ID
+  取出viewport，在批处理初始化renderer后恢复；加载场景前禁用首次Render自动相机复位。
+  具体机制见[场景快照](bridge.md#保存-gui-场景供批处理复用)。
 - 保持目标视图原始像素尺寸，使用 `FontScaling='Do not scale fonts'`；改画布比例或自动放大字号
   会改变图面占比、色标标题与图框的相对位置。不要再套用另一种排版。
 - 时间帧可分配给相互独立的单进程 `pvbatch`，每个任务独立加载场景并写不同文件；核对内存与

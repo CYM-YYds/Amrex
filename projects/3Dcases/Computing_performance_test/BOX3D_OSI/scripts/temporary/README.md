@@ -11,7 +11,7 @@
 |---|---|---|
 | [a5_threshold_probe.sh](a5_threshold_probe.sh) | A/B/C阈值、冻结程序、短测/长跑/重启、stream_modes对比；命令以各实验submit_command.txt为准 | 当前工作流 |
 | [summarize_restart_memory.py](summarize_restart_memory.py) | GPU/逐PID显存采样汇总，a5_threshold_probe.sh调用并冻结副本 | 当前依赖 |
-| [pack_animation_gif.py](pack_animation_gif.py) | PNG序列统一裁剪和GIF合成；C动画pack_command.txt记录具体参数 | 结果唯一合成入口 |
+| [pack_animation_gif.py](pack_animation_gif.py) | 兼容软链，真身为../../data_post_processing/pack_animation_gif.py | 长期工具兼容路径 |
 | [roofline_smoke.sh](roofline_smoke.sh)、[analyze_roofline_smoke.py](analyze_roofline_smoke.py) | Roofline小测试与统计，输出在runs/temporary/roofline_smoke/ | 结果复现 |
 
 ## I/O 诊断入口
@@ -43,7 +43,7 @@
 | [build_transfer_restriction_gpu.sh](build_transfer_restriction_gpu.sh) | 本次融合的临时 GPU 对照构建；保留为实验复现材料，在编译节点执行。 | 复现保留 |
 | [build_uniform_kernels.sh](build_uniform_kernels.sh) | 本次单层同步/无mask实验的临时构建入口；随结果保留供复现。 | 复现保留 |
 | [main_lifecycle_refactor_test.sh](main_lifecycle_refactor_test.sh) | 本次 main 生命周期整理的短程回归；保留为测试结果的复现入口。 | 复现保留 |
-| [pack_animation_gif.py](pack_animation_gif.py) | 本次动画合成临时工具；作为结果唯一生成入口保留，任务结束且无需复现时可删除。 | 当前工作流/复现保留 |
+| [pack_animation_gif.py](pack_animation_gif.py) | 已转为长期后处理工具，当前路径为兼容软链。 | 不作为临时删除候选 |
 | [prepare_uniform_kernels.py](prepare_uniform_kernels.py) | 本次单层同步/无mask实验的临时源码生成器；随实验结果保留供复现。 | 复现保留 |
 | [profile_collision.sh](profile_collision.sh) | 专项实验入口；按同名实验报告及脚本内参数核对 | 保留待核 |
 | [profile_uniform_hw.sh](profile_uniform_hw.sh) | 专项实验入口；按同名实验报告及脚本内参数核对 | 保留待核 |

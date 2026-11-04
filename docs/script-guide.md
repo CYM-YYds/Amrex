@@ -26,7 +26,7 @@
 |---|---|---|
 | 根 scripts/ | 跨算例管理工具、公共构建/提交实现及 lib 依赖 | 不是 BOX3D_OSI 专属后处理目录 |
 | 算例 scripts/ | 构建、提交、监护、实验驱动及内部 Shell 工具 | 每个入口与内部依赖见算例脚本索引 |
-| 算例 data_post_processing/ | 中心线、收敛和性能分析的长期入口 | 顶层 5 个 Python 文件，其中 convergence_logs.py 是内部模块 |
+| 算例 data_post_processing/ | 中心线、收敛、性能分析及GIF合成的长期入口 | 维护入口见所属README，其中 convergence_logs.py 是内部模块 |
 | 算例 tests/ | 回归驱动、检查器、测试 fixture | 不是生产计算入口 |
 | 算例 scripts/temporary/ | 任务专属实验、候选分析、临时构建与复现工具 | temporary 不等于可直接删除；完整清单见其 README |
 | 算例 scripts/archive/、data_post_processing/archive/ | 历史特定实验入口 | 保留原复现语义，不作为默认新任务入口 |

@@ -200,8 +200,22 @@ Level-0、128³、三分量双精度的现有布局，并核对数据与 Cell_H 
 
 ## C 阈值涡量动画（job624717）
 
-[查看 GIF](images/gif-C/job624717_C_vorticity.gif)：40帧、每帧500ms、无限循环，一轮20秒，输入t25..1000。与B动画相同的速度求旋度、y=0.5切片、色标0..1和AMR白/红/绿框线；C阈值0.25/0.5。裁剪PNG在images/gif-C/frames/，原图、场景及逐帧来源在runs/a5_C_t1000_gif/job624717/C/figures/animation_C/。
-合成命令见该目录pack_command.txt，复用原B渲染脚本；最终合成由scripts/temporary/pack_animation_gif.py执行。GIF为调色板预览，保留PNG用于逐帧查看。
+当前首选为 [Viridis 前15帧 GIF](images/gif-C-viridis-first15/job624717_C_viridis.gif)：
+step3200..48000、t=25..375，每帧500ms、一轮7.5秒，1006×935，无限循环。
+[完整40帧](images/gif-C-viridis/job624717_C_viridis.gif) 保留至step128000、t=1000（一轮20秒）。
+两者沿用当前GUI场景：三维速度求旋度后切y=0.5，`mag(Vorticity)*1.0`，
+Viridis固定0..1（超限饱和），无额外归一化、平滑或外部参考；加密框保留原白/红/绿配色。
+裁剪保留用户拖动后的坐标指示、轴文字及完整色标，不缩放。
+前15帧由下方长期合成入口直接选取原PNG生成；同目录保留裁剪PNG与来源JSON。
+
+本次冻结场景、实际方向轴viewport、原PNG、命令、脚本快照和验证报告见
+[`animation_C_viridis_current/`](../runs/a5_C_t1000_gif/job624717/C/figures/animation_C_viridis_current/)。
+其中 `frames_final/` 是正式源帧；`frames_raw/` 和 `frames_axes_fixed/` 是保留的排错证据，
+不能拿来合成最终GIF。本次源帧1834×1066，裁剪为 `(367,77,1373,1012)`。
+
+[旧彩虹色40帧版本](images/gif-C/job624717_C_vorticity.gif) 与旧
+[`animation_C/`](../runs/a5_C_t1000_gif/job624717/C/figures/animation_C/) 按历史保留，
+不作为当前Viridis动画入口。C阈值完整数组0.25/0.5/1/2。
 
 ## C 中心线对比入口
 
@@ -239,3 +253,9 @@ case_dir=projects/3Dcases/Computing_performance_test/BOX3D_OSI
 不能直接套用旧裁剪范围。全帧共用调色板；JSON记录每帧来源索引和SHA256。
 渲染时的方向轴位置恢复和首次相机复位修复已在原导出驱动中实现，
 详见[本次导出记录](../docs/ai_changes/2026-11-04-C-viridis-current-gif.md)。
+
+本次渲染驱动仍为冻结实验中的
+[`render_remaining.py`](../runs/a5_B_three_plot3200/job622356/B/figures/animation_completion/render_remaining.py)，
+新增的 `--view-source`、`--prefix`、`--axes-viewport` 保留当前显示和方向指示位置。
+它仍检查40帧、t=25..1000，属于本组实验的复现驱动；不能把它当作任意时间序列的通用入口。
+通用帧段合成使用上面的 `pack_animation_gif.py`，无需重算涡量。

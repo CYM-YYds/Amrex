@@ -1,0 +1,28 @@
+{
+  "source": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/images/gif-C-viridis/job624717_C_viridis.gif",
+  "source_sha256": "f80274c42bfb9fb4a76dc0b17b9212c97dc9d6bfa9719e8a964d39ae7a37fc4c",
+  "output": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/images/gif-C-viridis/job624717_C_viridis_first15.gif",
+  "frames": 15,
+  "frame_indices": [
+    0,
+    14
+  ],
+  "physical_times": [
+    25,
+    375
+  ],
+  "solver_steps": [
+    3200,
+    48000
+  ],
+  "duration_ms": 500,
+  "loop_seconds": 7.5,
+  "size": [
+    1006,
+    935
+  ],
+  "crop_and_axes": "unchanged from full animation",
+  "normalization": "mag(Vorticity)*1.0; Viridis range 0..1",
+  "reference": "none",
+  "sha256": "7ea46be0d808db26cfe9cf5bf539a3450c21e6278f46616e8e763fa0ac3ab82c"
+}
