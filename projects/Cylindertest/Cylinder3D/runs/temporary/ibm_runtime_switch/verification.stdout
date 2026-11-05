@@ -1,0 +1,113 @@
+{
+  "valid_fields": {
+    "implicit": {
+      "f_old": 68,
+      "f_new": 68,
+      "velocity_abs_max": 0.01016135181103636,
+      "force_coefficient_abs_max": 0.201119
+    },
+    "sphere_idf": {
+      "f_old": 68,
+      "f_new": 68,
+      "velocity_abs_max": 0.01016135181103636,
+      "force_coefficient_abs_max": 0.201119
+    },
+    "sphere_mdf": {
+      "f_old": 68,
+      "f_new": 68,
+      "velocity_abs_max": 0.010161351811036449,
+      "force_coefficient_abs_max": 0.197325
+    },
+    "cylinder_mdf": {
+      "f_old": 80,
+      "f_new": 80,
+      "velocity_abs_max": 0.010161351811036433,
+      "force_coefficient_abs_max": 2.73699
+    },
+    "off": {
+      "f_old": 32,
+      "f_new": 32,
+      "velocity_abs_max": 0.010161351811036423
+    },
+    "sphere_idf_restart": {
+      "f_old": 68,
+      "f_new": 68,
+      "velocity_abs_max": 0.01016135181103636,
+      "force_coefficient_abs_max": 0.201119
+    },
+    "cylinder_mdf_restart": {
+      "f_old": 80,
+      "f_new": 80,
+      "velocity_abs_max": 0.010161351811036433,
+      "force_coefficient_abs_max": 2.73699
+    },
+    "off_restart": {
+      "f_old": 32,
+      "f_new": 32,
+      "velocity_abs_max": 0.010161351811036423
+    }
+  },
+  "comparisons": {
+    "implicit_vs_explicit": {
+      "f_old": {
+        "linf": 4.440892098500626e-16,
+        "unequal": 59117
+      },
+      "f_new": {
+        "linf": 4.440892098500626e-16,
+        "unequal": 53933
+      }
+    },
+    "sphere_idf_restart": {
+      "f_old": {
+        "linf": 0.0,
+        "unequal": 0
+      },
+      "f_new": {
+        "linf": 0.0,
+        "unequal": 0
+      }
+    },
+    "cylinder_mdf_restart": {
+      "f_old": {
+        "linf": 0.0,
+        "unequal": 0
+      },
+      "f_new": {
+        "linf": 0.0,
+        "unequal": 0
+      }
+    },
+    "off_restart": {
+      "f_old": {
+        "linf": 0.0,
+        "unequal": 0
+      },
+      "f_new": {
+        "linf": 0.0,
+        "unequal": 0
+      }
+    },
+    "original_vs_default": {
+      "f_old": {
+        "linf": 4.440892098500626e-16,
+        "unequal": 59117
+      },
+      "f_new": {
+        "linf": 4.440892098500626e-16,
+        "unequal": 53933
+      }
+    },
+    "legacy_restart": {
+      "f_old": {
+        "linf": 0.0,
+        "unequal": 0
+      },
+      "f_new": {
+        "linf": 0.0,
+        "unequal": 0
+      }
+    }
+  },
+  "parameter_and_restart_rejection": "passed"
+}

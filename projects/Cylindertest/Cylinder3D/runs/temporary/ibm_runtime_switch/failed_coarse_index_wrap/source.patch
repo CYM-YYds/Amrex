@@ -1,0 +1,597 @@
+diff --git a/projects/Cylindertest/Cylinder3D/config/inputs b/projects/Cylindertest/Cylinder3D/config/inputs
+index c570b01..dd4da87 100755
+--- a/projects/Cylindertest/Cylinder3D/config/inputs
++++ b/projects/Cylindertest/Cylinder3D/config/inputs
+@@ -1,3 +1,10 @@
++# IBM 开关：false 时为无浸没物体流动，默认保持原球体 IDF。
++ibm.enabled = true
++# sphere / cylinder（现有沿 Y 轴侧壁点，无端盖）
++ibm.geometry = sphere
++# idf / mdf，三维圆柱建议先用 mdf 做短程验证。
++ibm.method = idf
++
+ # *****************************************************************
+ # Run until nsteps == max_step or time == stop_time,
+ #     whichever comes first
+diff --git a/projects/Cylindertest/Cylinder3D/src/AmrCoreLBM.H b/projects/Cylindertest/Cylinder3D/src/AmrCoreLBM.H
+index 6d03415..d940891 100755
+--- a/projects/Cylindertest/Cylinder3D/src/AmrCoreLBM.H
++++ b/projects/Cylindertest/Cylinder3D/src/AmrCoreLBM.H
+@@ -21,6 +21,10 @@ class AmrCoreLBM : public amrex::AmrCore {
+ 
+   public:
+     struct RuntimeParams {
++        // IBM 配置仅在启动时读取，运行期间保持不变。
++        bool ibm_enabled = true;
++        std::string ibm_geometry = "sphere";
++        std::string ibm_method = "idf";
+         // amr
+         int regrid_int = -1;
+         int plot_int = -1;
+diff --git a/projects/Cylindertest/Cylinder3D/src/AmrCoreLBM.cpp b/projects/Cylindertest/Cylinder3D/src/AmrCoreLBM.cpp
+index 88bfcc0..14bda67 100755
+--- a/projects/Cylindertest/Cylinder3D/src/AmrCoreLBM.cpp
++++ b/projects/Cylindertest/Cylinder3D/src/AmrCoreLBM.cpp
+@@ -539,6 +539,23 @@ void AmrCoreLBM::ReadParameters() {
+         }
+     }
+ 
++    // 复用集中参数入口，IBM 配置只有一个数据来源。
++    {
++        ParmParse pp("ibm");
++        pp.query("enabled", params_.ibm_enabled);
++        pp.query("geometry", params_.ibm_geometry);
++        pp.query("method", params_.ibm_method);
++        if (params_.ibm_geometry != "sphere" && params_.ibm_geometry != "cylinder") {
++            amrex::Abort("ibm.geometry must be sphere or cylinder");
++        }
++        if (params_.ibm_method != "idf" && params_.ibm_method != "mdf") {
++            amrex::Abort("ibm.method must be idf or mdf");
++        }
++        amrex::Print() << "[IBM] enabled=" << params_.ibm_enabled
++                       << " geometry=" << params_.ibm_geometry
++                       << " method=" << params_.ibm_method << "\n";
++    }
++
+     // Centralize checkpoint namespace parsing
+     {
+         ParmParse pp_ckpt("checkpoint");
+@@ -627,12 +644,14 @@ void AmrCoreLBM::WriteVorticityFile(const int step, const amrex::Real time) {
+ }
+ 
+ void AmrCoreLBM::WriteParticleFile(const int step, const amrex::Real time) {
++    if (!params_.ibm_enabled) { return; }
+     for (int i = 0; i < particle_num; i++) {
+         particles[i]->WriteParticle(step);
+     }
+ }
+ 
+ void AmrCoreLBM::WriteMultiParticleFile(const int step, const amrex::Real time) {
++    if (!params_.ibm_enabled) { return; }
+     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+         std::string filename = "data/" + amrex::Concatenate("particle_data", step, 6) + ".dat";
+ 
+@@ -838,6 +857,7 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) {
+ }
+ 
+ void AmrCoreLBM::FindCentre() {
++    if (!params_.ibm_enabled) { return; }
+     // amrex::AllPrint()<<"FindCentre "<<std::endl;
+ 
+     for (int p_num = 0; p_num < particle_num; p_num++) {
+@@ -1172,6 +1192,7 @@ void AmrCoreLBM::FillMacroGhostLevel(int lev, amrex::Real time) {
+ }
+ 
+ void AmrCoreLBM::FillForceGhostLevel(int lev, amrex::Real time) {
++    if (!params_.ibm_enabled) { return; }
+     // amrex::AllPrint()<<"FillForceGhostLevel on " << lev <<std::endl;
+ 
+     amrex::MultiFab& force_lev = force[lev];
+@@ -1299,9 +1320,14 @@ void AmrCoreLBM::AverageScale(int lev, int n) {
+ //                           ibm  function                            //
+ //********************************************************************//
+ void AmrCoreLBM::InitParticle(int lev) {
++    if (!params_.ibm_enabled) { return; }
+     for (int i = 0; i < particle_num; i++) {
+         particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i);
+-        particles[i]->InitParticle(lev);
++        if (params_.ibm_geometry == "cylinder") {
++            particles[i]->InitCylinderParticle(lev);
++        } else {
++            particles[i]->InitParticle(lev);
++        }
+         // particles[i]->InitChannelParticle(lev);
+         // particles[i]->InitCylinderParticle(lev);
+         //   particles[i] ->InitParticleFromFile(lev, "../../../object/sphere128");
+@@ -1310,21 +1336,20 @@ void AmrCoreLBM::InitParticle(int lev) {
+ }
+ 
+ void AmrCoreLBM::ComputeParticle(int lev) {
++    if (!params_.ibm_enabled) { return; }
+     // amrex::AllPrint()<<"ComputeParticle on " << lev <<std::endl;
+     CommunicateLevel(lev);
+     ComputeMacroLevel(lev);
+ 
+-    // 用户可选择以下两种方法之一（通过注释/取消注释切换）：
+-    // 方法1: IDF (Implicit Direct Forcing) - 矩阵求解法
+-    ApplyIDF(lev); // 使用 IDF 时保留此行，注释掉 InterpForce(lev)目前的IDF代码优化不足，对于三维的情况很容易爆内存
+-
+-    // 方法2: MDF (Multi-Direct Forcing) - 迭代求解法
+-    // InterpForce(lev); // 使用 MDF 时保留此行，注释掉 ApplyIDF(lev)
+-    // 注意：MDF 的迭代次数由 D3Q19.H 中的 NF 宏控制
+-    //       当 NF > 1 时自动启用两阶段迭代优化
++    if (params_.ibm_method == "idf") {
++        ApplyIDF(lev);
++    } else {
++        InterpForce(lev);
++    }
+ }
+ 
+ void AmrCoreLBM::ReduceFxy(int lev, int step) {
++    if (!params_.ibm_enabled) { return; }
+     for (int i = 0; i < particle_num; i++) {
+         particles[i]->SaveFxy(lev, step);
+     }
+@@ -1384,18 +1409,21 @@ void AmrCoreLBM::WriteForceDat(int lev, int step) {
+ }
+ 
+ void AmrCoreLBM::SaveParticleVelocity(int lev, int step) {
++    if (!params_.ibm_enabled) { return; }
+     for (int i = 0; i < particle_num; i++) {
+         particles[i]->SaveVelocity(lev, step);
+     }
+ }
+ 
+ void AmrCoreLBM::SaveParticlePosition(int lev, int step) {
++    if (!params_.ibm_enabled) { return; }
+     for (int i = 0; i < particle_num; i++) {
+         particles[i]->SavePosition(lev, step);
+     }
+ }
+ 
+ void AmrCoreLBM::SaveParticleDistance(int lev, int step) {
++    if (!params_.ibm_enabled) { return; }
+     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+         std::string filename = "data/dist.dat";
+         std::ofstream file(filename, std::ios::app);
+@@ -1417,10 +1445,12 @@ void AmrCoreLBM::SaveParticleDistance(int lev, int step) {
+ }
+ 
+ void AmrCoreLBM::PrintParticleParm() {
++    if (!params_.ibm_enabled) { return; }
+     particles[0]->PrintParticleParm();
+ }
+ 
+ void AmrCoreLBM::RedistributeParticle() {
++    if (!params_.ibm_enabled) { return; }
+     // amrex::AllPrint()<< "RedistributeParticle" << std::endl;
+     for (int i = 0; i < particle_num; i++) {
+         particles[i]->Redistribute();
+@@ -1428,6 +1458,7 @@ void AmrCoreLBM::RedistributeParticle() {
+ }
+ 
+ void AmrCoreLBM::InitCpPoint(int lev) {
++    if (!params_.ibm_enabled) { return; }
+     for (int i = 0; i < particle_num; i++) {
+         particlesCp[i] = std::make_unique<AuxiliaryPointContainer>(this, points[i], i);
+         particlesCp[i]->InitCpPoint(lev);
+@@ -1435,6 +1466,7 @@ void AmrCoreLBM::InitCpPoint(int lev) {
+ }
+ 
+ void AmrCoreLBM::ComputeCp(int lev, int step) {
++    if (!params_.ibm_enabled) { return; }
+     CommunicateLevel(lev);
+     ComputeMacroLevel(lev);
+ 
+@@ -1447,6 +1479,7 @@ void AmrCoreLBM::ComputeCp(int lev, int step) {
+ }
+ 
+ void AmrCoreLBM::LubForceParticle(int lev, amrex::Real cur_time) {
++    if (!params_.ibm_enabled) { return; }
+     // 在这里遍历，然后传入两个颗粒
+     for (int p1 = 0; p1 < particle_num; p1++) {
+         for (int p2 = p1 + 1; p2 < particle_num; p2++) {
+@@ -1460,6 +1493,7 @@ void AmrCoreLBM::LubForceParticle(int lev, amrex::Real cur_time) {
+ }
+ 
+ void AmrCoreLBM::MoveParticle(int lev, amrex::Real cur_time) {
++    if (!params_.ibm_enabled) { return; }
+     // amrex::AllPrint()<<"MoveParticle on " << lev <<std::endl;
+     for (int i = 0; i < particle_num; i++) {
+         particles[i]->MoveParticle(lev, cur_time);
+@@ -1687,6 +1721,7 @@ void AmrCoreLBM::BuildActiveEulerSet(int lev, int particle_idx, IDFData& idf_dat
+ // MDF 迭代求解：通过多次迭代收敛到目标速度
+ // 当 NF > 1 时，使用两阶段迭代避免 ghost 区域重复累加
+ void AmrCoreLBM::InterpForce(int lev) {
++    if (!params_.ibm_enabled) { return; }
+     amrex::MultiFab& rho_lev = density[lev];
+     amrex::MultiFab& u_lev = velocity[lev];
+     amrex::MultiFab& force_lev = force[lev];
+@@ -1754,6 +1789,7 @@ void AmrCoreLBM::InterpForce(int lev) {
+ 
+ // MDF 辅助函数：对 force 场进行 SumBoundary 通信（ghost → valid）
+ void AmrCoreLBM::SumForce(int lev) {
++    if (!params_.ibm_enabled) { return; }
+     MultiFab* mf_pointer = &force[lev];
+     mf_pointer->SumBoundary(Geom(lev).periodicity());
+ }
+@@ -1764,6 +1800,7 @@ void AmrCoreLBM::SumForce(int lev) {
+ // 主入口：按顺序执行 IDF 各阶段
+ // 支持多球体：对每个球体单独进行完整的IDF计算
+ void AmrCoreLBM::ApplyIDF(int lev) {
++    if (!params_.ibm_enabled) { return; }
+     // 仅在最细层执行
+     if (lev != finest_level) {
+         return;
+@@ -2208,6 +2245,7 @@ void AmrCoreLBM::MakeNewLevelFromCoarse(int lev, amrex::Real time, const amrex::
+     f_new_lev.define(ba, dm, Q, nghost);
+     f_old_lev.define(ba, dm, Q, nghost);
+ 
++    force_lev.setVal(0.0, nghost);
+     FillCoarsePatch(lev, time, f_old_lev);
+ }
+ void AmrCoreLBM::RemakeLevel(int lev, amrex::Real time, const amrex::BoxArray& ba,
+@@ -2324,13 +2362,14 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
+ 
+         Real err_value = err[lev];
+         RealVect* points_p = points_d.data();
+-        const int points_num = particle_num;
++        const int points_num = params_.ibm_enabled ? particle_num : 0;
++        const bool cylinder = params_.ibm_geometry == "cylinder";
+ 
+         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+             // state_error_2(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, pos);
+             // state_error_3(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+             // state_error_4(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num);
+-            state_error_5(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num); });
++            state_error_5(i, j, k, tagfab, vort, err_value, tagval, clearval, lev, geomdata, lo2, hi2, points_p, points_num, cylinder); });
+     }
+ }
+ 
+@@ -2340,7 +2379,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
+ 
+     // 新策略：统一使用 step-suffixed 目录，以便可保留多个 checkpoint
+     const std::string out_chkname = amrex::Concatenate(params_.chk_prefix, step, 8);
+-    const bool write_particles = params_.write_particles;
++    const bool write_particles = params_.ibm_enabled && params_.write_particles;
+ 
+     if (isIOP) {
+         amrex::Print() << "[Checkpoint] Writing '" << out_chkname
+@@ -2376,6 +2415,12 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
+                            << "/Header' for writing. Abort checkpoint write for this step.\n";
+             return; // 提前返回避免后续写入目录缺少头文件导致重启失败
+         }
++        // 独立记录 IBM 配置，保持原 Header 布局兼容。
++        std::ofstream ibm_meta(out_chkname + "/IBMConfig");
++        ibm_meta << params_.ibm_enabled << ' ' << params_.ibm_geometry << ' '
++                 << params_.ibm_method << ' ' << write_particles << '\n';
++        ibm_meta.close();
++        if (!ibm_meta) { amrex::Abort("Cannot write checkpoint IBMConfig"); }
+         header.precision(17);
+         header << "LBMCheckpoint" << '\n';
+         header << step << '\n';
+@@ -2463,6 +2508,23 @@ void AmrCoreLBM::ReadCheckpoint() {
+                                      "checkpoint.begin_step must be > 0 when restarting.");
+     const std::string chkname = amrex::Concatenate(params_.chk_prefix, params_.begin_step, 8);
+     const std::string header_file = chkname + "/Header";
++    bool stored_enabled = true, stored_particles = true;
++    std::string stored_geometry = "sphere", stored_method = "idf";
++    if (amrex::FileExists(chkname + "/IBMConfig")) {
++        amrex::Vector<char> config_chars;
++        ParallelDescriptor::ReadAndBcastFile(chkname + "/IBMConfig", config_chars);
++        std::istringstream config(std::string(config_chars.dataPtr()));
++        if (!(config >> stored_enabled >> stored_geometry >> stored_method >> stored_particles)) {
++            amrex::Abort("Invalid checkpoint IBMConfig");
++        }
++    }
++    // 旧 checkpoint 只兼容原默认球体 IDF 工况。
++    if (stored_enabled != params_.ibm_enabled ||
++        (params_.ibm_enabled && (stored_geometry != params_.ibm_geometry ||
++                                stored_method != params_.ibm_method || !stored_particles))) {
++        amrex::Abort("Checkpoint IBM configuration mismatch or missing particle state");
++    }
++
+ 
+     if (!amrex::FileExists(header_file)) {
+         amrex::Abort("[Checkpoint] Specified restart directory '" + chkname + "' is missing Header file.");
+@@ -2546,6 +2608,8 @@ void AmrCoreLBM::ReadCheckpoint() {
+         force[lev].setVal(0.0, nghost);
+     }
+ 
++    if (!params_.ibm_enabled) { return; }
++
+     // 读取粒子容器：若容器尚未构造（例如从 checkpoint 重启且跳过 InitParticle），
+     // 则先构造容器对象，再从磁盘恢复粒子数据。
+     for (int i = 0; i < particle_num; ++i) {
+diff --git a/projects/Cylindertest/Cylinder3D/src/Kernels.H b/projects/Cylindertest/Cylinder3D/src/Kernels.H
+index 8614011..614ab58 100755
+--- a/projects/Cylindertest/Cylinder3D/src/Kernels.H
++++ b/projects/Cylindertest/Cylinder3D/src/Kernels.H
+@@ -2255,7 +2255,7 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
+                   amrex::Array4<char> const& tag,
+                   amrex::Array4<amrex::Real const> const& vort,
+                   amrex::Real phierr, char tagval, char clearval, int lev, amrex::GeometryData const& geomdata,
+-                  amrex::IntVect const& lo2, amrex::IntVect const& hi2, amrex::RealVect* p_pos, const int particle_num) {
++                  amrex::IntVect const& lo2, amrex::IntVect const& hi2, amrex::RealVect* p_pos, const int particle_num, bool cylinder) {
+     const amrex::Real* dx = geomdata.CellSize();
+ 
+     // 根据固体表面距离加密
+@@ -2266,7 +2266,7 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
+ 
+         Real r_r = R * dx_0 / dx[0];
+         Real d_r = 2 * r_r;
+-        Real dist = sqrt((i - x_r) * (i - x_r) + (j - y_r) * (j - y_r) + (k - z_r) * (k - z_r));
++        Real dist = sqrt((i - x_r) * (i - x_r) + (cylinder ? 0.0 : (j - y_r) * (j - y_r)) + (k - z_r) * (k - z_r));
+         Real x_lo, x_hi, y_lo, y_hi, z_lo, z_hi;
+ 
+         if (lev == 0) {
+@@ -2278,6 +2278,8 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
+             y_hi = (y_r + 2.0 * d_r);
+             z_hi = (z_r + 2.0 * d_r);
+ 
++            // 圆柱轴向覆盖整个域，球体保留原有局部加密范围。
++            if (cylinder) { y_lo = 0; y_hi = geomdata.Domain().bigEnd(1); }
+             if (i >= x_lo && i <= x_hi && j >= y_lo && j <= y_hi && k >= z_lo && k <= z_hi && dist >= r_r - 1) {
+                 tag(i, j, k) = tagval;
+             }
+@@ -2291,6 +2293,8 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
+             y_hi = (y_r + 1.5 * d_r);
+             z_hi = (z_r + 1.5 * d_r);
+ 
++            // 圆柱轴向覆盖整个域，球体保留原有局部加密范围。
++            if (cylinder) { y_lo = 0; y_hi = geomdata.Domain().bigEnd(1); }
+             if (i >= x_lo && i <= x_hi && j >= y_lo && j <= y_hi && k >= z_lo && k <= z_hi && dist >= r_r - 1) {
+                 tag(i, j, k) = tagval;
+             }
+@@ -2304,6 +2308,8 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
+             y_hi = (y_r + 1.0 * d_r);
+             z_hi = (z_r + 1.0 * d_r);
+ 
++            // 圆柱轴向覆盖整个域，球体保留原有局部加密范围。
++            if (cylinder) { y_lo = 0; y_hi = geomdata.Domain().bigEnd(1); }
+             if (i >= x_lo && i <= x_hi && j >= y_lo && j <= y_hi && k >= z_lo && k <= z_hi && dist >= r_r - 1) {
+                 tag(i, j, k) = tagval;
+             }
+diff --git a/projects/Cylindertest/Cylinder3D/src/LagrangeParticleContainer.cpp b/projects/Cylindertest/Cylinder3D/src/LagrangeParticleContainer.cpp
+index 5ec85ca..fa361f9 100755
+--- a/projects/Cylindertest/Cylinder3D/src/LagrangeParticleContainer.cpp
++++ b/projects/Cylindertest/Cylinder3D/src/LagrangeParticleContainer.cpp
+@@ -132,7 +132,7 @@ void LagrangeParticleContainer::InitCylinderParticle(int lev) {
+ 
+     // 半径的物理尺度
+     Real phys_radius = radius * dx_min;
+-    // 高度（索引→物理混用的原逻辑保持不变，仅改轴向变量名）
++    // 轴向中心和高度使用粗层坐标，与 X/Z 中心的物理单位一致。
+     Real height_index = 2.0 * NH;
+     Real y_lo_index = centre[1] - height_index / 2.0;
+     Real y_hi_index = centre[1] + height_index / 2.0;
+@@ -142,15 +142,15 @@ void LagrangeParticleContainer::InitCylinderParticle(int lev) {
+     if (nt_ring < 3)
+         nt_ring = 3;
+ 
+-    // 侧壁总面积 ≈ 2*pi*R*H ，保持原 height_index 处理方式
+-    Real side_area = 2.0 * PI * phys_radius * (height_index * dx_min);
++    // 侧壁总面积为 2*pi*R*H，半径与高度均转换到物理单位。
++    Real side_area = 2.0 * PI * phys_radius * (height_index * delta0[1]);
+     Real area_per_side_point = side_area / (ny_layers * nt_ring);
+ 
+     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
+         for (int iy = 0; iy < ny_layers; ++iy) {
+             Real frac = (ny_layers == 1) ? 0.5 : (static_cast<Real>(iy) / (ny_layers - 1));
+             Real y_index = y_lo_index + frac * (y_hi_index - y_lo_index); // 索引坐标
+-            Real y_phys = y_index * dx_min;                               // 物理坐标（与原逻辑一致）
++            Real y_phys = y_index * delta0[1];                               // 物理坐标（粗层单位）
+ 
+             for (int j = 0; j < nt_ring; ++j) {
+                 Real alpha = 2.0 * PI * (static_cast<Real>(j) / nt_ring);
+@@ -185,7 +185,7 @@ void LagrangeParticleContainer::InitCylinderParticle(int lev) {
+ 
+         amrex::Print() << "[InitCylinderParticle] (Axis=Y) Generated side-wall points: "
+                        << (ny_layers * nt_ring) << " (R_physical=" << phys_radius
+-                       << ", H_physical=" << (height_index * dx_min) << ")" << std::endl;
++                       << ", H_physical=" << (height_index * delta0[1]) << ")" << std::endl;
+     }
+     Redistribute();
+ 
+diff --git a/projects/Cylindertest/Cylinder3D/src/main.cpp b/projects/Cylindertest/Cylinder3D/src/main.cpp
+index 48f8291..d3cc4d2 100755
+--- a/projects/Cylindertest/Cylinder3D/src/main.cpp
++++ b/projects/Cylindertest/Cylinder3D/src/main.cpp
+@@ -157,14 +157,14 @@ int main(int argc, char* argv[]) {
+ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+ 
+-    if (lev == max_ref_level) {
++    if (lev == lid.finestLevel()) {
+         lid.ComputeParticle(lev);
+     }
+ 
+     lid.Boundary(lev);
+     lid.Collide(lev, 0);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         RohdeCycle(lev + 1, cur_time, lid);
+     }
+ 
+@@ -176,7 +176,7 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     lid.Stream(lev, 2);
+     lid.SwapLevel(lev, 2);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         lid.AverageDownGhostLevel(lev, 0);
+     }
+ 
+@@ -186,14 +186,14 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+ 
+     cur_time += dt;
+ 
+-    if (lev == max_ref_level) {
++    if (lev == lid.finestLevel()) {
+         lid.ComputeParticle(lev);
+     }
+ 
+     lid.Boundary(lev);
+     lid.Collide(lev, 0);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         RohdeCycle(lev + 1, cur_time, lid);
+     }
+ 
+@@ -201,7 +201,7 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     lid.Stream(lev, 2);
+     lid.SwapLevel(lev, 2);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         lid.AverageDownGhostLevel(lev, 0);
+     }
+ }
+@@ -210,11 +210,11 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         lid.FillGhostLevel(lev + 1, cur_time, 1);
+     }
+ 
+-    if (lev == max_ref_level) {
++    if (lev == lid.finestLevel()) {
+         lid.ComputeParticle(lev);
+         lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+     }
+@@ -225,7 +225,7 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     lid.Stream(lev, 4);
+     lid.SwapLevel(lev, 4);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         JaberCycle(lev + 1, cur_time, lid);
+         lid.AverageDownGhostLevel(lev, 1);
+     }
+@@ -236,11 +236,11 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+ 
+     cur_time += dt;
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         lid.FillGhostLevel(lev + 1, cur_time, 1);
+     }
+ 
+-    if (lev == max_ref_level) {
++    if (lev == lid.finestLevel()) {
+         lid.ComputeParticle(lev);
+         lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+     }
+@@ -251,7 +251,7 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     lid.Stream(lev, 4);
+     lid.SwapLevel(lev, 4);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         JaberCycle(lev + 1, cur_time, lid);
+         lid.AverageDownGhostLevel(lev, 1);
+     }
+@@ -261,7 +261,7 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+ 
+-    if (lev == max_ref_level) {
++    if (lev == lid.finestLevel()) {
+         lid.ComputeParticle(lev);
+         // lid.FillForceGhostLevel(lev, cur_time);
+         lid.LubForceParticle(lev, cur_time);
+@@ -271,7 +271,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     lid.Boundary(lev);
+     lid.Collide(lev, 0);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         RohdeCycleMultiParticle(lev + 1, cur_time, lid);
+     }
+ 
+@@ -283,7 +283,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     lid.Stream(lev, 2);
+     lid.SwapLevel(lev, 2);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         lid.AverageDownGhostLevel(lev, 0);
+     }
+ 
+@@ -293,7 +293,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+ 
+     cur_time += dt;
+ 
+-    if (lev == max_ref_level) {
++    if (lev == lid.finestLevel()) {
+         lid.ComputeParticle(lev);
+         // lid.FillForceGhostLevel(lev, cur_time);
+         lid.LubForceParticle(lev, cur_time);
+@@ -303,7 +303,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     lid.Boundary(lev);
+     lid.Collide(lev, 0);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         RohdeCycleMultiParticle(lev + 1, cur_time, lid);
+     }
+ 
+@@ -311,7 +311,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     lid.Stream(lev, 2);
+     lid.SwapLevel(lev, 2);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         lid.AverageDownGhostLevel(lev, 0);
+     }
+ }
+@@ -320,11 +320,11 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         lid.FillGhostLevel(lev + 1, cur_time, 1);
+     }
+ 
+-    if (lev == max_ref_level) {
++    if (lev == lid.finestLevel()) {
+         lid.ComputeParticle(lev);
+         lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+         lid.LubForceParticle(lev, cur_time);
+@@ -337,7 +337,7 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     lid.Stream(lev, 4);
+     lid.SwapLevel(lev, 4);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         JaberCycleMultiParticle(lev + 1, cur_time, lid);
+         lid.AverageDownGhostLevel(lev, 1);
+     }
+@@ -348,11 +348,11 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+ 
+     cur_time += dt;
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         lid.FillGhostLevel(lev + 1, cur_time, 1);
+     }
+ 
+-    if (lev == max_ref_level) {
++    if (lev == lid.finestLevel()) {
+         lid.ComputeParticle(lev);
+         lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
+         lid.LubForceParticle(lev, cur_time);
+@@ -365,7 +365,7 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
+     lid.Stream(lev, 4);
+     lid.SwapLevel(lev, 4);
+ 
+-    if (lev < max_ref_level) {
++    if (lev < lid.finestLevel()) {
+         JaberCycleMultiParticle(lev + 1, cur_time, lid);
+         lid.AverageDownGhostLevel(lev, 1);
+     }

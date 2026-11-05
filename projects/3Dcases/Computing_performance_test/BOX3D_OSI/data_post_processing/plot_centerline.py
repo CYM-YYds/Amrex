@@ -164,7 +164,7 @@ def main():
     parser.add_argument("--xlim", nargs=2, type=float, default=(-1, 1))
     parser.add_argument("--ylim", nargs=2, type=float, default=(0, 1))
     parser.add_argument("--xlabel", default=r"$u_x/U_{lid}$")
-    parser.add_argument("--ylabel", default=r"$z/H$")
+    parser.add_argument("--ylabel", default=r"$z$")
     parser.add_argument("--figsize", nargs=2, type=float, default=(6.4, 5.8), metavar=("WIDTH", "HEIGHT"))
     parser.add_argument("--square-axes", action="store_true", help="绘图区横纵轴显示长度相同")
     parser.add_argument("--linewidth", type=float, default=0.9)

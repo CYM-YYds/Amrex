@@ -6,7 +6,7 @@
 
 - 会议：中国计算力学大会 2026（CCCM2026）
 - 专题：MS04 计算流体/流固耦合力学
-- 交流形式：口头报告（拟）
+- 交流形式：口头报告
 - 摘要投稿截止日期：2026 年 9 月 20 日
 - 投稿通知：[https://mp.weixin.qq.com/s/NuY7YApkjW6mJsNFmGUDfA](https://mp.weixin.qq.com/s/NuY7YApkjW6mJsNFmGUDfA)
 - 投稿系统：[https://meeting.cstam.org.cn/?mid=141&amp;sid=561](https://meeting.cstam.org.cn/?mid=141&sid=561)
@@ -16,7 +16,6 @@
 自适应网格 LBM 求解器的 GPU 性能优化
 
 ## 英文题目
-
 
 ## 作者与单位
 
