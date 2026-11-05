@@ -18,4 +18,5 @@ CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 REPO_DIR="$(git -C "$CASE_DIR" rev-parse --show-toplevel)"
 ARGS=()
 if [[ "${LADDER_EXTRA:-0}" == 1 ]]; then ARGS+=(--collision-extra); fi
+if [[ "${LADDER_INDEPENDENT:-0}" == 1 ]]; then ARGS+=(--independent); fi
 exec "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/temporary/optimization_ladder/run.py" "${ARGS[@]}"

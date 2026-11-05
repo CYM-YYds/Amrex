@@ -1,0 +1,68 @@
+[
+  {
+    "name": "00_baseline",
+    "label": "OSI 基线",
+    "stream": 1,
+    "interp": 0,
+    "average": 0,
+    "boundary": 0,
+    "overlap": 0,
+    "threads": 256,
+    "coord": 0
+  },
+  {
+    "name": "01_average_interp",
+    "label": "仅平均＋插值批量",
+    "stream": 1,
+    "interp": 1,
+    "average": 1,
+    "boundary": 0,
+    "overlap": 0,
+    "threads": 256,
+    "coord": 0
+  },
+  {
+    "name": "02_boundary",
+    "label": "仅边界批量薄面",
+    "stream": 1,
+    "interp": 0,
+    "average": 0,
+    "boundary": 1,
+    "overlap": 0,
+    "threads": 256,
+    "coord": 0
+  },
+  {
+    "name": "03_threads",
+    "label": "仅碰撞128线程",
+    "stream": 1,
+    "interp": 0,
+    "average": 0,
+    "boundary": 0,
+    "overlap": 0,
+    "threads": 128,
+    "coord": 0
+  },
+  {
+    "name": "04_coordinates",
+    "label": "仅碰撞坐标复用",
+    "stream": 1,
+    "interp": 0,
+    "average": 0,
+    "boundary": 0,
+    "overlap": 0,
+    "threads": 256,
+    "coord": 1
+  },
+  {
+    "name": "05_all",
+    "label": "全部优化开启",
+    "stream": 1,
+    "interp": 1,
+    "average": 1,
+    "boundary": 1,
+    "overlap": 0,
+    "threads": 128,
+    "coord": 1
+  }
+]

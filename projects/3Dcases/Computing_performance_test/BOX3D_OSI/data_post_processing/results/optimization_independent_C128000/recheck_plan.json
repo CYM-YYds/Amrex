@@ -1,0 +1,5 @@
+{
+  "job_id": "626450",
+  "reason": "first thread-only run changed from ~19s to ~25s per500steps with unchanged work counts; cause unconfirmed",
+  "action": "same allocation reverse full six-mode matrix with telemetry; retain and average both matrices; no sample exclusion"
+}

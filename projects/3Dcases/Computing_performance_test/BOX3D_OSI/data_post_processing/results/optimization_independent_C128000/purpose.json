@@ -1,0 +1,8 @@
+{
+  "purpose": "OSI未批量平均基线、四项独立优化与全开：分项耗时和窗口曲线",
+  "classification": "temporary controlled benchmark",
+  "retention": "保留源码、输入、程序、命令、日志、checkpoint、报告与图表；构建对象可清理",
+  "base_source": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/optimization_ladder/round1/job626333/src",
+  "baseline": "OSI; interpolation/average batching off, boundary batching/thin faces off, collision256, coordinates off; other numerical fixes and restriction block mapping retained",
+  "average": "同一GPU block tag顺序与原half-warp归约函数，按Box拆分启动或一次批量启动；覆盖界面平均和regrid完整平均，无新增持久状态"
+}

@@ -10,30 +10,34 @@ import sys
 CASE = Path(__file__).resolve().parents[3]
 REPO = CASE.parents[3]
 EXTRA = '--collision-extra' in sys.argv
-EXP = CASE/'runs/temporary/optimization_ladder'/('round2_collision' if EXTRA else 'round1')
+INDEPENDENT = '--independent' in sys.argv
+assert not (EXTRA and INDEPENDENT)
+EXP = CASE/'runs/temporary/optimization_ladder'/('round3_independent' if INDEPENDENT else 'round2_collision' if EXTRA else 'round1')
 OUT = EXP/f'job{os.environ["CCS_JOB_ID"]}'
-OUT.mkdir()
+RECHECK = '--recheck' in sys.argv
 BUILD=EXP/'build'
-for name in ('inputs','git_head.txt','worktree.diff','experiment.diff','purpose.json'):
-    shutil.copy2(EXP/name,OUT/name)
-shutil.copytree(BUILD/'src',OUT/'src')
-shutil.copytree(BUILD/'config',OUT/'config')
-shutil.copytree(Path(__file__).parent,OUT/'driver')
-for command, name in [(['hostname'],'node.txt'),(['nvidia-smi'],'gpu.txt')]:
-    with (OUT/name).open('w') as f: subprocess.run(command,stdout=f,stderr=subprocess.STDOUT,check=True)
-with (OUT/'environment.json').open('w') as f:
-    json.dump({k:os.environ.get(k) for k in ('PATH','LD_LIBRARY_PATH','CUDA_VISIBLE_DEVICES','CCS_ALLOC_FILE','LOADEDMODULES')},f,indent=2)
-with (OUT/'compile.log').open('w') as f:
-    subprocess.run(['make','-j8','DIM=3','PRECISION=FLOAT'],cwd=BUILD,stdout=f,stderr=subprocess.STDOUT,check=True)
-shutil.copy2(BUILD/'main3d.gnu.FLOAT.TPROF.MPI.CUDA.ex',OUT/'experiment.ex')
-(OUT/'executable.sha256').write_text(hashlib.sha256((OUT/'experiment.ex').read_bytes()).hexdigest()+'  experiment.ex\n')
 source=CASE/'runs/a5_C_t1000_gif/job624717/C/chk00128000'
-# 原始 checkpoint 只读，新输出写本作业目录。
-(OUT/'checkpoint_source.json').write_text(json.dumps({str(p.relative_to(source)):dict(bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in source.rglob('*') if p.is_file()},indent=2)+'\n')
-with (OUT/'hostfile').open('w') as f:
-    for line in Path(os.environ['CCS_ALLOC_FILE']).read_text().splitlines():
-        fields=line.split()
-        if len(fields)>=2: f.write(f'{fields[0]} slots={fields[1]}\n')
+if not RECHECK:
+    OUT.mkdir()
+    for name in ('inputs','git_head.txt','worktree.diff','experiment.diff','purpose.json'):
+        shutil.copy2(EXP/name,OUT/name)
+    shutil.copytree(BUILD/'src',OUT/'src')
+    shutil.copytree(BUILD/'config',OUT/'config')
+    shutil.copytree(Path(__file__).parent,OUT/'driver')
+    for command, name in [(['hostname'],'node.txt'),(['nvidia-smi'],'gpu.txt')]:
+        with (OUT/name).open('w') as f: subprocess.run(command,stdout=f,stderr=subprocess.STDOUT,check=True)
+    with (OUT/'environment.json').open('w') as f:
+        json.dump({k:os.environ.get(k) for k in ('PATH','LD_LIBRARY_PATH','CUDA_VISIBLE_DEVICES','CCS_ALLOC_FILE','LOADEDMODULES')},f,indent=2)
+    with (OUT/'compile.log').open('w') as f:
+        subprocess.run(['make','-j8','DIM=3','PRECISION=FLOAT'],cwd=BUILD,stdout=f,stderr=subprocess.STDOUT,check=True)
+    shutil.copy2(BUILD/'main3d.gnu.FLOAT.TPROF.MPI.CUDA.ex',OUT/'experiment.ex')
+    (OUT/'executable.sha256').write_text(hashlib.sha256((OUT/'experiment.ex').read_bytes()).hexdigest()+'  experiment.ex\n')
+    # 原始 checkpoint 只读，新输出写本作业目录。
+    (OUT/'checkpoint_source.json').write_text(json.dumps({str(p.relative_to(source)):dict(bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in source.rglob('*') if p.is_file()},indent=2)+'\n')
+    with (OUT/'hostfile').open('w') as f:
+        for line in Path(os.environ['CCS_ALLOC_FILE']).read_text().splitlines():
+            fields=line.split()
+            if len(fields)>=2: f.write(f'{fields[0]} slots={fields[1]}\n')
 COMMON=['max_step=133000','stop_time=2500000','checkpoint.begin_step=128000',
     'amr.n_cell=128','128','128','amr.max_level=2','amr.max_grid_size=128','256','512',
     'amr.blocking_factor_x=16','16','16','amr.blocking_factor_y=16','16','16','amr.blocking_factor_z=16','16','16',
@@ -55,14 +59,26 @@ MODES=[
 if EXTRA:
     control=dict(MODES[2],name='interp_control',label='仅插值批量（对照）',collision_batch=0)
     MODES=[control,dict(control,name='interp_collision_batch',label='插值＋碰撞批量（实验）',collision_batch=1)]
-(OUT/'modes.json').write_text(json.dumps(MODES,ensure_ascii=False,indent=2)+'\n')
-(OUT/'common.json').write_text(json.dumps(COMMON,indent=2)+'\n')
+if INDEPENDENT:
+    base=dict(name='00_baseline',label='OSI 基线',stream=1,interp=0,average=0,boundary=0,overlap=0,threads=256,coord=0)
+    MODES=[base,
+        dict(base,name='01_average_interp',label='仅平均＋插值批量',interp=1,average=1),
+        dict(base,name='02_boundary',label='仅边界批量薄面',boundary=1),
+        dict(base,name='03_threads',label='仅碰撞128线程',threads=128),
+        dict(base,name='04_coordinates',label='仅碰撞坐标复用',coord=1),
+        dict(base,name='05_all',label='全部优化开启',interp=1,average=1,boundary=1,threads=128,coord=1)]
+if RECHECK:
+    assert json.loads((OUT/'modes.json').read_text())==MODES
+    assert json.loads((OUT/'common.json').read_text())==COMMON
+else:
+    (OUT/'modes.json').write_text(json.dumps(MODES,ensure_ascii=False,indent=2)+'\n')
+    (OUT/'common.json').write_text(json.dumps(COMMON,indent=2)+'\n')
 
 def run(mode, prefix, extra=()):
     directory=OUT/f'{prefix}_{mode["name"]}'
     directory.mkdir()
     (directory/'chk00128000').symlink_to(source,target_is_directory=True)
-    envargs=[f'LADDER_INTERP={mode["interp"]}',f'LADDER_BOUNDARY={mode["boundary"]}',f'LADDER_THREADS={mode["threads"]}',f'LADDER_COORD={mode["coord"]}',f'LADDER_COLLISION_BATCH={mode.get("collision_batch",0)}']
+    envargs=[f'LADDER_INTERP={mode["interp"]}',f'LADDER_AVERAGE={mode.get("average",1)}',f'LADDER_BOUNDARY={mode["boundary"]}',f'LADDER_THREADS={mode["threads"]}',f'LADDER_COORD={mode["coord"]}',f'LADDER_COLLISION_BATCH={mode.get("collision_batch",0)}']
     command=['mpirun','-hostfile',str(OUT/'hostfile'),'-n','1','-npernode','1','-x','PATH','-x','LD_LIBRARY_PATH','--mca','plm_rsh_agent','/opt/batch/agent/tools/dstart',
              '/usr/bin/env','-u','BASH_ENV','CUDA_VISIBLE_DEVICES=0',*envargs,str(OUT/'experiment.ex'),str(OUT/'inputs'),*COMMON,
              f'checkpoint.chk_prefix={directory}/chk',f'lbm.stream_mode={mode["stream"]}',f'lbm.osi_collide_comm_overlap={mode["overlap"]}',*extra]
@@ -73,7 +89,23 @@ def run(mode, prefix, extra=()):
     if result.returncode: raise RuntimeError(f'{directory}: exit {result.returncode}')
     return directory
 
-if EXTRA:
+if RECHECK:
+    assert INDEPENDENT and (OUT/'recheck_plan.json').exists()
+    assert hashlib.sha256((OUT/'experiment.ex').read_bytes()).hexdigest()==(OUT/'executable.sha256').read_text().split()[0]
+    # 当前分配内反向接续整组；保留首轮异常，不筛掉不利样本。
+    with (OUT/'gpu_recheck.csv').open('w') as gpu, (OUT/'gpu_recheck.err').open('w') as err:
+        monitor=subprocess.Popen(['nvidia-smi','--query-gpu=timestamp,index,uuid,temperature.gpu,utilization.gpu,power.draw,power.limit,clocks.current.sm,clocks.current.memory,clocks_throttle_reasons.active','--format=csv','--loop-ms=1000'],stdout=gpu,stderr=err)
+        try:
+            for mode in reversed(MODES):
+                with (OUT/f'gpu_before_{mode["name"]}.txt').open('w') as f:
+                    subprocess.run(['nvidia-smi'],stdout=f,stderr=subprocess.STDOUT,check=False)
+                run(mode,'perf_confirm')
+        finally:
+            monitor.terminate();monitor.wait(timeout=15)
+    (OUT/'recheck_complete.txt').write_text('reverse matrix completed; first matrix retained\n')
+    raise SystemExit(0)
+
+if EXTRA or INDEPENDENT:
     validation=[]
     prior=CASE/'runs/temporary/optimization_ladder/round1/job626333/check_02_interp/chk00128064'
     reference=prior
@@ -84,8 +116,15 @@ if EXTRA:
         mismatches=[str(p) for p in files if not (candidate/p).is_file() or hashlib.sha256((reference/p).read_bytes()).digest()!=hashlib.sha256((candidate/p).read_bytes()).digest()]
         validation.append(dict(mode=mode['name'],reference=str(reference),files=len(files),mismatches=mismatches))
         (OUT/'validation.json').write_text(json.dumps(validation,indent=2)+'\n')
-        if mismatches: raise RuntimeError(f'collision batch regression mismatch: {validation[-1]}')
+        if mismatches: raise RuntimeError(f'optimization regression mismatch: {validation[-1]}')
         reference=candidate
+    if INDEPENDENT:
+        for mode in MODES: run(mode,'perf')
+        (OUT/'recheck_plan.json').write_text(json.dumps(dict(job_id=os.environ['CCS_JOB_ID'],reason='preplanned forward/reverse independent matrix; retain all samples',action='reverse six modes with telemetry; report mean and range of two5000step runs'),indent=2)+'\n')
+        subprocess.run([sys.executable,str(Path(__file__)),'--independent','--recheck'],check=True)
+        subprocess.run([sys.executable,str(Path(__file__).with_name('analyze.py')),str(OUT),'--independent'],check=True)
+        (OUT/'completed.txt').write_text('completed\n')
+        raise SystemExit(0)
     # 同节点两对换序，每次均独立从同一checkpoint推进5000步。
     for pair,order in enumerate((MODES,list(reversed(MODES))),1):
         for mode in order: run(mode,f'perf_pair{pair}')

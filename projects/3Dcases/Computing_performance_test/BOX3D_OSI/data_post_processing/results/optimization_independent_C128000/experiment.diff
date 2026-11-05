@@ -1,0 +1,83 @@
+--- a/src/AmrCoreLBM_advance.cpp
++++ b/src/AmrCoreLBM_advance.cpp
+@@ -156,10 +156,11 @@
+         const auto outputs = result.arrays();
+         const auto fines = fine_state.const_arrays();
+         const auto scaled = StoreScaledFine ? f_new.at(fine_lev).arrays() : MultiArray4<Real>{};
++        const auto launch_work = [&](int blocks, int first_block) {
+         amrex::launch<restriction_threads_per_block>(
+-            static_cast<int>(work.size()), Gpu::Device::gpuStream(),
++            blocks, Gpu::Device::gpuStream(),
+             [=] AMREX_GPU_DEVICE() noexcept {
+-                const auto tag = tags[blockIdx.x];
++                const auto tag = tags[first_block + blockIdx.x];
+                 const Long parent = tag.first_parent + threadIdx.x / restriction_group_size;
+                 // 整组退出，保证同组的 shuffle 掩码与有效线程一致。
+                 if (parent >= tag.region.numPts()) {
+@@ -184,6 +185,20 @@
+                     ratio, tag.fab, shift, scale, is_scale, scaled_fine);
+ #endif
+             });
++        };
++        if (ladder_option("LADDER_AVERAGE")) {
++            launch_work(static_cast<int>(work.size()), 0);
++        } else {
++            int first_block = 0;
++            MFItInfo launch_info;
++            launch_info.DisableDeviceSync().UseDefaultStream();
++            for (MFIter mfi(result, launch_info); mfi.isValid(); ++mfi) {
++                const int blocks = static_cast<int>((mfi.validbox().numPts() + restriction_parents_per_block - 1) / restriction_parents_per_block);
++                launch_work(blocks, first_block);
++                first_block += blocks;
++            }
++            AMREX_ALWAYS_ASSERT(first_block == work.size());
++        }
+     }
+ #else
+     for (MFIter mfi(result, false); mfi.isValid(); ++mfi) {
+@@ -596,11 +611,19 @@
+ #if defined(AMREX_USE_CUDA) && defined(AMREX_USE_FLOAT)
+                     // CUDA单精度二维/三维采用相同碰撞策略；mask语义保持不变。
+                     if (ladder_option("LADDER_COORD")) {
++                    if (ladder_option("LADDER_THREADS",256)==128) {
+                     amrex::ParallelFor<128>(
+                         bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                             collide_bgk_register_impl<true, true>(
+                                 i, j, k, state, fab, phase_shift, omega_lev);
+                         });
++                    } else {
++                    amrex::ParallelFor<256>(
++                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
++                            collide_bgk_register_impl<true, true>(
++                                i, j, k, state, fab, phase_shift, omega_lev);
++                        });
++                    }
+                     }
+                     else if (ladder_option("LADDER_THREADS",256)==128) {
+                     amrex::ParallelFor<128>(
+@@ -640,6 +663,7 @@
+ #if defined(AMREX_USE_CUDA) && defined(AMREX_USE_FLOAT)
+                     // CUDA单精度二维/三维采用相同碰撞策略；mask语义保持不变。
+                     if (ladder_option("LADDER_COORD")) {
++                    if (ladder_option("LADDER_THREADS",256)==128) {
+                     amrex::ParallelFor<128>(
+                         bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                             if (has_fine_level && covered(i, j, k) != 0 &&
+@@ -649,6 +673,17 @@
+                             collide_bgk_register_impl<true, true>(
+                                 i, j, k, state, fab, phase_shift, omega_lev);
+                         });
++                    } else {
++                    amrex::ParallelFor<256>(
++                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
++                            if (has_fine_level && covered(i, j, k) != 0 &&
++                                interface(i, j, k) == 0) {
++                                return;
++                            }
++                            collide_bgk_register_impl<true, true>(
++                                i, j, k, state, fab, phase_shift, omega_lev);
++                        });
++                    }
+                     }
+                     else if (ladder_option("LADDER_THREADS",256)==128) {
+                     amrex::ParallelFor<128>(

@@ -1,0 +1,38 @@
+[
+  {
+    "mode": "00_baseline",
+    "reference": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/optimization_ladder/round1/job626333/check_02_interp/chk00128064",
+    "files": 9,
+    "mismatches": []
+  },
+  {
+    "mode": "01_average_interp",
+    "reference": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/optimization_ladder/round3_independent/job626450/check_00_baseline/chk00128064",
+    "files": 9,
+    "mismatches": []
+  },
+  {
+    "mode": "02_boundary",
+    "reference": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/optimization_ladder/round3_independent/job626450/check_01_average_interp/chk00128064",
+    "files": 9,
+    "mismatches": []
+  },
+  {
+    "mode": "03_threads",
+    "reference": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/optimization_ladder/round3_independent/job626450/check_02_boundary/chk00128064",
+    "files": 9,
+    "mismatches": []
+  },
+  {
+    "mode": "04_coordinates",
+    "reference": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/optimization_ladder/round3_independent/job626450/check_03_threads/chk00128064",
+    "files": 9,
+    "mismatches": []
+  },
+  {
+    "mode": "05_all",
+    "reference": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/optimization_ladder/round3_independent/job626450/check_04_coordinates/chk00128064",
+    "files": 9,
+    "mismatches": []
+  }
+]

@@ -8,10 +8,12 @@ import sys
 
 CASE = Path(__file__).resolve().parents[3]
 EXTRA = '--collision-extra' in sys.argv
-EXP = CASE / 'runs/temporary/optimization_ladder' / ('round2_collision' if EXTRA else 'round1')
+INDEPENDENT = '--independent' in sys.argv
+assert not (EXTRA and INDEPENDENT)
+EXP = CASE / 'runs/temporary/optimization_ladder' / ('round3_independent' if INDEPENDENT else 'round2_collision' if EXTRA else 'round1')
 BUILD = EXP / 'build'
 EXP.mkdir(parents=True, exist_ok=False)
-if EXTRA:
+if EXTRA or INDEPENDENT:
     # 扩展同一实验入口；从主图冻结源码恢复，避免后续正式源码变化混入。
     previous=CASE/'runs/temporary/optimization_ladder/round1/job626333'
     for directory in ('src','config'):
@@ -20,6 +22,53 @@ if EXTRA:
     shutil.copytree(CASE/'tmp_build_dir',BUILD/'tmp_build_dir')
     for name in ('inputs','git_head.txt','worktree.diff'):
         shutil.copy2(previous/name,EXP/name)
+    if INDEPENDENT:
+        p=BUILD/'src/AmrCoreLBM_advance.cpp'
+        s=p.read_text()
+        # 平均下传复用同一block映射与归约函数，仅切换每Box或跨Box批量启动。
+        a=s.index('void AmrCoreLBM::RestrictDdfToCoarse(')
+        b=s.index('template <bool UseOsiAddress>\nvoid AmrCoreLBM::AverageDownLayoutLevel',a)
+        part=s[a:b]
+        part=part.replace('        amrex::launch<restriction_threads_per_block>(\n            static_cast<int>(work.size()),',
+            '        const auto launch_work = [&](int blocks, int first_block) {\n        amrex::launch<restriction_threads_per_block>(\n            blocks,',1)
+        assert part.count('const auto tag = tags[blockIdx.x];')==1
+        part=part.replace('const auto tag = tags[blockIdx.x];','const auto tag = tags[first_block + blockIdx.x];',1)
+        needle='            });\n    }\n#else'
+        replacement='''            });
+        };
+        if (ladder_option("LADDER_AVERAGE")) {
+            launch_work(static_cast<int>(work.size()), 0);
+        } else {
+            int first_block = 0;
+            MFItInfo launch_info;
+            launch_info.DisableDeviceSync().UseDefaultStream();
+            for (MFIter mfi(result, launch_info); mfi.isValid(); ++mfi) {
+                const int blocks = static_cast<int>((mfi.validbox().numPts() + restriction_parents_per_block - 1) / restriction_parents_per_block);
+                launch_work(blocks, first_block);
+                first_block += blocks;
+            }
+            AMREX_ALWAYS_ASSERT(first_block == work.size());
+        }
+    }
+#else'''
+        assert part.count(needle)==1
+        part=part.replace(needle,replacement,1)
+        s=s[:a]+part+s[b:]
+        # 旧累加图的坐标复用只在128线程后开启；独立因素测试补齐256线程cached分支。
+        import re
+        pattern=r'if \(ladder_option\("LADDER_COORD"\)\) \{\n(.*?amrex::ParallelFor<128>\(.*?collide_bgk_register_impl<true, true>\(.*?\n                        \}\);)\n                    \}'
+        def split_coordinate(match):
+            body=match.group(1)
+            return 'if (ladder_option("LADDER_COORD")) {\n                    if (ladder_option("LADDER_THREADS",256)==128) {\n'+body+'\n                    } else {\n'+body.replace('ParallelFor<128>','ParallelFor<256>')+'\n                    }\n                    }'
+        s,count=re.subn(pattern,split_coordinate,s,flags=re.S)
+        assert count==2,count
+        p.write_text(s)
+        diff=''.join(difflib.unified_diff((previous/'src/AmrCoreLBM_advance.cpp').read_text().splitlines(True),s.splitlines(True),fromfile='a/src/AmrCoreLBM_advance.cpp',tofile='b/src/AmrCoreLBM_advance.cpp'))
+        (EXP/'experiment.diff').write_text(diff)
+        (EXP/'purpose.json').write_text(json.dumps(dict(purpose='OSI未批量平均基线、四项独立优化与全开：分项耗时和窗口曲线',classification='temporary controlled benchmark',retention='保留源码、输入、程序、命令、日志、checkpoint、报告与图表；构建对象可清理',base_source=str(previous/'src'),baseline='OSI; interpolation/average batching off, boundary batching/thin faces off, collision256, coordinates off; other numerical fixes and restriction block mapping retained',average='同一GPU block tag顺序与原half-warp归约函数，按Box拆分启动或一次批量启动；覆盖界面平均和regrid完整平均，无新增持久状态'),ensure_ascii=False,indent=2)+'\n')
+        for p in (BUILD/'src').iterdir(): p.touch()
+        print(EXP)
+        raise SystemExit(0)
     h=BUILD/'src/AmrCoreLBM.H'
     s=h.read_text()
     s=s.replace('    amrex::TagVector<BoundaryWorkTag> advance_tags;',
