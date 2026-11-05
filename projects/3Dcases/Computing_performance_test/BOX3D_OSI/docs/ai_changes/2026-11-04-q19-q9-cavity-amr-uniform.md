@@ -87,3 +87,9 @@ D3Q19的AMR推进耗时约为均匀网格24.85%，本轮优势明显；D2Q9仅�
 - [D2Q9报告](../../runs/cavity_models_t1000/job626034/D2Q9_report.md)、[图](../../runs/cavity_models_t1000/job626034/D2Q9_comparison.png)、同目录D2Q9_comparison.json/CSV及completion_audit.json。
 
 恢复命令为仓库根`.venv/bin/python <case>/scripts/temporary/cavity_models/experiment.py analyze <long-job-directory> <short-job-directory>`。Python语法、真实长测全量窗口汇总、场时间序列/终态Header、报告渲染、文档链接与diff检查通过。
+
+## 2026-11-05：二维阶段耗时及ParaView网格图
+
+按完整44个统计窗口拆分D2Q9：AMR有效更新量比均匀约少30倍，但全程平均吞吐约280对7813 MLUPS，下降约28倍，最终推进耗时1022对1099秒。AMR插值228秒、平均121秒、同层ghost117秒、边界159秒、OSI phase/stream 71秒，重网格及外层108秒；层级调用更多且每次细层仅约5--6万launch_cells，而均匀419万。calls不等于CUDA kernel启动次数，uniform reduced-sync下未单列阶段的0不能当零成本，GPU调度/同步解释仍是推断，无硬件计数器归因。
+
+使用paraview skill在agent-1的pvbatch导出t1000原生涡量模及真实block bounds框线：[图片](../../runs/cavity_models_t1000/job626034/figures/vorticity_amr/D2Q9_t1000_vorticity_amr.png)、[完整分析与定义](../../runs/cavity_models_t1000/job626034/figures/vorticity_amr/README.md)。L0/L1/L2为黑/红/绿，共1/5/7个block；H/U_lid=20，色标0--20且超出饱和，不平滑、不改GUI。保留PVSM、VTP、元数据和timing_breakdown.json。现有入口限三维中心线/GUI切片，故新增本任务临时render_vorticity.py直接处理二维原生AMR和静态单帧框线，不改现有用户状态。已完成Python语法、真实pvbatch运行、层级/有限值/来源和图面预览检查；无求解器修改。
