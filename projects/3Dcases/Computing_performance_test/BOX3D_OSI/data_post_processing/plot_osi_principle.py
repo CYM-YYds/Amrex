@@ -66,8 +66,10 @@ def validate(node):
 # 背景箭头与高亮箭头共用同一几何：起点离节点中心 R0，总长 L（含箭头头部）。
 R0, L = .08, .26
 GRAY_W, BLUE_W = .018, .028
-# 0 号标在 1、5 号箭头之间的空隙。
-ZERO_AT = np.array([.25, .10])
+# 编号统一放在格心 + LABEL_R·(−e_q) 处（尾部一侧）：轴向编号落在格边中点，对角编号落在格角，
+# 同一行/列的编号自然对齐。0 号放在 1、5 号箭头之间的空隙。
+LABEL_R = .32
+ZERO_AT = np.array([.19, .08])
 
 
 def node_arrows(ax, cells, dirs, color, width, zorder):
@@ -84,15 +86,11 @@ def node_dot(ax, cell, color, r):
     ax.add_patch(Circle(np.asarray(cell) + .5, r, color=color, zorder=6))
 
 
-def gap(e, r, turn):
-    """方向 e 旋转 turn 度后半径 r 处的位置；22.5° 正好落在相邻两箭头之间的空隙。"""
-    a = np.arctan2(e[1], e[0]) + np.radians(turn)
-    return r * np.array([np.cos(a), np.sin(a)])
-
-
-def label(ax, xy, q, color=BLUE, size=14):
+def label(ax, xy, q, color=BLUE, size=14, pad=True):
+    """pad=True 时加白底，盖住编号下方的灰色背景箭头，保证位置统一后仍清晰。"""
+    box = dict(boxstyle='square,pad=0.08', facecolor='white', edgecolor='none') if pad else None
     ax.text(*xy, str(q), color=color, fontsize=size, weight='bold',
-            ha='center', va='center', zorder=8)
+            ha='center', va='center', zorder=8, bbox=box)
 
 
 def box(ax, xy, color=INK):
@@ -134,10 +132,9 @@ def draw_pdfs(ax, node, p):
         highlight_node(ax, node)
         c = node + .5
         for q in range(1, 9):
-            # 编号放在各自箭头尖端外侧，仍在格内。
-            u = E[q] / np.linalg.norm(E[q])
-            label(ax, c + (.42 if q < 5 else .56) * u, q, size=10)
-        label(ax, c + ZERO_AT, 0, size=9)
+            # 9 个分量挤在同一格：编号放在各自箭头尖端外侧，同样按 e_q 方格对齐。
+            label(ax, c + .40 * E[q], q, size=10, pad=False)
+        label(ax, c + ZERO_AT, 0, size=9, pad=False)
         return
     node_arrows(ax, cells[1:], range(1, 9), BLUE, BLUE_W, 6)
     for q, w in enumerate(wrapped(node, p)):
@@ -145,18 +142,17 @@ def draw_pdfs(ax, node, p):
         c = cells[q] + .5
         if q == 0:
             node_dot(ax, cells[q], BLUE, .05)
-            label(ax, c + ZERO_AT, 0, size=12)
+            label(ax, c + ZERO_AT, 0, size=12, pad=False)
         else:
-            # 编号放在箭头尾部一侧的空隙，不压灰色箭头。
-            label(ax, c + gap(-E[q], .30, 22.5), q)
+            label(ax, c - LABEL_R * E[q], q)
 
 
 def draw_collision(ax, node):
-    """碰撞帧：在跟踪节点内完成，其 8 个格点箭头变蓝；编号标在相邻格点的空隙。"""
+    """碰撞帧：在跟踪节点内完成，其 8 个格点箭头变蓝；编号标在相邻格点靠近跟踪节点一侧。"""
     highlight_node(ax, node)
     c = node + .5
     for q in range(1, 9):
-        label(ax, c + E[q] + gap(-E[q], .30, 22.5), q)
+        label(ax, c + E[q] - LABEL_R * E[q], q)
 
 
 def read_caption(node, k, p):
@@ -232,8 +228,6 @@ def main():
     for i, (k, s) in enumerate(timeline):
         fig = render(node, k, s, args.dpi)
         fig.savefig(source / f'osi.{i:04d}.png', facecolor='white')
-        if s == 0:
-            fig.savefig(out / f'read_step{k}.svg', facecolor='white')
         plt.close(fig)
     with Image.open(source / 'osi.0000.png') as im:
         w, h = im.size
@@ -242,14 +236,6 @@ def main():
             '--input', str(source), '--output', str(out / 'osi_principle.gif'), '--prefix', 'osi',
             '--crop', '0', '0', str(w), str(h), '--duration', str(args.duration)]
     subprocess.run(pack, check=True)
-    # 总览：8 个读取帧排成 2×4，便于放进幻灯片对比读取位置的循环。
-    reads = [i for i, (_, s) in enumerate(timeline) if s == 0]
-    tw, th = w // 2, h // 2
-    sheet = Image.new('RGB', (4 * tw, 2 * th), 'white')
-    for j, i in enumerate(reads):
-        with Image.open(source / f'osi.{i:04d}.png') as im:
-            sheet.paste(im.resize((tw, th), Image.Resampling.LANCZOS), ((j % 4) * tw, (j // 4) * th))
-    sheet.save(out / 'read_overview.png')
     manifest = {'check': check, 'frames': [{'frame': i, 'step': k, 'phase': k + 1, 'stage': STAGES[s],
                                             'cells': read_cells(node, k + 1).tolist()} for i, (k, s) in enumerate(timeline)],
                 'node': args.node, 'directions': E.tolist(), 'duration_ms': args.duration,

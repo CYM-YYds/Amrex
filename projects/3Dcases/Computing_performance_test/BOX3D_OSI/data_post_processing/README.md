@@ -40,8 +40,8 @@ t+7 与 t 相同，每 7 步循环一次。`--node X Y` 选跟踪节点（0 起�
 取偏离中心的节点（如右上 4 4）时各方向回绕的时间步不同，回环更明显。
 
 默认 22 帧（t…t+6 各 3 帧，再加 t+7 的读取帧）、880×1012、每帧 2400 ms，一轮 52.8 秒；
-`--duration` 调帧时长，`--font` 指定中文字体。输出 `osi_principle.gif`、逐帧 PNG、
-各步读取帧 SVG（`read_step*.svg`）与 8 个读取帧的总览 `read_overview.png`。
+`--duration` 调帧时长，`--font` 指定中文字体。输出 `osi_principle.gif`、逐帧 PNG（`frames/`；
+`source_frames/` 是合成器读取的同像素来源）和 `manifest.json`（逐帧读取位置与命令）。
 
 方向编号沿用参考图（1 右、2 上、3 左、4 下、5–8 为对角），与 `LbmLattice.H` 内部排列不同，
 只作标签。绘图前核对图中位置与 `OsiIndex.H::osi_coord_precomputed` 一致；这是图示检查，
