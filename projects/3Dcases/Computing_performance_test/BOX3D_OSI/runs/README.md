@@ -2,6 +2,19 @@
 
 整理日期：2026-11-04。目录存在不代表已经完成或通过数值验收；每组均按各自冻结程序与输入解读。
 
+## 静止 IBM 代码验证
+
+| 范围 | 输入/报告入口 | 核实边界 |
+|---|---|---|
+| 三维首次接入 | [accepted 报告](temporary/ibm_switch/accepted/verification.json) | 626190：22 项检查，32³、Re=100、32 步、1/2 GPU；独立路径最大 valid DDF 差 1.79e-7（FLOAT） |
+| 二维圆盘接入 | [d2 报告](temporary/ibm_2d/d2/verification.json) | 626200：21 项检查，32²、Re=100、32 步；关闭、A-B/OSI、重启、MPI 对照 valid DDF 逐值相同 |
+| 二维扩展后的三维回归 | [d3 报告](temporary/ibm_2d/d3/verification.json) | 626201：22 项检查，关闭路径逐值相同，耦合/重启/MPI 对照最大差 1.79e-7 |
+
+各目录保存冻结程序、inputs、command.txt、SHA256、checkpoint 和 PlotFile。
+`temporary/ibm_switch/` 顶层及 `final/` 是未通过数值验收的早期尝试，不与 `accepted/` 混用。
+当前两维主验证及三层有限值检查的完整范围见[变更记录](../docs/ai_changes/2026-11-05-ibm-2d.md)。
+这些是静止 IBM 短程代码验证，不是生产绕流、长程稳定性、收敛或性能结论。
+
 ## 近期阈值、续跑与显存实验
 
 | 用途 | 入口 | 已核实状态 |

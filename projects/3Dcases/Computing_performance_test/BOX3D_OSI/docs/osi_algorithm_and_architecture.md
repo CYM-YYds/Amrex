@@ -16,7 +16,8 @@ host-staging 同步契约不变。二维平均四个子单元，三维八个。
 
 checkpoint 的 canonical DDF 之外新增独立 `Lattice` 元数据；读取维度相关场和
 参考 DDF 前校验维度、Q 与排列。没有该元数据的旧 checkpoint 仅允许三维
-D3Q27/order=0。二维静态圆盘另校验粒子 Geometry；不表示二维 IBM 已启用。
+D3Q27/order=0。粒子 Geometry 校验维度、形状及网格尺度。
+2026-11-05 补充：静止 IBM 是否启用由 `ibm.enabled` 决定，两维均已接入，配置以 [README](../README.md#二维与三维静止-ibm-开关) 为准。
 合并、构建入口及当前逐值验证范围见 [README](../README.md#二维与三维统一入口) 和
 [合并记录](ai_changes/2026-10-20-merge-dimension-support.md)。下文历史作业的结论
 仍限定于各自冻结版本。
@@ -636,13 +637,38 @@ DistributionMapping 重分布 valid DDF，将 OSI level 恢复为 phase 0，再�
 粗细 ghost 和布局缓存。plotfile、宏观量计算和 DDF reference comparison
 也从 canonical view 或 OSI-aware accessor 读取，不会直接解释 raw twisted MultiFab。
 
-`checkpoint.write_particles=true` 时，粒子容器在新算例中初始化，并通过
-AMReX `ParticleContainer::Checkpoint/Restart` 持久化 AoS/SoA 数据。该接口不会
-自动序列化 `LagrangeParticleContainer` 中的 host 侧刚体状态，包括质心、
-平动/角速度、力和力矩。因此当前只宣称静态粒子容器的 restart 能力，
-不宣称运动粒子或完整 IBM 耦合已经通过验收。job `584839` 以 50,444 个
-拉格朗日点验证了 1-rank 写出、2-rank 重启：粒子数、坐标和 10 个
-SoA 属性校验和在并行归约容差内一致，两层 D3Q27 全局 `Linf=0`。
+粒子生命周期和输出开关分离：新算例在 `ibm.enabled=true` 或
+`checkpoint.write_particles=true` 时初始化容器；后者在 IBM 关闭时仍只生成被动静态标记。
+IBM 开启时，checkpoint 总是保存必需的粒子状态，即使输出开关为 false。
+除 `Lattice` 外，`IBM` 元数据核对启用状态、物理几何与圆心，粒子 `Geometry`
+保存形状、半径、网格尺度和中心。旧纯流体 checkpoint 不得直接以 IBM 开启状态恢复。
+
+AMReX 粒子 Restart 的 dual-grid 路径会将容器切换到私有 ParGDB。
+静止耦合通过粒子 Fab 编号访问流体数组，因此读取完成后用
+`Define(AmrCore::GetParGDB())` 重新绑定动态网格，再 Redistribute；
+施力前核对 BoxArray、DistributionMapping，并要求标记全部位于实际最细层。
+这与仅清除 AmrCore 侧布局覆盖项不同，后者不能修复已切换的私有 ParGDB。
+
+2026-11-05 的二维圆盘、三维球体/圆柱短程耦合与重启已有限定范围的逐值回归，
+见[二维扩展及两维回归记录](ai_changes/2026-11-05-ibm-2d.md)。
+历史 job `584839` 只验证了静态标记的数量、坐标和属性，不作为当前耦合验收证据。
+平动/角速度及运动刚体状态仍未完整持久化，本契约不代表运动 IBM 完整 restart。
+
+### 静止 IBM 的推进与力场生命周期
+
+`RuntimeParams` 在启动时读取 IBM 配置，运行期间不变。`AdvanceLevel()` 在推进最细层前
+调用 `ComputeParticle()`：从当前 canonical/phase-aware OSI valid DDF 计算未加半步力的矩，
+填充同层密度/速度 ghost，执行直接施力，随后对力场 SumBoundary 并填充力 ghost。
+物体和四点核支撑区由 ErrorEst 强制细化；当前实现限制物体远离物理边界，
+不依赖跨粗细接口的粒子插值。实际最细层尺度传给容器，不按编译层数上限推断。
+
+A-B 与 OSI 使用同一 `collide_bgk_forced` Guo 公式及原 mask/launch 范围；
+二维传播仅访问 z=0、Fx/Fy 并使用格子弧长及 dx_min²，三维使用格子面积及 dx_min³。
+面外转矩由二维插值/传播分支计算。常规宏观速度包含 Guo 半步力修正；
+施力插值显式读取未修正矩，避免把上一步力重复加进去。
+力场每次施力前归零，重构后重新分配、重启后重新计算，不持久化为第二份耦合真相。
+关闭 IBM 时沿用原无力碰撞核；OSI 生产仍只持有一份 DDF，未为 IBM 新增 canonical 全量副本。
+
 
 ## 13. 当前数据结构边界
 

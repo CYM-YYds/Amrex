@@ -28,7 +28,7 @@ CCS_CLI_HOME=/opt/batch/cli dsub -s scripts/submit.sh
 
 ## 专项实验与验证
 
-- [temporary/README.md](temporary/README.md)：当前及历史任务专属实验脚本完整清单；包含 C 阈值、显存采样、Roofline、GIF 合成。
+- [temporary/README.md](temporary/README.md)：当前及历史任务专属实验脚本索引；包含 C 阈值、显存采样、Roofline、GIF 合成和二维/三维 IBM 回归。
 - [experiments/cuda_aware/README.md](experiments/cuda_aware/README.md)：独立 CUDA-aware MPI 实验，不能直接视为当前生产默认环境。
 - [archive/](archive/)：12 个历史提交脚本；按历史记录复现，默认输入/程序路径需单独核对。
 - [tests/](../tests/)：26 个回归脚本；实际命令和所需基线见算例 README。

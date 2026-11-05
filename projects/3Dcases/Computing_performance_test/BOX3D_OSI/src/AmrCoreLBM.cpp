@@ -811,7 +811,7 @@ void AmrCoreLBM::RedistributeParticle() {
     }
 }
 
-// 三维专属的 IBM、运动和近接模型；二维静态几何管理保留在上方。
+// 三维多颗粒诊断；两维静止 IBM 共用下方的插值、传播和归约入口。
 #if AMREX_SPACEDIM == 3
 void AmrCoreLBM::WriteMultiParticleFile(const int step, const amrex::Real time) {
     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {

@@ -14,6 +14,8 @@
 
 ## 二维与三维静止 IBM 开关
 
+本节只适用于 BOX3D_OSI；独立 [Cylinder3D](../../../Cylindertest/Cylinder3D/README.md) 的参数名、默认值和验证范围不同。
+
 `config/inputs` 与 `config/inputs.2d` 默认 `ibm.enabled=false`，保留原纯流体无力碰撞路径。
 启用静止圆柱侧壁时设置：
 
@@ -58,6 +60,7 @@ IBM 开启时即使该选项为 false，checkpoint 也会保存必需的耦合�
 **流体初始条件和顶盖方腔边界保持不变。** 开启静止圆柱 IBM 不会自动配置入口/出口绕流；
 这里只验收静止物体耦合，不能将短程结果解释为标准圆柱阻力或收敛结果。
 三维验证范围见[原变更记录](docs/ai_changes/2026-11-05-ibm-coupling.md)，二维扩展及三维回归见[二维 IBM 记录](docs/ai_changes/2026-11-05-ibm-2d.md)。
+文档一致性、记忆边界和清场预览见[本轮知识收尾](../../../../docs/ai_changes/2026-11-05-ibm-knowledge-closeout.md)。
 
 ## 二维与三维统一入口
 

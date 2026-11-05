@@ -14,6 +14,16 @@
 | [pack_animation_gif.py](pack_animation_gif.py) | 兼容软链，真身为../../data_post_processing/pack_animation_gif.py | 长期工具兼容路径 |
 | [roofline_smoke.sh](roofline_smoke.sh)、[analyze_roofline_smoke.py](analyze_roofline_smoke.py) | Roofline小测试与统计，输出在runs/temporary/roofline_smoke/ | 结果复现 |
 
+## 静止 IBM 验证入口
+
+[ibm_switch/submit.sh](ibm_switch/submit.sh) 与 [ibm_switch/verify.py](ibm_switch/verify.py)
+共用两维调度与逐值分析，属于结果复现材料。通过 `DIM=2/3` 及 `IBM_VALIDATION_DIR`
+选择维度和新的独立实验目录；目录须事先冻结本维度的 `inputs`、`app.ex`、`baseline.ex`。
+**现有验证目录只读保留，不直接用默认目录重跑**：入口会写入各运行子目录。
+它不是默认生产配置，也不会自动准备或核验历史 baseline 的来源。
+当前验证范围见[二维及三维回归记录](../../docs/ai_changes/2026-11-05-ibm-2d.md)，
+原始输入、程序 SHA256、场文件和报告见[运行索引](../../runs/README.md#静止-ibm-代码验证)。
+
 ## I/O 诊断入口
 
 [checkpoint_io/submit.sh](checkpoint_io/submit.sh)运行独立write/writev探针；

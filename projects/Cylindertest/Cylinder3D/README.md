@@ -1,6 +1,9 @@
 # Cylinder3D
 
-三维 LBM + AMR 算例；构建与提交入口见[仓库 README](../../../README.md)。
+三维 LBM + AMR 独立算例；构建与提交入口见[仓库 README](../../../README.md)。
+本轮用户指定的二维/三维 OSI 耦合入口是 [BOX3D_OSI](../../3Dcases/Computing_performance_test/BOX3D_OSI/README.md#二维与三维静止-ibm-开关)。
+本目录的 `ibm.geometry/ibm.method`、默认启用状态和 checkpoint 约定与 BOX3D_OSI 不同，
+不能把本目录输入或验证结果直接套用到 BOX3D_OSI；两算例没有新增共享依赖。
 物理尺度、Re、初始流场和边界仍由 `src/D3Q19.H`、`src/Kernels.H` 中的现有实现确定。
 
 ## IBM 运行参数
