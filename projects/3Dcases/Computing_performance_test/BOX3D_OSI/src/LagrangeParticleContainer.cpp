@@ -59,6 +59,10 @@ void LagrangeParticleContainer::InitParticle(int lev) {
     }
     Redistribute();
 #else
+    // 使用当前容器半径，兼容原静态球面与 IBM 实际最细层尺度。
+    const int ns = int(PI * radius / ds0) + 1;
+    const int nt1 = int(2 * PI * radius / ds0);
+    const Real LP_area = 4 * PI * radius * radius;
     ParticleType p;
     std::array<ParticleReal, PIdx::nattribs> attribs;
     const Real* delta = Geom(0).CellSize();
@@ -154,6 +158,48 @@ void LagrangeParticleContainer::InitParticle(int lev) {
     Redistribute();
 #endif
 }
+
+#if AMREX_SPACEDIM == 3
+void LagrangeParticleContainer::ConfigureIbm(const std::string& shape, Real physical_radius) {
+    shape_ = shape;
+    radius = physical_radius / grid_.dx_min;
+}
+
+void LagrangeParticleContainer::InitCylinderParticle(int lev, Real physical_length) {
+    // 沿 Y 轴生成静止圆柱侧壁，不生成端盖；权重使用最细层格子面积。
+    const Real r = radius * grid_.dx_min;
+    const int rings = std::max(3, int(std::ceil(2 * PI * radius / ds0)));
+    const int layers = std::max(2, int(std::ceil(physical_length / (ds0 * grid_.dx_min))) + 1);
+    const Real weight = (2 * PI * radius * physical_length / grid_.dx_min) / (rings * (layers - 1));
+    if (ParallelDescriptor::IOProcessor()) {
+        for (int iy = 0; iy < layers; ++iy) {
+            const Real y = -physical_length / 2 + physical_length * iy / (layers - 1);
+            for (int it = 0; it < rings; ++it) {
+                const Real angle = 2 * PI * it / rings;
+                ParticleType p;
+                std::array<ParticleReal, PIdx::nattribs> attrs{};
+                p.id() = ParticleType::NextID();
+                p.cpu() = ParallelDescriptor::MyProc();
+                const Real x = r * std::cos(angle), z = r * std::sin(angle);
+                p.pos(0) = centre[0] * grid_.dx + x;
+                p.pos(1) = centre[1] * grid_.dx + y;
+                p.pos(2) = centre[2] * grid_.dx + z;
+                attrs[PIdx::xlocal] = x;
+                attrs[PIdx::ylocal] = y;
+                attrs[PIdx::zlocal] = z;
+                // 轴向端点采用梯形积分，所有面积权重之和等于圆柱侧面积。
+                attrs[PIdx::area] = weight * ((iy == 0 || iy == layers - 1) ? Real(0.5) : Real(1));
+                auto& tile = GetParticles(0)[std::make_pair(0, 0)];
+                tile.push_back(p);
+                tile.push_back_real(attrs);
+            }
+        }
+    }
+    Redistribute();
+    amrex::Print() << "[IBM cylinder] markers=" << TotalNumberOfParticles()
+                   << " radius=" << r << " length=" << physical_length << '\n';
+}
+#endif
 
 void LagrangeParticleContainer::InitParticleFromFile(int lev, const std::string object) {
 #if AMREX_SPACEDIM == 2
@@ -673,7 +719,7 @@ void LagrangeParticleContainer::SavePosition(int lev, int step) {
 }
 
 #if AMREX_SPACEDIM == 3
-void LagrangeParticleContainer::SaveFxy(int lev, int step) {
+void LagrangeParticleContainer::SaveFxy(int lev, int step, Real reference_area) {
     using SPType = typename LagrangeParticleContainer::SuperParticleType;
 
     auto fx = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
@@ -693,6 +739,7 @@ void LagrangeParticleContainer::SaveFxy(int lev, int step) {
     ParallelDescriptor::ReduceRealSum(fz);
 
     amrex::Real m = 0.5 * (rho0)*U0 * U0 * PI * D * grid_.dx * D * grid_.dx / 4.0;
+    if (reference_area > 0) { m = Real(0.5) * rho0 * U0 * U0 * reference_area; }
     fx /= m;
     fy /= m;
     fz /= m;
@@ -738,7 +785,7 @@ void LagrangeParticleContainer::Checkpoint(const std::string& directory,
     if (ParallelDescriptor::IOProcessor()) {
         std::ofstream out(directory + "/" + name + "/Geometry");
         out << std::setprecision(17) << "ParticleGeometryV1 " << AMREX_SPACEDIM
-            << " " << AMREX_D_PICK("", "disk", "sphere") << " " << radius
+            << " " << shape_ << " " << radius
             << " " << grid_.dx << " " << grid_.dx_min;
         for (int d = 0; d < AMREX_SPACEDIM; ++d) {
             out << " " << centre[d];
@@ -758,7 +805,7 @@ void LagrangeParticleContainer::Restart(const std::string& directory,
         RealVect saved_centre;
         in >> version >> dimension >> shape >> saved_radius >> saved_dx >> saved_dx_min;
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(in && version == "ParticleGeometryV1" &&
-                                             dimension == AMREX_SPACEDIM && shape == AMREX_D_PICK("", "disk", "sphere"),
+                                             dimension == AMREX_SPACEDIM && shape == shape_,
                                          "particle checkpoint dimension or shape mismatch");
         for (int d = 0; d < AMREX_SPACEDIM; ++d) {
             in >> saved_centre[d];

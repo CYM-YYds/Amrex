@@ -374,6 +374,11 @@ void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
 }
 
 void AmrCoreLBM::AdvanceLevel(int lev) {
+#if AMREX_SPACEDIM == 3
+    if (params_.ibm_enabled && lev == finest_level) {
+        ComputeParticle(lev);
+    }
+#endif
     if (lev == 0) {
         ++probe_.coarse_advance_count;
     }
@@ -556,7 +561,7 @@ void AmrCoreLBM::CollideLayoutLevel(int lev, int n, DdfLayout layout, int send_s
             const Array4<Real> state = state_lev.array(mfi);
             Array4<Real> s;
             Array4<Real> Ft;
-            if (!use_osi && collide_mode == 0) {
+            if (params_.ibm_enabled || (!use_osi && collide_mode == 0)) {
                 s = shear_lev.array(mfi);
                 Ft = force_lev.array(mfi);
             }
@@ -572,7 +577,21 @@ void AmrCoreLBM::CollideLayoutLevel(int lev, int n, DdfLayout layout, int send_s
                                              ? uniform_gpu_events.begin(UniformGpuEvents::Collision)
                                              : 0;
             // host 侧编译期分派使无 mask 闭包不捕获掩码参数；碰撞公式仍共用。
-            if constexpr (!UseMask) {
+            if (params_.ibm_enabled) {
+                // 两种布局共用 Guo 受力公式；关闭 IBM 时仍进入原无力专用核。
+                if (use_osi) {
+                    const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
+                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        if (has_fine_level && covered(i,j,k) != 0 && interface(i,j,k) == 0) { return; }
+                        collide_bgk_forced<true>(i,j,k,state,Ft,fab,phase_shift,omega_lev,dt);
+                    });
+                } else {
+                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                        if (has_fine_level && covered(i,j,k) != 0 && interface(i,j,k) == 0) { return; }
+                        collide_bgk_forced<false>(i,j,k,state,Ft,{}, {},omega_lev,dt);
+                    });
+                }
+            } else             if constexpr (!UseMask) {
                 if (use_osi) {
                     const auto [fab, phase_shift] = OSI::MakeOsiFabContext(ring, phase);
 #if defined(AMREX_USE_CUDA) && defined(AMREX_USE_FLOAT)

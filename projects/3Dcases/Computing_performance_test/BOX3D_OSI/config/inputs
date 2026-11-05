@@ -23,6 +23,16 @@ lbm.collide_mode = 1
 # OSI checkpoint 以 canonical DDF 写出，restart 后统一重置为 phase=0。
 lbm.stream_mode = 1
 
+# IBM：false 保持原纯流体路径；true 使用单次直接施力与 Guo 受力 BGK。
+# 与 checkpoint.write_particles 独立；启用后 checkpoint 自动保存耦合标记状态。
+ibm.enabled = false
+# 三维可选 sphere / cylinder；圆柱沿 Y 轴、只有侧壁，无端盖。
+particles.shape = sphere
+# 以下均为物理坐标/长度，物体须离各面至少三个 coarse cell。
+ibm.center = 0.5 0.5 0.5
+ibm.radius = 0.125
+ibm.length = 0.5
+
 # 粗到细 DDF 插值模式：
 # 0 = ratio-2 三线性插值
 # 1 = GPU 守恒线性插值

@@ -101,6 +101,31 @@ int main() {
         for(int q=0;q<Q;++q) near(load_ddf<true>(i,j,k,q,raw.a,context.fab,context.phase_shift),canonical.a(i,j,k,q),"OSI collision");
     });
     for(int q=0;q<Q;++q) near(legacy.a(0,0,0,q),canonical.a(0,0,0,q),"BGK baseline");
+    // 独立守恒矩检查：Guo 施力应保质量并使动量增加 dt*F，覆盖两种布局与多种相位。
+    for (std::uint64_t phase : {std::uint64_t(0), std::uint64_t(1), std::uint64_t(17)}) {
+        Field ab(-2,2,Q), osi(-2,2,Q), force(-2,2,AMREX_SPACEDIM);
+        const auto ctx = OSI::MakeOsiFabContext(osi.box, phase);
+        const RealVect imposed{AMREX_D_DECL(.002, -.003, .001)};
+        const Real dt = .2;
+        cells(ab.box, [&](int i,int j,int k) {
+            for (int d=0; d<AMREX_SPACEDIM; ++d) { force.a(i,j,k,d)=imposed[d]; }
+            for (int q=0; q<Q; ++q) {
+                const Real f = feqQian(Real(1), {AMREX_D_DECL(.01,.02,.03)}, q);
+                ab.a(i,j,k,q)=f;
+                store_ddf<true>(i,j,k,q,f,osi.a,ctx.fab,ctx.phase_shift);
+            }
+        });
+        collide_bgk_forced<false>(0,0,0,ab.a,force.a,{}, {},Real(1.3),dt);
+        collide_bgk_forced<true>(0,0,0,osi.a,force.a,ctx.fab,ctx.phase_shift,Real(1.3),dt);
+        Real mass=0, momentum[AMREX_SPACEDIM]={};
+        for (int q=0; q<Q; ++q) {
+            near(load_ddf<true>(0,0,0,q,osi.a,ctx.fab,ctx.phase_shift),ab.a(0,0,0,q),"forced OSI collision");
+            mass+=ab.a(0,0,0,q);
+            for (int d=0; d<AMREX_SPACEDIM; ++d) { momentum[d]+=e[q][d]*ab.a(0,0,0,q); }
+        }
+        near(mass,Real(1),"forced mass conservation");
+        for (int d=0; d<AMREX_SPACEDIM; ++d) { near(momentum[d],Real(.01)*(d+1)+dt*imposed[d],"Guo momentum increment"); }
+    }
     // 独立的先缩放、再平均作为融合内核对照；覆盖相位绕环与关闭缩放。
     for (std::uint64_t phase : {std::uint64_t(0), std::uint64_t(1), std::uint64_t(17)}) {
         const auto ctx = OSI::MakeOsiFabContext(raw.box, phase);

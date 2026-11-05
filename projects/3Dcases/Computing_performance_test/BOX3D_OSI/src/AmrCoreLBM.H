@@ -211,6 +211,12 @@ class AmrCoreLBM : public amrex::AmrCore {
 
   public:
     struct RuntimeParams {
+        // IBM 配置在启动时读取；关闭时保持原纯流体路径。
+        bool ibm_enabled = false;
+        std::string particle_shape = AMREX_D_PICK("", "disk", "sphere");
+        amrex::Real ibm_radius = 0.125;
+        amrex::Real ibm_length = 0.5;
+        amrex::RealVect ibm_center{AMREX_D_DECL(0.5, 0.5, 0.5)};
         int regrid_int = -1;
         int plot_int = -1;
         int begin_plot = 0;
@@ -407,7 +413,7 @@ class AmrCoreLBM : public amrex::AmrCore {
     //********************************************************************//
     //                           lbm  function                            //
     //********************************************************************//
-    void ComputeMacroLevel(int lev);
+    void ComputeMacroLevel(int lev, bool include_ibm_force = true);
     void ComputeMacro();
     void ComputeVorticityLevel(int lev);
     void ComputeVorticity(amrex::Real time);

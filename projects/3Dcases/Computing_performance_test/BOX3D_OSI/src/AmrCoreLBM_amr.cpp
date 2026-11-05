@@ -1191,6 +1191,26 @@ void AmrCoreLBM::ErrorEst(int lev, amrex::TagBoxArray& tags, amrex::Real time, i
         return;
     }
 
+    if (params_.ibm_enabled) {
+        // 将完整物体及四点核的支撑范围强制细化，避免跨粗细接口丢失施力。
+        const auto& p = params_;
+        IntVect low, high;
+        const Real dx = Geom(lev).CellSize(0);
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+            const Real extent = (p.particle_shape == "cylinder" && d == 1) ? p.ibm_length / 2 : p.ibm_radius;
+            low[d] = int(std::floor((p.ibm_center[d] - extent) / dx)) - 4;
+            high[d] = int(std::ceil((p.ibm_center[d] + extent) / dx)) + 4;
+        }
+        const Box support(low, high);
+        for (MFIter mfi(tags); mfi.isValid(); ++mfi) {
+            const Box region = mfi.validbox() & support;
+            const auto tag = tags.array(mfi);
+            amrex::ParallelFor(region, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                tag(i,j,k) = TagBox::SET;
+            });
+        }
+    }
+
     if (lev >= err.size()) {
         return;
     }

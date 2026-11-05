@@ -7,6 +7,7 @@
 #include <AMReX_Particles.H>
 #include <AMReX_AmrParticles.H>
 
+#include <string>
 #include "LbmLattice.H"
 #include "LbmGridParams.H"
 
@@ -131,6 +132,10 @@ public:
     void PrintParticleParm();
 
     void InitParticle(int lev);
+#if AMREX_SPACEDIM == 3
+    void ConfigureIbm(const std::string& shape, amrex::Real physical_radius);
+    void InitCylinderParticle(int lev, amrex::Real physical_length);
+#endif
     void InitParticleFromFile(int lev, const std::string object);
 
 #if AMREX_SPACEDIM == 3
@@ -152,7 +157,7 @@ public:
 #endif
 
 #if AMREX_SPACEDIM == 3
-    void SaveFxy(int lev, int step);
+    void SaveFxy(int lev, int step, amrex::Real reference_area = -1);
 #endif
 
     void WriteParticle(int step);
@@ -167,6 +172,8 @@ public:
 
 private://颗粒信息
 
+    // 几何类型用于 checkpoint 校验，由求解器启动配置赋值，重启前保持一致。
+    std::string shape_ = AMREX_D_PICK("", "disk", "sphere");
     LbmGridParams grid_{};
     amrex::Real particle_mass_ = 0.0;
     amrex::Real particle_inertia_ = 0.0;

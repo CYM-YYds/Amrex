@@ -22,7 +22,9 @@ using namespace Box3dDetail;
 
 // 基础生命周期、参数、输出、检查点与粒子耦合。
 
-void AmrCoreLBM::ComputeMacroLevel(int lev) {
+void AmrCoreLBM::ComputeMacroLevel(int lev, bool include_ibm_force) {
+    const bool correct_force = params_.ibm_enabled && include_ibm_force;
+    const Real dt = Geom(lev).CellSize(0);
     if (streamMode() == 1) {
         const amrex::MultiFab& state = osi_state[lev];
         amrex::MultiFab& rho_lev = density[lev];
@@ -36,15 +38,26 @@ void AmrCoreLBM::ComputeMacroLevel(int lev) {
             const Array4<const Real>& ddf = state.const_array(mfi);
             const Array4<Real>& rho = rho_lev.array(mfi);
             const Array4<Real>& u = u_lev.array(mfi);
+        const auto Ft = force[lev].const_array(mfi);
 
 #if defined(AMREX_USE_CUDA) && defined(AMREX_USE_FLOAT)
             // CUDA单精度二维/三维、单/多rank统一复用当前单元坐标。
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                 compute_macro_osi<true>(i, j, k, ddf, rho, u, fab, phase_shift);
+                if (correct_force) {
+                    for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+                        u(i,j,k,d) += Real(0.5) * dt * Ft(i,j,k,d) / rho(i,j,k);
+                    }
+                }
             });
 #else
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
                 compute_macro_osi(i, j, k, ddf, rho, u, fab, phase_shift);
+                if (correct_force) {
+                    for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+                        u(i,j,k,d) += Real(0.5) * dt * Ft(i,j,k,d) / rho(i,j,k);
+                    }
+                }
             });
 #endif
         }
@@ -56,13 +69,19 @@ void AmrCoreLBM::ComputeMacroLevel(int lev) {
     amrex::MultiFab& u_lev = velocity[lev];
 
     for (MFIter mfi(ddf, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-        const Box& bx = mfi.growntilebox(nghost);
+        const Box bx = params_.ibm_enabled ? mfi.tilebox() : mfi.growntilebox(nghost);
         const Array4<Real>& fold = ddf.array(mfi);
         const Array4<Real>& rho = rho_lev.array(mfi);
         const Array4<Real>& u = u_lev.array(mfi);
+            const auto Ft = force[lev].const_array(mfi);
 
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
             compute_macro(i, j, k, fold, rho, u);
+                if (correct_force) {
+                    for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+                        u(i,j,k,d) += Real(0.5) * dt * Ft(i,j,k,d) / rho(i,j,k);
+                    }
+                }
         });
     }
 }
@@ -131,6 +150,11 @@ AmrCoreLBM::AmrCoreLBM(amrex::Geometry const& level_0_geom, amrex::AmrInfo const
     // generateSpheres(D, NX, NY, NZ, points);
     points[0] = {AMREX_D_DECL(Real(0.5) * grid_.nx_cells, Real(0.5) * grid_.ny_cells,
                  Real(0.5) * grid_.nz_cells)};
+    if (params_.ibm_enabled) {
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+            points[0][d] = params_.ibm_center[d] / grid_.dx;
+        }
+    }
     // points[1] = {X + 2.0*D, Y, Z};
     // points[0] = {X + 0.03*D, Y + 0.03*D, 21.00*D};
     // points[1] = {X - 0.03*D, Y - 0.03*D, 18.96*D};
@@ -605,11 +629,12 @@ void AmrCoreLBM::ReadParameters() {
         pp_ckpt.query("chk_prefix", params_.chk_prefix);
         pp_ckpt.query("keep_latest_only", params_.keep_latest_only);
         pp_ckpt.query("write_particles", params_.write_particles);
-        std::string shape = AMREX_D_PICK("", "disk", "sphere");
         ParmParse pp_particles("particles");
-        pp_particles.query("shape", shape);
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(shape == AMREX_D_PICK("", "disk", "sphere"),
-            "particles.shape must be disk in DIM=2 and sphere in DIM=3");
+        pp_particles.query("shape", params_.particle_shape);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            AMREX_D_PICK(false, params_.particle_shape == "disk",
+                params_.particle_shape == "sphere" || params_.particle_shape == "cylinder"),
+            "particles.shape must be disk in DIM=2, sphere or cylinder in DIM=3");
 
         if (amrex::ParallelDescriptor::IOProcessor()) {
             amrex::Print() << "[Params] checkpoint:\n"
@@ -623,6 +648,47 @@ void AmrCoreLBM::ReadParameters() {
                            << "  begin_plot       = " << params_.begin_plot << "\n"
                            << "  regrid_int       = " << params_.regrid_int << "\n";
         }
+    }
+
+    {
+        ParmParse pp("ibm");
+        pp.query("enabled", params_.ibm_enabled);
+        pp.query("radius", params_.ibm_radius);
+        pp.query("length", params_.ibm_length);
+        Vector<Real> center;
+        if (pp.queryarr("center", center)) {
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(center.size() == AMREX_SPACEDIM,
+                                             "ibm.center requires DIM entries");
+            for (int d = 0; d < AMREX_SPACEDIM; ++d) { params_.ibm_center[d] = center[d]; }
+        }
+        if (params_.ibm_enabled) {
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(AMREX_SPACEDIM == 3,
+                                             "IBM coupling currently requires DIM=3");
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(collide_mode == 1,
+                                             "IBM coupling requires lbm.collide_mode=1");
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!probe_.regrid_fixture,
+                                             "IBM geometry cannot use verification.regrid_fixture");
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(std::isfinite(params_.ibm_radius) && params_.ibm_radius > 0 &&
+                                             std::isfinite(params_.ibm_length) && params_.ibm_length > 0,
+                                             "ibm.radius and ibm.length must be finite and positive");
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params_.ibm_radius >= Geom(max_level).CellSize(0),
+                                             "IBM radius must span at least one finest-level cell");
+            for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+                const Real extent = (params_.particle_shape == "cylinder" && d == 1)
+                                        ? params_.ibm_length / 2 : params_.ibm_radius;
+                AMREX_ALWAYS_ASSERT_WITH_MESSAGE(Geom(0).ProbLo(d) == 0 &&
+                    std::isfinite(params_.ibm_center[d]) &&
+                    params_.ibm_center[d] - extent > 3 * grid_.dx &&
+                    params_.ibm_center[d] + extent < Geom(0).ProbHi(d) - 3 * grid_.dx,
+                    "IBM requires zero domain origin and body at least three coarse cells from each face");
+            }
+        } else {
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params_.particle_shape != "cylinder" || !params_.write_particles,
+                                             "Passive cylinder marker output requires ibm.enabled=true");
+        }
+        amrex::Print() << "[IBM] enabled=" << params_.ibm_enabled
+                       << " shape=" << params_.particle_shape << " radius=" << params_.ibm_radius
+                       << " length=" << params_.ibm_length << " center=" << params_.ibm_center << '\n';
     }
 
     run_mode = requested_stream_mode == 0
@@ -702,8 +768,20 @@ void AmrCoreLBM::WriteParticleFile(const int step, const amrex::Real time) {
 
 void AmrCoreLBM::InitParticle(int lev) {
     for (int i = 0; i < particle_num; i++) {
-        particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i, grid_);
-        particles[i]->InitParticle(lev);
+        LbmGridParams particle_grid = grid_;
+        if (params_.ibm_enabled) {
+            particle_grid.dx_min = particle_grid.dt_min = Geom(max_level).CellSize(0);
+        }
+        particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i, particle_grid);
+#if AMREX_SPACEDIM == 3
+        if (params_.ibm_enabled) {
+            particles[i]->ConfigureIbm(params_.particle_shape, params_.ibm_radius);
+        }
+        if (params_.particle_shape == "cylinder") {
+            particles[i]->InitCylinderParticle(lev, params_.ibm_length);
+        } else
+#endif
+        { particles[i]->InitParticle(lev); }
         // particles[i] ->InitParticleFromFile(lev, "../../../object/sphere128");
         // particles[i] ->InitParticleFromFile(lev, "../../../object/car_fine");
     }
@@ -724,6 +802,11 @@ void AmrCoreLBM::PrintParticleParm() {
 void AmrCoreLBM::RedistributeParticle() {
     for (int i = 0; i < particle_num; i++) {
         particles[i]->Redistribute();
+        if (params_.ibm_enabled) {
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                particles[i]->NumberOfParticlesAtLevel(finest_level) == particles[i]->TotalNumberOfParticles(),
+                "IBM markers must all reside on the finest level");
+        }
 #if AMREX_SPACEDIM == 2
         if (particlesCp[i]) { particlesCp[i]->Redistribute(); }
 #endif
@@ -766,6 +849,10 @@ void AmrCoreLBM::InterpForce(int lev) {
 
     force_lev.setVal(0.0, nghost);
     for (int i = 0; i < particle_num; i++) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            particles[i]->ParticleBoxArray(lev) == force_lev.boxArray() &&
+            particles[i]->ParticleDistributionMap(lev) == force_lev.DistributionMap(),
+            "IBM interpolation requires particle and fluid layouts to match");
         particles[i]->InterpForce(lev, rho_lev, u_lev, force_lev);
         // particles[i]->InterpForceWallModel(lev, rho_lev, u_lev, force_lev);
     }
@@ -778,15 +865,22 @@ void AmrCoreLBM::SumForce(int lev) {
 }
 
 void AmrCoreLBM::ComputeParticle(int lev) {
-    CommunicateLevel(lev);
-    ComputeMacroLevel(lev);
+    if (!params_.ibm_enabled) { return; }
+    // 物体及四点核支撑域由 ErrorEst 强制细化；这里只读取当前布局的 valid 宏观量。
+    ComputeMacroLevel(lev, false);
+    density[lev].FillBoundary(Geom(lev).periodicity());
+    velocity[lev].FillBoundary(Geom(lev).periodicity());
     InterpForce(lev);
     SumForce(lev);
+    FillForceGhostLevel(lev, 0.0);
 }
 
 void AmrCoreLBM::ReduceFxy(int lev, int step) {
     for (int i = 0; i < particle_num; i++) {
-        particles[i]->SaveFxy(lev, step);
+        const Real area = params_.particle_shape == "cylinder"
+                              ? 2 * params_.ibm_radius * params_.ibm_length
+                              : PI * params_.ibm_radius * params_.ibm_radius;
+        particles[i]->SaveFxy(lev, step, params_.ibm_enabled ? area : Real(-1));
     }
 }
 
@@ -860,7 +954,7 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
     const std::string level_prefix = "Level_";
     const bool isIOP = ParallelDescriptor::IOProcessor();
     const std::string out_chkname = amrex::Concatenate(params_.chk_prefix, step, 8);
-    const bool write_particles = params_.write_particles;
+    const bool write_particles = params_.write_particles || params_.ibm_enabled;
 
     if (isIOP) {
         amrex::Print() << "[Checkpoint] Writing '" << out_chkname
@@ -889,6 +983,13 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
                            << "/Header' for writing. Abort checkpoint write for this step.\n";
             return;
         }
+        std::ofstream ibm(out_chkname + "/IBM");
+        ibm << std::setprecision(17) << "IBMConfigV1 " << params_.ibm_enabled << ' '
+            << params_.particle_shape << ' ' << params_.ibm_radius << ' ' << params_.ibm_length;
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) { ibm << ' ' << params_.ibm_center[d]; }
+        ibm << '\n';
+        ibm.close();
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(ibm.good(), "Cannot write checkpoint IBM metadata");
         header.precision(17);
         header << checkpoint_label_v2 << '\n';
         header << (streamMode() == 1 ? checkpoint_layout_osi
@@ -1020,6 +1121,27 @@ void AmrCoreLBM::ReadCheckpoint() {
     }
 
     ValidateCheckpointLattice(chkname);
+    bool stored_enabled = false;
+    if (amrex::FileExists(chkname + "/IBM")) {
+        Vector<char> chars;
+        ParallelDescriptor::ReadAndBcastFile(chkname + "/IBM", chars);
+        std::istringstream metadata(std::string(chars.dataPtr()));
+        std::string version, shape;
+        Real radius = 0, length = 0;
+        metadata >> version >> stored_enabled >> shape >> radius >> length;
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(metadata && version == "IBMConfigV1", "Invalid IBM checkpoint metadata");
+        bool same = shape == params_.particle_shape && radius == params_.ibm_radius && length == params_.ibm_length;
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+            Real center = 0;
+            metadata >> center;
+            same = same && center == params_.ibm_center[d];
+        }
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(metadata && (!params_.ibm_enabled || same),
+                                         "IBM checkpoint geometry mismatch");
+    }
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(stored_enabled == params_.ibm_enabled,
+                                     "IBM checkpoint enabled mismatch; legacy checkpoints contain no IBM coupling");
+
 
     amrex::Vector<char> header_chars;
     ParallelDescriptor::ReadAndBcastFile(header_file, header_chars);
@@ -1144,11 +1266,20 @@ void AmrCoreLBM::ReadCheckpoint() {
         force[lev].setVal(0.0, nghost);
     }
 
-    if (params_.write_particles) {
+    if (params_.write_particles || params_.ibm_enabled) {
         for (int i = 0; i < particle_num; ++i) {
             const std::string pname = "particles_" + std::to_string(i);
             particles[i].reset();
-            particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i, grid_);
+            LbmGridParams particle_grid = grid_;
+            if (params_.ibm_enabled) {
+                particle_grid.dx_min = particle_grid.dt_min = Geom(max_level).CellSize(0);
+            }
+            particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i, particle_grid);
+#if AMREX_SPACEDIM == 3
+            if (params_.ibm_enabled) {
+                particles[i]->ConfigureIbm(params_.particle_shape, params_.ibm_radius);
+            }
+#endif
             particles[i]->Restart(chkname, pname);
             points[i] = particles[i]->ReturnCentre();
         }
@@ -1160,5 +1291,11 @@ void AmrCoreLBM::ReadCheckpoint() {
 
 
 
+    if (params_.ibm_enabled) {
+        // AMReX dual-grid Restart 的 SetParticle* 会把容器切换到私有 ParGDB。
+        // 通过公开 Define 接口重新绑定 AmrCore 的动态网格；保留已经读入的标记。
+        for (auto& particle : particles) { particle->Define(GetParGDB()); }
+        RedistributeParticle();
+    }
     RebuildCoarseFineCaches();
 }

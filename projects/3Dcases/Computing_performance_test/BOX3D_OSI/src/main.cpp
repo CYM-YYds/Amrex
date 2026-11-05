@@ -143,9 +143,10 @@ void InitializeSimulation(AmrCoreLBM& lid, Real cur_time) {
         lid.InitMesh(cur_time);
         lid.PrintMeshInfo();
         lid.PrintLbmParm();
-        if (lid.params().write_particles) {
+        if (lid.params().write_particles || lid.params().ibm_enabled) {
             lid.InitParticle(lid.finestLevel());
-            lid.InitCpPoint(lid.finestLevel());
+            if (!lid.params().ibm_enabled) { lid.InitCpPoint(lid.finestLevel()); }
+            lid.RedistributeParticle();
             lid.PrintParticleParm();
         }
     }
@@ -172,13 +173,13 @@ void RegridIfNeeded(AmrCoreLBM& lid, OsiAbVerification& verification,
             lid.AverageDownValid();
         }
         verification.AfterRepair(lid, step);
-        if (lid.streamMode() == 0 && lid.params().write_particles) {
+        if (lid.streamMode() == 0 && (lid.params().write_particles || lid.params().ibm_enabled)) {
             lid.FindCentre();
         }
 
         lid.RefineMesh(cur_time);
         verification.AfterRefineMesh(lid, step);
-        if (lid.params().write_particles) {
+        if (lid.params().write_particles || lid.params().ibm_enabled) {
             lid.RedistributeParticle();
         }
     }
@@ -417,6 +418,9 @@ void RunSimulation() {
 
         const double solv_start = amrex::second();
         Cycle2(0, cur_time, lid, verification);
+#if AMREX_SPACEDIM == 3
+        if (lid.params().ibm_enabled) { lid.ReduceFxy(lid.finestLevel(), step); }
+#endif
         verification.AfterAdvance(lid, 0, step);
         lid.PrintParticleChecksums(step);
         window.solv_s += amrex::second() - solv_start;

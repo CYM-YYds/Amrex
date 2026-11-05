@@ -2306,6 +2306,33 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_register_impl(
     }
 }
 
+// Guo 受力 BGK：与既有无力核分开编译，避免影响默认路径的寄存器和访存。
+template <bool UseOsiAddress>
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE void collide_bgk_forced(
+    int i, int j, int k, amrex::Array4<amrex::Real> const& state,
+    amrex::Array4<amrex::Real> const& force, OSI::FabGeometry const& fab,
+    OSI::PhaseShift3 const& phase_shift, Real omega, Real dt) noexcept {
+    Real f[Q], rho = 0, mx = 0, my = 0, mz = 0;
+#pragma unroll
+    for (int q = 0; q < Q; ++q) {
+        f[q] = load_ddf<UseOsiAddress>(i,j,k,q,state,fab,phase_shift);
+        rho += f[q];
+        mx += f[q] * e[q][0];
+        my += f[q] * e[q][1];
+        mz += f[q] * lattice_ez(q);
+    }
+    const RealVect F{AMREX_D_DECL(force(i,j,k,0),force(i,j,k,1),force(i,j,k,2))};
+    const RealVect u{AMREX_D_DECL((mx + Real(0.5)*dt*F[0])/rho,
+                                (my + Real(0.5)*dt*F[1])/rho,
+                                (mz + Real(0.5)*dt*F[2])/rho)};
+#pragma unroll
+    for (int q = 0; q < Q; ++q) {
+        const Real value = (Real(1)-omega)*f[q] + omega*feqQian(rho,u,q) +
+                          (Real(1)-Real(0.5)*omega)*dt*forceGuo(u,F,q);
+        store_ddf<UseOsiAddress>(i,j,k,q,value,state,fab,phase_shift);
+    }
+}
+
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void collide_bgk_register(int i, int j, int k,

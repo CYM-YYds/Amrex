@@ -9,8 +9,41 @@
 
 常用脚本：[构建/提交索引](scripts/README.md) · [后处理入口](data_post_processing/README.md) · [临时实验索引](scripts/temporary/README.md) · [仓库脚本导航](../../../../docs/script-guide.md)。
 
-更新时间：2026-11-03。
+更新时间：2026-11-05。
 
+
+## 三维静止 IBM 开关
+
+`config/inputs` 默认 `ibm.enabled=false`，保留原纯流体无力碰撞路径。
+启用静止圆柱侧壁时设置：
+
+```ini
+ibm.enabled = true
+particles.shape = cylinder
+ibm.center = 0.5 0.5 0.5
+ibm.radius = 0.125
+ibm.length = 0.5
+```
+
+`particles.shape` 复用现有几何参数，三维支持 `sphere/cylinder`；球体只使用 center/radius。
+上述位置、半径和圆柱轴向长度均为物理单位。圆柱沿 Y 轴、无端盖。
+当前只提供现有单次直接施力与 Guo 受力 BGK，要求 `lbm.collide_mode=1`，
+A-B 和 OSI 使用相同受力公式；这不是 Cylinder3D 的 IDF 矩阵求解器。
+关闭开关不需要重新编译。
+
+初始化/重网格强制细化物体和四点核支撑域，标记全部位于实际最细层。
+几何必须在零原点计算域内，离各面超过三个 coarse cell，半径至少一个最细层 cell；
+不支持与 `verification.regrid_fixture` 同用。二维目前只保留静态圆盘管理，拒绝 IBM 耦合。
+
+`checkpoint.write_particles` 是输出选项，不再决定是否参与施力。
+IBM 开启时即使该选项为 false，checkpoint 也会保存必需的耦合标记。
+新增 `IBM` 元数据检查启用状态、形状、尺寸和圆心；旧 checkpoint 只能按未启用 IBM 恢复。
+重启后粒子重新绑定流体 ParGDB，随流体 BA/DM 更新，避免重网格时使用旧 Fab 编号。
+受力系数使用 `0.5*rho0*U0²*A` 归一化，A 为球体 `pi*r²` 或圆柱侧向投影 `2*r*length`。
+
+**流体初始条件和顶盖方腔边界保持不变。** 开启静止圆柱 IBM 不会自动配置入口/出口绕流；
+这里只验收静止物体耦合，不能将短程结果解释为标准圆柱阻力或收敛结果。
+验证范围和保留路径见[变更记录](docs/ai_changes/2026-11-05-ibm-coupling.md)。
 
 ## 二维与三维统一入口
 
