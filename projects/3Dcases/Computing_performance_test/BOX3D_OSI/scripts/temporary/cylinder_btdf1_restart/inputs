@@ -1,0 +1,46 @@
+# 仅适用于本任务 prepare.py 生成的 BTDF1 压力型实验程序。
+# Re 按圆柱直径 D=20/800=0.025 计算；p0=1，rho0=3，U0=0.03。
+# 平滑三点核，厚度系数1.9，502个静止标记；原加密阈值写入适配源码。
+# perf(s) 为窗口累计秒数；细分计时包含同步，total 不含流场/checkpoint I/O。
+max_step = 584000
+stop_time = 2500000.0
+lbm.reynolds_number = 40
+lbm.collide_mode = 1
+lbm.stream_mode = 1
+ibm.enabled = true
+ibm.center = 0.5 0.5
+ibm.radius = 0.0125
+lbm.interp_mode = 0
+geometry.prob_lo     =  0.0   0.0
+geometry.prob_hi     =  1.0   1.0
+geometry.is_periodic =  0     0
+amr.n_cell = 800 800
+amr.max_level = 3
+amr.regrid_int = 10
+amr.grid_eff   = 0.7
+amr.n_error_buf = 0 0 0 0
+amr.max_grid_size = 128 64 32 32
+amr.blocking_factor_x = 32 32 32 32
+amr.blocking_factor_y = 32 32 32 32
+lbm.err = 0.6 0.8 1.0 1.2
+lbm.osi_mpi_device_direct = 0
+lbm.osi_mpi_pipeline_chunk_bytes = 2097152
+performance.report_int = 1000
+performance.osi_detail_timing = 1
+amr.plot_file  = plt_
+amr.plot_int = 4000
+amr.begin_plot = 0
+checkpoint.begin_step = 520000
+checkpoint.chk_int = 16000
+checkpoint.chk_prefix = chk
+checkpoint.keep_latest_only = false
+checkpoint.write_particles = false
+particles.shape = disk
+verification.convergence_enabled = false
+verification.convergence_trend_int = 1000
+verification.convergence_check_int = 3200
+verification.convergence_tolerance = 1.0e-4
+verification.convergence_required = 3
+verification.convergence_stop = false
+verification.final_state_check = true
+lbm.osi_collide_comm_overlap = 0

@@ -92,3 +92,7 @@
 - C GIF的原始渲染器随B历史结果保留；C的场景、批处理与合成命令见 [C动画记录](../../runs/a5_C_t1000_gif/job624717/C/figures/animation_C/README.md)。
 - 顶层候选 `.cu`、`.patch` 及其他辅助文件不计入52个脚本，作为实验支持材料保留，未据此授权删除。
 - 2026-11-03维护审计没有批准删除脚本；部分相同副本仍为REVIEW，继续保留现场。没有移动、合并或删除旧入口。
+
+## 二维圆柱迁移续算
+
+[cylinder_btdf1_restart](cylinder_btdf1_restart/README.md)：从 Cylinder2D_BTDF1 的 520000 步导入 BOX3D_OSI 实验副本，单 GPU 续算至 584000，并统计颗粒各阶段耗时。保留脚本、输入与实验材料用于复现；不作为默认方腔入口。

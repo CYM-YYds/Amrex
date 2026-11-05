@@ -47,3 +47,7 @@
 新结果完成且验收前保留完整兜底。日后若需要实际释放空间，应另按场输出、checkpoint、日志和复现依赖列出删除范围。
 
 归档清单与验证见 [整理记录](../docs/ai_changes/2026-11-01-runs-archive.md)。
+
+## 二维圆柱 BTDF1 → OSI 续算
+
+[cylinder_btdf1_restart_520000](cylinder_btdf1_restart_520000/README.md)：单 GPU 520000→584000，作业 626343；提交记录时正在运行。当前状态以 `production/run.log`、`completed.txt` 和 `summary.json` 为准。接受短测与失败轮分开保存；见[迁移与计时记录](../docs/ai_changes/2026-11-05-cylinder-btdf1-osi-restart.md)。
