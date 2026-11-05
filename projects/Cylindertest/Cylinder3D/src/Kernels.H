@@ -2255,7 +2255,7 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
                   amrex::Array4<char> const& tag,
                   amrex::Array4<amrex::Real const> const& vort,
                   amrex::Real phierr, char tagval, char clearval, int lev, amrex::GeometryData const& geomdata,
-                  amrex::IntVect const& lo2, amrex::IntVect const& hi2, amrex::RealVect* p_pos, const int particle_num) {
+                  amrex::IntVect const& lo2, amrex::IntVect const& hi2, amrex::RealVect* p_pos, const int particle_num, bool cylinder) {
     const amrex::Real* dx = geomdata.CellSize();
 
     // 根据固体表面距离加密
@@ -2266,7 +2266,7 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
 
         Real r_r = R * dx_0 / dx[0];
         Real d_r = 2 * r_r;
-        Real dist = sqrt((i - x_r) * (i - x_r) + (j - y_r) * (j - y_r) + (k - z_r) * (k - z_r));
+        Real dist = sqrt((i - x_r) * (i - x_r) + (cylinder ? 0.0 : (j - y_r) * (j - y_r)) + (k - z_r) * (k - z_r));
         Real x_lo, x_hi, y_lo, y_hi, z_lo, z_hi;
 
         if (lev == 0) {
@@ -2278,6 +2278,8 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
             y_hi = (y_r + 2.0 * d_r);
             z_hi = (z_r + 2.0 * d_r);
 
+            // 圆柱轴向覆盖整个域，球体保留原有局部加密范围。
+            if (cylinder) { y_lo = 0; y_hi = geomdata.Domain().bigEnd(1); }
             if (i >= x_lo && i <= x_hi && j >= y_lo && j <= y_hi && k >= z_lo && k <= z_hi && dist >= r_r - 1) {
                 tag(i, j, k) = tagval;
             }
@@ -2291,6 +2293,8 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
             y_hi = (y_r + 1.5 * d_r);
             z_hi = (z_r + 1.5 * d_r);
 
+            // 圆柱轴向覆盖整个域，球体保留原有局部加密范围。
+            if (cylinder) { y_lo = 0; y_hi = geomdata.Domain().bigEnd(1); }
             if (i >= x_lo && i <= x_hi && j >= y_lo && j <= y_hi && k >= z_lo && k <= z_hi && dist >= r_r - 1) {
                 tag(i, j, k) = tagval;
             }
@@ -2304,6 +2308,8 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
             y_hi = (y_r + 1.0 * d_r);
             z_hi = (z_r + 1.0 * d_r);
 
+            // 圆柱轴向覆盖整个域，球体保留原有局部加密范围。
+            if (cylinder) { y_lo = 0; y_hi = geomdata.Domain().bigEnd(1); }
             if (i >= x_lo && i <= x_hi && j >= y_lo && j <= y_hi && k >= z_lo && k <= z_hi && dist >= r_r - 1) {
                 tag(i, j, k) = tagval;
             }
@@ -2513,24 +2519,10 @@ AMREX_GPU_HOST_DEVICE
                 int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
                 int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
 
-                // 处理x方向越界
-                if (xx < 0)
-                    xx = NX + xx;
-                else if (xx > NX - 1)
-                    xx = xx - NX;
 
-                // 处理y方向越界
-                if (yy < 0)
-                    yy = NY + yy;
-                else if (yy > NY - 1)
-                    yy = yy - NY;
 
-                // 处理z方向越界
-                if (zz < 0)
-                    zz = NZ + zz;
-                else if (zz > NZ - 1)
-                    zz = zz - NZ;
 
+                // 保持当前层全局索引，邻接数据由 FAB ghost 提供；不能用粗层尺寸回绕。
                 lx = xt - (xx + 0.5);
                 ly = yt - (yy + 0.5);
                 lz = zt - (zz + 0.5);
@@ -2566,23 +2558,9 @@ AMREX_GPU_HOST_DEVICE
                 int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
                 int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
 
-                // 处理x方向越界
-                if (xx < 0)
-                    xx = NX + xx;
-                else if (xx > NX - 1)
-                    xx = xx - NX;
-                // 处理y方向越界
-                if (yy < 0)
-                    yy = NY + yy;
-                else if (yy > NY - 1)
-                    yy = yy - NY;
 
-                // 处理z方向越界
-                if (zz < 0)
-                    zz = NZ + zz;
-                else if (zz > NZ - 1)
-                    zz = zz - NZ;
 
+                // 保持当前层全局索引，邻接数据由 FAB ghost 提供；不能用粗层尺寸回绕。
                 lx = xt - (xx + 0.5);
                 ly = yt - (yy + 0.5);
                 lz = zt - (zz + 0.5);

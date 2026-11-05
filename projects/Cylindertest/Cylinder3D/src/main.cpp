@@ -157,14 +157,14 @@ int main(int argc, char* argv[]) {
 void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
 
-    if (lev == max_ref_level) {
+    if (lev == lid.finestLevel()) {
         lid.ComputeParticle(lev);
     }
 
     lid.Boundary(lev);
     lid.Collide(lev, 0);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         RohdeCycle(lev + 1, cur_time, lid);
     }
 
@@ -176,7 +176,7 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Stream(lev, 2);
     lid.SwapLevel(lev, 2);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.AverageDownGhostLevel(lev, 0);
     }
 
@@ -186,14 +186,14 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     cur_time += dt;
 
-    if (lev == max_ref_level) {
+    if (lev == lid.finestLevel()) {
         lid.ComputeParticle(lev);
     }
 
     lid.Boundary(lev);
     lid.Collide(lev, 0);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         RohdeCycle(lev + 1, cur_time, lid);
     }
 
@@ -201,7 +201,7 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Stream(lev, 2);
     lid.SwapLevel(lev, 2);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.AverageDownGhostLevel(lev, 0);
     }
 }
@@ -210,11 +210,11 @@ void RohdeCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
-    if (lev == max_ref_level) {
+    if (lev == lid.finestLevel()) {
         lid.ComputeParticle(lev);
         lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
     }
@@ -225,7 +225,7 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Stream(lev, 4);
     lid.SwapLevel(lev, 4);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         JaberCycle(lev + 1, cur_time, lid);
         lid.AverageDownGhostLevel(lev, 1);
     }
@@ -236,11 +236,11 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     cur_time += dt;
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
-    if (lev == max_ref_level) {
+    if (lev == lid.finestLevel()) {
         lid.ComputeParticle(lev);
         lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
     }
@@ -251,7 +251,7 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Stream(lev, 4);
     lid.SwapLevel(lev, 4);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         JaberCycle(lev + 1, cur_time, lid);
         lid.AverageDownGhostLevel(lev, 1);
     }
@@ -261,7 +261,7 @@ void JaberCycle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
 
-    if (lev == max_ref_level) {
+    if (lev == lid.finestLevel()) {
         lid.ComputeParticle(lev);
         // lid.FillForceGhostLevel(lev, cur_time);
         lid.LubForceParticle(lev, cur_time);
@@ -271,7 +271,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Boundary(lev);
     lid.Collide(lev, 0);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         RohdeCycleMultiParticle(lev + 1, cur_time, lid);
     }
 
@@ -283,7 +283,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Stream(lev, 2);
     lid.SwapLevel(lev, 2);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.AverageDownGhostLevel(lev, 0);
     }
 
@@ -293,7 +293,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     cur_time += dt;
 
-    if (lev == max_ref_level) {
+    if (lev == lid.finestLevel()) {
         lid.ComputeParticle(lev);
         // lid.FillForceGhostLevel(lev, cur_time);
         lid.LubForceParticle(lev, cur_time);
@@ -303,7 +303,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Boundary(lev);
     lid.Collide(lev, 0);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         RohdeCycleMultiParticle(lev + 1, cur_time, lid);
     }
 
@@ -311,7 +311,7 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Stream(lev, 2);
     lid.SwapLevel(lev, 2);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.AverageDownGhostLevel(lev, 0);
     }
 }
@@ -320,11 +320,11 @@ void RohdeCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     amrex::Real dt = lid.Geom(lev).CellSizeArray()[0];
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
-    if (lev == max_ref_level) {
+    if (lev == lid.finestLevel()) {
         lid.ComputeParticle(lev);
         lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
         lid.LubForceParticle(lev, cur_time);
@@ -337,7 +337,7 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Stream(lev, 4);
     lid.SwapLevel(lev, 4);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         JaberCycleMultiParticle(lev + 1, cur_time, lid);
         lid.AverageDownGhostLevel(lev, 1);
     }
@@ -348,11 +348,11 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
 
     cur_time += dt;
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         lid.FillGhostLevel(lev + 1, cur_time, 1);
     }
 
-    if (lev == max_ref_level) {
+    if (lev == lid.finestLevel()) {
         lid.ComputeParticle(lev);
         lid.FillForceGhostLevel(lev, cur_time); // 加一个力的填充ghost就好了
         lid.LubForceParticle(lev, cur_time);
@@ -365,7 +365,7 @@ void JaberCycleMultiParticle(int lev, amrex::Real cur_time, AmrCoreLBM& lid) {
     lid.Stream(lev, 4);
     lid.SwapLevel(lev, 4);
 
-    if (lev < max_ref_level) {
+    if (lev < lid.finestLevel()) {
         JaberCycleMultiParticle(lev + 1, cur_time, lid);
         lid.AverageDownGhostLevel(lev, 1);
     }

@@ -21,6 +21,10 @@ class AmrCoreLBM : public amrex::AmrCore {
 
   public:
     struct RuntimeParams {
+        // IBM 配置仅在启动时读取，运行期间保持不变。
+        bool ibm_enabled = true;
+        std::string ibm_geometry = "sphere";
+        std::string ibm_method = "idf";
         // amr
         int regrid_int = -1;
         int plot_int = -1;

@@ -132,7 +132,7 @@ void LagrangeParticleContainer::InitCylinderParticle(int lev) {
 
     // 半径的物理尺度
     Real phys_radius = radius * dx_min;
-    // 高度（索引→物理混用的原逻辑保持不变，仅改轴向变量名）
+    // 轴向中心和高度使用粗层坐标，与 X/Z 中心的物理单位一致。
     Real height_index = 2.0 * NH;
     Real y_lo_index = centre[1] - height_index / 2.0;
     Real y_hi_index = centre[1] + height_index / 2.0;
@@ -142,15 +142,16 @@ void LagrangeParticleContainer::InitCylinderParticle(int lev) {
     if (nt_ring < 3)
         nt_ring = 3;
 
-    // 侧壁总面积 ≈ 2*pi*R*H ，保持原 height_index 处理方式
-    Real side_area = 2.0 * PI * phys_radius * (height_index * dx_min);
-    Real area_per_side_point = side_area / (ny_layers * nt_ring);
+    // 侧壁总面积为 2*pi*R*H，半径与高度均转换到物理单位。
+    Real side_area = 2.0 * PI * phys_radius * (height_index * delta0[1]);
+    // 施力核要求细层格子单位面积，与球体 LP_area 的单位一致。
+    Real area_per_side_point = side_area / (dx_min * dx_min * ny_layers * nt_ring);
 
     if (ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber()) {
         for (int iy = 0; iy < ny_layers; ++iy) {
             Real frac = (ny_layers == 1) ? 0.5 : (static_cast<Real>(iy) / (ny_layers - 1));
             Real y_index = y_lo_index + frac * (y_hi_index - y_lo_index); // 索引坐标
-            Real y_phys = y_index * dx_min;                               // 物理坐标（与原逻辑一致）
+            Real y_phys = y_index * delta0[1];                               // 物理坐标（粗层单位）
 
             for (int j = 0; j < nt_ring; ++j) {
                 Real alpha = 2.0 * PI * (static_cast<Real>(j) / nt_ring);
@@ -185,7 +186,7 @@ void LagrangeParticleContainer::InitCylinderParticle(int lev) {
 
         amrex::Print() << "[InitCylinderParticle] (Axis=Y) Generated side-wall points: "
                        << (ny_layers * nt_ring) << " (R_physical=" << phys_radius
-                       << ", H_physical=" << (height_index * dx_min) << ")" << std::endl;
+                       << ", H_physical=" << (height_index * delta0[1]) << ")" << std::endl;
     }
     Redistribute();
 

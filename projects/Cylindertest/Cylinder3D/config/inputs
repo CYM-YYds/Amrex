@@ -1,3 +1,10 @@
+# IBM 开关：false 时为无浸没物体流动，默认保持原球体 IDF。
+ibm.enabled = true
+# sphere / cylinder（现有沿 Y 轴侧壁点，无端盖）
+ibm.geometry = sphere
+# idf / mdf，三维圆柱建议先用 mdf 做短程验证。
+ibm.method = idf
+
 # *****************************************************************
 # Run until nsteps == max_step or time == stop_time,
 #     whichever comes first
