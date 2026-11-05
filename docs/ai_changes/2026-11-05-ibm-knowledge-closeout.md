@@ -74,3 +74,23 @@ PPT 内容与全局平台配置为 out-of-scope。本次未宣称全仓清洁或
 Git/worktree/规则盘点和空白检查通过。只读检查材料位于
 `projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/ibm_closeout/`。
 本次只提交知识面和注释修正，不提交用户既有改动；所有删除候选仍留在原处。
+
+## 用户确认后的清场结果（2026-11-05）
+
+本节更新首次汇报中的待决状态；此前预览和授权门记录保留。
+用户在完整汇报后明确回复：“误改保留, 生成记忆旧条目能否清理?候选清理删除”。
+
+- Cylinder3D 的 fd9b413 独立改动经用户选择保留，不再作为待裁定回滚项。
+- 已仅删除预览中的 baseline_build/tmp_build_dir，212 个文件，预计回收 19,677,184 bytes
+  （约 18.8 MiB）。其他实验目录、源码、配置、可执行文件、输入、日志、报告、
+  PlotFile 和 checkpoint 未删除。保留的 15 个基线文件和 204 个现场硬链接对象
+  均逐文件 SHA256 验证相同；候选目录已确认不存在。
+- 生成记忆纠正已获用户明确授权。按环境约定提交
+  `extensions/ad_hoc/notes/2026-11-05T143500-ibm-dimension-correction.md`，
+  纠正“二维 IBM 仍不支持”的旧说法，并记录 Cylinder3D 保留、两算例参数不同及验证边界。
+  该输入内容与准备稿逐字节相同。没有直接编辑生成 MEMORY.md；旧条目当前检索到
+  第 1119 行，行号会随生成变化，最终索引清理仍为 pending-host-consolidation。
+- 没有重复运行数值计算。清理凭证与逐文件保留清单见审计目录中的
+  [cleanup_result.json](../../projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/ibm_closeout/cleanup_result.json)
+  和 [cleanup_retained_manifest.json](../../projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/ibm_closeout/cleanup_retained_manifest.json)。
+  用户既有 dirty 文件未暂存，未执行其他分支/worktree/目录清理；全仓并非干净状态。
