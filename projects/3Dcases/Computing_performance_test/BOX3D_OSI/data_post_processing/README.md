@@ -17,7 +17,7 @@ post_dir="$case_dir/data_post_processing"
 | [plot_run_performance.py](plot_run_performance.py) | 已有性能日志概览；每窗步数通过 `--window-steps` 指定 |
 | [extract_run_centerline.py](extract_run_centerline.py) | 只负责 ParaView bridge/batch 导出、来源校验及提取报告；不绘图、不选择参考数据 |
 | [pack_animation_gif.py](pack_animation_gif.py) | PNG序列选取帧段、统一裁剪、合成GIF并记录来源哈希 |
-| [plot_osi_principle.py](plot_osi_principle.py) | 中文 D2Q9 OSI 原理图：7×7 分配盒、中央 3×3 valid、两层 ghost、存储回绕与非周期壁面重建；逐帧 PNG、关键帧 SVG/PDF、GIF 与来源记录 |
+| [plot_osi_principle.py](plot_osi_principle.py) | 中文 D2Q9 OSI 原理简化动画：7×7 区域内中心节点每步“读取→碰撞→写回”，读取位置外移、回绕、7 步一循环；GIF、逐帧 PNG、读取帧 SVG 与总览 |
 | [convergence_logs.py](convergence_logs.py) | 内部日志解析模块，供收敛入口调用 |
 
 作业号、步数、Re 标题、路径和图例改参数，不再为每次实验复制脚本。
@@ -30,29 +30,21 @@ post_dir="$case_dir/data_post_processing"
 
 ```bash
 .venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/plot_osi_principle.py \
-  --output projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/osi_principle_animation/wall_final \
-  --steps 7 --subframes 3 --duration 350 --dpi 100
+  --output projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/osi_principle_animation/simple
 ```
 
-默认产生 126 帧、1400×1000 的中文 PNG，以及一轮 44.1 秒、无限循环的 GIF。
-`frames/` 是最终逐帧图；`keyframes/` 是相位 3→4 的六阶段 PNG/SVG/PDF；
-`osi_six_stages.png` 是六阶段总览，`osi_frames_and_sources.zip` 包含最终逐帧图、关键帧、GIF与源码快照。
-每帧耗时通过 `--duration` 调整；`--subframes` 控制插值帧数；`--font` 可指定中文字体文件。
+按用户参考图做的简化教学动画：7×7 区域（中心 3×3 计算域加两层幽灵层）只跟踪中心节点，
+每个时间步依次画“读取 → 碰撞 → 写回”三帧。读取位置为 `(x − p·e_q) mod 7`，p 每步加 1：
+距中心 1、2、3 格向外移动，越界后从对侧回绕（橙色框），t+6 时 9 个分量都在中心节点自身，
+t+7 与 t 相同，每 7 步循环一次。
 
-这是用户参考图及本算例源码导出的教学示意，不读取求解器流场数据，不做数值归一化。
-方向编号采用 `LbmLattice.H` 的 D2Q9 排列 0；七个演示步对应相位 1→8，
-不对应生产运行步数。图中颜色只表示读、碰撞、写回和边界处理阶段。
+默认 22 帧（t…t+6 各 3 帧，再加 t+7 的读取帧）、880×1012、每帧 1200 ms，一轮 26.4 秒；
+`--duration` 调帧时长，`--font` 指定中文字体。输出 `osi_principle.gif`、逐帧 PNG、
+各步读取帧 SVG（`read_step*.svg`）与 8 个读取帧的总览 `read_overview.png`。
 
-逻辑坐标与原始存储并排展示：valid 的边缘节点属于物理边界，外围两层属于域外 ghost；
-存储图底色仅作初始分区参照，槽位不永久属于某个逻辑区域。
-本图设定单块物理域、四壁静止、非周期，不从对侧补值；碰撞后检查通信阶段、提交相位，
-再用新相位的内部参考进行非平衡外推。只高亮右壁代表节点，其余壁面与角点同样需要重建。
-动画只突出一个代表线程；实际相位提交前，本层本次推进涉及的碰撞与必要通信须全部完成。
-7×7 的模运算表示存储地址循环；它不提供物理周期边界条件。
-
-绘图时检查 6174 个 pull 寻址恒等式、每方向的环上双射，以及相位 3→4 时 q1 的地址
-`(0,3)→(6,3)` 回绕；GIF 合成复用现有 `pack_animation_gif.py` 并核对逐帧像素。
-这些检查验证图示和地址关系，不构成生产求解器的数值正确性验收。
+方向编号沿用参考图（1 右、2 上、3 左、4 下、5–8 为对角），与 `LbmLattice.H` 内部排列不同，
+只作标签。绘图前核对图中位置与 `OsiIndex.H::osi_coord_precomputed` 一致；这是图示检查，
+不读取流场数据，也不构成求解器数值验证。
 
 ## job622356/B 涡量动画
 
