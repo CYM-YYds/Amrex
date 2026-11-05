@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """绘制简化的中文 D2Q9 OSI 原理动画：每个时间步只展示读取、碰撞、写回三帧。
 
-7×7 存储环内只跟踪中心节点。读取位置随相位 p 逐步外移，越过边界后从对侧回绕，
-每 7 步回到初始位置。教学示意，不读取求解器数据。
+7×7 存储环内只跟踪一个节点（--node，默认中心）。读取位置随相位 p 逐步外移，
+越过边界后从对侧回绕，每 7 步回到初始位置。教学示意，不读取求解器数据。
 """
 
 import argparse
@@ -22,7 +22,6 @@ import numpy as np
 from PIL import Image
 
 N = 7
-CENTER = np.array([3, 3])
 # 方向编号与用户参考图一致（常见 D2Q9 编号），不是 LbmLattice.H 的内部排列；
 # 编号只是标签，不影响寻址规律。
 E = np.array([(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1),
@@ -41,20 +40,26 @@ def osi_coord(logical, velocity, phase):
     return shifted
 
 
-def read_cells(p):
-    """相位 p 下中心节点 9 个分量的存储位置：(x - p e_q) mod 7。"""
-    return (CENTER - p * E) % N
+def read_cells(node, p):
+    """相位 p 下跟踪节点 9 个分量的存储位置：(x - p e_q) mod 7。"""
+    return (node - p * E) % N
 
 
-def validate():
+def wrapped(node, p):
+    """各分量在本周期内是否已越过 7×7 边界（按 p mod 7 判断，t+7 与 t 一致）。"""
+    raw = node - (p % N) * E
+    return ((raw < 0) | (raw >= N)).any(axis=1)
+
+
+def validate(node):
     """核对图中位置与源码寻址一致、首步为参考图的邻居读取、周期为 7。"""
     for p in range(1, 3 * N):
         for q, e in enumerate(E):
-            ref = [osi_coord(CENTER[a], e[a], p) for a in range(2)]
-            assert np.array_equal(read_cells(p)[q], ref)
-    assert np.array_equal(read_cells(1), CENTER - E)
-    assert all(np.array_equal(read_cells(p), read_cells(p + N)) for p in range(N))
-    assert (read_cells(N) == CENTER).all()
+            ref = [osi_coord(node[a], e[a], p) for a in range(2)]
+            assert np.array_equal(read_cells(node, p)[q], ref)
+    assert np.array_equal(read_cells(node, 1), node - E)
+    assert all(np.array_equal(read_cells(node, p), read_cells(node, p + N)) for p in range(N))
+    assert (read_cells(node, N) == node).all()
     return '图中读取位置与 OsiIndex.H 寻址一致；首步为相邻节点；7 步一周期'
 
 
@@ -95,41 +100,39 @@ def box(ax, xy, color=INK):
                            linestyle=(0, (4, 3)), zorder=5))
 
 
-def lattice(ax):
+def lattice(ax, node):
     """背景：7×7 节点，每个节点一个灰点和 8 个灰色方向箭头，与参考图风格一致。"""
     for x in range(N):
         for y in range(N):
             ax.add_patch(Rectangle((x, y), 1, 1, facecolor='white', edgecolor=GRAY, lw=1))
-    # 中心节点用灰色底，但保留其格点箭头，高亮时直接在原位变色。
-    ax.add_patch(Rectangle(CENTER, 1, 1, facecolor='#a8a8a8', edgecolor=INK, lw=1.6, zorder=1))
+    # 跟踪节点用灰色底，但保留其格点箭头，高亮时直接在原位变色。
+    ax.add_patch(Rectangle(node, 1, 1, facecolor='#a8a8a8', edgecolor=INK, lw=1.6, zorder=1))
     cells = [(x, y) for x in range(N) for y in range(N) for _ in range(8)]
     dirs = list(range(1, 9)) * (N * N)
-    center_gray = '#e2e2e2'
-    colors = [center_gray if c == tuple(CENTER) else GRAY for c in cells[::8]]
-    for k, color in enumerate(colors):
-        node_dot(ax, cells[8 * k], color, .035)
-    node_arrows(ax, [c for c in cells if c != tuple(CENTER)],
-                [d for c, d in zip(cells, dirs) if c != tuple(CENTER)], GRAY, GRAY_W, 3)
-    node_arrows(ax, [CENTER] * 8, range(1, 9), center_gray, GRAY_W, 3)
+    node_gray = '#e2e2e2'
+    for c in cells[::8]:
+        node_dot(ax, c, node_gray if c == tuple(node) else GRAY, .035)
+    node_arrows(ax, [c for c in cells if c != tuple(node)],
+                [d for c, d in zip(cells, dirs) if c != tuple(node)], GRAY, GRAY_W, 3)
+    node_arrows(ax, [node] * 8, range(1, 9), node_gray, GRAY_W, 3)
     ax.set(xlim=(-.05, N + .05), ylim=(-.05, N + .05), aspect='equal')
     ax.axis('off')
 
 
-def highlight_center(ax):
-    """中心节点 8 个格点箭头变蓝，编号放在箭头尖外侧的空隙。"""
-    node_arrows(ax, [CENTER] * 8, range(1, 9), BLUE, BLUE_W, 6)
-    node_dot(ax, CENTER, BLUE, .05)
+def highlight_node(ax, node):
+    """跟踪节点 8 个格点箭头变蓝。"""
+    node_arrows(ax, [node] * 8, range(1, 9), BLUE, BLUE_W, 6)
+    node_dot(ax, node, BLUE, .05)
 
 
-def draw_pdfs(ax, p):
-    """读取/写回帧：把中心节点 9 个分量所在格点的对应方向箭头变蓝。"""
-    cells = read_cells(p)
-    unwrapped = CENTER - p * E
+def draw_pdfs(ax, node, p):
+    """读取/写回帧：把跟踪节点 9 个分量所在格点的对应方向箭头变蓝。"""
+    cells = read_cells(node, p)
     if p % N == 0:
-        # 9 个分量都在中心节点自身。
-        box(ax, CENTER)
-        highlight_center(ax)
-        c = CENTER + .5
+        # 9 个分量都在跟踪节点自身。
+        box(ax, node)
+        highlight_node(ax, node)
+        c = node + .5
         for q in range(1, 9):
             # 编号放在各自箭头尖端外侧，仍在格内。
             u = E[q] / np.linalg.norm(E[q])
@@ -137,9 +140,8 @@ def draw_pdfs(ax, p):
         label(ax, c + ZERO_AT, 0, size=9)
         return
     node_arrows(ax, cells[1:], range(1, 9), BLUE, BLUE_W, 6)
-    for q in range(9):
-        wrapped = ((unwrapped[q] < 0) | (unwrapped[q] >= N)).any()
-        box(ax, cells[q], ORANGE if wrapped else INK)
+    for q, w in enumerate(wrapped(node, p)):
+        box(ax, cells[q], ORANGE if w else INK)
         c = cells[q] + .5
         if q == 0:
             node_dot(ax, cells[q], BLUE, .05)
@@ -149,34 +151,34 @@ def draw_pdfs(ax, p):
             label(ax, c + gap(-E[q], .30, 22.5), q)
 
 
-def draw_collision(ax):
-    """碰撞帧：在中心节点内完成，中心的 8 个格点箭头变蓝；编号标在相邻格点的空隙。"""
-    highlight_center(ax)
-    c = CENTER + .5
+def draw_collision(ax, node):
+    """碰撞帧：在跟踪节点内完成，其 8 个格点箭头变蓝；编号标在相邻格点的空隙。"""
+    highlight_node(ax, node)
+    c = node + .5
     for q in range(1, 9):
         label(ax, c + E[q] + gap(-E[q], .30, 22.5), q)
 
 
-def read_caption(k, p):
-    r = p % N
+def read_caption(node, k, p):
     if k == 0:
         return '从相邻节点读取 9 个分布函数'
     if k == N:
         return '与时间步 t 完全相同：读取位置每 7 步循环一次'
-    if r in (2, 3):
-        return f'读取位置整体向外移动 1 格（距中心 {r} 格）'
-    if r == 4:
+    if p % N == 0:
+        return '9 个分布函数都位于跟踪节点自身'
+    now, before = wrapped(node, p), wrapped(node, p - 1)
+    if (now & ~before).any():
         return '越过 7×7 边界的位置从对侧回绕（橙色框）'
-    if r in (5, 6):
-        return f'回绕后继续移动，逐步靠近中心（距中心 {N - r} 格）'
-    return '9 个分布函数都位于中心节点自身'
+    if now.any():
+        return '读取位置继续移动 1 格（橙色框为已回绕）'
+    return '读取位置整体向外移动 1 格'
 
 
 CAPTIONS = {1: '在寄存器中完成碰撞，不访问其他节点',
             2: '碰撞结果写回刚才读取的位置（同址写回）'}
 
 
-def render(k, stage, dpi):
+def render(node, k, stage, dpi):
     p = k + 1
     fig = plt.figure(figsize=(8, 9.2), dpi=dpi)
     fig.text(.5, .955, '时间步 t' if k == 0 else f'时间步 t + {k}',
@@ -187,14 +189,14 @@ def render(k, stage, dpi):
     for x in (.40, .60):
         fig.text(x, .905, '→', ha='center', fontsize=17, color='#b7bec5')
     ax = fig.add_axes([.07, .15, .86, .73])
-    lattice(ax)
+    lattice(ax, node)
     if stage == 1:
-        draw_collision(ax)
+        draw_collision(ax, node)
     else:
-        draw_pdfs(ax, p)
-    fig.text(.5, .105, read_caption(k, p) if stage == 0 else CAPTIONS[stage],
+        draw_pdfs(ax, node, p)
+    fig.text(.5, .105, read_caption(node, k, p) if stage == 0 else CAPTIONS[stage],
              ha='center', fontsize=17, color=INK)
-    fig.text(.5, .045, '7×7：计算域（中心 3×3）加两层幽灵层；只跟踪中心灰色节点。'
+    fig.text(.5, .045, '7×7：计算域（中心 3×3）加两层幽灵层；只跟踪灰色节点。'
              '\n读取位置 = (x − p·e$_q$) mod 7，p 每个时间步加 1。',
              ha='center', fontsize=11.5, color=MUTED, linespacing=1.6)
     return fig
@@ -203,11 +205,16 @@ def render(k, stage, dpi):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True, help='新建的输出目录，拒绝覆盖')
-    parser.add_argument('--duration', type=int, default=1200, help='每帧毫秒，10 的整数倍')
+    parser.add_argument('--duration', type=int, default=2400, help='每帧毫秒，10 的整数倍')
+    parser.add_argument('--node', type=int, nargs=2, default=[3, 3], metavar=('X', 'Y'),
+                        help='跟踪节点坐标，0 起算；默认中心 (3,3)，限 1..5 以免碰撞帧编号出界')
     parser.add_argument('--dpi', type=int, default=110)
     parser.add_argument('--font', type=Path, default=Path('/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc'),
                         help='中文字体文件')
     args = parser.parse_args()
+    if not all(1 <= v <= N - 2 for v in args.node):
+        parser.error('--node 坐标须在 1..5')
+    node = np.array(args.node)
     if args.output.exists():
         parser.error('输出目录已存在，请使用新目录以保留旧结果')
     if not args.font.is_file():
@@ -216,14 +223,14 @@ def main():
     plt.rcParams.update({'font.family': font_manager.FontProperties(fname=str(args.font)).get_name(),
                          'axes.unicode_minus': False, 'svg.fonttype': 'path',
                          'mathtext.fontset': 'dejavusans'})
-    check = validate()
+    check = validate(node)
     out = args.output.resolve()
     source = out / 'source_frames'
     source.mkdir(parents=True)
     # 时间步 t … t+6 共一个周期，再加 t+7 的读取帧展示“回到起点”。
     timeline = [(k, s) for k in range(N) for s in range(3)] + [(N, 0)]
     for i, (k, s) in enumerate(timeline):
-        fig = render(k, s, args.dpi)
+        fig = render(node, k, s, args.dpi)
         fig.savefig(source / f'osi.{i:04d}.png', facecolor='white')
         if s == 0:
             fig.savefig(out / f'read_step{k}.svg', facecolor='white')
@@ -244,8 +251,8 @@ def main():
             sheet.paste(im.resize((tw, th), Image.Resampling.LANCZOS), ((j % 4) * tw, (j // 4) * th))
     sheet.save(out / 'read_overview.png')
     manifest = {'check': check, 'frames': [{'frame': i, 'step': k, 'phase': k + 1, 'stage': STAGES[s],
-                                            'cells': read_cells(k + 1).tolist()} for i, (k, s) in enumerate(timeline)],
-                'directions': E.tolist(), 'duration_ms': args.duration,
+                                            'cells': read_cells(node, k + 1).tolist()} for i, (k, s) in enumerate(timeline)],
+                'node': args.node, 'directions': E.tolist(), 'duration_ms': args.duration,
                 'input': '用户参考图；无求解器数据，无数值归一化',
                 'command': [sys.executable, *sys.argv]}
     (out / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')

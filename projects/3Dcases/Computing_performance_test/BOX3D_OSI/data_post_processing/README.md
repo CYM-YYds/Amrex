@@ -30,15 +30,16 @@ post_dir="$case_dir/data_post_processing"
 
 ```bash
 .venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/plot_osi_principle.py \
-  --output projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/osi_principle_animation/simple
+  --node 4 4 --output projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/osi_principle_animation/node_4_4
 ```
 
-按用户参考图做的简化教学动画：7×7 区域（中心 3×3 计算域加两层幽灵层）只跟踪中心节点，
+按用户参考图做的简化教学动画：7×7 区域（中心 3×3 计算域加两层幽灵层）只跟踪一个节点，
 每个时间步依次画“读取 → 碰撞 → 写回”三帧。读取位置为 `(x − p·e_q) mod 7`，p 每步加 1：
-距中心 1、2、3 格向外移动，越界后从对侧回绕（橙色框），t+6 时 9 个分量都在中心节点自身，
-t+7 与 t 相同，每 7 步循环一次。
+读取位置逐步外移，越界后从对侧回绕（橙色框），t+6 时 9 个分量都在跟踪节点自身，
+t+7 与 t 相同，每 7 步循环一次。`--node X Y` 选跟踪节点（0 起算，限 1..5，默认中心 3 3）；
+取偏离中心的节点（如右上 4 4）时各方向回绕的时间步不同，回环更明显。
 
-默认 22 帧（t…t+6 各 3 帧，再加 t+7 的读取帧）、880×1012、每帧 1200 ms，一轮 26.4 秒；
+默认 22 帧（t…t+6 各 3 帧，再加 t+7 的读取帧）、880×1012、每帧 2400 ms，一轮 52.8 秒；
 `--duration` 调帧时长，`--font` 指定中文字体。输出 `osi_principle.gif`、逐帧 PNG、
 各步读取帧 SVG（`read_step*.svg`）与 8 个读取帧的总览 `read_overview.png`。
 
