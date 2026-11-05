@@ -45,3 +45,15 @@ MLUPS 沿用 BOX3D_OSI 的层级加权 uncovered 网格更新计数，不是 GPU
 原程序与迁移程序保留相同物理和 IBM 公式，但 AMR 调度、掩码、插值/平均仍使用 BOX3D_OSI 框架。
 早期未完整初始化宏观场的版本存在重启小差异；最终接受版的 520032→520064 对照差值为 0。正式任务直接导入原始 520000 步检查点，短程结果不外推至其他重启条件。
 64 步短测不能代替长期稳定性、收敛性或网格无关性验证。失败轮保留以供排错，不混入接受结果。
+
+## 耗时占比图
+
+`plot_timing.py` 刷新已完成窗口，生成阶段占比与颗粒内部占比的 PNG/SVG，并保留 CSV、JSON、日志快照及命令清单。每个统计终点使用独立图目录，避免将运行中快照误认为完整结果。
+
+在仓库根复现或刷新：
+
+```bash
+.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/scripts/temporary/cylinder_btdf1_restart/plot_timing.py projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/cylinder_btdf1_restart_520000/production --job-id 626343
+```
+
+左图按各阶段累计 / compute total 归一化，不作互斥的100%分解；平均计时可能含输出时平均下传。右图按整个颗粒相关路径归一化，父子计时不重复相加，保留颗粒父计时与已测子项间的残余开销。
