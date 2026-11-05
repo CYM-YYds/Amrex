@@ -99,7 +99,7 @@ def compare(out,model,settings,physical_time=25,short_source=None):
     delta=(av-uv)/0.05
     rows={}
     for kind in ['amr','uniform']:
-        folders=[out/f'{model}_{kind}'] if physical_time==25 else [short_source/f'{model}_{kind}']+sorted(out.glob(f'{model}_{kind}_t*'),key=lambda p:int(p.name.rsplit('_t',1)[1]))
+        folders=[out/f'{model}_{kind}'] if physical_time==25 else [short_source/f'{model}_{kind}']+sorted((p for p in out.glob(f'{model}_{kind}_t*') if p.is_dir() and p.name.rsplit('_t',1)[1].isdigit()),key=lambda p:int(p.name.rsplit('_t',1)[1]))
         text='\n'.join((folder/'run.log').read_text() for folder in folders)
         perf=[fields(line) for line in text.splitlines() if ' perf(s):' in line]
         assert len(perf)==(5 if physical_time==25 else 5+(physical_time-25)//25)
@@ -202,8 +202,28 @@ if __name__=='__main__':
     if sys.argv[1]=='prepare':prepare()
     elif sys.argv[1]=='analyze':
         directory=Path(sys.argv[2]);settings=json.loads((directory/'settings.json').read_text())
-        for model in settings['models']:
-            if (directory/f'{model}_uniform').is_dir():compare(directory,model,settings)
+        is_long=any(directory.glob('*_uniform_t1000'))
+        if is_long:
+            short_source=Path(sys.argv[3])
+            statuses=json.loads((directory/'status.json').read_text())
+            assert statuses and all(r['returncode']==0 and r['sha256_verified'] for r in statuses)
+            # 复核已发布批次的尺寸与退出记录；保留原始失败回执，不把调度器状态改写为成功。
+            for row in statuses:
+                batch=Path(row['published'])
+                manifest=json.loads((batch/'transfer_manifest.json').read_text())
+                assert manifest and all((batch/name).stat().st_size==value['bytes'] for name,value in manifest.items())
+                assert ') finalized' in (batch/'run.log').read_text()
+            recovered=[]
+            for model in settings['models']:
+                if (directory/f'{model}_uniform_t1000').is_dir():
+                    compare(directory,model,settings,physical_time=1000,short_source=short_source)
+                    recovered.append(model)
+            assert recovered
+            save(directory/'postprocess_recovery.json',dict(models=recovered,short_source=str(short_source.resolve()),all_application_exits_zero=True,transfer_sizes_verified=True,original_scheduler_state='FAILED in report generation; retained',fix='exclude guard log files from segment directory enumeration'))
+            (directory/'completed.txt').write_text('all calculations and verified transfers complete; reports regenerated after postprocessing-only failure\n')
+        else:
+            for model in settings['models']:
+                if (directory/f'{model}_uniform').is_dir():compare(directory,model,settings)
     else:
         try:run(sys.argv[1])
         except Exception as error:
