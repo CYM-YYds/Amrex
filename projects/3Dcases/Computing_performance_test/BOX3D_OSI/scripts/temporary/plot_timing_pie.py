@@ -34,17 +34,14 @@ font = '/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc'
 font_manager.fontManager.addfont(font)
 plt.rcParams.update({'font.family': font_manager.FontProperties(fname=font).get_name(), 'font.size': 12})
 fig, ax = plt.subplots(figsize=(11, 6.5))
-fig.subplots_adjust(left=.03, right=.65, top=.85, bottom=.18)
+fig.subplots_adjust(left=.03, right=.65, top=.88, bottom=.06)
 colors = ['#4C78A8', '#F58518', '#54A24B', '#B279A2', '#E4B64B', '#72B7B2', '#E45756', '#999999']
 wedges, _, _ = ax.pie([v for _, _, v in items], startangle=90, counterclock=False,
     colors=colors[:len(items)], autopct=lambda p: f'{p:.2f}%' if p >= 5 else '',
     pctdistance=.73, wedgeprops={'edgecolor': 'white', 'linewidth': 1.5}, textprops={'fontsize': 12})
-ax.legend(wedges, [f'{name}  {v:,.2f} 秒（{v / denominator:.2%}）' for _, name, v in items],
+ax.legend(wedges, [f'{name}（{v / denominator:.2%}）' for _, name, v in items],
     loc='center left', bbox_to_anchor=(1.0, .5), frameon=False, labelspacing=1.25)
-fig.suptitle('job624717 · OSI 耗时占比', fontsize=21, fontweight='bold', y=.97)
-fig.text(.5, .89, f'1–128000 步 · t = 0–1000 · 分项累计 {denominator:,.2f} 秒', ha='center')
-fig.text(.05, .10, '数据：runs/a5_C_t1000_gif/job624717/C/run.log；40 × 3200 步计时窗口。', fontsize=10)
-fig.text(.05, .055, f'占比按分项之和归一化；日志 total = {total:,.2f} 秒，差异 {(denominator-total)/total:.3%}。无外部参考数据。', fontsize=10)
+fig.suptitle('耗时占比', fontsize=21, fontweight='bold', y=.97)
 args.output.parent.mkdir(parents=True, exist_ok=True)
 for suffix in ('.png', '.pdf', '.svg'):
     fig.savefig(args.output.with_suffix(suffix), dpi=220, facecolor='white')
