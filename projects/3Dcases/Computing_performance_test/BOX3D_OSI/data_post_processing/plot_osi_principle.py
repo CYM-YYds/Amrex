@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""绘制简化的中文 D2Q9 OSI 原理动画：每个时间步只展示读取、碰撞、写回三帧。
+"""绘制简化的中文 D2Q9 OSI 原理动画：每个时间步展示读取、碰撞、写回、边界处理。
 
-7×7 存储环内只跟踪一个节点（--node，默认中心）。读取位置随相位 p 逐步外移，
-越过边界后从对侧回绕，每 7 步回到初始位置。教学示意，不读取求解器数据。
+7×7 存储环无 ghost 层，最外一圈是边界层。只跟踪一个节点（--node，默认右边界 (6,4)）。
+读取位置随相位 p 逐步移动，越过边界后从对侧回绕，每 7 步回到初始位置。
+相位加一后，边界层节点“来自域外”的分量实际是对侧边界节点写入的错误值（红色），
+由边界处理（物理边界条件或通信）覆盖。教学示意，不读取求解器数据。
 """
 
 import argparse
@@ -26,8 +28,8 @@ N = 7
 # 编号只是标签，不影响寻址规律。
 E = np.array([(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1),
               (1, 1), (-1, 1), (-1, -1), (1, -1)])
-BLUE, ORANGE, INK, GRAY, MUTED = '#1f77b4', '#d9822b', '#263547', '#d3d8dc', '#8a96a1'
-STAGES = ['读取', '碰撞', '写回']
+BLUE, RED, INK, GRAY, MUTED = '#1f77b4', '#d62728', '#263547', '#d3d8dc', '#8a96a1'
+STAGES = ['读取', '碰撞', '写回', '边界处理']
 
 
 def osi_coord(logical, velocity, phase):
@@ -46,9 +48,30 @@ def read_cells(node, p):
 
 
 def wrapped(node, p):
-    """各分量在本周期内是否已越过 7×7 边界（按 p mod 7 判断，t+7 与 t 一致）。"""
+    """各分量的存储地址在本周期内是否已越过 7×7 边界（按 p mod 7，t+7 与 t 一致）。
+    只用于说明文字；地址回绕本身不代表值错误。"""
     raw = node - (p % N) * E
     return ((raw < 0) | (raw >= N)).any(axis=1)
+
+
+def wrong(node):
+    """相位加一后哪些分量是错误值：上游节点 x − e_q 在 7×7 之外，槽内实为对侧边界节点写入的值。"""
+    up = node - E
+    return ((up < 0) | (up >= N)).any(axis=1)
+
+
+def check_wrong_set():
+    """全域模拟一次“碰撞写回 → 相位加一”：槽内记录写入者，核对错误分量恰为最外层的域外方向。"""
+    for p in range(N):
+        writer = {}
+        for x in np.ndindex(N, N):
+            for q in range(9):
+                writer[(tuple(read_cells(np.array(x), p)[q]), q)] = x
+        bad = {(x, q) for x in np.ndindex(N, N) for q in range(9)
+               if writer[(tuple(read_cells(np.array(x), p + 1)[q]), q)] != tuple(np.array(x) - E[q])}
+        expect = {(x, q) for x in np.ndindex(N, N) for q in np.flatnonzero(wrong(np.array(x)))}
+        assert bad == expect and len(bad) == 80
+        assert all(min(x) == 0 or max(x) == N - 1 for x, _ in bad)
 
 
 def validate(node):
@@ -57,10 +80,12 @@ def validate(node):
         for q, e in enumerate(E):
             ref = [osi_coord(node[a], e[a], p) for a in range(2)]
             assert np.array_equal(read_cells(node, p)[q], ref)
-    assert np.array_equal(read_cells(node, 1), node - E)
+    assert np.array_equal(read_cells(node, 1), (node - E) % N)
     assert all(np.array_equal(read_cells(node, p), read_cells(node, p + N)) for p in range(N))
     assert (read_cells(node, N) == node).all()
-    return '图中读取位置与 OsiIndex.H 寻址一致；首步为相邻节点；7 步一周期'
+    check_wrong_set()
+    return ('图中读取位置与 OsiIndex.H 寻址一致；首步为相邻节点（模 7）；7 步一周期；'
+            '每步错误分量 80 个，恰为最外层节点来自域外的方向')
 
 
 # 背景箭头与高亮箭头共用同一几何：起点离节点中心 R0，总长 L（含箭头头部）。
@@ -69,6 +94,7 @@ GRAY_W, BLUE_W = .018, .028
 # 编号统一放在格心 + LABEL_R·(−e_q) 处（尾部一侧）：轴向编号落在格边中点，对角编号落在格角，
 # 同一行/列的编号自然对齐。0 号放在 1、5 号箭头之间的空隙。
 LABEL_R = .32
+EDGE_FILL = '#f4f6f8'
 ZERO_AT = np.array([.19, .08])
 
 
@@ -98,11 +124,17 @@ def box(ax, xy, color=INK):
                            linestyle=(0, (4, 3)), zorder=5))
 
 
+def is_edge(cell):
+    return min(cell) == 0 or max(cell) == N - 1
+
+
 def lattice(ax, node):
-    """背景：7×7 节点，每个节点一个灰点和 8 个灰色方向箭头，与参考图风格一致。"""
+    """背景：7×7 节点，每个节点一个灰点和 8 个灰色方向箭头；粗框内是内部节点，框外一圈是边界层。"""
     for x in range(N):
         for y in range(N):
-            ax.add_patch(Rectangle((x, y), 1, 1, facecolor='white', edgecolor=GRAY, lw=1))
+            ax.add_patch(Rectangle((x, y), 1, 1, facecolor=EDGE_FILL if is_edge((x, y)) else 'white',
+                                   edgecolor=GRAY, lw=1))
+    ax.add_patch(Rectangle((1, 1), N - 2, N - 2, fill=False, edgecolor=INK, lw=2.4, zorder=4))
     # 跟踪节点用灰色底，但保留其格点箭头，高亮时直接在原位变色。
     ax.add_patch(Rectangle(node, 1, 1, facecolor='#a8a8a8', edgecolor=INK, lw=1.6, zorder=1))
     cells = [(x, y) for x in range(N) for y in range(N) for _ in range(8)]
@@ -117,83 +149,95 @@ def lattice(ax, node):
     ax.axis('off')
 
 
-def highlight_node(ax, node):
-    """跟踪节点 8 个格点箭头变蓝。"""
-    node_arrows(ax, [node] * 8, range(1, 9), BLUE, BLUE_W, 6)
-    node_dot(ax, node, BLUE, .05)
-
-
-def draw_pdfs(ax, node, p):
-    """读取/写回帧：把跟踪节点 9 个分量所在格点的对应方向箭头变蓝。"""
+def draw_pdfs(ax, node, p, red=()):
+    """把跟踪节点 9 个分量所在格点的对应方向箭头原位变色：red 中的分量为红色（错误值），其余蓝色。"""
     cells = read_cells(node, p)
+    red = {int(q) for q in red}
+    colors = [RED if q in red else BLUE for q in range(9)]
+    node_arrows(ax, cells[1:], range(1, 9), colors[1:], BLUE_W, 6)
+    node_dot(ax, cells[0], BLUE, .05)
     if p % N == 0:
-        # 9 个分量都在跟踪节点自身。
+        # 9 个分量都在跟踪节点自身：编号放在各自箭头尖端外侧。
         box(ax, node)
-        highlight_node(ax, node)
         c = node + .5
         for q in range(1, 9):
-            # 9 个分量挤在同一格：编号放在各自箭头尖端外侧，同样按 e_q 方格对齐。
-            label(ax, c + .40 * E[q], q, size=10, pad=False)
+            label(ax, c + .40 * E[q], q, colors[q], size=10, pad=False)
         label(ax, c + ZERO_AT, 0, size=9, pad=False)
         return
-    node_arrows(ax, cells[1:], range(1, 9), BLUE, BLUE_W, 6)
-    for q, w in enumerate(wrapped(node, p)):
-        box(ax, cells[q], ORANGE if w else INK)
+    for q in range(9):
+        box(ax, cells[q], colors[q] if q in red else INK)
         c = cells[q] + .5
         if q == 0:
-            node_dot(ax, cells[q], BLUE, .05)
             label(ax, c + ZERO_AT, 0, size=12, pad=False)
         else:
-            label(ax, c - LABEL_R * E[q], q)
-
-
+            label(ax, c - LABEL_R * E[q], q, colors[q])
 def draw_collision(ax, node):
-    """碰撞帧：在跟踪节点内完成，其 8 个格点箭头变蓝；编号标在相邻格点靠近跟踪节点一侧。"""
-    highlight_node(ax, node)
+    """碰撞帧：在跟踪节点内完成，其 8 个格点箭头变蓝。
+    内部节点编号标在相邻格靠近节点一侧；边界层节点外侧没有格，编号改放在箭头尖端外侧。"""
+    node_arrows(ax, [node] * 8, range(1, 9), BLUE, BLUE_W, 6)
+    node_dot(ax, node, BLUE, .05)
     c = node + .5
+    if is_edge(node):
+        for q in range(1, 9):
+            label(ax, c + .40 * E[q], q, size=10, pad=False)
+        return
     for q in range(1, 9):
         label(ax, c + E[q] - LABEL_R * E[q], q)
 
 
 def read_caption(node, k, p):
-    if k == 0:
-        return '从相邻节点读取 9 个分布函数'
     if k == N:
         return '与时间步 t 完全相同：读取位置每 7 步循环一次'
     if p % N == 0:
         return '9 个分布函数都位于跟踪节点自身'
     now, before = wrapped(node, p), wrapped(node, p - 1)
+    if k == 0:
+        return '读取 9 个分布函数（越过 7×7 边界的位置从对侧回绕）' if now.any() else '从相邻节点读取 9 个分布函数'
     if (now & ~before).any():
-        return '越过 7×7 边界的位置从对侧回绕（橙色框）'
-    if now.any():
-        return '读取位置继续移动 1 格（橙色框为已回绕）'
-    return '读取位置整体向外移动 1 格'
+        return '读取位置继续移动 1 格，越过 7×7 边界的从对侧回绕'
+    return '读取位置继续移动 1 格'
+
+
+def boundary_caption(node, sub):
+    n = int(wrong(node).sum())
+    if n == 0:
+        return '内部节点：9 个分量都来自真实邻居，无需边界处理'
+    if sub == 0:
+        return f'迁移后跟踪节点有 {n} 个分量来自域外，读到的是对侧回绕的错误值（红）'
+    return '边界处理覆盖错误值：物理边界条件重算，或由通信传入'
 
 
 CAPTIONS = {1: '在寄存器中完成碰撞，不访问其他节点',
             2: '碰撞结果写回刚才读取的位置（同址写回）'}
 
 
-def render(node, k, stage, dpi):
+def render(node, k, stage, sub, dpi):
+    """stage 0/1/2 为读取、碰撞、写回（相位 p）；stage 3 为相位加一后的边界处理，
+    sub=0 显示错误值，sub=1 显示覆盖后。"""
     p = k + 1
     fig = plt.figure(figsize=(8, 9.2), dpi=dpi)
     fig.text(.5, .955, '时间步 t' if k == 0 else f'时间步 t + {k}',
              ha='center', fontsize=24, weight='bold', color=INK)
+    xs = [.17, .39, .61, .83]
     for i, name in enumerate(STAGES):
-        fig.text(.30 + .20 * i, .905, f'{i + 1}. {name}', ha='center', fontsize=17,
+        fig.text(xs[i], .905, f'{i + 1}. {name}', ha='center', fontsize=16,
                  color=BLUE if i == stage else '#b7bec5', weight='bold' if i == stage else 'normal')
-    for x in (.40, .60):
-        fig.text(x, .905, '→', ha='center', fontsize=17, color='#b7bec5')
+    for a, b in zip(xs, xs[1:]):
+        fig.text((a + b) / 2, .905, '→', ha='center', fontsize=16, color='#b7bec5')
     ax = fig.add_axes([.07, .15, .86, .73])
     lattice(ax, node)
     if stage == 1:
         draw_collision(ax, node)
+        caption = CAPTIONS[1]
+    elif stage == 3:
+        draw_pdfs(ax, node, p + 1, np.flatnonzero(wrong(node)) if sub == 0 else ())
+        caption = boundary_caption(node, sub)
     else:
         draw_pdfs(ax, node, p)
-    fig.text(.5, .105, read_caption(node, k, p) if stage == 0 else CAPTIONS[stage],
-             ha='center', fontsize=17, color=INK)
-    fig.text(.5, .045, '7×7：计算域（中心 3×3）加两层幽灵层；只跟踪灰色节点。'
-             '\n读取位置 = (x − p·e$_q$) mod 7，p 每个时间步加 1。',
+        caption = read_caption(node, k, p) if stage == 0 else CAPTIONS[2]
+    fig.text(.5, .105, caption, ha='center', fontsize=17, color=INK)
+    fig.text(.5, .045, '7×7 无 ghost 层：粗框内为内部节点，框外一圈为边界层（物理边界或通信边界）。'
+             '\n只跟踪灰色节点；读取位置 = (x − p·e$_q$) mod 7，p 每个时间步加 1。',
              ha='center', fontsize=11.5, color=MUTED, linespacing=1.6)
     return fig
 
@@ -202,14 +246,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True, help='新建的输出目录，拒绝覆盖')
     parser.add_argument('--duration', type=int, default=2400, help='每帧毫秒，10 的整数倍')
-    parser.add_argument('--node', type=int, nargs=2, default=[3, 3], metavar=('X', 'Y'),
-                        help='跟踪节点坐标，0 起算；默认中心 (3,3)，限 1..5 以免碰撞帧编号出界')
+    parser.add_argument('--node', type=int, nargs=2, default=[6, 4], metavar=('X', 'Y'),
+                        help='跟踪节点坐标，0..6；默认右边界 (6,4)。最外一圈为边界层，1..5 为内部节点')
     parser.add_argument('--dpi', type=int, default=110)
     parser.add_argument('--font', type=Path, default=Path('/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc'),
                         help='中文字体文件')
     args = parser.parse_args()
-    if not all(1 <= v <= N - 2 for v in args.node):
-        parser.error('--node 坐标须在 1..5')
+    if not all(0 <= v <= N - 1 for v in args.node):
+        parser.error('--node 坐标须在 0..6')
     node = np.array(args.node)
     if args.output.exists():
         parser.error('输出目录已存在，请使用新目录以保留旧结果')
@@ -224,9 +268,12 @@ def main():
     source = out / 'source_frames'
     source.mkdir(parents=True)
     # 时间步 t … t+6 共一个周期，再加 t+7 的读取帧展示“回到起点”。
-    timeline = [(k, s) for k in range(N) for s in range(3)] + [(N, 0)]
-    for i, (k, s) in enumerate(timeline):
-        fig = render(node, k, s, args.dpi)
+    # 边界处理阶段：有错误分量时两帧（红 → 覆盖后），内部节点一帧。
+    subs = (0, 1) if wrong(node).any() else (0,)
+    timeline = [(k, s, b) for k in range(N) for s in range(4)
+                for b in (subs if s == 3 else (0,))] + [(N, 0, 0)]
+    for i, (k, s, b) in enumerate(timeline):
+        fig = render(node, k, s, b, args.dpi)
         fig.savefig(source / f'osi.{i:04d}.png', facecolor='white')
         plt.close(fig)
     with Image.open(source / 'osi.0000.png') as im:
@@ -236,8 +283,11 @@ def main():
             '--input', str(source), '--output', str(out / 'osi_principle.gif'), '--prefix', 'osi',
             '--crop', '0', '0', str(w), str(h), '--duration', str(args.duration)]
     subprocess.run(pack, check=True)
-    manifest = {'check': check, 'frames': [{'frame': i, 'step': k, 'phase': k + 1, 'stage': STAGES[s],
-                                            'cells': read_cells(node, k + 1).tolist()} for i, (k, s) in enumerate(timeline)],
+    manifest = {'check': check,
+                'frames': [{'frame': i, 'step': k, 'stage': STAGES[s], 'phase': k + 1 + (s == 3),
+                            'cells': read_cells(node, k + 1 + (s == 3)).tolist(),
+                            'red': np.flatnonzero(wrong(node)).tolist() if s == 3 and b == 0 else []}
+                           for i, (k, s, b) in enumerate(timeline)],
                 'node': args.node, 'directions': E.tolist(), 'duration_ms': args.duration,
                 'input': '用户参考图；无求解器数据，无数值归一化',
                 'command': [sys.executable, *sys.argv]}
