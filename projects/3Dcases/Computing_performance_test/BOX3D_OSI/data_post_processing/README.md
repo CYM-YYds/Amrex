@@ -17,7 +17,7 @@ post_dir="$case_dir/data_post_processing"
 | [plot_run_performance.py](plot_run_performance.py) | 已有性能日志概览；每窗步数通过 `--window-steps` 指定 |
 | [extract_run_centerline.py](extract_run_centerline.py) | 只负责 ParaView bridge/batch 导出、来源校验及提取报告；不绘图、不选择参考数据 |
 | [pack_animation_gif.py](pack_animation_gif.py) | PNG序列选取帧段、统一裁剪、合成GIF并记录来源哈希 |
-| [plot_osi_principle.py](plot_osi_principle.py) | 中文 D2Q9 OSI 原理简化动画：7×7 无 ghost，跟踪节点每步“读取→碰撞→写回→边界处理”，读取位置回绕、7 步一循环，边界层错误分量标红后被覆盖；GIF 与逐帧 PNG |
+| [plot_osi_principle.py](plot_osi_principle.py) | 中文 D2Q9 OSI 原理简化动画：7×7 区域内中心节点每步“读取→碰撞→写回”，读取位置外移、回绕、7 步一循环；GIF、逐帧 PNG、读取帧 SVG 与总览 |
 | [convergence_logs.py](convergence_logs.py) | 内部日志解析模块，供收敛入口调用 |
 
 作业号、步数、Re 标题、路径和图例改参数，不再为每次实验复制脚本。
@@ -30,29 +30,22 @@ post_dir="$case_dir/data_post_processing"
 
 ```bash
 .venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/plot_osi_principle.py \
-  --node 6 4 --output projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/osi_principle_animation/boundary_6_4
+  --node 4 4 --output projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/osi_principle_animation/ghost_4_4
 ```
 
-按用户参考图做的简化教学动画。7×7 存储环无 ghost 层：粗框内 5×5 为内部节点，框外一圈为边界层
-（物理边界或通信边界）。只跟踪一个节点，每个时间步依次画“读取 → 碰撞 → 写回 → 边界处理”。
-读取位置为 `(x − p·e_q) mod 7`，p 每步加 1：读取位置逐步移动，越界后从对侧回绕，
-t+7 与 t 相同，每 7 步循环一次。
+按用户参考图做的简化教学动画：7×7 区域（中心 3×3 计算域加两层幽灵层）只跟踪一个节点，
+每个时间步依次画“读取 → 碰撞 → 写回”三帧。读取位置为 `(x − p·e_q) mod 7`，p 每步加 1：
+读取位置逐步外移，越界后从对侧回绕（橙色框），t+6 时 9 个分量都在跟踪节点自身，
+t+7 与 t 相同，每 7 步循环一次。`--node X Y` 选跟踪节点（0 起算，限 1..5，默认中心 3 3）；
+取偏离中心的节点（如右上 4 4）时各方向回绕的时间步不同，回环更明显。
 
-相位加一后，边界层节点“来自域外”的分量（上游 `x − e_q` 在 7×7 之外）读到的是对侧边界节点
-写入的错误值，标红；下一帧由边界处理覆盖、恢复蓝色。存储地址回绕本身不代表值错误：内部节点
-的分量即使地址回绕，读到的也是真实邻居写入的值。绘图前全域模拟核对：每步错误分量恰为 80 个，
-全部是最外层节点来自域外的方向（边上节点 3 个、角点 5 个）。
-
-`--node X Y` 选跟踪节点（0..6，默认右边界 6 4）；角点（如 6 6）有 5 个红色分量；内部节点
-（1..5）没有红色分量，边界处理阶段只画一帧说明。默认 (6,4) 共 36 帧、880×1012、每帧 2400 ms，
-一轮 86.4 秒；`--duration` 调帧时长，`--font` 指定中文字体。输出 `osi_principle.gif`、逐帧 PNG
-（`frames/`；`source_frames/` 是合成器读取的同像素来源）和 `manifest.json`（逐帧位置、红色分量与命令）。
+默认 22 帧（t…t+6 各 3 帧，再加 t+7 的读取帧）、880×1012、每帧 2400 ms，一轮 52.8 秒；
+`--duration` 调帧时长，`--font` 指定中文字体。输出 `osi_principle.gif`、逐帧 PNG（`frames/`；
+`source_frames/` 是合成器读取的同像素来源）和 `manifest.json`（逐帧读取位置与命令）。
 
 方向编号沿用参考图（1 右、2 上、3 左、4 下、5–8 为对角），与 `LbmLattice.H` 内部排列不同，
 只作标签。绘图前核对图中位置与 `OsiIndex.H::osi_coord_precomputed` 一致；这是图示检查，
-不读取流场数据，也不构成求解器数值验证。生产代码保留两层 ghost，并在相位提交前同步 ghost、
-提交后重建物理边界（见 `docs/osi_algorithm_and_architecture.md` 第 4 节）；本图把这两类覆盖合并为
-最外层的“边界处理”示意。
+不读取流场数据，也不构成求解器数值验证。
 
 ## job622356/B 涡量动画
 
