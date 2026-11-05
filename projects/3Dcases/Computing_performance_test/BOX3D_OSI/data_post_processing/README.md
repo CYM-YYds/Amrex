@@ -17,11 +17,42 @@ post_dir="$case_dir/data_post_processing"
 | [plot_run_performance.py](plot_run_performance.py) | 已有性能日志概览；每窗步数通过 `--window-steps` 指定 |
 | [extract_run_centerline.py](extract_run_centerline.py) | 只负责 ParaView bridge/batch 导出、来源校验及提取报告；不绘图、不选择参考数据 |
 | [pack_animation_gif.py](pack_animation_gif.py) | PNG序列选取帧段、统一裁剪、合成GIF并记录来源哈希 |
+| [plot_osi_principle.py](plot_osi_principle.py) | 中文 D2Q9 OSI 原理图：7×7 分配盒、中央 3×3 valid、两层 ghost、存储回绕与非周期壁面重建；逐帧 PNG、关键帧 SVG/PDF、GIF 与来源记录 |
 | [convergence_logs.py](convergence_logs.py) | 内部日志解析模块，供收敛入口调用 |
 
 作业号、步数、Re 标题、路径和图例改参数，不再为每次实验复制脚本。
 三个绘图入口使用明确的 `--output`；以下示例使用独立 `results/` 路径。
 重复使用同一输出路径会覆盖已有文件，运行时应选新名称。
+
+## OSI 原理动画
+
+从仓库根执行，输出目录必须尚不存在：
+
+```bash
+.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/plot_osi_principle.py \
+  --output projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/osi_principle_animation/wall_final \
+  --steps 7 --subframes 3 --duration 350 --dpi 100
+```
+
+默认产生 126 帧、1400×1000 的中文 PNG，以及一轮 44.1 秒、无限循环的 GIF。
+`frames/` 是最终逐帧图；`keyframes/` 是相位 3→4 的六阶段 PNG/SVG/PDF；
+`osi_six_stages.png` 是六阶段总览，`osi_frames_and_sources.zip` 包含最终逐帧图、关键帧、GIF与源码快照。
+每帧耗时通过 `--duration` 调整；`--subframes` 控制插值帧数；`--font` 可指定中文字体文件。
+
+这是用户参考图及本算例源码导出的教学示意，不读取求解器流场数据，不做数值归一化。
+方向编号采用 `LbmLattice.H` 的 D2Q9 排列 0；七个演示步对应相位 1→8，
+不对应生产运行步数。图中颜色只表示读、碰撞、写回和边界处理阶段。
+
+逻辑坐标与原始存储并排展示：valid 的边缘节点属于物理边界，外围两层属于域外 ghost；
+存储图底色仅作初始分区参照，槽位不永久属于某个逻辑区域。
+本图设定单块物理域、四壁静止、非周期，不从对侧补值；碰撞后检查通信阶段、提交相位，
+再用新相位的内部参考进行非平衡外推。只高亮右壁代表节点，其余壁面与角点同样需要重建。
+动画只突出一个代表线程；实际相位提交前，本层本次推进涉及的碰撞与必要通信须全部完成。
+7×7 的模运算表示存储地址循环；它不提供物理周期边界条件。
+
+绘图时检查 6174 个 pull 寻址恒等式、每方向的环上双射，以及相位 3→4 时 q1 的地址
+`(0,3)→(6,3)` 回绕；GIF 合成复用现有 `pack_animation_gif.py` 并核对逐帧像素。
+这些检查验证图示和地址关系，不构成生产求解器的数值正确性验收。
 
 ## job622356/B 涡量动画
 
