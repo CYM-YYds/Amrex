@@ -98,22 +98,23 @@ def box(ax, xy, color=INK):
                            linestyle=(0, (4, 3)), zorder=5))
 
 
-def lattice(ax, node):
-    """背景：7×7 节点，每个节点一个灰点和 8 个灰色方向箭头，与参考图风格一致。"""
-    for x in range(N):
-        for y in range(N):
+def lattice(ax, node, n=N):
+    """背景：n×n 节点（默认 7×7），每个节点一个灰点和 8 个灰色方向箭头，与参考图风格一致。
+    plot_ab_principle.py 复用本函数画 3×3 网格块。"""
+    for x in range(n):
+        for y in range(n):
             ax.add_patch(Rectangle((x, y), 1, 1, facecolor='white', edgecolor=GRAY, lw=1))
     # 跟踪节点用灰色底，但保留其格点箭头，高亮时直接在原位变色。
     ax.add_patch(Rectangle(node, 1, 1, facecolor='#a8a8a8', edgecolor=INK, lw=1.6, zorder=1))
-    cells = [(x, y) for x in range(N) for y in range(N) for _ in range(8)]
-    dirs = list(range(1, 9)) * (N * N)
+    cells = [(x, y) for x in range(n) for y in range(n) for _ in range(8)]
+    dirs = list(range(1, 9)) * (n * n)
     node_gray = '#e2e2e2'
     for c in cells[::8]:
         node_dot(ax, c, node_gray if c == tuple(node) else GRAY, .035)
     node_arrows(ax, [c for c in cells if c != tuple(node)],
                 [d for c, d in zip(cells, dirs) if c != tuple(node)], GRAY, GRAY_W, 3)
     node_arrows(ax, [node] * 8, range(1, 9), node_gray, GRAY_W, 3)
-    ax.set(xlim=(-.05, N + .05), ylim=(-.05, N + .05), aspect='equal')
+    ax.set(xlim=(-.05, n + .05), ylim=(-.05, n + .05), aspect='equal')
     ax.axis('off')
 
 

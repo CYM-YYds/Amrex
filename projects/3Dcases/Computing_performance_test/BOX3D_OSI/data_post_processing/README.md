@@ -18,6 +18,7 @@ post_dir="$case_dir/data_post_processing"
 | [extract_run_centerline.py](extract_run_centerline.py) | 只负责 ParaView bridge/batch 导出、来源校验及提取报告；不绘图、不选择参考数据 |
 | [pack_animation_gif.py](pack_animation_gif.py) | PNG序列选取帧段、统一裁剪、合成GIF并记录来源哈希 |
 | [plot_osi_principle.py](plot_osi_principle.py) | 中文 D2Q9 OSI 原理简化动画：7×7 区域内中心节点每步“读取→碰撞→写回”，读取位置外移、回绕、7 步一循环；GIF、逐帧 PNG、读取帧 SVG 与总览 |
+| [plot_ab_principle.py](plot_ab_principle.py) | 中文 D2Q9 传统两套网格（A-B）示意动画：左右两个 3×3 块，左块中心碰撞后向外迁移，右块周围碰撞后向中心迁移；复用 `plot_osi_principle.py` 的格点绘制 |
 | [convergence_logs.py](convergence_logs.py) | 内部日志解析模块，供收敛入口调用 |
 
 作业号、步数、Re 标题、路径和图例改参数，不再为每次实验复制脚本。
@@ -46,6 +47,21 @@ t+7 与 t 相同，每 7 步循环一次。`--node X Y` 选跟踪节点（0 起�
 方向编号沿用参考图（1 右、2 上、3 左、4 下、5–8 为对角），与 `LbmLattice.H` 内部排列不同，
 只作标签。绘图前核对图中位置与 `OsiIndex.H::osi_coord_precomputed` 一致；这是图示检查，
 不读取流场数据，也不构成求解器数值验证。
+
+## 传统两套网格（A-B）示意动画
+
+从仓库根执行，输出目录必须尚不存在：
+
+```bash
+.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/plot_ab_principle.py \
+  --output projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/ab_principle_animation/two_blocks
+```
+
+左右两个 3×3 网格块同步展示“碰撞 → 迁移”两帧：左块中心节点碰撞后 8 个分量沿 `e_q` 迁移到相邻节点；
+右块周围 8 个节点各自碰撞（浅蓝），指向中心的分量（深蓝）迁移到中心节点。底部注释说明读 A 写 B、
+每步交换。格点风格、箭头几何、方向编号与 OSI 原理动画一致（从 `plot_osi_principle.py` 导入），
+GIF 用 `pack_animation_gif.py --keep-colors` 合成。默认 2 帧、1320×792、每帧 2400 ms；
+`--duration`、`--dpi`、`--font` 同上。不读取流场数据，不做数值归一化。
 
 ## job622356/B 涡量动画
 
