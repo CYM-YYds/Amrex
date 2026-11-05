@@ -9,7 +9,8 @@ import sys
 
 CASE = Path(__file__).resolve().parents[3]
 REPO = CASE.parents[3]
-EXP = CASE/'runs/temporary/optimization_ladder/round1'
+EXTRA = '--collision-extra' in sys.argv
+EXP = CASE/'runs/temporary/optimization_ladder'/('round2_collision' if EXTRA else 'round1')
 OUT = EXP/f'job{os.environ["CCS_JOB_ID"]}'
 OUT.mkdir()
 BUILD=EXP/'build'
@@ -51,6 +52,9 @@ MODES=[
     dict(name='05_threads',label='+ 碰撞线程 256 → 128',stream=1,interp=1,boundary=1,overlap=1,threads=128,coord=0),
     dict(name='06_coordinates',label='+ 碰撞坐标复用（现役策略）',stream=1,interp=1,boundary=1,overlap=1,threads=128,coord=1),
 ]
+if EXTRA:
+    control=dict(MODES[2],name='interp_control',label='仅插值批量（对照）',collision_batch=0)
+    MODES=[control,dict(control,name='interp_collision_batch',label='插值＋碰撞批量（实验）',collision_batch=1)]
 (OUT/'modes.json').write_text(json.dumps(MODES,ensure_ascii=False,indent=2)+'\n')
 (OUT/'common.json').write_text(json.dumps(COMMON,indent=2)+'\n')
 
@@ -58,7 +62,7 @@ def run(mode, prefix, extra=()):
     directory=OUT/f'{prefix}_{mode["name"]}'
     directory.mkdir()
     (directory/'chk00128000').symlink_to(source,target_is_directory=True)
-    envargs=[f'LADDER_INTERP={mode["interp"]}',f'LADDER_BOUNDARY={mode["boundary"]}',f'LADDER_THREADS={mode["threads"]}',f'LADDER_COORD={mode["coord"]}']
+    envargs=[f'LADDER_INTERP={mode["interp"]}',f'LADDER_BOUNDARY={mode["boundary"]}',f'LADDER_THREADS={mode["threads"]}',f'LADDER_COORD={mode["coord"]}',f'LADDER_COLLISION_BATCH={mode.get("collision_batch",0)}']
     command=['mpirun','-hostfile',str(OUT/'hostfile'),'-n','1','-npernode','1','-x','PATH','-x','LD_LIBRARY_PATH','--mca','plm_rsh_agent','/opt/batch/agent/tools/dstart',
              '/usr/bin/env','-u','BASH_ENV','CUDA_VISIBLE_DEVICES=0',*envargs,str(OUT/'experiment.ex'),str(OUT/'inputs'),*COMMON,
              f'checkpoint.chk_prefix={directory}/chk',f'lbm.stream_mode={mode["stream"]}',f'lbm.osi_collide_comm_overlap={mode["overlap"]}',*extra]
@@ -68,6 +72,26 @@ def run(mode, prefix, extra=()):
     with (OUT/'status.jsonl').open('a') as f: f.write(json.dumps(dict(run=directory.name,exit_code=result.returncode))+'\n')
     if result.returncode: raise RuntimeError(f'{directory}: exit {result.returncode}')
     return directory
+
+if EXTRA:
+    validation=[]
+    prior=CASE/'runs/temporary/optimization_ladder/round1/job626333/check_02_interp/chk00128064'
+    reference=prior
+    for mode in MODES:
+        directory=run(mode,'check',['max_step=128064','performance.report_int=32','checkpoint.chk_int=64','verification.final_state_check=true','verification.regrid_valid_check=true'])
+        candidate=directory/'chk00128064'
+        files=sorted(p.relative_to(reference) for p in reference.rglob('*') if p.is_file())
+        mismatches=[str(p) for p in files if not (candidate/p).is_file() or hashlib.sha256((reference/p).read_bytes()).digest()!=hashlib.sha256((candidate/p).read_bytes()).digest()]
+        validation.append(dict(mode=mode['name'],reference=str(reference),files=len(files),mismatches=mismatches))
+        (OUT/'validation.json').write_text(json.dumps(validation,indent=2)+'\n')
+        if mismatches: raise RuntimeError(f'collision batch regression mismatch: {validation[-1]}')
+        reference=candidate
+    # 同节点两对换序，每次均独立从同一checkpoint推进5000步。
+    for pair,order in enumerate((MODES,list(reversed(MODES))),1):
+        for mode in order: run(mode,f'perf_pair{pair}')
+    subprocess.run([sys.executable,str(Path(__file__).with_name('analyze.py')),str(OUT),'--collision-extra'],check=True)
+    (OUT/'completed.txt').write_text('completed\n')
+    raise SystemExit(0)
 
 # 独立于性能的真实 checkpoint 64步动态 AMR 回归；同阶段输出逐文件比对。
 reference=run(MODES[1],'check',['max_step=128064','performance.report_int=32','checkpoint.chk_int=64','verification.final_state_check=true','verification.regrid_valid_check=true'])

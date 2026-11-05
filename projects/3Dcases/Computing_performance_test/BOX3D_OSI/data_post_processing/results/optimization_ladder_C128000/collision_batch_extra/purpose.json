@@ -1,0 +1,7 @@
+{
+  "purpose": "碰撞批量另列：同节点插值批量对照与插值+碰撞批量实验",
+  "classification": "temporary controlled benchmark",
+  "retention": "保留源码、输入、程序、命令、日志、checkpoint、报告、图表与复现入口；构建对象可清理",
+  "source": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/optimization_ladder/round1/job626333/src",
+  "state": "collision_tags/cells仅由当前布局和nghost派生；BuildBoundaryWorkCache构建，原cache.clear在布局重建/清层时失效；不保存数组地址或相位"
+}

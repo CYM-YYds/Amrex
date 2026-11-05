@@ -18,6 +18,8 @@
 
 来源：job626333，whshare-agent-203；全部14次数值/性能应用退出0。最初汇总的监护标记判断错误已用原始日志恢复，未重跑计算。见[变更及验证记录](ai_changes/2026-11-05-optimization-ladder.md)、[完整报告与复现命令](../data_post_processing/results/optimization_ladder_C128000/report.md)、[PNG](../data_post_processing/results/optimization_ladder_C128000/optimization_ladder.png)、[PDF](../data_post_processing/results/optimization_ladder_C128000/optimization_ladder.pdf)、[逐窗口数据](../data_post_processing/results/optimization_ladder_C128000/windows.csv)。
 
+碰撞批量按用户确认另列为未采用实验：job626391、whshare-agent-14，同程序/同GPU两对换序，每次从同一checkpoint推进5000步。仅插值批量对照 **1793.10 MLUPS**，插值＋碰撞批量 **1606.64 MLUPS**，吞吐 **−10.40%**，total耗时 **+11.61%**；两对吞吐变化分别−10.408%/−10.389%。逐窗口/逐层工作量相同，64步动态AMR的同阶段checkpoint一致。它只与本作业对照比较，不与主图跨节点绝对数值作差。见[额外实验报告](../data_post_processing/results/optimization_ladder_C128000/collision_batch_extra/report.md)、[PNG](../data_post_processing/results/optimization_ladder_C128000/collision_batch_extra/collision_batch_extra.png)、[PDF](../data_post_processing/results/optimization_ladder_C128000/collision_batch_extra/collision_batch_extra.pdf)。
+
 本页记录的运行均采用 BGK 碰撞模型，GPU 均为 NVIDIA A100。分项与总耗时单位为 s；MLUPS 的统计窗口见各节说明。
 
 ## Jaber A5 与本项目对照

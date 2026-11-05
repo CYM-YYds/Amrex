@@ -1,0 +1,80 @@
+--- a/src/AmrCoreLBM.H
++++ b/src/AmrCoreLBM.H
+@@ -48,6 +48,9 @@
+     const amrex::Box& box() const noexcept { return region; }
+ };
+ struct BoundaryWorkCache {
++    // 碰撞实验缓存由当前状态布局派生，仅存几何与索引；随原缓存一起失效。
++    amrex::TagVector<BoundaryWorkTag> collision_tags;
++    amrex::Long collision_cells = 0;
+     amrex::TagVector<BoundaryWorkTag> advance_tags;
+     amrex::TagVector<BoundaryWorkTag> repair_tags;
+     amrex::Long full_cells = 0;
+@@ -55,6 +58,8 @@
+     amrex::Long repair_cells = 0;
+ 
+     void clear() {
++        collision_tags.undefine();
++        collision_cells = 0;
+         advance_tags.undefine();
+         repair_tags.undefine();
+         full_cells = advance_cells = repair_cells = 0;
+--- a/src/AmrCoreLBM_amr.cpp
++++ b/src/AmrCoreLBM_amr.cpp
+@@ -626,6 +626,7 @@
+         const auto is_periodic = Geom(lev).isPeriodicArray();
+         auto& cache = boundary_work_cache[lev];
+         cache.clear();
++        Vector<BoundaryWorkTag> collision_tags;
+         Vector<BoundaryWorkTag> advance_tags;
+         Vector<BoundaryWorkTag> repair_tags;
+         const bool use_osi = streamMode() == 1;
+@@ -639,6 +640,12 @@
+                                         ? osi_fab_phase_cache.at(lev).slot(mfi.index())
+                                         : -1;
+             cache.full_cells += valid_box.numPts();
++            if (ladder_option("LADDER_COLLISION_BATCH")) {
++                const Box collision_box = amrex::grow(valid_box, nghost) & Geom(lev).growPeriodicDomain(nghost);
++                collision_tags.push_back({collision_box, fab, mfi.LocalIndex(), phase_index});
++                cache.collision_cells += collision_box.numPts();
++            }
++
+ 
+             // 边界条件同样会更新域内Fab对象中、紧邻非周期物理边界的ghost单元。
+             const Box boundary_source_box = amrex::grow(valid_box, nghost) & domain;
+@@ -677,6 +684,7 @@
+                 }
+             }
+         }
++        cache.collision_tags.define(collision_tags);
+         cache.advance_tags.define(advance_tags);
+         cache.repair_tags.define(repair_tags);
+     }
+--- a/src/AmrCoreLBM_advance.cpp
++++ b/src/AmrCoreLBM_advance.cpp
+@@ -546,7 +546,24 @@
+         collision_info.DisableDeviceSync().UseDefaultStream();
+     }
+     double finalize_start = 0.0;
+-    {
++    if (ladder_option("LADDER_COLLISION_BATCH")) {
++        // 仅实验单rank、OSI、256线程、无坐标缓存；数值公式与掩码集合沿用原路径。
++        AMREX_ALWAYS_ASSERT(use_osi && n == nghost && send_subset == -1 &&
++            ParallelDescriptor::NProcs() == 1 && !params_.ibm_enabled &&
++            ladder_option("LADDER_THREADS",256) == 256 && !ladder_option("LADDER_COORD"));
++        const auto& cache = boundary_work_cache.at(lev);
++        const auto states = state_lev.arrays();
++        const auto masks = has_fine_level ? covered_mask[lev].const_arrays() : MultiArray4<const int>{};
++        const auto interfaces = has_fine_level ? interface_mask[lev].const_arrays() : MultiArray4<const int>{};
++        const auto* shifts = osi_fab_phase_cache.at(lev).data(phase);
++        amrex::ParallelFor(cache.collision_tags,
++            [=] AMREX_GPU_DEVICE(int i,int j,int k,const BoundaryWorkTag& tag) {
++                const int li=tag.local_index;
++                if (has_fine_level && masks[li](i,j,k) != 0 && interfaces[li](i,j,k) == 0) { return; }
++                collide_bgk_register_osi(i,j,k,states[li],tag.fab,shifts[tag.phase_index],omega_lev);
++            });
++        level_launch_cells = cache.collision_cells;
++    } else {
+         MFIter mfi(state_lev, collision_info);
+         for (; mfi.isValid(); ++mfi) {
+             if (send_subset >= 0 &&

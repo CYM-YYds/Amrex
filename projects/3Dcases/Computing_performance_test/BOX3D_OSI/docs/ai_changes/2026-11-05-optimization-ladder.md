@@ -52,3 +52,17 @@
 最初汇总错误地强制要求监护器的 `completion_seen=true`，导致调度器作业末尾报错；OSI应用在监护器最后轮询前退出，原始日志已含finalized且应用/启动器退出码均0。已改为核对退出码、原始finalized与完整窗口并从既有日志恢复汇总，无重跑、无改写原退出记录；保留 `626333-submit.log`、原始监护记录和 `postprocess_recovery.json`。
 
 保留输入、命令、源快照、源码差异、程序指纹、构建日志、原始运行日志、退出状态、回归checkpoint、报告与图表。构建对象属于可清理中间产物，原始checkpoint只读链接，不在本次清理范围。
+
+## 碰撞批量另列补测
+
+用户确认主图按已采用优化累加、碰撞批量单列。扩展同一prepare/run/analyze入口的 `--collision-extra`，提交仍用原submit入口加 `LADDER_EXTRA=1`，不复制新的提交脚本。
+
+从job626333冻结源码扩展临时碰撞任务缓存：只保存grow(valid,nghost)与周期扩域交集、Fab几何、本地/phase索引；与现有布局缓存一起构建/clear，阶段执行时才获取状态、covered/interface和当前phase。复用现有TagVector和原碰撞公式/筛选/阶段末同步，不改正式求解器，也不新增生产开关。任务建表计入实际regrid时间。仅支持本轮单rank、OSI、256线程、无坐标复用的实验配置。
+
+两方案均启用插值批量，边界优化/通信隐藏关闭，其他条件沿用主图。作业626391，whshare-agent-14，同节点同程序同GPU两对换序，各次独立从C128000恢复推进5000步。不用与主图节点不同的绝对MLUPS作差。
+
+新程序构建通过；64步真实checkpoint动态AMR回归中，新程序对照的9文件与主图冻结对照一致，碰撞批量实验的9文件与本作业对照一致。扩展后的共享分析入口回读主图原始日志，七行统计、工作量和相邻变化与原报告逐值一致。
+
+六次应用（两次数值、四次性能）全部退出0，作业生成completed标记。两组各20个500步窗口，平均MLUPS分别为对照1793.10、插值＋碰撞批量1606.64，吞吐下降10.40%，累计total耗时增加11.61%。两对吞吐变化分别为−10.408%和−10.389%，逐窗口/逐层calls、launch_cells相同，有效更新量在打印精度内相同。仅本配置两对测量，不外推其他网格、线程数、精度或多GPU。
+
+正式路径和已采用优化主图保持不变；碰撞批量作为未采用实验单独展示。[额外实验报告](../../data_post_processing/results/optimization_ladder_C128000/collision_batch_extra/report.md)、[额外实验图](../../data_post_processing/results/optimization_ladder_C128000/collision_batch_extra/collision_batch_extra.png)。完整原始材料位于 `runs/temporary/optimization_ladder/round2_collision/job626391/`；源码、程序、命令、输入、日志、checkpoint与生成入口保留，仅清理本轮复制的构建对象。Shell/Python语法、文档链接及源文件diff检查通过。

@@ -16,4 +16,6 @@ module purge
 module load mpi/hmpi/1.2.0_bs2.4.0_sp1 compilers/cuda/12.8.0 compilers/gcc/11.3.0
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 REPO_DIR="$(git -C "$CASE_DIR" rev-parse --show-toplevel)"
-exec "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/temporary/optimization_ladder/run.py"
+ARGS=()
+if [[ "${LADDER_EXTRA:-0}" == 1 ]]; then ARGS+=(--collision-extra); fi
+exec "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/temporary/optimization_ladder/run.py" "${ARGS[@]}"

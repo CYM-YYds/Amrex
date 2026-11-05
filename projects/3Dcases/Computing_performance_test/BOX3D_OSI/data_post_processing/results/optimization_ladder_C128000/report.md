@@ -29,3 +29,5 @@ job626333全部14次应用退出0；最初汇总对guard completion_seen的判�
 ```bash
 .venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/scripts/temporary/optimization_ladder/analyze.py /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/optimization_ladder/round1/job626333 --output-dir /home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/results/optimization_ladder_C128000
 ```
+
+用户确认碰撞批量作为额外实验单列，未纳入上述已采用优化累加。见[额外实验报告](collision_batch_extra/report.md)与[对照图](collision_batch_extra/collision_batch_extra.png)，不同节点作业的绝对MLUPS不直接作差。
