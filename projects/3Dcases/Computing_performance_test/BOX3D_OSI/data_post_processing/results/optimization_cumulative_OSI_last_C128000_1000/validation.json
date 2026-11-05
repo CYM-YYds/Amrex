@@ -1,0 +1,182 @@
+[
+  {
+    "mode": "01_batch",
+    "scope": "all valid including covered; active separately",
+    "levels": [
+      [
+        "0",
+        "0",
+        "0"
+      ],
+      [
+        "1",
+        "0",
+        "0"
+      ],
+      [
+        "2",
+        "0",
+        "0"
+      ]
+    ],
+    "exact_zero": true
+  },
+  {
+    "mode": "02_boundary",
+    "scope": "all valid including covered; active separately",
+    "levels": [
+      [
+        "0",
+        "0",
+        "0"
+      ],
+      [
+        "1",
+        "0",
+        "0"
+      ],
+      [
+        "2",
+        "0",
+        "0"
+      ]
+    ],
+    "exact_zero": true
+  },
+  {
+    "mode": "03_threads",
+    "scope": "all valid including covered; active separately",
+    "levels": [
+      [
+        "0",
+        "0",
+        "0"
+      ],
+      [
+        "1",
+        "0",
+        "0"
+      ],
+      [
+        "2",
+        "0",
+        "0"
+      ]
+    ],
+    "exact_zero": true
+  },
+  {
+    "mode": "04_OSI",
+    "scope": "all valid including covered; active separately",
+    "levels": [
+      [
+        "0",
+        "0",
+        "0"
+      ],
+      [
+        "1",
+        "0",
+        "0"
+      ],
+      [
+        "2",
+        "0",
+        "0"
+      ]
+    ],
+    "exact_zero": true
+  },
+  {
+    "mode": "01_batch",
+    "step": 129000,
+    "scope": "all valid including covered; active separately",
+    "levels": [
+      [
+        "0",
+        "0",
+        "0"
+      ],
+      [
+        "1",
+        "0",
+        "0"
+      ],
+      [
+        "2",
+        "0",
+        "0"
+      ]
+    ],
+    "exact_zero": true
+  },
+  {
+    "mode": "02_boundary",
+    "step": 129000,
+    "scope": "all valid including covered; active separately",
+    "levels": [
+      [
+        "0",
+        "0",
+        "0"
+      ],
+      [
+        "1",
+        "0",
+        "0"
+      ],
+      [
+        "2",
+        "0",
+        "0"
+      ]
+    ],
+    "exact_zero": true
+  },
+  {
+    "mode": "03_threads",
+    "step": 129000,
+    "scope": "all valid including covered; active separately",
+    "levels": [
+      [
+        "0",
+        "0",
+        "0"
+      ],
+      [
+        "1",
+        "0",
+        "0"
+      ],
+      [
+        "2",
+        "0",
+        "0"
+      ]
+    ],
+    "exact_zero": true
+  },
+  {
+    "mode": "04_OSI",
+    "step": 129000,
+    "scope": "all valid including covered; active separately",
+    "levels": [
+      [
+        "0",
+        "0",
+        "0"
+      ],
+      [
+        "1",
+        "0",
+        "0"
+      ],
+      [
+        "2",
+        "0",
+        "0"
+      ]
+    ],
+    "exact_zero": true
+  }
+]

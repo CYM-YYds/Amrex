@@ -20,8 +20,9 @@ parser.add_argument('run_dir',type=Path)
 parser.add_argument('--output-dir',type=Path)
 parser.add_argument('--collision-extra',action='store_true')
 parser.add_argument('--independent',action='store_true')
+parser.add_argument('--osi-last',action='store_true')
 args=parser.parse_args()
-assert not (args.collision_extra and args.independent)
+assert sum((args.collision_extra,args.independent,args.osi_last))<=1
 out=args.run_dir.resolve()
 dest=args.output_dir.resolve() if args.output_dir else out
 dest.mkdir(parents=True,exist_ok=True)
@@ -57,7 +58,7 @@ for mode,directory in runs:
             values={k:float(v) for k,v in re.findall(r'(\w+)=([-+\deE.]+)',line)}
             step=int(re.match(r'step(\d+)',line).group(1))
             assert all(math.isfinite(v) for v in values.values()),line
-            assert values['steps']==500, line
+            assert values['steps']==(100 if args.osi_last else 500), line
             values.update(step=step,mode=mode['name'])
             if args.collision_extra or args.independent: values['run']=directory.name
             values['weighted_updates']=values['MLUPS_total']*values['total']*1e6
@@ -72,7 +73,7 @@ for mode,directory in runs:
             counts.pop('boundary_launch_cells',None)
             counts['step']=int(re.match(r'step(\d+)',line).group(1))
             work_counts.append(counts)
-    assert [p['step'] for p in parsed]==list(range(128500,133001,500)), directory
+    assert [p['step'] for p in parsed]==(list(range(128100,129001,100)) if args.osi_last else list(range(128500,133001,500))), directory
     total=sum(p['total'] for p in parsed)
     updates=sum(p['weighted_updates'] for p in parsed)
     perwindow=[p['MLUPS_total'] for p in parsed]
@@ -117,15 +118,17 @@ if args.collision_extra:
         updates=sum(r['weighted_updates'] for r in samples)
         perwindow=[p['MLUPS_total'] for r in samples for p in r['windows']]
         rows.append(dict(**mode,total_s=seconds,steps=sum(r['steps'] for r in samples),weighted_updates=updates,MLUPS_total=updates/seconds/1e6,window_arithmetic_mean=statistics.mean(perwindow),window_std=statistics.stdev(perwindow),window_min=min(perwindow),window_max=max(perwindow),workload=[p for r in samples for p in r['workload']],windows=[p for r in samples for p in r['windows']],individual_runs=samples))
-reference=rows[0] if args.collision_extra or args.independent else rows[1]
-equal_key='workload_equal_to_control' if args.collision_extra or args.independent else 'workload_equal_to_OSI'
-updates_key='weighted_updates_vs_control' if args.collision_extra or args.independent else 'weighted_updates_vs_OSI'
+reference=rows[0] if args.collision_extra or args.independent or args.osi_last else rows[1]
+equal_key='workload_equal_to_control' if args.collision_extra or args.independent or args.osi_last else 'workload_equal_to_OSI'
+updates_key='weighted_updates_vs_control' if args.collision_extra or args.independent or args.osi_last else 'weighted_updates_vs_OSI'
 phase_keys=['collide','boundary','interp','average','comm']
 for index,row in enumerate(rows):
     row['vs_baseline']=row['MLUPS_total']/rows[0]['MLUPS_total']
     row['increment_percent']=0 if index==0 else (row['MLUPS_total']/rows[0 if args.independent else index-1]['MLUPS_total']-1)*100
     row[equal_key]=row['workload']==reference['workload']
     row[updates_key]=(row['weighted_updates']/reference['weighted_updates']-1)
+    if args.osi_last:
+        assert row[equal_key] and abs(row[updates_key])<1e-8,row['name']
     if args.independent:
         assert row[equal_key] and abs(row[updates_key])<1e-8, row['name']
         assert len(row['work_counts'])==10 and row['work_counts']==reference['work_counts'],row['name']
@@ -134,7 +137,7 @@ for index,row in enumerate(rows):
         for key in phase_keys: row[key+'_s']=sum(p[key] for p in row['windows'])
         row['other_s']=row['total_s']-sum(row[key+'_s'] for key in phase_keys)
         assert row['other_s']>=0,row
-(dest/'summary.json').write_text(json.dumps(dict(rows=rows,metric='sum(weighted valid updates) / sum(perf.total seconds) / 1e6; numerator reconstructed from logged MLUPS_total*total; independent confirmed total_s is mean per5000step run',window='128001-133000 per run',repeats=2 if args.collision_extra or confirmed else 1,source='624717/C checkpoint step128000; frozen cumulative-optimization source',paired_comparison=paired),ensure_ascii=False,indent=2)+'\n')
+(dest/'summary.json').write_text(json.dumps(dict(rows=rows,metric='sum(weighted valid updates) / sum(perf.total seconds) / 1e6; numerator reconstructed from logged MLUPS_total*total; independent confirmed total_s is mean per5000step run',window='128001-129000 per run' if args.osi_last else '128001-133000 per run',repeats=2 if args.collision_extra or confirmed else 1,source='624717/C checkpoint step128000; frozen cumulative-optimization source',paired_comparison=paired),ensure_ascii=False,indent=2)+'\n')
 fields=['name','label','MLUPS_total','total_s','steps','weighted_updates','vs_baseline','increment_percent','window_arithmetic_mean','window_std','window_min','window_max',equal_key,updates_key]
 if args.independent: fields+=['time_ratio','time_saved_percent']+[key+'_s' for key in phase_keys]+['other_s']
 if confirmed: fields+=['total_min_s','total_max_s']
@@ -230,6 +233,8 @@ ax.xaxis.grid(True,color='#e3eaf0');ax.set_axisbelow(True)
 for name in ('top','right','left'):ax.spines[name].set_visible(False)
 ax.tick_params(axis='y',length=0,pad=12)
 footer='输入：624717/C · checkpoint 128000（t=1000） | step 128001–133000 | 单 A100 · FLOAT · D3Q27 · C 阈值\n统计：10 × 500 步窗口累计更新量 / 累计推进耗时；括号为相对上一项变化。通信隐藏单 rank 无远端传输。'
+if args.osi_last:
+    footer='输入：624717/C checkpoint128000 | step128001–129000 | 单 A100 · FLOAT D3Q27 · 动态AMR每32步重构\n统计：10×100步累计更新量/累计推进耗时，含重网格；括号相对上一项。基线关闭平均/插值及边界批量。'
 if args.collision_extra:
     footer='输入：624717/C · checkpoint 128000 | 单 A100 · FLOAT · D3Q27 · C 阈值 · 256 线程 · 无坐标复用\n每组 2 × 5000 步，同节点换序；累计有效更新量 / 累计推进时间（含重网格）。括号相对本作业对照。'
 fig.text(.02,.025,footer,fontsize=9,color='#566675')
@@ -251,6 +256,19 @@ lines += ['', '基线为当前源码中受控撤回指定优化的版本，保�
           '', '各配置只有一次5000步测量，500步窗口不是独立重复；相邻小差异不能证明稳定加速。64步动态AMR优化回归见validation.json；本次A-B对OSI的最终DDF比较valid/active全0，详见check_00_AB/run.log。它不证明长期数值等价或收敛。',
           '', 'job626333全部14次应用退出0；最初汇总对guard completion_seen的判断过严，作业末尾报错。现以应用/启动器退出码0、原始AMReX finalized标记及完整窗口复核，已从既有日志恢复，无重跑。原始失败日志与postprocess_recovery.json保留。',
           '', '复现绘图（仓库根目录执行）：', '', '```bash', f'.venv/bin/python {Path(__file__).resolve().relative_to(repo)} {out} --output-dir {dest}', '```']
+if args.osi_last:
+    lines=['# 修订累加优化：OSI最后，1000步','',f'原始材料：{out}。节点：{(out/"node.txt").read_text().strip()}。',
+        '', '每组从624717/C checkpoint128000恢复到129000，单A100/单rank、FLOAT/D3Q27、Re1000、C阈值；动态AMR每32步重构。各组仅一次1000步，十个100步窗口。稳定场出发不代表正式收敛，也不消除短测噪声。',
+        '', '基线为A-B，关闭平均与插值批量、边界批量薄面，碰撞256线程。先累加平均插值、边界、碰撞128线程，最后切OSI。坐标复用只对OSI环形地址有效，最后一项合并OSI实现与坐标复用，不能把该增益全部归因于纯OSI切换。通信隐藏在单rank回退，本图不单列；碰撞批量仍作为历史额外实验，不采用。',
+        '', '线程开关补齐A-B路径，掩码、计算公式和浮点运算顺序不变。沿用job626450冻结源码及数值修复，不混入工作区其他修改，不代表某一完整历史提交。平均两种路径共用同一归约和GPU任务表，只改变启动粒度。',
+        '', '平均MLUPS=十窗口有效更新量之和/累计perf.total秒数/1e6，分子由打印MLUPS_total×total恢复；含重网格，排除初始化、恢复、输出和窗口报告。',
+        '', '| 累加项 | MLUPS_total | 相邻变化 | 相对基线 | total/s | 碰撞工作量与基线一致 |','|---|---:|---:|---:|---:|---|']
+    for row in rows:
+        lines.append(f'| {row["label"]} | {row["MLUPS_total"]:.2f} | {row["increment_percent"]:+.2f}% | {row["vs_baseline"]:.3f}x | {row["total_s"]:.3f} | {row[equal_key]} |')
+    lines += ['', '数值验证：每组另做64步动态AMR恢复，各组在64步和完整1000步后比较所有valid（含covered）及active DDF，结果见validation.json及各组run.log。A-B交换缓冲ghost存在残留差异，未宣称ghost全等；首轮全文件SHA失败证据另存job626485/checkpoint_byte_difference.json；同阶段完整valid比较见该目录same_stage_valid_comparison.json。checkpoint保存前在计时外统一执行完整平均和有限值检查，末尾不重复ComputeMacro；A-B与OSI的所有valid比较均在完整平均后进行。工程检查不等于长期物理等价或收敛证明。',
+        '', '100步窗口不是独立重复，小幅差异不能证明稳定加速；不能把前轮5000步结果与本作业1000步结果直接作差归因。',
+        '', '[主图PNG](optimization_ladder.png) · [PDF](optimization_ladder.pdf) · [逐窗口CSV](windows.csv)',
+        '', '复现绘图（仓库根）：','','```bash',f'.venv/bin/python {Path(__file__).resolve().relative_to(repo)} {out} --osi-last --output-dir {dest}','```']
 if args.collision_extra:
     lines=['# 碰撞批量提交：额外实验','',f'原始材料：{out}。节点：{(out/"node.txt").read_text().strip()}。程序、源码差异、输入、实际命令、原始日志和退出状态均保留。',
         '', '从主图job626333冻结源码扩展，正式源码不改。仅比较已启用插值批量时逐Fab碰撞与跨Fab批量碰撞；均为256线程、无坐标复用、边界优化关闭、通信重叠关闭，其余参数与主图一致。',

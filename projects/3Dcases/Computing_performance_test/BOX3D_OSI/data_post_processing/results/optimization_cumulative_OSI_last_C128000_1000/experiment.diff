@@ -1,0 +1,59 @@
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -338,6 +338,8 @@
+     }
+ 
+     if (params.chk_int > 0 && step % params.chk_int == 0) {
++        lid.ComputeMacro();
++        lid.ValidateInitializedState("CheckpointComparison");
+         lid.WriteCheckpoint(step, cur_time);
+     }
+ }
+--- a/src/AmrCoreLBM_advance.cpp
++++ b/src/AmrCoreLBM_advance.cpp
+@@ -652,10 +652,17 @@
+                             collide(i, j, k, state, s, Ft, tau_lev, dt, hi);
+                         });
+                 } else {
+-                    amrex::ParallelFor(
++                    if (ladder_option("LADDER_THREADS",256)==128) {
++ amrex::ParallelFor<128>(
+                         bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                             collide_bgk_register(i, j, k, state, omega_lev);
+                         });
++} else {
++ amrex::ParallelFor<256>(
++                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
++                            collide_bgk_register(i, j, k, state, omega_lev);
++                        });
++}
+                 }
+             } else {
+                 if (use_osi) {
+@@ -728,7 +735,8 @@
+                             collide(i, j, k, state, s, Ft, tau_lev, dt, hi);
+                         });
+                 } else {
+-                    amrex::ParallelFor(
++                    if (ladder_option("LADDER_THREADS",256)==128) {
++ amrex::ParallelFor<128>(
+                         bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
+                             if (has_fine_level && covered(i, j, k) != 0 &&
+                                 interface(i, j, k) == 0) {
+@@ -736,6 +744,16 @@
+                             }
+                             collide_bgk_register(i, j, k, state, omega_lev);
+                         });
++} else {
++ amrex::ParallelFor<256>(
++                        bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) {
++                            if (has_fine_level && covered(i, j, k) != 0 &&
++                                interface(i, j, k) == 0) {
++                                return;
++                            }
++                            collide_bgk_register(i, j, k, state, omega_lev);
++                        });
++}
+                 }
+             }
+             if (uniform_sample_active) {

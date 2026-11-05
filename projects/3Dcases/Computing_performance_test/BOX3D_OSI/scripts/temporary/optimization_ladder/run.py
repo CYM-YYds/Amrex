@@ -3,6 +3,7 @@ from pathlib import Path
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -11,8 +12,9 @@ CASE = Path(__file__).resolve().parents[3]
 REPO = CASE.parents[3]
 EXTRA = '--collision-extra' in sys.argv
 INDEPENDENT = '--independent' in sys.argv
-assert not (EXTRA and INDEPENDENT)
-EXP = CASE/'runs/temporary/optimization_ladder'/('round3_independent' if INDEPENDENT else 'round2_collision' if EXTRA else 'round1')
+OSI_LAST = '--osi-last' in sys.argv
+assert sum((EXTRA, INDEPENDENT, OSI_LAST)) <= 1
+EXP = CASE/'runs/temporary/optimization_ladder'/('round4_osi_last_1000' if OSI_LAST else 'round3_independent' if INDEPENDENT else 'round2_collision' if EXTRA else 'round1')
 OUT = EXP/f'job{os.environ["CCS_JOB_ID"]}'
 RECHECK = '--recheck' in sys.argv
 BUILD=EXP/'build'
@@ -67,6 +69,15 @@ if INDEPENDENT:
         dict(base,name='03_threads',label='仅碰撞128线程',threads=128),
         dict(base,name='04_coordinates',label='仅碰撞坐标复用',coord=1),
         dict(base,name='05_all',label='全部优化开启',interp=1,average=1,boundary=1,threads=128,coord=1)]
+if OSI_LAST:
+    COMMON=[value.replace('max_step=133000','max_step=129000').replace('performance.report_int=500','performance.report_int=100') for value in COMMON]
+    base=dict(name='00_AB',label='A-B 基线',stream=0,interp=0,average=0,boundary=0,overlap=0,threads=256,coord=0)
+    MODES=[base,
+        dict(base,name='01_batch',label='+ 平均与插值批量',interp=1,average=1),
+        dict(base,name='02_boundary',label='+ 边界批量薄面、直接构面',interp=1,average=1,boundary=1),
+        dict(base,name='03_threads',label='+ 碰撞256→128线程',interp=1,average=1,boundary=1,threads=128)]
+    # 最后一步的OSI坐标策略在提交前根据展示方案确定。
+    MODES.append(dict(MODES[-1],name='04_OSI',label='+ OSI（含坐标复用）',stream=1,coord=1))
 if RECHECK:
     assert json.loads((OUT/'modes.json').read_text())==MODES
     assert json.loads((OUT/'common.json').read_text())==COMMON
@@ -103,6 +114,39 @@ if RECHECK:
         finally:
             monitor.terminate();monitor.wait(timeout=15)
     (OUT/'recheck_complete.txt').write_text('reverse matrix completed; first matrix retained\n')
+    raise SystemExit(0)
+
+if OSI_LAST:
+    # checkpoint写在ComputeMacro之前；关闭末尾额外平均，确保比较处于同一阶段。
+    validation=[]
+    reference=None
+    for mode in MODES:
+        checks=['max_step=128064','performance.report_int=32','checkpoint.chk_int=64','verification.final_state_check=false','verification.regrid_valid_check=true']
+        if reference is not None:
+            checks.append(f'verification.ddf_reference_checkpoint={reference}')
+        directory=run(mode,'check',checks)
+        candidate=directory/'chk00128064'
+        if reference is not None:
+            # A-B交换缓冲的ghost可带无效残留；用实际valid/active逐值比较，不能用全文件SHA冒充数值比较。
+            log=(directory/'run.log').read_text()
+            norms=re.findall(r'ddf_cell_norm_level: lev=(\d+).*?valid_linf=([^ ]+).*?active_linf=([^ ]+)',log)
+            assert len(norms)==3 and all(float(valid)==0 and float(active)==0 for _,valid,active in norms),directory
+            validation.append(dict(mode=mode['name'],scope='all valid including covered; active separately',levels=norms,exact_zero=True))
+            (OUT/'validation.json').write_text(json.dumps(validation,indent=2)+'\n')
+        if mode['stream']==0: reference=candidate
+    reference=None
+    for mode in MODES:
+        final=['checkpoint.chk_int=1000','verification.final_state_check=false']
+        if reference is not None: final.append(f'verification.ddf_reference_checkpoint={reference}')
+        directory=run(mode,'perf',final)
+        if reference is not None:
+            norms=re.findall(r'ddf_cell_norm_level: lev=(\d+).*?valid_linf=([^ ]+).*?active_linf=([^ ]+)',(directory/'run.log').read_text())
+            assert len(norms)==3 and all(float(valid)==0 and float(active)==0 for _,valid,active in norms),directory
+            validation.append(dict(mode=mode['name'],step=129000,scope='all valid including covered; active separately',levels=norms,exact_zero=True))
+            (OUT/'validation.json').write_text(json.dumps(validation,indent=2)+'\n')
+        if mode['stream']==0: reference=directory/'chk00129000'
+    subprocess.run([sys.executable,str(Path(__file__).with_name('analyze.py')),str(OUT),'--osi-last'],check=True)
+    (OUT/'completed.txt').write_text('completed\n')
     raise SystemExit(0)
 
 if EXTRA or INDEPENDENT:

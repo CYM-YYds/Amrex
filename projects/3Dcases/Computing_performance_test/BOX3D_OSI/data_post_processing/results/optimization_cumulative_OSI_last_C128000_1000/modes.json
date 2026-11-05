@@ -1,0 +1,57 @@
+[
+  {
+    "name": "00_AB",
+    "label": "A-B 基线",
+    "stream": 0,
+    "interp": 0,
+    "average": 0,
+    "boundary": 0,
+    "overlap": 0,
+    "threads": 256,
+    "coord": 0
+  },
+  {
+    "name": "01_batch",
+    "label": "+ 平均与插值批量",
+    "stream": 0,
+    "interp": 1,
+    "average": 1,
+    "boundary": 0,
+    "overlap": 0,
+    "threads": 256,
+    "coord": 0
+  },
+  {
+    "name": "02_boundary",
+    "label": "+ 边界批量薄面、直接构面",
+    "stream": 0,
+    "interp": 1,
+    "average": 1,
+    "boundary": 1,
+    "overlap": 0,
+    "threads": 256,
+    "coord": 0
+  },
+  {
+    "name": "03_threads",
+    "label": "+ 碰撞256→128线程",
+    "stream": 0,
+    "interp": 1,
+    "average": 1,
+    "boundary": 1,
+    "overlap": 0,
+    "threads": 128,
+    "coord": 0
+  },
+  {
+    "name": "04_OSI",
+    "label": "+ OSI（含坐标复用）",
+    "stream": 1,
+    "interp": 1,
+    "average": 1,
+    "boundary": 1,
+    "overlap": 0,
+    "threads": 128,
+    "coord": 1
+  }
+]

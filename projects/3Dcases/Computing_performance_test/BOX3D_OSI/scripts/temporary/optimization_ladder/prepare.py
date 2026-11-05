@@ -9,10 +9,45 @@ import sys
 CASE = Path(__file__).resolve().parents[3]
 EXTRA = '--collision-extra' in sys.argv
 INDEPENDENT = '--independent' in sys.argv
-assert not (EXTRA and INDEPENDENT)
-EXP = CASE / 'runs/temporary/optimization_ladder' / ('round3_independent' if INDEPENDENT else 'round2_collision' if EXTRA else 'round1')
+OSI_LAST = '--osi-last' in sys.argv
+assert sum((EXTRA, INDEPENDENT, OSI_LAST)) <= 1
+EXP = CASE / 'runs/temporary/optimization_ladder' / ('round4_osi_last_1000' if OSI_LAST else 'round3_independent' if INDEPENDENT else 'round2_collision' if EXTRA else 'round1')
 BUILD = EXP / 'build'
 EXP.mkdir(parents=True, exist_ok=False)
+if OSI_LAST:
+    # 延用已验证的平均开关快照，仅扩展A-B碰撞线程分派，避免混入现场源码修改。
+    previous=CASE/'runs/temporary/optimization_ladder/round3_independent/job626450'
+    for directory in ('src','config'):
+        shutil.copytree(previous/directory,BUILD/directory)
+    shutil.copy2(CASE/'GNUmakefile',BUILD/'GNUmakefile')
+    shutil.copytree(CASE/'tmp_build_dir',BUILD/'tmp_build_dir')
+    for name in ('inputs','git_head.txt','worktree.diff'):
+        shutil.copy2(previous/name,EXP/name)
+    # 末态checkpoint前统一完整平均，使A-B与OSI被覆盖粗格处于同一可比较阶段；在推进计时外。
+    main=BUILD/'src/main.cpp'
+    main_text=main.read_text()
+    checkpoint_call='        lid.WriteCheckpoint(step, cur_time);'
+    assert main_text.count(checkpoint_call)==1
+    main.write_text(main_text.replace(checkpoint_call,'        lid.ComputeMacro();\n        lid.ValidateInitializedState("CheckpointComparison");\n'+checkpoint_call))
+    p=BUILD/'src/AmrCoreLBM_advance.cpp'
+    s=p.read_text()
+    a=s.index('template <bool UseMask>\nvoid AmrCoreLBM::CollideLayoutLevel')
+    b=s.index('void AmrCoreLBM::Stream(',a)
+    part=s[a:b]
+    import re
+    pattern=r'amrex::ParallelFor\(\n(\s*bx, \[=\] AMREX_GPU_DEVICE\(int i, int j, int k\) \{(?:(?!amrex::ParallelFor).)*?collide_bgk_register\(i, j, k, state, omega_lev\);\n\s*\}\);)'
+    def split_threads(match):
+        body=match.group(1)
+        return 'if (ladder_option("LADDER_THREADS",256)==128) {\n amrex::ParallelFor<128>(\n'+body+'\n} else {\n amrex::ParallelFor<256>(\n'+body+'\n}'
+    part,count=re.subn(pattern,split_threads,part,flags=re.S)
+    assert count==2,count
+    s=s[:a]+part+s[b:]
+    p.write_text(s)
+    (EXP/'experiment.diff').write_text(''.join(''.join(difflib.unified_diff((previous/'src'/name).read_text().splitlines(True),(BUILD/'src'/name).read_text().splitlines(True),fromfile='a/src/'+name,tofile='b/src/'+name)) for name in ('main.cpp','AmrCoreLBM_advance.cpp')))
+    (EXP/'purpose.json').write_text(json.dumps(dict(purpose='修订累加优化图，OSI最后，每组1000粗步',classification='temporary controlled benchmark',base_source=str(previous/'src'),retention='保留输入、源码、程序、命令、日志、数值检查和图表；仅复制构建对象可清理',baseline='A-B, average/interp batching off, boundary batching off, 256 threads; other fixes retained',coordinate='OSI-only coordinate reuse cannot provide a separate A-B optimization'),ensure_ascii=False,indent=2)+'\n')
+    for p in (BUILD/'src').iterdir(): p.touch()
+    print(EXP)
+    raise SystemExit(0)
 if EXTRA or INDEPENDENT:
     # 扩展同一实验入口；从主图冻结源码恢复，避免后续正式源码变化混入。
     previous=CASE/'runs/temporary/optimization_ladder/round1/job626333'

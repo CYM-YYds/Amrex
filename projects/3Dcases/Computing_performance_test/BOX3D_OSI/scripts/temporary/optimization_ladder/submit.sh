@@ -19,4 +19,5 @@ REPO_DIR="$(git -C "$CASE_DIR" rev-parse --show-toplevel)"
 ARGS=()
 if [[ "${LADDER_EXTRA:-0}" == 1 ]]; then ARGS+=(--collision-extra); fi
 if [[ "${LADDER_INDEPENDENT:-0}" == 1 ]]; then ARGS+=(--independent); fi
+if [[ "${LADDER_OSI_LAST:-0}" == 1 ]]; then ARGS+=(--osi-last); fi
 exec "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/temporary/optimization_ladder/run.py" "${ARGS[@]}"

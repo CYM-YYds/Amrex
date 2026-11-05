@@ -1,0 +1,8 @@
+{
+  "purpose": "修订累加优化图，OSI最后，每组1000粗步",
+  "classification": "temporary controlled benchmark",
+  "base_source": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/optimization_ladder/round3_independent/job626450/src",
+  "retention": "保留输入、源码、程序、命令、日志、数值检查和图表；仅复制构建对象可清理",
+  "baseline": "A-B, average/interp batching off, boundary batching off, 256 threads; other fixes retained",
+  "coordinate": "OSI-only coordinate reuse cannot provide a separate A-B optimization"
+}
