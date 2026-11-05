@@ -281,7 +281,9 @@ def main():
     # GIF 编码复用现有合成器（统一调色板、逐帧来源记录）。
     pack = [sys.executable, str(Path(__file__).resolve().parent / 'pack_animation_gif.py'),
             '--input', str(source), '--output', str(out / 'osi_principle.gif'), '--prefix', 'osi',
-            '--crop', '0', '0', str(w), str(h), '--duration', str(args.duration)]
+            '--crop', '0', '0', str(w), str(h), '--duration', str(args.duration),
+            # 细箭头的蓝、红在缩略图调色板中会丢失，固定保留。
+            '--keep-colors', *[c.lstrip('#') for c in (BLUE, RED, INK)]]
     subprocess.run(pack, check=True)
     manifest = {'check': check,
                 'frames': [{'frame': i, 'step': k, 'stage': STAGES[s], 'phase': k + 1 + (s == 3),

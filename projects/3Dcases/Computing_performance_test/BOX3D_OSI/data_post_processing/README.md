@@ -282,6 +282,8 @@ case_dir=projects/3Dcases/Computing_performance_test/BOX3D_OSI
 `--crop` 为原图像素坐标 left/top/right/bottom，右和下边界不含在内；不缩放。
 示例只适用于本次1834×1066布局，新场景先检查坐标箭头、文字及色标的位置，
 不能直接套用旧裁剪范围。全帧共用调色板；JSON记录每帧来源索引和SHA256。
+共用调色板由缩略图量化得到，只占少量像素的细线颜色可能丢失；用 `--keep-colors 1f77b4 d62728`
+把这些颜色固定写入调色板，合成后逐像素核对；省略时行为不变。
 渲染时的方向轴位置恢复和首次相机复位修复已在原导出驱动中实现，
 详见[本次导出记录](../docs/ai_changes/2026-11-04-C-viridis-current-gif.md)。
 
