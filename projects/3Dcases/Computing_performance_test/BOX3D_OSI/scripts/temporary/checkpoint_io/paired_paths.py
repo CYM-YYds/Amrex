@@ -71,7 +71,10 @@ roots = [p for p in roots if p.is_dir() and os.access(p, os.W_OK)]
 local_root = max(roots, key=lambda p: shutil.disk_usage(p).free)
 filesystem = subprocess.check_output(['stat', '-f', '-c', '%T', str(local_root)], text=True).strip()
 assert filesystem not in ('nfs', 'nfs4', 'dpc', 'autofs')
-assert shutil.disk_usage(local_root).free > 20 * 1024**3
+# 默认沿用大场诊断的20GiB门槛；小型AMR分段由调用者按实际输出量显式指定。
+minimum_free_gib = int(os.environ.get('IO_LOCAL_MIN_FREE_GIB', '20'))
+assert minimum_free_gib > 0
+assert shutil.disk_usage(local_root).free > minimum_free_gib * 1024**3
 local = Path(tempfile.mkdtemp(prefix=f'C_AB_IO_{JOB}_', dir=local_root))
 save('local_disk.json', {'path': str(local), 'filesystem': filesystem,
                          'free_bytes': shutil.disk_usage(local).free})
