@@ -132,8 +132,8 @@ public:
     void PrintParticleParm();
 
     void InitParticle(int lev);
-#if AMREX_SPACEDIM == 3
     void ConfigureIbm(const std::string& shape, amrex::Real physical_radius);
+#if AMREX_SPACEDIM == 3
     void InitCylinderParticle(int lev, amrex::Real physical_length);
 #endif
     void InitParticleFromFile(int lev, const std::string object);
@@ -151,14 +151,12 @@ public:
 #endif
     void SavePosition(int lev, int step);
 
-#if AMREX_SPACEDIM == 3
     void InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev);
+#if AMREX_SPACEDIM == 3
     void InterpForceWallModel(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev);
 #endif
 
-#if AMREX_SPACEDIM == 3
     void SaveFxy(int lev, int step, amrex::Real reference_area = -1);
-#endif
 
     void WriteParticle(int step);
     // 静态几何元数据与标记坐标共同保存；读取前校验维度和形状。

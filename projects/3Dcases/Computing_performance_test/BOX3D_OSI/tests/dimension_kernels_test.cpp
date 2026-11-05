@@ -126,6 +126,35 @@ int main() {
         near(mass,Real(1),"forced mass conservation");
         for (int d=0; d<AMREX_SPACEDIM; ++d) { near(momentum[d],Real(.01)*(d+1)+dt*imposed[d],"Guo momentum increment"); }
     }
+#if AMREX_SPACEDIM == 2
+    // 独立解析检查二维插值常数再现、力/转矩反作用及单元面积量纲。
+    {
+        Field u(-3,3,2), density(-3,3,1), force(-3,3,2);
+        cells(u.box,[&](int i,int j,int k) {
+            u.a(i,j,k,0)=Real(.02); u.a(i,j,k,1)=Real(-.01);
+            density.a(i,j,k,0)=1;
+        });
+        struct Marker { Real x,y; Real pos(int d) const { return d == 0 ? x : y; } };
+        const Marker p{Real(.325),Real(.55)};
+        ParticleReal fx=0,fy=0,tz=0,xlocal=.15,ylocal=-.1,arc=1.2;
+        LbmGridParams grid{}; grid.dx_min=Real(.5); grid.dt_min=Real(.5);
+        force_interp_extrap(p,fx,fy,tz,xlocal,ylocal,arc,u.a,density.a,force.a,
+                            Real(.5),RealVect{0,0},grid);
+        near(fx,Real(.024),"2D marker force x");
+        near(fy,Real(-.012),"2D marker force y");
+        near(tz,Real(.0006),"2D marker torque");
+        Real sumx=0,sumy=0,torque=0;
+        cells(force.box,[&](int i,int j,int k) {
+            sumx+=force.a(i,j,k,0)*Real(.25);
+            sumy+=force.a(i,j,k,1)*Real(.25);
+            torque+=((Real(i)+Real(.5))*Real(.5)-Real(.175))*force.a(i,j,k,1)*Real(.25)
+                   -((Real(j)+Real(.5))*Real(.5)-Real(.65))*force.a(i,j,k,0)*Real(.25);
+        });
+        near(sumx,Real(-.024),"2D force action reaction x");
+        near(sumy,Real(.012),"2D force action reaction y");
+        near(torque,Real(-.0006),"2D torque action reaction");
+    }
+#endif
     // 独立的先缩放、再平均作为融合内核对照；覆盖相位绕环与关闭缩放。
     for (std::uint64_t phase : {std::uint64_t(0), std::uint64_t(1), std::uint64_t(17)}) {
         const auto ctx = OSI::MakeOsiFabContext(raw.box, phase);

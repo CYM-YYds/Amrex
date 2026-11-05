@@ -506,10 +506,12 @@ class AmrCoreLBM : public amrex::AmrCore {
     void RedistributeParticle();
 #if AMREX_SPACEDIM == 3
     void WriteMultiParticleFile(const int step, const amrex::Real time);
+#endif
     void InterpForce(int lev);
     void SumForce(int lev);
     void ComputeParticle(int lev);
     void ReduceFxy(int lev, int step);
+#if AMREX_SPACEDIM == 3
     void SaveParticleVelocity(int lev, int step);
     void SaveParticlePosition(int lev, int step);
     void SaveParticleDistance(int lev, int step);

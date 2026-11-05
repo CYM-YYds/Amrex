@@ -418,9 +418,7 @@ void RunSimulation() {
 
         const double solv_start = amrex::second();
         Cycle2(0, cur_time, lid, verification);
-#if AMREX_SPACEDIM == 3
         if (lid.params().ibm_enabled) { lid.ReduceFxy(lid.finestLevel(), step); }
-#endif
         verification.AfterAdvance(lid, 0, step);
         lid.PrintParticleChecksums(step);
         window.solv_s += amrex::second() - solv_start;

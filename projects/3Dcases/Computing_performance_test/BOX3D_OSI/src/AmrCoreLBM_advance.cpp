@@ -374,11 +374,9 @@ void AmrCoreLBM::AdvanceOneLayout(int lev, DdfLayout layout) {
 }
 
 void AmrCoreLBM::AdvanceLevel(int lev) {
-#if AMREX_SPACEDIM == 3
     if (params_.ibm_enabled && lev == finest_level) {
         ComputeParticle(lev);
     }
-#endif
     if (lev == 0) {
         ++probe_.coarse_advance_count;
     }

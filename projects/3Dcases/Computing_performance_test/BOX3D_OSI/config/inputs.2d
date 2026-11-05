@@ -24,6 +24,11 @@ lbm.collide_mode = 1
 # OSI checkpoint 以 canonical DDF 写出，restart 后统一重置为 phase=0。
 lbm.stream_mode = 1
 
+# 静止圆盘 IBM；关闭时保持原纯流体路径。
+ibm.enabled = false
+ibm.center = 0.5 0.5
+ibm.radius = 0.125
+
 # 粗到细 DDF 插值模式：
 # 0 = ratio-2 双线性插值
 # 1 = GPU 守恒线性插值
@@ -107,7 +112,7 @@ checkpoint.chk_int = 32000
 # checkpoint 保持在运行目录顶层，以兼容 keep_latest_only 的现有清理逻辑。
 checkpoint.chk_prefix = chk
 checkpoint.keep_latest_only = true
-# 设为 true 时初始化静态圆盘并保存标记；尚不施加 IBM 力或推进粒子运动。
+# 输出开关与 IBM 施力独立；IBM 开启时 checkpoint 自动保存必需的标记。
 checkpoint.write_particles = false
 particles.shape = disk
 

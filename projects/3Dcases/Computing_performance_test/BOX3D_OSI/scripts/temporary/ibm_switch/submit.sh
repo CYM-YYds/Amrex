@@ -5,15 +5,15 @@
 #DSUB -q root.default
 #DSUB -R cpu=16;mem=49152;gpu=2
 #DSUB -N 1
-#DSUB -o runs/temporary/ibm_switch/%J.log
-#DSUB -e runs/temporary/ibm_switch/%J.log
+#DSUB -o logs/submit/%J-ibm-validation.log
+#DSUB -e logs/submit/%J-ibm-validation.log
 #DSUB -l cuda122
 # 本任务临时回归入口；保留输入、命令、日志和 checkpoint 以复现逐值结论。
 set -euo pipefail
 ulimit -c 0
 CASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 REPO_DIR="$(git -C "$CASE_DIR" rev-parse --show-toplevel)"
-TASK_DIR="$CASE_DIR/runs/temporary/ibm_switch${IBM_VALIDATION_ROUND:+/$IBM_VALIDATION_ROUND}"
+TASK_DIR="${IBM_VALIDATION_DIR:-$CASE_DIR/runs/temporary/ibm_switch${IBM_VALIDATION_ROUND:+/$IBM_VALIDATION_ROUND}}"
 source /home/HPCBase/tools/module-5.2.0/init/profile.sh
 module use /home/HPCBase/modulefiles/
 module purge
@@ -46,6 +46,44 @@ common=(max_step=32 lbm.reynolds_number=100 amr.regrid_int=8 amr.plot_int=32 che
 mesh=(amr.n_cell=32 32 32 amr.max_level=1 amr.max_grid_size=16 16 amr.blocking_factor_x=8 8
     amr.blocking_factor_y=8 8 amr.blocking_factor_z=8 8 lbm.err=0.1 0.2)
 app="$TASK_DIR/app.ex"
+if [[ ${DIM:-3} == 2 ]]; then
+    mesh=(amr.n_cell=32 32 amr.max_level=1 amr.max_grid_size=16 16
+        amr.blocking_factor_x=8 8 amr.blocking_factor_y=8 8 lbm.err=0.1 0.2)
+    run_case baseline 1 "$TASK_DIR/baseline.ex"
+    run_case off 1 "$app" ibm.enabled=false
+    run_case disk_ab 1 "$app" ibm.enabled=true particles.shape=disk lbm.stream_mode=0
+    run_case disk_osi 1 "$app" ibm.enabled=true particles.shape=disk
+    run_case disk_output 1 "$app" ibm.enabled=true checkpoint.write_particles=true
+    run_case disk_lockstep 1 "$app" ibm.enabled=true verification.osi_ab_check=true \
+        verification.osi_step_entry_check_interval=8 verification.osi_check_after_average_valid=true \
+        verification.check_after_first_fill=true
+    run_case disk_mpi 2 "$app" ibm.enabled=true
+    run_case disk_mpi_overlap 2 "$app" ibm.enabled=true lbm.osi_collide_comm_overlap=1 \
+        lbm.osi_mpi_pipeline_chunk_bytes=2097152
+    run_case disk_level2 1 "$app" ibm.enabled=true amr.max_level=2 \
+        amr.max_grid_size=16 16 16 amr.blocking_factor_x=8 8 8 amr.blocking_factor_y=8 8 8 lbm.err=0.1 0.2 0.4
+    run_case uniform_off 1 "$app" ibm.enabled=false amr.max_level=0
+    run_case uniform_disk 1 "$app" ibm.enabled=true amr.max_level=0
+    for name in disk_osi off; do
+        mkdir -p "$TASK_DIR/${name}_restart"
+        ln -s "$TASK_DIR/$name/chk00000016" "$TASK_DIR/${name}_restart/chk00000016"
+        run_case "${name}_restart" 1 "$app" ibm.enabled="$( [[ $name == off ]] && echo false || echo true )" checkpoint.begin_step=16
+    done
+    mkdir -p "$TASK_DIR/legacy_restart"
+    ln -s "$TASK_DIR/baseline/chk00000016" "$TASK_DIR/legacy_restart/chk00000016"
+    run_case legacy_restart 1 "$app" ibm.enabled=false checkpoint.begin_step=16
+    run_case reject_metadata 1 "$app" ibm.enabled=true ibm.radius=0.13 checkpoint.begin_step=16 \
+        checkpoint.chk_prefix="$TASK_DIR/disk_osi/chk"
+    run_case reject_checkpoint 1 "$app" ibm.enabled=true checkpoint.begin_step=16 checkpoint.chk_prefix="$TASK_DIR/off/chk"
+    run_case reject_shape 1 "$app" ibm.enabled=true particles.shape=sphere
+    run_case reject_mode 1 "$app" ibm.enabled=true lbm.collide_mode=0 lbm.stream_mode=0
+    run_case reject_origin 1 "$app" ibm.enabled=true geometry.prob_lo=1 1 geometry.prob_hi=2 2
+    run_case reject_resolution 1 "$app" ibm.enabled=true ibm.radius=0.0001
+    run_case reject_geometry 1 "$app" ibm.enabled=true ibm.radius=-1
+    "$REPO_DIR/.venv/bin/python" "$CASE_DIR/scripts/temporary/ibm_switch/verify.py" "$TASK_DIR"
+    exit 0
+fi
+
 if [[ ${IBM_VALIDATION_STAGE:-matrix} == lockstep ]]; then
     mv "$TASK_DIR/cylinder_lockstep" "$TASK_DIR/initial_lockstep"
     run_case cylinder_lockstep 1 "$app" ibm.enabled=true particles.shape=cylinder verification.osi_ab_check=true \

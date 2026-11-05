@@ -3166,6 +3166,8 @@ AMREX_GPU_HOST_DEVICE // 用于多圆球区域加密
     }
 }
 
+#endif
+
 //********************************************************************//
 //                         IBM   function                             //
 //********************************************************************//
@@ -3208,6 +3210,44 @@ Real delta3p(amrex::Real r) {
         return 0.0_rt;
 }
 
+#if AMREX_SPACEDIM == 2
+template <typename P>
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
+    P const& p, ParticleReal& fx, ParticleReal& fy, ParticleReal& tz,
+    ParticleReal& x_local, ParticleReal& y_local, ParticleReal& arc,
+    Array4<Real> const& u, Array4<Real> const& rho, Array4<Real> const& force,
+    Real delta, RealVect const& target, LbmGridParams const& grid) {
+    // 二维只访问 z=0；arc 是格子弧长，权重乘 dx_min² 给出单位厚度的力。
+    const Real xt = p.pos(0) / delta, yt = p.pos(1) / delta;
+    Real ux = 0, uy = 0, density = 0;
+    for (int y = -2; y <= 2; ++y) {
+        for (int x = -2; x <= 2; ++x) {
+            const int i = int(amrex::Math::floor(xt)) + x;
+            const int j = int(amrex::Math::floor(yt)) + y;
+            const Real w = delta3p(xt - (i + Real(0.5))) * delta3p(yt - (j + Real(0.5)));
+            ux += w * u(i,j,0,0);
+            uy += w * u(i,j,0,1);
+            density += w * rho(i,j,0,0);
+        }
+    }
+    const Real fxt = 2 * density * (ux - target[0]) / grid.dt_min;
+    const Real fyt = 2 * density * (uy - target[1]) / grid.dt_min;
+    const Real weight = LP_dr * arc;
+    const Real volume = grid.dx_min * grid.dx_min;
+    fx = fxt * weight * volume;
+    fy = fyt * weight * volume;
+    tz = (fyt * x_local - fxt * y_local) * weight * volume;
+    for (int y = -2; y <= 2; ++y) {
+        for (int x = -2; x <= 2; ++x) {
+            const int i = int(amrex::Math::floor(xt)) + x;
+            const int j = int(amrex::Math::floor(yt)) + y;
+            const Real w = delta3p(xt - (i + Real(0.5))) * delta3p(yt - (j + Real(0.5))) * weight;
+            amrex::Gpu::Atomic::AddNoRet(&force(i,j,0,0), -fxt*w);
+            amrex::Gpu::Atomic::AddNoRet(&force(i,j,0,1), -fyt*w);
+        }
+    }
+}
+#else
 template <typename P>
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
     P const& p, amrex::ParticleReal& fx, amrex::ParticleReal& fy, amrex::ParticleReal& fz,

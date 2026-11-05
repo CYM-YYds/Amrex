@@ -662,8 +662,6 @@ void AmrCoreLBM::ReadParameters() {
             for (int d = 0; d < AMREX_SPACEDIM; ++d) { params_.ibm_center[d] = center[d]; }
         }
         if (params_.ibm_enabled) {
-            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(AMREX_SPACEDIM == 3,
-                                             "IBM coupling currently requires DIM=3");
             AMREX_ALWAYS_ASSERT_WITH_MESSAGE(collide_mode == 1,
                                              "IBM coupling requires lbm.collide_mode=1");
             AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!probe_.regrid_fixture,
@@ -773,10 +771,10 @@ void AmrCoreLBM::InitParticle(int lev) {
             particle_grid.dx_min = particle_grid.dt_min = Geom(max_level).CellSize(0);
         }
         particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i, particle_grid);
-#if AMREX_SPACEDIM == 3
         if (params_.ibm_enabled) {
             particles[i]->ConfigureIbm(params_.particle_shape, params_.ibm_radius);
         }
+#if AMREX_SPACEDIM == 3
         if (params_.particle_shape == "cylinder") {
             particles[i]->InitCylinderParticle(lev, params_.ibm_length);
         } else
@@ -842,6 +840,8 @@ void AmrCoreLBM::WriteMultiParticleFile(const int step, const amrex::Real time) 
     }
 }
 
+#endif
+
 void AmrCoreLBM::InterpForce(int lev) {
     amrex::MultiFab& rho_lev = density[lev];
     amrex::MultiFab& u_lev = velocity[lev];
@@ -877,13 +877,15 @@ void AmrCoreLBM::ComputeParticle(int lev) {
 
 void AmrCoreLBM::ReduceFxy(int lev, int step) {
     for (int i = 0; i < particle_num; i++) {
-        const Real area = params_.particle_shape == "cylinder"
-                              ? 2 * params_.ibm_radius * params_.ibm_length
-                              : PI * params_.ibm_radius * params_.ibm_radius;
+        // 二维按单位厚度的投影长度归一化；三维仍采用投影面积。
+        const Real area = AMREX_D_PICK(Real(0), 2 * params_.ibm_radius,
+            params_.particle_shape == "cylinder" ? 2 * params_.ibm_radius * params_.ibm_length
+                                                  : PI * params_.ibm_radius * params_.ibm_radius);
         particles[i]->SaveFxy(lev, step, params_.ibm_enabled ? area : Real(-1));
     }
 }
 
+#if AMREX_SPACEDIM == 3
 void AmrCoreLBM::SaveParticleVelocity(int lev, int step) {
     for (int i = 0; i < particle_num; i++) {
         particles[i]->SaveVelocity(lev, step);
@@ -1275,17 +1277,15 @@ void AmrCoreLBM::ReadCheckpoint() {
                 particle_grid.dx_min = particle_grid.dt_min = Geom(max_level).CellSize(0);
             }
             particles[i] = std::make_unique<LagrangeParticleContainer>(this, points[i], i, particle_grid);
-#if AMREX_SPACEDIM == 3
             if (params_.ibm_enabled) {
                 particles[i]->ConfigureIbm(params_.particle_shape, params_.ibm_radius);
             }
-#endif
             particles[i]->Restart(chkname, pname);
             points[i] = particles[i]->ReturnCentre();
         }
 #if AMREX_SPACEDIM == 2
         // 辅助点只保存静态几何，重启时重新生成，cp 保持未采样的零值。
-        InitCpPoint(finest_level);
+        if (!params_.ibm_enabled) { InitCpPoint(finest_level); }
 #endif
     }
 

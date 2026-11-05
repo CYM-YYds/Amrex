@@ -159,12 +159,12 @@ void LagrangeParticleContainer::InitParticle(int lev) {
 #endif
 }
 
-#if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::ConfigureIbm(const std::string& shape, Real physical_radius) {
     shape_ = shape;
     radius = physical_radius / grid_.dx_min;
 }
 
+#if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::InitCylinderParticle(int lev, Real physical_length) {
     // 沿 Y 轴生成静止圆柱侧壁，不生成端盖；权重使用最细层格子面积。
     const Real r = radius * grid_.dx_min;
@@ -326,7 +326,6 @@ amrex::RealVect LagrangeParticleContainer::ReturnVelocity() {
     return vel;
 }
 
-#if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev) {
     const Real delta = Geom(lev).CellSize()[0];
     const LbmGridParams grid = grid_;
@@ -339,13 +338,17 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
         auto& attribs = pti.GetAttribs();
         auto fx = attribs[PIdx::fx].data();
         auto fy = attribs[PIdx::fy].data();
+#if AMREX_SPACEDIM == 3
         auto fz = attribs[PIdx::fz].data();
         auto tx = attribs[PIdx::tx].data();
         auto ty = attribs[PIdx::ty].data();
+#endif
         auto tz = attribs[PIdx::tz].data();
         auto xlocal = attribs[PIdx::xlocal].data();
         auto ylocal = attribs[PIdx::ylocal].data();
+#if AMREX_SPACEDIM == 3
         auto zlocal = attribs[PIdx::zlocal].data();
+#endif
         auto area = attribs[PIdx::area].data();
 
         const Array4<Real>& u = u_lev.array(pti);
@@ -353,12 +356,19 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
         const Array4<Real>& Ft = force_lev.array(pti);
 
         const RealVect& uc = vel;
+#if AMREX_SPACEDIM == 3
         const RealVect& wc = angvel;
         const RealVect& pos = centre;
+#endif
 
         amrex::ParallelFor(n, [=] AMREX_GPU_DEVICE(int i) noexcept {
+#if AMREX_SPACEDIM == 3
             force_interp_extrap(p_ptr[i], fx[i], fy[i], fz[i], tx[i], ty[i], tz[i], xlocal[i], ylocal[i], zlocal[i], area[i],
                                 u, rho, Ft, delta, uc, wc, pos, grid);
+#else
+            force_interp_extrap(p_ptr[i], fx[i], fy[i], tz[i], xlocal[i], ylocal[i], area[i],
+                                u, rho, Ft, delta, uc, grid);
+#endif
         });
     }
 
@@ -373,6 +383,7 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
         return p.rdata(PIdx::fy);
     });
 
+#if AMREX_SPACEDIM == 3
     auto fz = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
         return p.rdata(PIdx::fz);
     });
@@ -384,28 +395,39 @@ void LagrangeParticleContainer::InterpForce(int lev, amrex::MultiFab& rho_lev, a
     auto ty = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
         return p.rdata(PIdx::ty);
     });
+
+#endif
     auto tz = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
         return p.rdata(PIdx::tz);
     });
 
     ParallelDescriptor::ReduceRealSum(fx);
     ParallelDescriptor::ReduceRealSum(fy);
+#if AMREX_SPACEDIM == 3
     ParallelDescriptor::ReduceRealSum(fz);
     ParallelDescriptor::ReduceRealSum(tx);
     ParallelDescriptor::ReduceRealSum(ty);
+#endif
     ParallelDescriptor::ReduceRealSum(tz);
 
     F_tot[0] = fx;
     F_tot[1] = fy;
+#if AMREX_SPACEDIM == 3
     F_tot[2] = fz;
     T_tot[0] = tx;
     T_tot[1] = ty;
     T_tot[2] = tz;
+#else
+    // 二维仅有面外转矩，沿用最后一个槽保存。
+    T_tot[0] = 0;
+    T_tot[1] = tz;
+#endif
     F_lub[0] = 0.0;
     F_lub[1] = 0.0;
+#if AMREX_SPACEDIM == 3
     F_lub[2] = 0.0;
-}
 #endif
+}
 
 #if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::InterpForceWallModel(int lev, amrex::MultiFab& rho_lev, amrex::MultiFab& u_lev, amrex::MultiFab& force_lev) {
@@ -718,7 +740,6 @@ void LagrangeParticleContainer::SavePosition(int lev, int step) {
     }
 }
 
-#if AMREX_SPACEDIM == 3
 void LagrangeParticleContainer::SaveFxy(int lev, int step, Real reference_area) {
     using SPType = typename LagrangeParticleContainer::SuperParticleType;
 
@@ -730,19 +751,25 @@ void LagrangeParticleContainer::SaveFxy(int lev, int step, Real reference_area) 
         return p.rdata(PIdx::fy);
     });
 
+#if AMREX_SPACEDIM == 3
     auto fz = amrex::ReduceSum(*this, [=] AMREX_GPU_HOST_DEVICE(const SPType& p) -> ParticleReal {
         return p.rdata(PIdx::fz);
     });
 
+#endif
     ParallelDescriptor::ReduceRealSum(fx);
     ParallelDescriptor::ReduceRealSum(fy);
+#if AMREX_SPACEDIM == 3
     ParallelDescriptor::ReduceRealSum(fz);
+#endif
 
     amrex::Real m = 0.5 * (rho0)*U0 * U0 * PI * D * grid_.dx * D * grid_.dx / 4.0;
     if (reference_area > 0) { m = Real(0.5) * rho0 * U0 * U0 * reference_area; }
     fx /= m;
     fy /= m;
+#if AMREX_SPACEDIM == 3
     fz /= m;
+#endif
 
     // if(ParallelDescriptor::MyProc() == ParallelDescriptor::IOProcessorNumber())
     // {
@@ -766,11 +793,14 @@ void LagrangeParticleContainer::SaveFxy(int lev, int step, Real reference_area) 
             std::exit(1); // 错误退出
         }
 
-        file << step << "\t" << fx << "\t" << fy << "\t" << fz << "\n";
+        file << step << "\t" << fx << "\t" << fy;
+#if AMREX_SPACEDIM == 3
+        file << "\t" << fz;
+#endif
+        file << "\n";
         file.close();
     }
 }
-#endif
 
 void LagrangeParticleContainer::WriteParticle(int step) {
     std::string filename = "particle_" + std::to_string(id);

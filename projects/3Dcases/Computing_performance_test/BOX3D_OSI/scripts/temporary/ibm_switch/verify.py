@@ -7,14 +7,19 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(sys.argv[1]).resolve()
-BOX = re.compile(r'\(\((-?\d+),(-?\d+),(-?\d+)\) \((-?\d+),(-?\d+),(-?\d+)\) \(\d+,\d+,\d+\)\)')
+BOX = re.compile(r'\(\(([-\d,]+)\) \(([-\d,]+)\) \([\d,]+\)\)')
+
+def coordinates(match):
+    low,high = [list(map(int,v.split(','))) for v in match.groups()]
+    if len(low) == 2: low.append(0); high.append(0)
+    return tuple(low+high)
 
 
 def fields(folder, prefix):
     result = {}
     for index in sorted(folder.glob(f'Level_*/{prefix}_H')):
         lines = index.read_text().splitlines()
-        boxes = [tuple(map(int, BOX.fullmatch(line).groups())) for line in lines if BOX.fullmatch(line)]
+        boxes = [coordinates(BOX.fullmatch(line)) for line in lines if BOX.fullmatch(line)]
         records = [line.split()[1:] for line in lines if line.startswith('FabOnDisk:')]
         assert len(boxes) == len(records) and boxes
         for box, (name, offset) in zip(boxes, records):
@@ -26,7 +31,7 @@ def fields(folder, prefix):
                 bits = int(re.search(r'\(\d+, \((32|64) ', header).group(1))
                 dtype = '<f4' if bits == 32 else '<f8'
                 nc = int(header[match.end():].strip())
-                x0,y0,z0,x1,y1,z1 = map(int, match.groups())
+                x0,y0,z0,x1,y1,z1 = coordinates(match)
                 shape = (nc,z1-z0+1,y1-y0+1,x1-x0+1)
                 payload = stream.read(int(np.prod(shape))*np.dtype(dtype).itemsize)
                 data = np.frombuffer(payload, dtype=dtype).reshape(shape)
@@ -51,6 +56,7 @@ def compare(left, right, tolerance):
 
 
 def main():
+    disk = (ROOT/'disk_osi').exists()
     statuses = dict(line.split('\t') for line in (ROOT/'status.tsv').read_text().splitlines()[1:])
     reasons = {'reject_metadata':'IBM checkpoint geometry mismatch',
                'reject_checkpoint':'IBM checkpoint enabled mismatch',
@@ -71,7 +77,7 @@ def main():
         velocity = fields(ROOT/name/'plt_000032','Cell')
         report['runs'][name] = dict(valid_fabs=len(ddf), valid_values=sum(x.size for x in ddf.values()),
                                    velocity_abs_max=max(float(np.abs(x).max()) for x in velocity.values()))
-        active = name.startswith('cylinder') or name.startswith('sphere') or name == 'uniform_cylinder'
+        active = name.startswith('cylinder') or name.startswith('sphere') or name in ['uniform_cylinder','uniform_disk'] or name.startswith('disk')
         if active:
             force_files = list((ROOT/name).glob('CdCl*.dat')) + list((ROOT/name/'data').glob('CdCl*.dat'))
             assert force_files, (name,'missing force log')
@@ -79,19 +85,35 @@ def main():
             assert np.isfinite(force).all() and np.abs(force[:,1:]).max() > 1e-7, (name,'inactive or nonfinite force')
             assert (ROOT/name/'chk00000032/particles_0/Header').exists(), (name,'coupled markers not checkpointed')
             report['runs'][name]['force_coefficient_abs_max'] = float(np.abs(force[:,1:]).max())
-    for a,b,tol in [('baseline','off',0), ('baseline','legacy_restart',1e-6),
+    pairs = [('baseline','off',0), ('baseline','legacy_restart',1e-6),
                     ('off','off_restart',1e-6),('sphere','sphere_restart',1e-6),
                     ('cylinder_osi','cylinder_osi_restart',1e-6),
                     ('cylinder_ab','cylinder_osi',1e-6),
                     ('cylinder_osi','cylinder_lockstep',1e-6),
                     ('cylinder_osi','cylinder_mpi',2e-6),
-                    ('cylinder_mpi','cylinder_mpi_overlap',2e-6)]:
+                    ('cylinder_mpi','cylinder_mpi_overlap',2e-6)]
+    if disk:
+        pairs = [('baseline','off',0),('baseline','legacy_restart',1e-6),('off','off_restart',1e-6),
+                 ('disk_osi','disk_osi_restart',1e-6),('disk_osi','disk_output',1e-6),('disk_ab','disk_osi',1e-6),
+                 ('disk_osi','disk_lockstep',1e-6),('disk_osi','disk_mpi',2e-6),
+                 ('disk_mpi','disk_mpi_overlap',2e-6)]
+    for a,b,tol in pairs:
         report['comparisons'][a+'_vs_'+b] = compare(a,b,tol)
-    effect = compare('uniform_off','uniform_cylinder',float('inf'))
+    effect = compare('uniform_off','uniform_disk' if disk else 'uniform_cylinder',float('inf'))
     assert effect['linf'] > 1e-7, 'IBM must change the fluid on an identical uniform grid'
     effect.pop('tolerance')
     report['uniform_fluid_effect'] = effect
-    lock = (ROOT/'cylinder_lockstep/run.log').read_text()
+    if disk:
+        rows = (ROOT/'disk_output/particle_0_00032').read_text().splitlines()
+        count = int(rows[0])
+        values = np.array([list(map(float,line.split())) for line in rows[5:]])
+        assert count == 51 and values.shape == (51,10) and np.isfinite(values).all()
+        radial_error = float(np.abs(np.hypot(values[:,0]-.5,values[:,1]-.5)-.125).max())
+        arc_error = float(abs(values[:,-1].sum()-2*np.pi*8))
+        assert radial_error < 1e-6 and arc_error < 1e-4
+        report['disk_geometry'] = dict(markers=count,radial_error=radial_error,arc_sum_error=arc_error)
+
+    lock = (ROOT/('disk_lockstep' if disk else 'cylinder_lockstep')/'run.log').read_text()
     assert 'osi_ab_stage_failure:' not in lock
     assert 'stage=Collision' in lock and 'stage=AfterRefineMeshAllValid' in lock
     report['lockstep'] = 'production stage checks passed (see log for covered/ghost scopes)'
