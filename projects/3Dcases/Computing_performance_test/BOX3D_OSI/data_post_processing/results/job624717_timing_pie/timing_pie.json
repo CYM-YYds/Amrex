@@ -1,0 +1,27 @@
+{
+  "input": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/run.log",
+  "sha256": "6077dcdd4453ee31bc9333f3863836f3d20858d6813b767855cc7a6b7ffcf66a",
+  "steps": [
+    1,
+    128000
+  ],
+  "physical_time": [
+    0,
+    1000
+  ],
+  "windows": 40,
+  "timers_seconds": {
+    "interp": 317.80971917200003,
+    "collide": 2345.66944136,
+    "stream": 8.2509684609,
+    "average": 140.411797382,
+    "comm": 105.400629936,
+    "boundary": 416.648757109,
+    "swap": 0.0,
+    "regrid": 149.676100341
+  },
+  "total_seconds": 3483.08831249,
+  "denominator_seconds": 3483.8674137609,
+  "normalization": "sum of phase timers plus regrid_time; milliseconds converted to seconds",
+  "note": "Zero swap omitted. Regrid includes checks and triggered work. Timers are not an exact wall-clock partition; total excludes some output/startup work."
+}
