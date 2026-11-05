@@ -17,7 +17,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
-from matplotlib.patches import Circle, FancyArrowPatch, Rectangle
+from matplotlib.patches import Circle, Rectangle
 import numpy as np
 from PIL import Image
 
@@ -58,14 +58,36 @@ def validate():
     return '图中读取位置与 OsiIndex.H 寻址一致；首步为相邻节点；7 步一周期'
 
 
-def arrow(ax, start, end, color, lw=2.2, scale=14):
-    ax.add_patch(FancyArrowPatch(start, end, arrowstyle='-|>', mutation_scale=scale,
-                                 linewidth=lw, color=color, zorder=6))
+# 背景箭头与高亮箭头共用同一几何：起点离节点中心 R0，总长 L（含箭头头部）。
+R0, L = .08, .26
+GRAY_W, BLUE_W = .018, .028
+# 0 号标在 1、5 号箭头之间的空隙。
+ZERO_AT = np.array([.25, .10])
 
 
-def label(ax, xy, q, color=BLUE, size=15):
+def node_arrows(ax, cells, dirs, color, width, zorder):
+    """在 cells[i] 节点画方向 E[dirs[i]] 的格点箭头；背景与高亮都走这里。"""
+    cells, e = np.asarray(cells, float), E[np.asarray(dirs)]
+    start = cells + .5 + R0 * e
+    # headwidth/headlength 是 shaft 宽度的倍数，加粗时头部同比例放大、总长不变。
+    ax.quiver(start[:, 0], start[:, 1], L * e[:, 0], L * e[:, 1], angles='xy',
+              scale_units='xy', scale=1, units='xy', width=width, headwidth=3.5,
+              headlength=4, headaxislength=3.5, color=color, zorder=zorder)
+
+
+def node_dot(ax, cell, color, r):
+    ax.add_patch(Circle(np.asarray(cell) + .5, r, color=color, zorder=6))
+
+
+def gap(e, r, turn):
+    """方向 e 旋转 turn 度后半径 r 处的位置；22.5° 正好落在相邻两箭头之间的空隙。"""
+    a = np.arctan2(e[1], e[0]) + np.radians(turn)
+    return r * np.array([np.cos(a), np.sin(a)])
+
+
+def label(ax, xy, q, color=BLUE, size=14):
     ax.text(*xy, str(q), color=color, fontsize=size, weight='bold',
-            ha='center', va='center', zorder=7)
+            ha='center', va='center', zorder=8)
 
 
 def box(ax, xy, color=INK):
@@ -74,58 +96,65 @@ def box(ax, xy, color=INK):
 
 
 def lattice(ax):
-    """背景：7×7 节点，每个节点画浅灰的 8 个方向，与参考图风格一致。"""
-    starts, vecs = [], []
+    """背景：7×7 节点，每个节点一个灰点和 8 个灰色方向箭头，与参考图风格一致。"""
     for x in range(N):
         for y in range(N):
             ax.add_patch(Rectangle((x, y), 1, 1, facecolor='white', edgecolor=GRAY, lw=1))
-            for e in E[1:]:
-                starts.append(np.array([x + .5, y + .5]) + .08 * e)
-                vecs.append(.26 * e)
-    # 一次 quiver 画完 392 个背景箭头，逐个 FancyArrowPatch 渲染太慢。
-    starts, vecs = np.array(starts), np.array(vecs)
-    ax.quiver(starts[:, 0], starts[:, 1], vecs[:, 0], vecs[:, 1], angles='xy', scale_units='xy',
-              scale=1, units='xy', width=.018, headwidth=3.5, headlength=4, headaxislength=3.5,
-              color=GRAY)
-    ax.add_patch(Rectangle(CENTER, 1, 1, facecolor='#9e9e9e', edgecolor=INK, lw=1.6, zorder=2))
+    # 中心节点用灰色底，但保留其格点箭头，高亮时直接在原位变色。
+    ax.add_patch(Rectangle(CENTER, 1, 1, facecolor='#a8a8a8', edgecolor=INK, lw=1.6, zorder=1))
+    cells = [(x, y) for x in range(N) for y in range(N) for _ in range(8)]
+    dirs = list(range(1, 9)) * (N * N)
+    center_gray = '#e2e2e2'
+    colors = [center_gray if c == tuple(CENTER) else GRAY for c in cells[::8]]
+    for k, color in enumerate(colors):
+        node_dot(ax, cells[8 * k], color, .035)
+    node_arrows(ax, [c for c in cells if c != tuple(CENTER)],
+                [d for c, d in zip(cells, dirs) if c != tuple(CENTER)], GRAY, GRAY_W, 3)
+    node_arrows(ax, [CENTER] * 8, range(1, 9), center_gray, GRAY_W, 3)
     ax.set(xlim=(-.05, N + .05), ylim=(-.05, N + .05), aspect='equal')
     ax.axis('off')
 
 
+def highlight_center(ax):
+    """中心节点 8 个格点箭头变蓝，编号放在箭头尖外侧的空隙。"""
+    node_arrows(ax, [CENTER] * 8, range(1, 9), BLUE, BLUE_W, 6)
+    node_dot(ax, CENTER, BLUE, .05)
+
+
 def draw_pdfs(ax, p):
-    """读取/写回帧：中心节点的 9 个分量所在存储位置，箭头为分量方向 e_q。"""
+    """读取/写回帧：把中心节点 9 个分量所在格点的对应方向箭头变蓝。"""
     cells = read_cells(p)
     unwrapped = CENTER - p * E
     if p % N == 0:
-        # 9 个分量都在中心节点自身，箭头沿 e_q 指向节点中心。
-        c = CENTER + .5
+        # 9 个分量都在中心节点自身。
         box(ax, CENTER)
-        ax.add_patch(Circle(c, .04, color=BLUE, zorder=7))
-        # 0 号放在 1、5 号箭头之间的空隙，避免压到箭头。
-        label(ax, c + [.255, .105], 0, size=10)
+        highlight_center(ax)
+        c = CENTER + .5
         for q in range(1, 9):
-            arrow(ax, c - .30 * E[q], c - .12 * E[q], BLUE, lw=1.8, scale=10)
-            label(ax, c - .40 * E[q] * (1 if q < 5 else .88), q, size=11)
+            # 编号放在各自箭头尖端外侧，仍在格内。
+            u = E[q] / np.linalg.norm(E[q])
+            label(ax, c + (.42 if q < 5 else .56) * u, q, size=10)
+        label(ax, c + ZERO_AT, 0, size=9)
         return
+    node_arrows(ax, cells[1:], range(1, 9), BLUE, BLUE_W, 6)
     for q in range(9):
-        c = cells[q] + .5
         wrapped = ((unwrapped[q] < 0) | (unwrapped[q] >= N)).any()
         box(ax, cells[q], ORANGE if wrapped else INK)
+        c = cells[q] + .5
         if q == 0:
-            ax.add_patch(Circle(c, .06, color=BLUE, zorder=7))
-            label(ax, c + [.2, .2], 0)
+            node_dot(ax, cells[q], BLUE, .05)
+            label(ax, c + ZERO_AT, 0, size=12)
         else:
-            arrow(ax, c - .22 * E[q], c + .30 * E[q], BLUE)
-            label(ax, c - .36 * E[q], q)
+            # 编号放在箭头尾部一侧的空隙，不压灰色箭头。
+            label(ax, c + gap(-E[q], .30, 22.5), q)
 
 
 def draw_collision(ax):
-    """碰撞帧：在中心节点内完成，8 个方向向外发散。"""
+    """碰撞帧：在中心节点内完成，中心的 8 个格点箭头变蓝；编号标在相邻格点的空隙。"""
+    highlight_center(ax)
     c = CENTER + .5
-    ax.add_patch(Circle(c, .06, color=BLUE, zorder=7))
     for q in range(1, 9):
-        arrow(ax, c + .06 * E[q], c + .42 * E[q], BLUE, lw=2.4, scale=12)
-        label(ax, c + .72 * E[q], q)
+        label(ax, c + E[q] + gap(-E[q], .30, 22.5), q)
 
 
 def read_caption(k, p):
