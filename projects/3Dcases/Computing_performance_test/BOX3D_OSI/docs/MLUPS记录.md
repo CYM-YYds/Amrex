@@ -1,5 +1,23 @@
 # BOX3D / BOX3D_OSI MLUPS 记录
 
+## C128000 单 GPU 累加优化复测（2026-11-05）
+
+从 `624717/C/chk00128000` 恢复，所有配置在同节点单 A100、单 rank、FLOAT/D3Q27、Re=1000、C阈值下各推进5000粗步（128001–133000），动态AMR每32步重网格。平均值为十个500步窗口有效更新量之和除以累计 `perf(s).total`，含重网格、排除恢复与输出，区别于下方历史表的末窗口MLUPS。
+
+| 累加项 | 平均 MLUPS_total | 相对上一项 |
+|---|---:|---:|
+| A-B 基线 | 1214.52 | — |
+| + OSI 实现 | 1376.64 | +13.35% |
+| + 插值批量提交 | 1792.76 | +30.23% |
+| + 边界批量薄面、直接构面 | 1953.80 | +8.98% |
+| + 通信隐藏（单rank回退） | 1954.47 | +0.03% |
+| + 碰撞256→128线程 | 2132.35 | +9.10% |
+| + 碰撞坐标复用 | 2409.03 | +12.98% |
+
+基线为在当前源码快照中撤回指定优化、保留数值修复的受控重建，不是历史提交的精确复刻。碰撞批量原型未正式采用，本次批量项仅为插值；线程数与坐标复用分开列出。单rank通信差异不算收益。各组逐窗口/逐层碰撞工作量相同，64步动态AMR工程优化回归checkpoint一致；每组仅一次5000步，不将小差异解释为稳定收益或短测解释为长期精度证明。
+
+来源：job626333，whshare-agent-203；全部14次数值/性能应用退出0。最初汇总的监护标记判断错误已用原始日志恢复，未重跑计算。见[变更及验证记录](ai_changes/2026-11-05-optimization-ladder.md)、[完整报告与复现命令](../data_post_processing/results/optimization_ladder_C128000/report.md)、[PNG](../data_post_processing/results/optimization_ladder_C128000/optimization_ladder.png)、[PDF](../data_post_processing/results/optimization_ladder_C128000/optimization_ladder.pdf)、[逐窗口数据](../data_post_processing/results/optimization_ladder_C128000/windows.csv)。
+
 本页记录的运行均采用 BGK 碰撞模型，GPU 均为 NVIDIA A100。分项与总耗时单位为 s；MLUPS 的统计窗口见各节说明。
 
 ## Jaber A5 与本项目对照

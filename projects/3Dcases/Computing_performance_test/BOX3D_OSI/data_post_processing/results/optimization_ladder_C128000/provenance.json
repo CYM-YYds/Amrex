@@ -1,0 +1,87 @@
+{
+  "job": "626333",
+  "source_head": "a56d873fefd4045f80dd9287b510197164f1f3e5",
+  "node": "whshare-agent-203",
+  "executable_sha256": "a925febab7563895cc415496fb80e24149f7c7590e91cbcd39b75ebb5a585bef",
+  "run_directory": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/optimization_ladder/round1/job626333",
+  "source_sha256": {
+    "AmrCoreLBM.H": "a2fde65465d38f1674b9944c5929a6b80e255f5905b859b0d0423d82547ac4cc",
+    "AmrCoreLBM.cpp": "fa6db4c9cfe245453bb1fc5dcc2e3cee7444e3f5dfa0ca18cbdee7508c528338",
+    "AmrCoreLBM_advance.cpp": "2558508fe2f1f6bc046df58231cd6765439d0425240c3c42e1433b958339f3d3",
+    "AmrCoreLBM_amr.cpp": "3d8969286325a25c7cec45bab659ecd304a0406aee50cfbeb69fab876419f9c4",
+    "AmrCoreLBM_diagnostics.cpp": "ad2c62872f5dc45f2a78cd74ac9686d8bc7b9a8ae3ea4594e90425c58ab1ab41",
+    "AmrCoreLBM_osi.cpp": "869ee5e0673269c8aee30c03538fcd9e1ff1b748281ce979e9289c09e9f0aedd",
+    "AuxiliaryPointContainer.H": "f05bfd344667cac8bb42fe46c6f3363fcf6f9cbac8b461efddf97ea2ceaded3e",
+    "AuxiliaryPointContainer.cpp": "963e3a20816841b7f09ff38eac183b073cc26fb257785a3d73b659e2153ca6ce",
+    "InitParticles.H": "42cfacab6299c69b73855668aa3b08cc18a271672cd41bd6109d359dc7424160",
+    "Kernels.H": "808576692b64fafc68abec3008706f7e54178d690c69776c1b46f315951b4fea",
+    "LadderExperiment.H": "799990bc99a88f9ae0020edcc9d9dc3381a2f904cfa649b2f523acc892266ea2",
+    "LagrangeParticleContainer.H": "1a306ebc1eb2e1c343c61ee3735638e32149801f104d96d58c1fad17bc5aa7e4",
+    "LagrangeParticleContainer.cpp": "3913269bc4fc1bf9448790bf1b2937d3d54b2ddc0c264c41a980e0f8d564aa9a",
+    "LbmGridParams.H": "04a4e5ad2db79d59aee9700d56a9645e9ee8b5ab8ded47adcc10bd79143ad2cd",
+    "LbmLattice.H": "727bb4c27fb74c6f3a1f1c7e76aec011a25b983b14e11f0fe7486f233ed0f60f",
+    "OsiAbVerification.H": "81076a2bba676582a4763fa5cd539859f91d62b25a9536002b335c778a34dab0",
+    "OsiAbVerification.cpp": "d772f0d7e2901125032aebc1602cb768305871ebd4c8177d18cafb255f3be7ec",
+    "OsiCommunication.H": "bd8770e447afb9483f9c2c257eb6f7744cc4508b7d398263d200a07422dc3a0d",
+    "OsiIndex.H": "b67725f509a079711f003b24d54ba5c8fd4be88c4c843daffeb049eeddb7d39c",
+    "main.cpp": "416300eb958dea2d1f1fdd6e779a738693855edfd79304e8791f099fa184d870"
+  },
+  "applications": [
+    {
+      "run": "check_01_OSI",
+      "exit_code": 0
+    },
+    {
+      "run": "check_02_interp",
+      "exit_code": 0
+    },
+    {
+      "run": "check_03_boundary",
+      "exit_code": 0
+    },
+    {
+      "run": "check_04_overlap",
+      "exit_code": 0
+    },
+    {
+      "run": "check_05_threads",
+      "exit_code": 0
+    },
+    {
+      "run": "check_06_coordinates",
+      "exit_code": 0
+    },
+    {
+      "run": "check_00_AB",
+      "exit_code": 0
+    },
+    {
+      "run": "perf_00_AB",
+      "exit_code": 0
+    },
+    {
+      "run": "perf_01_OSI",
+      "exit_code": 0
+    },
+    {
+      "run": "perf_02_interp",
+      "exit_code": 0
+    },
+    {
+      "run": "perf_03_boundary",
+      "exit_code": 0
+    },
+    {
+      "run": "perf_04_overlap",
+      "exit_code": 0
+    },
+    {
+      "run": "perf_05_threads",
+      "exit_code": 0
+    },
+    {
+      "run": "perf_06_coordinates",
+      "exit_code": 0
+    }
+  ]
+}

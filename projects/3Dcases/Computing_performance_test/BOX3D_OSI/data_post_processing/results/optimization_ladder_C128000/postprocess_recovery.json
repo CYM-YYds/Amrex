@@ -1,0 +1,7 @@
+{
+  "original_failure": "analysis incorrectly required guard completion_seen; launcher exited before final poll in perf_01_OSI",
+  "application_results": "all 14 applications exit 0; all 7 performance runs contain AMReX finalized and 10 complete windows",
+  "recovery": "local analysis requires exit_code=launcher_returncode=0, raw finalized marker and complete windows; no computations repeated",
+  "original_evidence": "626333-submit.log and exit_status.json unchanged",
+  "result_directory": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/data_post_processing/results/optimization_ladder_C128000"
+}
