@@ -213,6 +213,8 @@ class AmrCoreLBM : public amrex::AmrCore {
     struct RuntimeParams {
         // IBM 配置在启动时读取；关闭时保持原纯流体路径。
         bool ibm_enabled = false;
+        bool ibm_local_force_sum = true;
+        bool ibm_verify_local_sum = false;
         std::string particle_shape = AMREX_D_PICK("", "disk", "sphere");
         amrex::Real ibm_radius = 0.125;
         amrex::Real ibm_length = 0.5;
@@ -640,6 +642,10 @@ class AmrCoreLBM : public amrex::AmrCore {
     amrex::Vector<amrex::MultiFab> vorticity;
     amrex::Vector<amrex::MultiFab> shear;
     amrex::Vector<amrex::MultiFab> force;
+    // 只拥有力场别名及其源布局；在层存储失效时先于 force 释放。
+    std::unique_ptr<amrex::MultiFab> ibm_force_sum_view_;
+    amrex::Vector<int> ibm_force_sum_local_sources_;
+    int ibm_force_sum_level_ = -1;
     amrex::Vector<amrex::MultiFab> f_new;
     amrex::Vector<amrex::MultiFab> f_old;
     // OSI 生产状态只有这一份带两层保护区的 DDF；A-B 两数组仅由

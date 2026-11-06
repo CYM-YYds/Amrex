@@ -653,6 +653,8 @@ void AmrCoreLBM::ReadParameters() {
     {
         ParmParse pp("ibm");
         pp.query("enabled", params_.ibm_enabled);
+        pp.query("local_force_sum", params_.ibm_local_force_sum);
+        pp.query("verify_local_sum", params_.ibm_verify_local_sum);
         pp.query("radius", params_.ibm_radius);
         pp.query("length", params_.ibm_length);
         Vector<Real> center;
@@ -859,9 +861,84 @@ void AmrCoreLBM::InterpForce(int lev) {
 }
 
 void AmrCoreLBM::SumForce(int lev) {
-    MultiFab* mf_pointer = &force[lev];
+    auto& full = force[lev];
+    const auto periodic = Geom(lev).periodicity();
+    if (!params_.ibm_local_force_sum) {
+        full.SumBoundary(periodic);
+        return;
+    }
 
-    mf_pointer->SumBoundary(Geom(lev).periodicity());
+    // 力场已在 InterpForce 中整层清零，只有含标记点的 Fab 及其 ghost 可能写入非零力。
+    // 由实际粒子归属确定源，不能只按物体包围盒或当前 rank 的粒子推断接收范围。
+    const auto& ba = full.boxArray();
+    Vector<int> local_sources(ba.size(), 0);
+    for (int body = 0; body < particle_num; ++body) {
+        for (const auto& tile : particles[body]->GetParticles(lev)) {
+            if (tile.second.numParticles() > 0) { local_sources[tile.first.first] = 1; }
+        }
+    }
+    int changed = ibm_force_sum_level_ != lev ||
+                  local_sources != ibm_force_sum_local_sources_;
+    ParallelDescriptor::ReduceIntMax(changed);
+    if (changed) {
+        ibm_force_sum_view_.reset();
+        ibm_force_sum_local_sources_ = local_sources;
+        ibm_force_sum_level_ = lev;
+        ParallelDescriptor::ReduceIntMax(local_sources.data(), int(local_sources.size()));
+        Vector<int> selected = local_sources;
+        Vector<std::pair<int, Box>> intersections;
+        const auto shifts = periodic.shiftIntVect(full.nGrowVect());
+        for (int src = 0; src < ba.size(); ++src) {
+            if (!local_sources[src]) { continue; }
+            const Box support = amrex::grow(ba[src], full.nGrowVect());
+            for (const auto& shift : shifts) {
+                // 包括周期镜像中的有效区接收者，完整复用 AMReX 的本地及 MPI 累加。
+                ba.intersections(amrex::shift(support, shift), intersections);
+                for (const auto& entry : intersections) { selected[entry.first] = 1; }
+            }
+        }
+        BoxList boxes(ba.ixType());
+        Vector<int> owners, indices;
+        for (int index = 0; index < ba.size(); ++index) {
+            if (selected[index]) {
+                boxes.push_back(ba[index]);
+                owners.push_back(full.DistributionMap()[index]);
+                indices.push_back(index);
+            }
+        }
+        if (!indices.empty()) {
+            ibm_force_sum_view_ = std::make_unique<MultiFab>(
+                BoxArray(boxes), DistributionMapping(owners), full.nComp(), full.nGrowVect(),
+                MFInfo().SetAlloc(false));
+            for (int index = 0; index < int(indices.size()); ++index) {
+                if (owners[index] == ParallelDescriptor::MyProc()) {
+                    ibm_force_sum_view_->setFab(index, std::make_unique<FArrayBox>(
+                        full[indices[index]], amrex::make_alias, 0, full.nComp()));
+                }
+            }
+        }
+        amrex::Print() << "[IBM local sum] level=" << lev << " source_boxes="
+                       << std::count(local_sources.begin(), local_sources.end(), 1)
+                       << " selected_boxes=" << indices.size() << " full_boxes=" << ba.size() << '\n';
+    }
+
+    // 独立整层参考仅用于数值验收，关闭时不分配临时场、不执行重复汇总。
+    MultiFab reference;
+    if (params_.ibm_verify_local_sum) {
+        reference.define(ba, full.DistributionMap(), full.nComp(), full.nGrowVect());
+        MultiFab::Copy(reference, full, 0, 0, full.nComp(), full.nGrowVect());
+        reference.SumBoundary(periodic);
+    }
+    if (ibm_force_sum_view_) { ibm_force_sum_view_->SumBoundary(periodic); }
+    if (params_.ibm_verify_local_sum) {
+        MultiFab::Subtract(reference, full, 0, 0, full.nComp(), full.nGrowVect());
+        for (int component = 0; component < full.nComp(); ++component) {
+            const Real error = reference.norm0(component, full.nGrow());
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(std::isfinite(error) &&
+                error <= Real(256)*std::numeric_limits<Real>::epsilon(),
+                "Local IBM SumBoundary differs from full-field reference");
+        }
+    }
 }
 
 void AmrCoreLBM::ComputeParticle(int lev) {

@@ -24,3 +24,34 @@ GPU 配对任务 626770，同一 GPU 上三组交错顺序，从生产 chk005840
 逐值检查只比较未被细层覆盖的有效单元。被覆盖粗层数据中有非有限存储值，
 不把它们当作实际参与推进的有效状态；报告保留对应计数。
 短测试不能证明长期等价、三维 GPU 运行正确性或多 GPU 性能；SumBoundary 耗时波动不归因于此优化。
+
+## 局部力汇总主优化
+
+入口已扩展为参数化复用，不复制按作业号/路径变化的脚本。
+材料：`runs/temporary/ibm_local_sum/`，默认启用 `ibm.local_force_sum=true`，设为 false 可回到整层汇总。
+`ibm.verify_local_sum=true` 每次与整层参考比较全部力场（含 ghost）；该开关会增加重复工作，性能测试必须关闭。
+
+验证及性能提交时，先冻结 TASK 下的 inputs、baseline.ex、optimized.ex、app2d.ex、app3d.ex。
+从算例目录、加载调度环境后提交：
+
+```bash
+dsub -x 'all;IBM_TASK_DIR=/绝对路径/任务目录;' -s scripts/temporary/ibm_optimization/submit.sh
+dsub -R 'cpu=16;mem=65536;gpu=2' \
+  -x 'all;IBM_TASK_DIR=/绝对路径/任务目录;IBM_NPROCS=2;' \
+  -s scripts/temporary/ibm_optimization/submit.sh
+```
+
+性能各组合使用不同任务目录以免覆盖。逐力场验证使用同一入口，额外传入
+`IBM_STAGE=validation;IBM_VALIDATION_TAG=_v3;`，按 NPROCS 分开保存。物体保持在求解器支持的域内范围。
+
+从仓库根重新分析已保留材料：
+
+```bash
+.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/scripts/temporary/ibm_optimization/analyze.py \
+  projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/ibm_local_sum \
+  --local-sum --validation-tag=_v3
+.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/scripts/temporary/ibm_optimization/analyze.py \
+  projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/ibm_local_sum/two_gpu --local-sum
+```
+
+多 rank 日志每个 rank 都打印一行；分析对各计时器取 rank 最大值，不将计时相加。

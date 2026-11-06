@@ -516,6 +516,11 @@ void AmrCoreLBM::RefineMesh(amrex::Real cur_time) { // 根据流场特征重新�
 }
 
 void AmrCoreLBM::InvalidateLevelCaches(int lev) {
+    if (ibm_force_sum_level_ == lev) {
+        ibm_force_sum_view_.reset();
+        ibm_force_sum_local_sources_.clear();
+        ibm_force_sum_level_ = -1;
+    }
     // 只在该层存储可能更换/释放时调用；先释放绑定旧 Array4 的传输资源。
     level_cache_dirty.at(lev) = 1;
     if (lev > 0) {
