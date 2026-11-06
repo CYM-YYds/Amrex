@@ -17,7 +17,7 @@ for dimension in 2 3; do
     "$TEST_CXX" -std=c++20 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
         -Wno-attributes -Wno-psabi -I"$BUILD_DIR" -I"$TEST_DIR/../src" \
         -I"$REPO_DIR/amrex-26.06/Src/Base" -I"$REPO_DIR/amrex-26.06/Src/Boundary" \
-        "$TEST_DIR/dimension_kernels_test.cpp" -o "$BUILD_DIR/test${dimension}d"
+        "$TEST_DIR/${TEST_SOURCE:-dimension_kernels_test.cpp}" -o "$BUILD_DIR/test${dimension}d"
     TEST_LIB_DIR="$(dirname "$("$TEST_CXX" -print-file-name=libasan.so)")"
     LD_PRELOAD="$("$TEST_CXX" -print-file-name=libasan.so)${LD_PRELOAD:+:$LD_PRELOAD}" \
         LD_LIBRARY_PATH="${TEST_LIB_DIR}:${LD_LIBRARY_PATH:-}" "$BUILD_DIR/test${dimension}d"

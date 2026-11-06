@@ -15,7 +15,7 @@ def coordinates(match):
     return tuple(low+high)
 
 
-def fields(folder, prefix):
+def fields(folder, prefix, require_finite=True):
     result = {}
     for index in sorted(folder.glob(f'Level_*/{prefix}_H')):
         lines = index.read_text().splitlines()
@@ -37,7 +37,7 @@ def fields(folder, prefix):
                 data = np.frombuffer(payload, dtype=dtype).reshape(shape)
                 a,b,c,d,e,f = box
                 valid = data[:,c-z0:f-z0+1,b-y0:e-y0+1,a-x0:d-x0+1].copy()
-                assert valid.size and np.isfinite(valid).all(), (index,box,'nonfinite valid')
+                assert valid.size and (not require_finite or np.isfinite(valid).all()), (index,box,'nonfinite valid')
                 key = (index.parent.name,)+box
                 assert key not in result
                 result[key] = valid

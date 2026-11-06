@@ -3219,12 +3219,19 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
     Real delta, RealVect const& target, LbmGridParams const& grid) {
     // 二维只访问 z=0；arc 是格子弧长，权重乘 dx_min² 给出单位厚度的力。
     const Real xt = p.pos(0) / delta, yt = p.pos(1) / delta;
+    // 标记点位置在本次调用内固定，一维核权重由插值和铺展共同使用。
+    const int ix = int(amrex::Math::floor(xt)), iy = int(amrex::Math::floor(yt));
+    Real wx[5], wy[5];
+    for (int n = -2; n <= 2; ++n) {
+        wx[n+2] = delta3p(xt - (ix + n + Real(0.5)));
+        wy[n+2] = delta3p(yt - (iy + n + Real(0.5)));
+    }
     Real ux = 0, uy = 0, density = 0;
     for (int y = -2; y <= 2; ++y) {
         for (int x = -2; x <= 2; ++x) {
-            const int i = int(amrex::Math::floor(xt)) + x;
-            const int j = int(amrex::Math::floor(yt)) + y;
-            const Real w = delta3p(xt - (i + Real(0.5))) * delta3p(yt - (j + Real(0.5)));
+            const int i = ix + x;
+            const int j = iy + y;
+            const Real w = wx[x+2] * wy[y+2];
             ux += w * u(i,j,0,0);
             uy += w * u(i,j,0,1);
             density += w * rho(i,j,0,0);
@@ -3239,9 +3246,9 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
     tz = (fyt * x_local - fxt * y_local) * weight * volume;
     for (int y = -2; y <= 2; ++y) {
         for (int x = -2; x <= 2; ++x) {
-            const int i = int(amrex::Math::floor(xt)) + x;
-            const int j = int(amrex::Math::floor(yt)) + y;
-            const Real w = delta3p(xt - (i + Real(0.5))) * delta3p(yt - (j + Real(0.5))) * weight;
+            const int i = ix + x;
+            const int j = iy + y;
+            const Real w = wx[x+2] * wy[y+2] * weight;
             amrex::Gpu::Atomic::AddNoRet(&force(i,j,0,0), -fxt*w);
             amrex::Gpu::Atomic::AddNoRet(&force(i,j,0,1), -fyt*w);
         }
@@ -3257,7 +3264,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
     amrex::Array4<amrex::Real> const& Ft, amrex::Real const delta,
     amrex::RealVect const& uc, amrex::RealVect const& wc,
     amrex::RealVect const& centre, LbmGridParams const& grid) {
-    amrex::Real xt, yt, zt, lx, ly, lz;
+    amrex::Real xt, yt, zt;
     amrex::Real IB_Interp, IB_weight;
     amrex::Real uxt, uyt, uzt, rhot, upx, upy, upz, fxt, fyt, fzt;
 
@@ -3265,6 +3272,15 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
     yt = p.pos(1) / delta;
     zt = p.pos(2) / delta;
 
+    // 一维权重只在本次调用中缓存，无跨步状态及失效维护。
+    const int ix = int(amrex::Math::floor(xt)), iy = int(amrex::Math::floor(yt));
+    const int iz = int(amrex::Math::floor(zt));
+    Real wx[5], wy[5], wz[5];
+    for (int n = -2; n <= 2; ++n) {
+        wx[n+2] = delta3p(xt - (ix + n + Real(0.5)));
+        wy[n+2] = delta3p(yt - (iy + n + Real(0.5)));
+        wz[n+2] = delta3p(zt - (iz + n + Real(0.5)));
+    }
     IB_weight = LP_dr * area;
 
     uxt = 0.0_rt;
@@ -3279,16 +3295,13 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
     for (int x = -2; x <= 2; x++) {
         for (int y = -2; y <= 2; y++) {
             for (int z = -2; z <= 2; z++) {
-                int xx = static_cast<int>(amrex::Math::floor(xt)) +
+                int xx = ix +
                          x; // 拉格朗日点作用范围内真实的点坐标
-                int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
-                int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
+                int yy = iy + y;
+                int zz = iz + z;
 
-                lx = xt - (xx + 0.5_rt);
-                ly = yt - (yy + 0.5_rt);
-                lz = zt - (zz + 0.5_rt);
 
-                IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz);
+                IB_Interp = wx[x+2] * wy[y+2] * wz[z+2];
 
                 uxt += u(xx, yy, zz, 0) * IB_Interp;
                 uyt += u(xx, yy, zz, 1) * IB_Interp;
@@ -3315,15 +3328,12 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void force_interp_extrap(
     for (int x = -2; x <= 2; x++) {
         for (int y = -2; y <= 2; y++) {
             for (int z = -2; z <= 2; z++) {
-                int xx = static_cast<int>(amrex::Math::floor(xt)) + x;
-                int yy = static_cast<int>(amrex::Math::floor(yt)) + y;
-                int zz = static_cast<int>(amrex::Math::floor(zt)) + z;
+                int xx = ix + x;
+                int yy = iy + y;
+                int zz = iz + z;
 
-                lx = xt - (xx + 0.5_rt);
-                ly = yt - (yy + 0.5_rt);
-                lz = zt - (zz + 0.5_rt);
 
-                IB_Interp = delta3p(lx) * delta3p(ly) * delta3p(lz) * IB_weight;
+                IB_Interp = wx[x+2] * wy[y+2] * wz[z+2] * IB_weight;
 
                 amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 0), -fxt * IB_Interp);
                 amrex::Gpu::Atomic::AddNoRet(&Ft(xx, yy, zz, 1), -fyt * IB_Interp);
