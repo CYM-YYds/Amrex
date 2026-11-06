@@ -15,3 +15,11 @@
 626524，whshare-agent-82：构建通过；两组从零128步短回归、各2帧输出及checkpoint回传SHA通过。三层比较56623104/56623104/132046848个DDF值（实际计数以gate_valid_comparison.json为准），不等值及非有限值均0。生产已开始OSI第一个0--32000区段，之后自动续跑并执行A-B全部四段。尚无新128000步结果。原始材料和运行入口见[复现说明](../../scripts/temporary/C_optimized_t1000/README.md)。本次脚本Python语法、Shell语法及链接检查通过；运行验证结果待更新。
 
 冻结程序SHA256：`fad20703fc69d13d3df1b92e4c1b9e5cda80dfe92efe3d0df3d146e18eacf34d`。短回归不代表全程完成。最终完成须有job626524/completed.txt、8条progress记录及summary.json/report.md；正在运行期间不清理构建对象与节点现场。
+
+## 完成核验（2026-11-06）
+
+626524两模式均完成128000步/t1000，8条progress全部transfer_verified=true，completed.txt存在，无failure.json。重新执行summarize.py通过：各40完整性能窗口、40速度帧、40 Q/涡量帧、4份checkpoint，退出状态正常；各段回传清单记录逐文件SHA回读校验通过。全部输入、源文件、程序、命令、日志、流场和checkpoint保留，未删除历史结果或用户文件。
+
+OSI累计perf.total=2753.80301297s，末窗口2398.333156 MLUPS，全程累计2427.255341 MLUPS；A-B分别3954.54705359s、1667.134559和1690.252507 MLUPS。OSI本次全程耗时减少30.36%，末窗口吞吐提高43.86%。两组末态收敛标记均为0；128步预检不证明全程流场逐值等价，单次固定执行顺序不证明统计稳定收益。结果已同步MLUPS记录顶部，旧表明确保留为历史。
+
+结果和完整复现命令见[报告](../../runs/C_optimized_t1000_20261105/job626524/report.md)，流场在同目录production/C_mode1及C_mode0。此次收尾只更新结果文档；重跑汇总检查、文档新增链接路径和diff检查通过。
