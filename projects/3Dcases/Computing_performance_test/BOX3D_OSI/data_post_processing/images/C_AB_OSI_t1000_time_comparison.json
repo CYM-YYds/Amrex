@@ -1,16 +1,12 @@
 {
   "inputs": [
     {
-      "path": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/C_AB_local_output_validation/job625774/local_original/C_mode0/run.log",
-      "sha256": "194788f8ce507e99864f407cf37d97b48462be30741cf56906eb83ed63ae72f4"
+      "path": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/C_optimized_t1000_20261105/job626524/production/C_mode0/run.log",
+      "sha256": "31889b6f4ceccf05e7275f3788f1c2800f407ae8cb109338f60cee37ca74f0cc"
     },
     {
-      "path": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/C_AB_t1000_local_continuation/job625855/local_original/C_mode0/run.log",
-      "sha256": "1402c791692358d156ccf509ae84e6bb079b49a6f7033671954048090d45bc9a"
-    },
-    {
-      "path": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/a5_C_t1000_gif/job624717/C/run.log",
-      "sha256": "6077dcdd4453ee31bc9333f3863836f3d20858d6813b767855cc7a6b7ffcf66a"
+      "path": "/home/iosoeqkp/whcs-share47/caiyimin/learnamerx/Amrex/projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/C_optimized_t1000_20261105/job626524/production/C_mode1/run.log",
+      "sha256": "356beee0283bbf22c4b0318c56a37b7718e091f35271429533cf3a0dab8f6ad3"
     }
   ],
   "steps": [
@@ -26,24 +22,24 @@
   "unit": "seconds",
   "normalization": "none; cumulative perf(s) timers, regrid_time converted ms to s",
   "AB": {
-    "interp": 305.400717286,
-    "collide": 1536.6623094,
-    "stream": 1585.83168432,
-    "average": 136.88367323399999,
-    "comm": 94.939497644,
-    "boundary": 397.884242367,
-    "regrid": 274.094752442,
-    "total": 4334.22430441
+    "interp": 308.57435172099997,
+    "collide": 1296.76056327,
+    "stream": 1593.02716426,
+    "average": 138.189661688,
+    "comm": 95.537323473,
+    "boundary": 401.500151336,
+    "regrid": 118.545301127,
+    "total": 3954.54705359
   },
   "OSI": {
-    "interp": 317.80971917200003,
-    "collide": 2345.66944136,
-    "stream": 8.2509684609,
-    "average": 140.411797382,
-    "comm": 105.400629936,
-    "boundary": 416.648757109,
-    "regrid": 149.676100341,
-    "total": 3483.08831249
+    "interp": 326.62649057699997,
+    "collide": 1659.16107614,
+    "stream": 8.248074024,
+    "average": 144.825382902,
+    "comm": 102.108781681,
+    "boundary": 421.11889922299997,
+    "regrid": 92.548844614,
+    "total": 2753.80301297
   },
-  "note": "A-B one restart and tracing; different nodes/output paths and evolving grids; not a controlled speedup benchmark"
+  "note": "job626524; same frozen executable and single A100; OSI then AB once; each starts at zero with three planned restarts; no I/O tracing; not repeated statistical evidence"
 }

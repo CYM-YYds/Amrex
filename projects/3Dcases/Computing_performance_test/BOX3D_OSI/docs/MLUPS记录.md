@@ -15,6 +15,8 @@
 
 A-B副本补齐128线程；OSI使用128线程及坐标复用。见[完整报告](../runs/C_optimized_t1000_20261105/job626524/report.md)、[原始汇总](../runs/C_optimized_t1000_20261105/job626524/summary.json)、[OSI流场](../runs/C_optimized_t1000_20261105/job626524/production/C_mode1/)、[A-B流场](../runs/C_optimized_t1000_20261105/job626524/production/C_mode0/)、[复现流程](../scripts/temporary/C_optimized_t1000/README.md)、[变更记录](ai_changes/2026-11-05-C-optimized-full-rerun.md)。
 
+最新[A-B与OSI耗时柱状图（PNG）](../data_post_processing/images/C_AB_OSI_t1000_time_comparison.png)、[矢量SVG](../data_post_processing/images/C_AB_OSI_t1000_time_comparison.svg)及[复现说明](../data_post_processing/results/C_AB_OSI_time/README.md)已采用626524的40窗口累计数据。
+
 ## C128000 修订累加优化：OSI最后，1000步（2026-11-05）
 
 当前采用方案。job626501，whshare-agent-186，单A100，从624717/C step128000恢复，各组一次1000粗步至129000，每100步汇总；平均MLUPS=累计有效更新量/累计perf.total，含重网格，排除恢复/输出。

@@ -1,9 +1,9 @@
 # C阈值 A-B/OSI 耗时柱状图
 
-输入A-B job625774+625855，OSI job624717；均单GPU A100、Re1000、FLOAT D3Q27、C阈值、128³基础网格、max_level2，从静止到128000步/t1000。两段A-B在t250恢复一次。
+输入为最新job626524的A-B与OSI完整日志，同一冻结程序、同节点单GPU A100、Re1000、FLOAT D3Q27、C阈值、128³基础网格、max_level2。两组从静止到128000步/t1000，均分4个32000步区段，在32000/64000/96000步恢复。使用128线程碰撞，OSI包含坐标复用；无I/O系统调用跟踪。固定OSI→A-B各执行一次，不作为重复统计的稳定收益证据。
 
-图为40个3200步窗口的累计秒数，不做cell归一化，不用末窗MLUPS反推耗时。图中文字使用中文，移除图内备注；分项与total合并为同一坐标轴，移除数组交换展示，不再记录solv；regrid_time由ms转s，分项不构成total的严格可加分解。推进total排除初始化、恢复、流场/checkpoint输出及共享盘回传。A-B有重启与I/O跟踪，节点/输出路径及AMR状态不同，不作为严格受控加速比。
+图为40个3200步窗口的累计秒数，不做cell归一化，不用末窗MLUPS反推耗时。沿用中文标题、图例、蓝橙分组、单坐标轴及分项＋总耗时；不展示数组交换与solv，不增加图内备注。regrid_time由ms转s，分项不构成total的严格可加分解。total包含重网格，排除初始化、恢复、流场/checkpoint输出及回传；无外部参考数据。
 
-生成器复用plot_run_performance.py的窗口解析和字段解析。原入口用于单日志性能概览，不支持本次跨运行分组对照，因此新增本次临时绘图入口，作为唯一生成脚本保留。输入SHA256、统计范围和原始秒数见图片同名JSON/CSV；图内仅保留标题、图例、项目和单位；来源、范围及比较限制保存在本记录及同名JSON中，无外部参考数据。
+A-B累计total=3954.54705359秒，OSI=2753.80301297秒，本次OSI耗时减少30.36%。重构分别118.545301127/92.548844614秒。原始输入SHA256、统计范围及秒数见图片同名JSON/CSV，完整运行结果见[报告](../../../runs/C_optimized_t1000_20261105/job626524/report.md)。两组完成目标时间，末态均converged=0。
 
-产物：../../images/C_AB_OSI_t1000_time_comparison.png（预览）、同名.svg（矢量）、.csv、.json。复现命令见command.txt。验证：Python语法解析、40连续窗口覆盖断言、全部阶段及总耗时与已有汇总JSON交叉核对通过；PNG尺寸2860x1188。
+生成器复用plot_run_performance.py的窗口解析。产物：[PNG](../../images/C_AB_OSI_t1000_time_comparison.png)、[SVG](../../images/C_AB_OSI_t1000_time_comparison.svg)、[CSV](../../images/C_AB_OSI_t1000_time_comparison.csv)、[JSON](../../images/C_AB_OSI_t1000_time_comparison.json)。仓库根使用[command.txt](command.txt)完整命令复现。Python语法、40窗口覆盖和全部分项/total与626524汇总交叉核对；重构直接核对日志40个regrid_time窗口。

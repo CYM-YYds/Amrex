@@ -20,6 +20,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--ab-logs', nargs='+', type=Path, required=True)
 parser.add_argument('--osi-log', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
+parser.add_argument('--comparison-note', default='运行流程与程序来源见结果说明；单次对照不代表重复统计的稳定收益')
 args = parser.parse_args()
 
 def summarize(paths):
@@ -71,6 +72,6 @@ with args.output.with_suffix('.csv').open('w', newline='') as stream:
 metadata = {'inputs': [{'path': str(p.resolve()), 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in args.ab_logs + [args.osi_log]],
             'steps': [1, 128000], 'physical_time': [0, 1000], 'windows': 40, 'window_steps': 3200,
             'unit': 'seconds', 'normalization': 'none; cumulative perf(s) timers, regrid_time converted ms to s',
-            'AB': ab, 'OSI': osi, 'note': 'A-B one restart and tracing; different nodes/output paths and evolving grids; not a controlled speedup benchmark'}
+            'AB': ab, 'OSI': osi, 'note': args.comparison_note}
 args.output.with_suffix('.json').write_text(json.dumps(metadata, indent=2) + '\n')
 print(args.output)
