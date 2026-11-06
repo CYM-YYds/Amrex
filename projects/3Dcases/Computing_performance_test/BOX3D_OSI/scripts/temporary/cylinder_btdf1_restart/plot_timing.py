@@ -48,6 +48,11 @@ def main():
         ('平均下传', report['average_seconds']),
         ('迁移 Stream', report['stream_seconds']),
     ]
+    # 差额只用于闭合展示；现有计时器覆盖范围交叉，不能解释为独立重网格时间。
+    unclassified = total - sum(seconds for _, seconds in overall)
+    if unclassified < -1e-6:
+        raise ValueError('已列计时之和超过总耗时，不能用非负差额闭合占比图')
+    overall.append(('未归类差额', max(unclassified, 0)))
     detail = [
         ('力汇总 SumBoundary', report['particle_sum_seconds']),
         ('宏观量准备', report['particle_macro_seconds']),
@@ -64,7 +69,7 @@ def main():
     plt.rcParams['font.family'] = font.get_name()
     plt.rcParams['axes.unicode_minus'] = False
     fig, axes = plt.subplots(1, 2, figsize=(15, 6.4), gridspec_kw={'wspace': .62})
-    colors = ['#2274A5','#EA8C55','#4C956C','#8E6C88','#4F9DA6','#D8A12B','#8892A0']
+    colors = ['#2274A5','#EA8C55','#4C956C','#8E6C88','#4F9DA6','#D8A12B','#8892A0','#B8BEC7']
     rows = []
     for ax, entries, denominator, title in zip(axes, [overall, detail], [total, particle],
             ['各阶段累计 / 计算总耗时', '颗粒相关路径内部占比']):
@@ -85,8 +90,8 @@ def main():
     state = '完整运行' if report['complete'] else '运行中快照'
     fig.suptitle(f'二维圆柱 OSI 耗时占比 · 作业 {args.job_id or "未指定"} · {state}\n'
                  f'步骤 {start} → {end}，{report["statistical_steps"]:,} 步 / {report["windows"]} 个完整窗口', fontsize=16, y=.98)
-    fig.text(.02, .085, '左图按各计时器 / compute total 计算，非严格互斥的 100% 分解；平均计时可能包含输出阶段的平均下传。', fontsize=10)
-    fig.text(.02, .052, '颗粒父计时不与子项重复相加；受力归约项含文件输出。compute total 不含流场/checkpoint I/O，细分计时包含 GPU 同步开销。', fontsize=10)
+    fig.text(.02, .085, '左图补齐未归类差额后合计 100%；差额 = compute total − 已列计时之和，不等同于重网格耗时。', fontsize=10)
+    fig.text(.02, .052, '计时覆盖范围有交叉（含重网格边界修复、输出前平均），非严格互斥分解；总耗时不含流场/checkpoint I/O。', fontsize=10)
     fig.text(.02, .019, '来源：本图目录的 timing_windows.csv、summary_snapshot.json 与 run_log_snapshot.txt；无参考数据，未做额外物理归一化。', fontsize=9, color='#555555')
     fig.subplots_adjust(left=.15, right=.96, bottom=.23, top=.74)
     for suffix in ('png','svg'):
