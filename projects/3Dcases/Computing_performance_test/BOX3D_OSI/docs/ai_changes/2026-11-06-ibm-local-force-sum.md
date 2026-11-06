@@ -13,7 +13,7 @@
 InvalidateLevelCaches 失效时先释放别名；实际粒子所属 Fab 标志改变时，经 MPI 全局确认重建。
 无粒子时汇总为空操作，标志变化后可重建。缓存不写入检查点。
 
-参数：ibm.local_force_sum 默认 true，false 保留整层基线。
+收尾后生产路径统一采用局部汇总，已删除原验收阶段的 ibm.local_force_sum 开关及整层生产分支。
 ibm.verify_local_sum 默认 false；true 在每次调用中独立执行整层参考，比较所有分量、
 有效区及 ghost 区的力，绝对误差容差为 256*epsilon(Real)，只用于验收，不用于性能测试。
 已有物体离边界至少三粗网格的限制保持；周期域验证不代表支持物体跨周期边界运动。

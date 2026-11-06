@@ -653,7 +653,6 @@ void AmrCoreLBM::ReadParameters() {
     {
         ParmParse pp("ibm");
         pp.query("enabled", params_.ibm_enabled);
-        pp.query("local_force_sum", params_.ibm_local_force_sum);
         pp.query("verify_local_sum", params_.ibm_verify_local_sum);
         pp.query("radius", params_.ibm_radius);
         pp.query("length", params_.ibm_length);
@@ -863,10 +862,6 @@ void AmrCoreLBM::InterpForce(int lev) {
 void AmrCoreLBM::SumForce(int lev) {
     auto& full = force[lev];
     const auto periodic = Geom(lev).periodicity();
-    if (!params_.ibm_local_force_sum) {
-        full.SumBoundary(periodic);
-        return;
-    }
 
     // 力场已在 InterpForce 中整层清零，只有含标记点的 Fab 及其 ghost 可能写入非零力。
     // 由实际粒子归属确定源，不能只按物体包围盒或当前 rank 的粒子推断接收范围。

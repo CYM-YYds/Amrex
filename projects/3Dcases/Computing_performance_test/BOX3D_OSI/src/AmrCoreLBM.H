@@ -213,7 +213,6 @@ class AmrCoreLBM : public amrex::AmrCore {
     struct RuntimeParams {
         // IBM 配置在启动时读取；关闭时保持原纯流体路径。
         bool ibm_enabled = false;
-        bool ibm_local_force_sum = true;
         bool ibm_verify_local_sum = false;
         std::string particle_shape = AMREX_D_PICK("", "disk", "sphere");
         amrex::Real ibm_radius = 0.125;

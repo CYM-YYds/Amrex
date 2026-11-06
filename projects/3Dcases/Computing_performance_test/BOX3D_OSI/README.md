@@ -9,7 +9,7 @@
 
 常用脚本：[构建/提交索引](scripts/README.md) · [后处理入口](data_post_processing/README.md) · [临时实验索引](scripts/temporary/README.md) · [仓库脚本导航](../../../../docs/script-guide.md)。
 
-更新时间：2026-11-05。
+更新时间：2026-11-06。
 
 
 ## 二维与三维静止 IBM 开关
@@ -46,6 +46,11 @@ ibm.radius = 0.125
 当前只提供现有单次直接施力与 Guo 受力 BGK，要求 `lbm.collide_mode=1`，
 A-B 和 OSI 使用相同受力公式；这不是 Cylinder3D 的 IDF 矩阵求解器。
 关闭开关不需要重新编译。
+
+IBM 生产路径统一采用两项优化：插值与铺展共用一维四点核权重，力汇总只处理标记点源 Fab
+及其支撑域接收 Fab，并复用 AMReX 的本地/MPI 累加。不存在新旧汇总实现的运行选择开关。
+`ibm.verify_local_sum=true` 仅用于逐次执行整层参考并核对力场，默认关闭，不用于性能测试。
+验收范围与复现见[优化集成记录](docs/ai_changes/2026-11-06-ibm-optimization-integration.md)。
 
 初始化/重网格强制细化物体和四点核支撑域，标记全部位于实际最细层。
 几何必须在零原点计算域内，离各面超过三个 coarse cell，半径至少一个最细层 cell；

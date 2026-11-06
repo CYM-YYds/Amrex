@@ -5,11 +5,12 @@ from pathlib import Path
 import numpy as np
 root=Path(sys.argv[1]).resolve()
 local_sum='--local-sum' in sys.argv[2:]
+validation_only='--validation-only' in sys.argv[2:]
 label='局部力汇总' if local_sum else '核权重复用'
 case=Path(__file__).resolve().parents[3]
 fields=runpy.run_path(str(case/'scripts/temporary/ibm_switch/verify.py'),run_name='fab_reader')['fields']
 rows=[]; comparisons=[]
-for pair in range(1,4):
+for pair in (() if validation_only else range(1,4)):
     data={}
     for variant in ('baseline','optimized'):
         path=root/f'{variant}_{pair}'
@@ -49,13 +50,15 @@ for pair in range(1,4):
     assert error<1e-9,error
     comparisons.append({'pair':pair,'ddf_linf':error,'uncovered_values':count,'covered_nonfinite_baseline':covered_nonfinite})
 summary={}
-for key in ('particle_force','particle_total','particle_sum','total'):
+for key in (() if validation_only else ('particle_force','particle_total','particle_sum','total')):
     old=statistics.median(r[key] for r in rows if r['variant']=='baseline')
     new=statistics.median(r[key] for r in rows if r['variant']=='optimized')
     summary[key]={'baseline_median_s':old,'optimized_median_s':new,'reduction_percent':100*(old-new)/old}
 report={'rows':rows,'comparisons':comparisons,'summary':summary,'scope':'fixed mesh; 584000 to 584032; 3 paired samples; rank/GPU count follows frozen command and run log; not long-run certification', 'optimization':label,'rank_aggregation':'maximum per timer across ranks; minimum MLUPS; stage maxima are not additive'}
 validation_tag=next((arg.split('=',1)[1] for arg in sys.argv[2:]
                      if arg.startswith('--validation-tag=')),None)
+if validation_only and validation_tag is None: validation_tag=''
+if validation_only: report['scope']='final unified production path; single/two GPU; 2D/3D and actual dynamic regrid; numerical validation only'
 if validation_tag is not None:
     checks=[]
     for ranks in (1,2):
@@ -74,11 +77,17 @@ if validation_tag is not None:
             checks.append({'case':name,'ranks':ranks,'cache_builds':len(sizes),
                            'sizes_level_source_selected_full':sizes,'full_force_reference_passed':True})
     report['force_validation']=checks
-(root/'report.json').write_text(json.dumps(report,indent=2)+'\n')
-lines=[f'# IBM {label}：配对测试','',report['scope'],'','|计时项|原实现中位数(s)|优化后中位数(s)|减少(%)|','|---|---:|---:|---:|']
+output_stem='validation' if validation_only else 'report'
+(root/f'{output_stem}.json').write_text(json.dumps(report,indent=2)+'\n')
+lines=[f'# IBM {label}：'+('最终回归' if validation_only else '配对测试'),'',report['scope']]
+if not validation_only: lines+=['','|计时项|原实现中位数(s)|优化后中位数(s)|减少(%)|','|---|---:|---:|---:|']
 for key,v in summary.items(): lines.append(f"|{key}|{v['baseline_median_s']:.6f}|{v['optimized_median_s']:.6f}|{v['reduction_percent']:.2f}|")
 if 'force_validation' in report:
-    lines+=['',f"整层力场逐次参考对照通过：{len(report['force_validation'])} 项，详情见 report.json。"]
-lines+=['',f"最终 DDF 最大逐值差：{max(c['ddf_linf'] for c in comparisons):.5g}",'','输入、程序 SHA 见 manifest.json；原始日志、命令、最终检查点保存在各配对目录。','比较仅覆盖未被细层覆盖的有效单元；粗层被覆盖区存在非有限存储值，已单独计数，不作为有效状态参与比较。', ('本次改变 SumBoundary 工作集合，保持 AMReX 本地与 MPI 累加机制。' if local_sum else '本次没有修改 SumBoundary，不能把其波动归因为核权重优化。')]
-(root/'report.md').write_text('\n'.join(lines)+'\n')
+    lines+=['',f"整层力场逐次参考对照通过：{len(report['force_validation'])} 项，详情见 {output_stem}.json。"]
+if comparisons:
+    lines+=['',f"最终 DDF 最大逐值差：{max(c['ddf_linf'] for c in comparisons):.5g}",
+            '比较仅覆盖未被细层覆盖的有效单元；被覆盖粗层存储中的非有限值另计。']
+lines+=['','输入、程序 SHA 见 manifest.json；原始日志、命令、最终检查点保存在各运行目录。']
+(root/f'{output_stem}.md').write_text('\n'.join(lines)+'\n')
 print(json.dumps(summary,indent=2)); print(comparisons)
+if validation_only: print('PASS',len(report['force_validation']),'force reference cases')

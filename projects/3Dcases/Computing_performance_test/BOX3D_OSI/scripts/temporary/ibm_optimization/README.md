@@ -28,7 +28,7 @@ GPU 配对任务 626770，同一 GPU 上三组交错顺序，从生产 chk005840
 ## 局部力汇总主优化
 
 入口已扩展为参数化复用，不复制按作业号/路径变化的脚本。
-材料：`runs/temporary/ibm_local_sum/`，默认启用 `ibm.local_force_sum=true`，设为 false 可回到整层汇总。
+材料：`runs/temporary/ibm_local_sum/`，生产路径统一使用局部汇总，已删除 `ibm.local_force_sum` 选择开关；整层汇总仅用于验证参考。
 `ibm.verify_local_sum=true` 每次与整层参考比较全部力场（含 ghost）；该开关会增加重复工作，性能测试必须关闭。
 
 验证及性能提交时，先冻结 TASK 下的 inputs、baseline.ex、optimized.ex、app2d.ex、app3d.ex。
@@ -55,3 +55,15 @@ dsub -R 'cpu=16;mem=65536;gpu=2' \
 ```
 
 多 rank 日志每个 rank 都打印一行；分析对各计时器取 rank 最大值，不将计时相加。
+
+
+最终统一生产路径的验收材料位于 `runs/temporary/ibm_local_sum/closeout/`。
+删除旧开关后重新构建并通过单/双GPU的10项逐力场检查，重新汇总：
+
+```bash
+.venv/bin/python projects/3Dcases/Computing_performance_test/BOX3D_OSI/scripts/temporary/ibm_optimization/analyze.py \
+  projects/3Dcases/Computing_performance_test/BOX3D_OSI/runs/temporary/ibm_local_sum/closeout \
+  --local-sum --validation-only
+```
+
+该模式只生成 validation.json/md，不要求新旧生产路径并存，也不产生性能结论。

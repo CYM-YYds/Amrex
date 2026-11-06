@@ -96,3 +96,10 @@
 ## 二维圆柱迁移续算
 
 [cylinder_btdf1_restart](cylinder_btdf1_restart/README.md)：从 Cylinder2D_BTDF1 的 520000 步导入 BOX3D_OSI 实验副本，单 GPU 续算至 584000，并统计颗粒各阶段耗时。保留脚本、输入与实验材料用于复现；不作为默认方腔入口。
+
+
+## IBM 优化复现
+
+[ibm_optimization](ibm_optimization/README.md)：核权重复用、局部力汇总的统一配对与逐力场验证入口。
+保留 `runs/temporary/ibm_optimization/`、`runs/temporary/ibm_local_sum/` 的源码、输入、程序、命令、日志、检查点和报告；
+`ibm_local_sum/closeout/` 保存删除旧生产分支后的最终验证，属于关键复现材料。
