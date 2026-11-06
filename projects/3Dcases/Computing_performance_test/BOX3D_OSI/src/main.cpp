@@ -25,6 +25,8 @@ struct InputConfig {
     int max_step;
     Real stop_time;
     Real reynolds_number;
+    Real reference_velocity = U0;
+    Real reference_length = 0;
     int max_level;
     Vector<int> n_cell;
     Vector<Real> prob_lo;
@@ -45,6 +47,9 @@ InputConfig ReadInputConfig() {
 
     ParmParse pp_lbm("lbm");
     pp_lbm.get("reynolds_number", config.reynolds_number);
+    pp_lbm.query("reference_velocity", config.reference_velocity);
+    pp_lbm.query("reference_length", config.reference_length);
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(std::isfinite(config.reference_velocity) && config.reference_velocity > 0 && std::isfinite(config.reference_length) && config.reference_length >= 0, "Invalid LBM reference scales");
 
     ParmParse pp_amr("amr");
     pp_amr.get("max_level", config.max_level);
@@ -210,6 +215,13 @@ void ReportPerformanceIfNeeded(AmrCoreLBM& lid, int step,
                   << " uniform_reduce_sync=" << lid.useUniformReducedSync()
                   << " uniform_nomask_collision=" << lid.useUniformNoMaskCollision()
                   << " interp=" << perf.interp
+                  << " particle_total=" << perf.particle_total
+                  << " particle_macro=" << perf.particle_macro
+                  << " particle_force=" << perf.particle_force
+                  << " particle_sum=" << perf.particle_sum
+                  << " particle_ghost=" << perf.particle_ghost
+                  << " particle_reduce=" << perf.particle_reduce
+                  << " particle_redistribute=" << perf.particle_redistribute
                   << " collide=" << perf.collide
                   << " stream=" << perf.stream
                   << " average=" << perf.average
@@ -370,7 +382,8 @@ void RunSimulation() {
     const LbmGridParams grid{
         input.n_cell[0], input.n_cell[1], AMREX_D_PICK(1, 1, input.n_cell[2]),
         x_length, y_length, z_length, dx, dx, dx / rate, dx / rate,
-        U0 * x_length / input.reynolds_number};
+        input.reference_velocity * (input.reference_length > 0 ? input.reference_length : x_length) / input.reynolds_number,
+        input.reference_velocity, input.reference_length > 0 ? input.reference_length : x_length};
     const std::array<int, AMREX_SPACEDIM> is_periodic{
         AMREX_D_DECL(periodic_input[0], periodic_input[1], periodic_input[2])};
 
@@ -400,6 +413,16 @@ void RunSimulation() {
 
     Real cur_time = begin_step * grid.dt;
     InitializeSimulation(lid, cur_time);
+    bool write_initial = false;
+    ParmParse("checkpoint").query("write_initial", write_initial);
+    // 初始检查点只用于新建状态，不能覆盖重启输入。
+    if (write_initial && begin_step == 0) { lid.WriteCheckpoint(begin_step, cur_time); }
+    bool plot_initial = false;
+    ParmParse("amr").query("write_initial", plot_initial);
+    if (plot_initial) {
+        for (int lev=0; lev<=lid.finestLevel(); ++lev) { lid.ComputeMacroLevel(lev, false); }
+        lid.WriteVelocityFile(begin_step, cur_time);
+    }
 
     amrex::Print() << "[Advance] max_level=" << runtime_max_level << '\n';
 

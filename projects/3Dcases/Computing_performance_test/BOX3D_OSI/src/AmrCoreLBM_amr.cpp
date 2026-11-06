@@ -1120,6 +1120,7 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
             const Array4<Real>& fold = f_old_lev.array(mfi);
             const Array4<Real>& fnew = f_new_lev.array(mfi);
             const bool seed_pattern = osi_verification_pattern;
+            const Real initial_ux = params_.flow_boundary == 1 ? grid_.reference_velocity : Real(0);
 
             amrex::ParallelFor(bx, Q, [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
                 if (seed_pattern) {
@@ -1129,7 +1130,7 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
                     fold(i, j, k, q) = value;
                     fnew(i, j, k, q) = value;
                 } else if (q == 0) {
-                    init_fluid(i, j, k, fold, fnew);
+                    init_fluid(i, j, k, fold, fnew, initial_ux);
                 }
             });
         }
@@ -1142,10 +1143,11 @@ void AmrCoreLBM::MakeNewLevelFromScratch(int lev, amrex::Real time, const amrex:
             const Box& bx = mfi.tilebox();
             const Array4<Real>& dst = state.array(mfi);
             const bool seed_pattern = osi_verification_pattern;
+            const Real initial_ux = params_.flow_boundary == 1 ? grid_.reference_velocity : Real(0);
 
             amrex::ParallelFor(
                 bx, Q, [=] AMREX_GPU_DEVICE(int i, int j, int k, int q) {
-                    Real value = feqQian(rho0, {AMREX_D_DECL(0.0, 0.0, 0.0)}, q);
+                    Real value = feqQian(rho0, {AMREX_D_DECL(initial_ux, 0.0, 0.0)}, q);
                     if (seed_pattern) {
                         const int code = (13 * i + 7 * j + 3 * k + 5 * q) % 97;
                         const Real perturbation = Real(1.0e-4) * Real(code - 48);

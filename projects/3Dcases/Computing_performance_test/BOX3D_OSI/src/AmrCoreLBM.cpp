@@ -328,12 +328,12 @@ void AmrCoreLBM::PrintLbmParm() {
     amrex::Print() << std::setw(15) << std::left << "  dx_0   =" << std::setw(10) << std::right << grid_.dx << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  dx_min =" << std::setw(10) << std::right << grid_.dx_min << std::endl;
     const amrex::Real reynolds_number =
-        U0 * grid_.x_length / grid_.viscosity;
+        grid_.reference_velocity * grid_.reference_length / grid_.viscosity;
     amrex::Print() << std::setw(15) << std::left << "  Re     =" << std::setw(10) << std::right << reynolds_number << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  cs2    =" << std::setw(10) << std::right << cs2 << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  p0     =" << std::setw(10) << std::right << p0 << std::endl;
-    amrex::Print() << std::setw(15) << std::left << "  Ma     =" << std::setw(10) << std::right << Ma << std::endl;
-    amrex::Print() << std::setw(15) << std::left << "  U0     =" << std::setw(10) << std::right << U0 << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  Ma     =" << std::setw(10) << std::right << grid_.reference_velocity / cs << std::endl;
+    amrex::Print() << std::setw(15) << std::left << "  U0     =" << std::setw(10) << std::right << grid_.reference_velocity << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  col_mode=" << std::setw(10) << std::right << collide_mode << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  str_mode=" << std::setw(10) << std::right << streamMode() << std::endl;
     amrex::Print() << std::setw(15) << std::left << "  int_mode=" << std::setw(10) << std::right << interp_mode << std::endl;
@@ -552,6 +552,11 @@ void AmrCoreLBM::ReadParameters() {
         ParmParse pp("lbm");
         pp.query("uniform_nomask_collision", params_.uniform_nomask_collision);
         pp.query("collide_mode", collide_mode);
+        std::string boundary = "cavity";
+        pp.query("flow_boundary", boundary);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(boundary == "cavity" || (AMREX_SPACEDIM == 2 && boundary == "cylinder_inflow"), "Unsupported lbm.flow_boundary");
+        params_.flow_boundary = boundary == "cylinder_inflow" ? 1 : 0;
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params_.flow_boundary == 0 || (!Geom(0).isPeriodic(0) && !Geom(0).isPeriodic(1)), "cylinder_inflow requires nonperiodic x/y");
         if (collide_mode < 0 || collide_mode > 1) {
             amrex::Abort("lbm.collide_mode must be 0 or 1");
         }
@@ -799,6 +804,7 @@ void AmrCoreLBM::PrintParticleParm() {
 }
 
 void AmrCoreLBM::RedistributeParticle() {
+    ScopedPerfTimer timer(perf_stats.particle_redistribute);
     for (int i = 0; i < particle_num; i++) {
         particles[i]->Redistribute();
         if (params_.ibm_enabled) {
@@ -939,15 +945,18 @@ void AmrCoreLBM::SumForce(int lev) {
 void AmrCoreLBM::ComputeParticle(int lev) {
     if (!params_.ibm_enabled) { return; }
     // 物体及四点核支撑域由 ErrorEst 强制细化；这里只读取当前布局的 valid 宏观量。
-    ComputeMacroLevel(lev, false);
-    density[lev].FillBoundary(Geom(lev).periodicity());
-    velocity[lev].FillBoundary(Geom(lev).periodicity());
-    InterpForce(lev);
-    SumForce(lev);
-    FillForceGhostLevel(lev, 0.0);
+    ScopedPerfTimer total(perf_stats.particle_total);
+    { ScopedPerfTimer timer(perf_stats.particle_macro);
+      ComputeMacroLevel(lev, false);
+      density[lev].FillBoundary(Geom(lev).periodicity());
+      velocity[lev].FillBoundary(Geom(lev).periodicity()); }
+    { ScopedPerfTimer timer(perf_stats.particle_force); InterpForce(lev); }
+    { ScopedPerfTimer timer(perf_stats.particle_sum); SumForce(lev); }
+    { ScopedPerfTimer timer(perf_stats.particle_ghost); FillForceGhostLevel(lev, 0.0); }
 }
 
 void AmrCoreLBM::ReduceFxy(int lev, int step) {
+    ScopedPerfTimer timer(perf_stats.particle_reduce);
     for (int i = 0; i < particle_num; i++) {
         // 二维按单位厚度的投影长度归一化；三维仍采用投影面积。
         const Real area = AMREX_D_PICK(Real(0), 2 * params_.ibm_radius,
@@ -1078,6 +1087,10 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
             DistributionMap(lev).writeOn(header);
             header << '\n';
         }
+        std::ofstream flow(out_chkname + "/Flow");
+        flow << std::setprecision(17) << "LBMFlowV1 " << params_.flow_boundary << ' ' << grid_.reference_velocity << ' ' << grid_.reference_length << ' ' << grid_.viscosity << '\n';
+        flow.flush();
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(flow.good(), "Cannot write flow checkpoint metadata");
         std::ofstream model(out_chkname + "/Lattice");
         model << "LBMLatticeV1 " << AMREX_SPACEDIM << ' ' << Q << ' ' << LBM_ORDER << '\n';
         model.flush();
@@ -1158,6 +1171,17 @@ void AmrCoreLBM::WriteCheckpoint(int step, amrex::Real time) const {
 }
 
 void AmrCoreLBM::ValidateCheckpointLattice(const std::string& checkpoint_path) const {
+    // 边界、速度及雷诺数参考尺度是重启模型的一部分，不能静默切换。
+    if (amrex::FileExists(checkpoint_path + "/Flow")) {
+        Vector<char> chars;
+        ParallelDescriptor::ReadAndBcastFile(checkpoint_path + "/Flow", chars);
+        std::istringstream stream(std::string(chars.dataPtr()));
+        std::string version; int boundary; Real velocity, length, viscosity;
+        stream >> version >> boundary >> velocity >> length >> viscosity;
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(stream && version == "LBMFlowV1" && boundary == params_.flow_boundary && velocity == grid_.reference_velocity && length == grid_.reference_length && viscosity == grid_.viscosity, "Checkpoint flow configuration mismatch");
+    } else {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(params_.flow_boundary == 0 && grid_.reference_velocity == U0 && grid_.reference_length == grid_.x_length, "Legacy checkpoint has no configured inflow/reference scales");
+    }
     // 在解析维度相关的 BoxArray 之前核对模型，旧格式只接受既有三维模型。
     const std::string model_file = checkpoint_path + "/Lattice";
     if (amrex::FileExists(model_file)) {

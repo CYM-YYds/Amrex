@@ -121,9 +121,9 @@ static constexpr Real c367o1 = 367.0_rt;
 AMREX_GPU_DEVICE
 AMREX_FORCE_INLINE
 void init_fluid(int i, int j, int k, amrex::Array4<amrex::Real> const& fold,
-                amrex::Array4<amrex::Real> const& fnew) {
+                amrex::Array4<amrex::Real> const& fnew, Real initial_ux = 0) {
     for (int q = 0; q < Q; q++) {
-        fold(i, j, k, q) = feqQian(rho0, {AMREX_D_DECL(0.0_rt, 0.0_rt, 0.0_rt)}, q);
+        fold(i, j, k, q) = feqQian(rho0, {AMREX_D_DECL(initial_ux, 0.0_rt, 0.0_rt)}, q);
         fnew(i, j, k, q) = fold(i, j, k, q);
     }
 }
@@ -321,7 +321,7 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
     amrex::IntVect const& hi,
     amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic,
     OSI::FabGeometry const& fab,
-    OSI::PhaseShift3 const& phase_shift) noexcept {
+    OSI::PhaseShift3 const& phase_shift, Real reference_velocity = U0, int flow_boundary = 0) noexcept {
     int x1 = i, y1 = j, z1 = k;
     bool boundary = false;
     if (!is_periodic[0] && i == 0) {
@@ -383,7 +383,14 @@ AMREX_GPU_DEVICE AMREX_FORCE_INLINE void fill_boundary_impl(
 #else
     if (!is_periodic[1] && j == hi[1])
 #endif
-        ux = U0;
+        ux = reference_velocity;
+
+    if (flow_boundary == 1) {
+        // 复用方腔的面任务与 Qian 非平衡外推，仅改变目标边界速度。
+        ux = i == 0 ? reference_velocity : ux1;
+        uy = i == 0 ? Real(0) : uy1;
+        uz = uz1;
+    }
 
     for (int q = 0; q < Q; ++q) {
         const Real value =
@@ -401,8 +408,8 @@ AMREX_FORCE_INLINE
 void fill_boundary(int i, int j, int k,
                    amrex::Array4<amrex::Real> const& state,
                    amrex::IntVect const& hi,
-                   amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic) {
-    fill_boundary_impl<false>(i, j, k, state, hi, is_periodic, {}, {});
+                   amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic, Real reference_velocity = U0, int flow_boundary = 0) {
+    fill_boundary_impl<false>(i, j, k, state, hi, is_periodic, {}, {}, reference_velocity, flow_boundary);
 }
 
 AMREX_GPU_DEVICE
@@ -412,9 +419,9 @@ void fill_boundary_osi_state(
     amrex::IntVect const& hi,
     amrex::GpuArray<int, AMREX_SPACEDIM> const& is_periodic,
     OSI::FabGeometry const& fab,
-    OSI::PhaseShift3 const& phase_shift) {
+    OSI::PhaseShift3 const& phase_shift, Real reference_velocity = U0, int flow_boundary = 0) {
     fill_boundary_impl<true>(
-        i, j, k, state, hi, is_periodic, fab, phase_shift);
+        i, j, k, state, hi, is_periodic, fab, phase_shift, reference_velocity, flow_boundary);
 }
 
 AMREX_GPU_DEVICE

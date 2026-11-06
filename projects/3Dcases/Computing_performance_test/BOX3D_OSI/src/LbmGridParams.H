@@ -16,6 +16,9 @@ struct LbmGridParams {
     amrex::Real dx_min = 0.0;
     amrex::Real dt_min = 0.0;
     amrex::Real viscosity = 0.0;
+    // 主入口读取一次；所有边界与受力归一化共享同一参考尺度。
+    amrex::Real reference_velocity = 0.05;
+    amrex::Real reference_length = 1.0;
 };
 
 #endif

@@ -461,6 +461,8 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
     const auto masks = has_fine_level ? covered_mask[lev].const_arrays()
                                       : MultiArray4<const int>{};
     const auto& cache = boundary_work_cache[lev];
+    const Real reference_velocity = grid_.reference_velocity;
+    const int flow_boundary = params_.flow_boundary;
     const auto& tags = repair_after_average ? cache.repair_tags : cache.advance_tags;
     perf_stats.boundary_full_cells += cache.full_cells;
     perf_stats.boundary_launch_cells += repair_after_average
@@ -479,7 +481,7 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
                 }
                 fill_boundary_osi_state(
                     i, j, k, states[tag.local_index], hi, is_periodic,
-                    tag.fab, phase_shifts[tag.phase_index]);
+                    tag.fab, phase_shifts[tag.phase_index], reference_velocity, flow_boundary);
             });
     } else {
         amrex::ParallelFor(
@@ -490,7 +492,7 @@ void AmrCoreLBM::ApplyPhysicalBoundaryLevel(
                                           : masks[tag.local_index](i, j, k) != 0)) {
                     return;
                 }
-                fill_boundary(i, j, k, states[tag.local_index], hi, is_periodic);
+                fill_boundary(i, j, k, states[tag.local_index], hi, is_periodic, reference_velocity, flow_boundary);
             });
     }
 }

@@ -1,3 +1,0 @@
-name,label,MLUPS_total,total_s,steps,weighted_updates,vs_baseline,increment_percent,window_arithmetic_mean,window_std,window_min,window_max,workload_equal_to_control,weighted_updates_vs_control
-interp_control,仅插值批量（对照）,1793.0963046601184,294.62906977,10000.0,528298296250.0352,1.0,0,1793.2118574,6.5672909532823205,1779.587596,1804.459618,True,0.0
-interp_collision_batch,插值＋碰撞批量（实验）,1606.641902858774,328.82143517000003,10000.0,528298296302.2819,0.8960154001116595,-10.398459988834052,1606.73110725,5.215312070313165,1596.772973,1615.474974,True,9.889622454295477e-11

@@ -62,7 +62,7 @@ IBM 开启时即使该选项为 false，checkpoint 也会保存必需的耦合�
 重启后粒子重新绑定流体 ParGDB，随流体 BA/DM 更新，避免重网格时使用旧 Fab 编号。
 受力系数使用 `0.5*rho0*U0²*A` 归一化，A 为二维单位厚度圆盘 `2*r`、三维球体 `pi*r²` 或圆柱侧向投影 `2*r*length`。
 
-**流体初始条件和顶盖方腔边界保持不变。** 开启静止圆柱 IBM 不会自动配置入口/出口绕流；
+**默认仍为顶盖驱动方腔。** 开启静止圆柱 IBM 不会自动选择绕流边界；二维可显式设置 `lbm.flow_boundary=cylinder_inflow`，复用原边界面任务缓存、OSI 寻址与批量发射，只改变目标边界速度。
 这里只验收静止物体耦合，不能将短程结果解释为标准圆柱阻力或收敛结果。
 三维验证范围见[原变更记录](docs/ai_changes/2026-11-05-ibm-coupling.md)，二维扩展及三维回归见[二维 IBM 记录](docs/ai_changes/2026-11-05-ibm-2d.md)。
 文档一致性、记忆边界和清场预览见[本轮知识收尾](../../../../docs/ai_changes/2026-11-05-ibm-knowledge-closeout.md)。
@@ -594,3 +594,21 @@ A-B 参考态和 checkpoint/诊断需要的 canonical 数据仍保留。
 A/B 阈值 128000 步实验的完成状态、参考精度和后处理边界见[冻结实验记录](docs/ai_changes/2026-10-29-a5-128000-launch.md)。
 
 A 组从 128000 步续跑的 `grid_eff=0.7/0.85/0.9` 对照结果见[网格聚类效率实验记录](docs/ai_changes/2026-10-29-a5-grid-eff-restart.md)。
+
+## 二维圆柱绕流参数与宏观场初始化
+
+```text
+lbm.flow_boundary = cylinder_inflow
+lbm.reference_velocity = 0.03
+lbm.reference_length = 0.025
+lbm.reynolds_number = 40
+ibm.enabled = true
+ibm.center = 0.5 0.5
+ibm.radius = 0.0125
+```
+
+绕流模式限非周期二维域，左侧给定 x 速度，右侧及上下边界采用 Qian 非平衡外推；左侧角点采用入流速度。默认 `cavity` 的原有方腔行为不变。参考长度默认是物理域 x 长度，指定圆柱直径后 Re 按直径计算，受力系数使用相同参考速度。碰撞、IBM核、OSI、AMR和边界任务缓存仍为本算例原生实现。
+
+检查点新增 `Flow` 参数一致性检查。`checkpoint.write_initial=true` 仅在 begin_step=0 时保存初始检查点；`amr.write_initial=true` 可输出从有效 DDF 恢复的初始速度场。默认关闭这两个额外输出。
+
+旧压力型检查点不能直接当作 BOX 密度型分布恢复。本次按用户选择从旧520000步的宏观量重建 Qian 平衡分布，丢弃非平衡分量，属于模型切换后的初始化试算。见[运行与复现入口](scripts/temporary/box_cylinder_native/README.md)及[验证范围与未解决诊断](docs/ai_changes/2026-11-05-box-native-cylinder-inflow.md)。

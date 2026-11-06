@@ -10,7 +10,11 @@ stop_time = 2500000.0
 # 2. 物理参数与 LBM 数值模式
 # =============================================================================
 
-# 雷诺数；当前运动黏度按 nu = U0 * Lx / Re 计算，其中 U0 仍由源码定义。
+# 雷诺数按 nu = reference_velocity * reference_length / Re 计算。
+# 默认仍为源码 U0=0.05 与物理域 x 长度；二维绕流可显式配置以下三项。
+# lbm.flow_boundary = cavity          # 或 cylinder_inflow：左侧来流，其余三面外推
+# lbm.reference_velocity = 0.05
+# lbm.reference_length = 1.0
 lbm.reynolds_number = 1000.0
 
 # BGK 碰撞内核：

@@ -764,7 +764,7 @@ void LagrangeParticleContainer::SaveFxy(int lev, int step, Real reference_area) 
 #endif
 
     amrex::Real m = 0.5 * (rho0)*U0 * U0 * PI * D * grid_.dx * D * grid_.dx / 4.0;
-    if (reference_area > 0) { m = Real(0.5) * rho0 * U0 * U0 * reference_area; }
+    if (reference_area > 0) { m = Real(0.5) * rho0 * grid_.reference_velocity * grid_.reference_velocity * reference_area; }
     fx /= m;
     fy /= m;
 #if AMREX_SPACEDIM == 3

@@ -200,5 +200,27 @@ int main() {
         compute_macro(i,j,k,walls.a,wallrho.a,wallu.a);
         near(wallu.a(i,j,k,0),U0,"lid velocity");near(wallu.a(i,j,k,1),0,"lid normal velocity");
     }
+#if AMREX_SPACEDIM == 2
+    // 独立宏观矩检验：左侧目标速度、其他三面外推，包含左侧角点。
+    for (const auto point : {IntVect(0,2), IntVect(4,2), IntVect(2,0), IntVect(2,4), IntVect(0,0)}) {
+        Field ab(0,4,Q), twisted(0,4,Q);
+        const auto ctx=OSI::MakeOsiFabContext(twisted.box,17);
+        cells(ab.box,[&](int i,int j,int k) {
+            for(int q=0;q<Q;++q) {
+                const Real value=feqQian(Real(1.1),{Real(.02),Real(.007)},q);
+                ab.a(i,j,k,q)=value;
+                store_ddf<true>(i,j,k,q,value,twisted.a,ctx.fab,ctx.phase_shift);
+            }
+        });
+        const int i=point[0],j=point[1];
+        fill_boundary(i,j,0,ab.a,hi,periodic,Real(.03),1);
+        fill_boundary_osi_state(i,j,0,twisted.a,hi,periodic,ctx.fab,ctx.phase_shift,Real(.03),1);
+        compute_macro(i,j,0,ab.a,wallrho.a,wallu.a);
+        near(wallrho.a(i,j,0,0),Real(1.1),"inflow density");
+        near(wallu.a(i,j,0,0),i==0?Real(.03):Real(.02),"inflow/outflow x velocity");
+        near(wallu.a(i,j,0,1),i==0?Real(0):Real(.007),"inflow/outflow y velocity");
+        for(int q=0;q<Q;++q) near(load_ddf<true>(i,j,0,q,twisted.a,ctx.fab,ctx.phase_shift),ab.a(i,j,0,q),"cached boundary layout equivalence");
+    }
+#endif
     std::cout << "PASS dimension kernels DIM=" << AMREX_SPACEDIM << " Q=" << Q << '\n';
 }

@@ -214,6 +214,7 @@ class AmrCoreLBM : public amrex::AmrCore {
         // IBM 配置在启动时读取；关闭时保持原纯流体路径。
         bool ibm_enabled = false;
         bool ibm_verify_local_sum = false;
+        int flow_boundary = 0; // 0：顶盖方腔；1：二维左侧来流、其余外推。
         std::string particle_shape = AMREX_D_PICK("", "disk", "sphere");
         amrex::Real ibm_radius = 0.125;
         amrex::Real ibm_length = 0.5;
@@ -270,6 +271,8 @@ class AmrCoreLBM : public amrex::AmrCore {
         long long interp_regrid_fill_calls = 0;
         double interp_fillpatch = 0.0;
         double collide = 0.0;
+        double particle_total=0, particle_macro=0, particle_force=0, particle_sum=0, particle_ghost=0;
+        double particle_reduce=0, particle_redistribute=0;
         std::array<double, max_ref_level + 1> collide_level{};
         std::array<long long, max_ref_level + 1> collide_level_calls{};
         std::array<long long, max_ref_level + 1> collide_level_launch_cells{};
