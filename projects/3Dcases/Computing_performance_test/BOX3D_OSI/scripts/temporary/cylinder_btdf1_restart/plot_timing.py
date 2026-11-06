@@ -92,6 +92,30 @@ def main():
     for suffix in ('png','svg'):
         fig.savefig(out/f'timing_share.{suffix}', dpi=180, facecolor='white')
     plt.close(fig)
+    # 各点对应一个完整统计窗口；按实际步数换算单步耗时。
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    x = [int(float(w['step'])) for w in windows]
+    series = [('total', '计算总耗时'), ('particle_all', '颗粒相关路径'),
+              ('collide', '碰撞'), ('particle_sum', '力汇总 SumBoundary')]
+    for key, label in series:
+        axes[0].plot(x, [1000*float(w[key])/float(w['steps']) for w in windows],
+                     label=label, linewidth=1.6)
+    for key, label in [('boundary', '边界处理'), ('comm', '通信'),
+                       ('interp', '插值'), ('average', '平均下传')]:
+        axes[1].plot(x, [1000*float(w[key])/float(w['steps']) for w in windows],
+                     label=label, linewidth=1.6)
+    for ax in axes:
+        ax.set_ylabel('窗口平均耗时（毫秒 / 粗层步）')
+        ax.grid(alpha=.25)
+        ax.legend(ncol=2)
+        ax.ticklabel_format(axis='x', style='plain', useOffset=False)
+    axes[1].set_xlabel('统计窗口结束步数')
+    fig.suptitle(f'二维圆柱 OSI 耗时曲线 · 作业 {args.job_id or "未指定"}\n步骤 {start} → {end}，{len(windows)} 个完整窗口')
+    fig.text(.02, .025, '来源：同目录 timing_windows.csv；按各窗口实际步数归一化，无参考数据。\ncompute total 不含流场/checkpoint I/O；细分计时包含同步开销，父子项不可相加。', fontsize=9)
+    fig.tight_layout(rect=(0, .075, 1, .92))
+    for suffix in ('png', 'svg'):
+        fig.savefig(out/f'timing_curve.{suffix}', dpi=180, facecolor='white')
+    plt.close(fig)
     with (out/'chart_data.csv').open('w') as stream:
         writer = csv.DictWriter(stream, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
     manifest = {'job_id': args.job_id, 'start_step': start, 'end_step': end, 'windows': len(windows),
