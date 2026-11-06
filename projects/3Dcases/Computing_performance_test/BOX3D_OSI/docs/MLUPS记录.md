@@ -2,7 +2,7 @@
 
 ## 最新优化版C组完整重跑结果（2026-11-06）
 
-作业626524（whshare-agent-82，单A100）已完成：OSI和A-B使用同一最新冻结程序，分别从零推进到128000步/t=1000，作为624717/C及625774+625855/C的更新结果。下方旧表保留历史作业数值，不与本节混用。
+作业626524（whshare-agent-82，单A100）已完成：OSI和A-B使用同一最新冻结程序，分别从零推进到128000步/t=1000，替换原624717/C及625774+625855/C。下方参数表、性能表及对应说明均已使用本次结果。
 
 | 模式 | 累计推进total/s | 末3200步MLUPS_total | 全程累计MLUPS_total |
 |---|---:|---:|---:|
@@ -31,104 +31,51 @@ A-B副本补齐128线程；OSI使用128线程及坐标复用。见[完整报告]
 
 最终吞吐为基线2.146倍。五组64步及1000步末态在计时外统一完整平均与有限值检查，三层全部valid（含covered）和active逐值相邻比较均为0，10次应用全部退出0，逐窗口碰撞工作量/加权更新量一致。不宣称ghost全等；早期ghost字节差异与covered阶段差异诊断保留。100步连续窗口不是独立重复，短测小幅差异不代表稳定收益。
 
-见[累加图PNG](../data_post_processing/results/optimization_cumulative_OSI_last_C128000_1000/optimization_ladder.png)、[PDF](../data_post_processing/results/optimization_cumulative_OSI_last_C128000_1000/optimization_ladder.pdf)、[报告及复现命令](../data_post_processing/results/optimization_cumulative_OSI_last_C128000_1000/report.md)、[变更及诊断记录](ai_changes/2026-11-05-cumulative-osi-last-1000.md)。以下独立优化图与旧累加图仅作历史记录，保留原统计口径。
-
-## C128000 单项优化与全开耗时（2026-11-05，修订方案）
-
-OSI基线撤回平均和插值批量、边界批量薄面、碰撞128线程和坐标复用；每个单项独立相对该基线开启，最后四项全开。仅坐标复用仍用256线程。其他数值修复及未列出的现役优化保留。
-
-job626450，同节点单A100，从624717/C step128000恢复，各组正/反序各跑5000粗步至133000。下表为两次推进耗时均值，含重网格，排除恢复/输出；不与下方旧累加图混用。
-
-| 配置 | 5000步平均耗时/s | 相对基线减少 |
-|---|---:|---:|
-| OSI基线 | 208.826 | — |
-| 仅平均＋插值批量 | 147.635 | 29.30% |
-| 仅边界批量薄面 | 195.851 | 6.21% |
-| 仅碰撞128线程 | 203.125 | 2.73% |
-| 仅碰撞坐标复用 | 205.604 | 1.54% |
-| 全部开启 | 109.726 | 47.46% |
-
-线程首轮后半程存在未确认原因的波动，两次213.341/192.908s均保留；小幅差异不作稳定收益结论。六组64步动态AMR回归checkpoint各9文件一致，全部18次应用退出0。图中误差线/带表示两次范围，不是置信区间。
-
-见[分项耗时图](../data_post_processing/results/optimization_independent_C128000/time_breakdown.png)、[500步窗口曲线](../data_post_processing/results/optimization_independent_C128000/window_times.png)、[报告与复现命令](../data_post_processing/results/optimization_independent_C128000/report.md)、[变更记录](ai_changes/2026-11-05-independent-optimization-timing.md)。旧累加实验及碰撞批量额外实验继续保留如下。
-
-## C128000 单 GPU 累加优化复测（2026-11-05）
-
-从 `624717/C/chk00128000` 恢复，所有配置在同节点单 A100、单 rank、FLOAT/D3Q27、Re=1000、C阈值下各推进5000粗步（128001–133000），动态AMR每32步重网格。平均值为十个500步窗口有效更新量之和除以累计 `perf(s).total`，含重网格、排除恢复与输出，区别于下方历史表的末窗口MLUPS。
-
-| 累加项 | 平均 MLUPS_total | 相对上一项 |
-|---|---:|---:|
-| A-B 基线 | 1214.52 | — |
-| + OSI 实现 | 1376.64 | +13.35% |
-| + 插值批量提交 | 1792.76 | +30.23% |
-| + 边界批量薄面、直接构面 | 1953.80 | +8.98% |
-| + 通信隐藏（单rank回退） | 1954.47 | +0.03% |
-| + 碰撞256→128线程 | 2132.35 | +9.10% |
-| + 碰撞坐标复用 | 2409.03 | +12.98% |
-
-基线为在当前源码快照中撤回指定优化、保留数值修复的受控重建，不是历史提交的精确复刻。碰撞批量原型未正式采用，本次批量项仅为插值；线程数与坐标复用分开列出。单rank通信差异不算收益。各组逐窗口/逐层碰撞工作量相同，64步动态AMR工程优化回归checkpoint一致；每组仅一次5000步，不将小差异解释为稳定收益或短测解释为长期精度证明。
-
-来源：job626333，whshare-agent-203；全部14次数值/性能应用退出0。最初汇总的监护标记判断错误已用原始日志恢复，未重跑计算。见[变更及验证记录](ai_changes/2026-11-05-optimization-ladder.md)、[完整报告与复现命令](../data_post_processing/results/optimization_ladder_C128000/report.md)、[PNG](../data_post_processing/results/optimization_ladder_C128000/optimization_ladder.png)、[PDF](../data_post_processing/results/optimization_ladder_C128000/optimization_ladder.pdf)、[逐窗口数据](../data_post_processing/results/optimization_ladder_C128000/windows.csv)。
-
-碰撞批量按用户确认另列为未采用实验：job626391、whshare-agent-14，同程序/同GPU两对换序，每次从同一checkpoint推进5000步。仅插值批量对照 **1793.10 MLUPS**，插值＋碰撞批量 **1606.64 MLUPS**，吞吐 **−10.40%**，total耗时 **+11.61%**；两对吞吐变化分别−10.408%/−10.389%。逐窗口/逐层工作量相同，64步动态AMR的同阶段checkpoint一致。它只与本作业对照比较，不与主图跨节点绝对数值作差。见[额外实验报告](../data_post_processing/results/optimization_ladder_C128000/collision_batch_extra/report.md)、[PNG](../data_post_processing/results/optimization_ladder_C128000/collision_batch_extra/collision_batch_extra.png)、[PDF](../data_post_processing/results/optimization_ladder_C128000/collision_batch_extra/collision_batch_extra.pdf)。
-
-本页记录的运行均采用 BGK 碰撞模型，GPU 均为 NVIDIA A100。分项与总耗时单位为 s；MLUPS 的统计窗口见各节说明。
+见[累加图PNG](../data_post_processing/results/optimization_cumulative_OSI_last_C128000_1000/optimization_ladder.png)、[PDF](../data_post_processing/results/optimization_cumulative_OSI_last_C128000_1000/optimization_ladder.pdf)、[报告及复现命令](../data_post_processing/results/optimization_cumulative_OSI_last_C128000_1000/report.md)、[变更及诊断记录](ai_changes/2026-11-05-cumulative-osi-last-1000.md)。已被替代的独立优化和旧累加汇总不再列入本页。
 
 ## Jaber A5 与本项目对照
 
-Jaber A5 行转录论文参考数据，622137/B 行为本项目优化后完整重跑结果（更新原621436/B）。论文参数来自 [Table 2 及第 5.2 节](<../../../../../research/papers/GPU-native%20adaptive%20mesh%20refinement%20with%20application%20to%20lattice%20Boltzmann%20simulation/full.md#52-lid-driven-cavity>)，性能来自同文 Table 3；GPU 为 A100。A5 使用单精度，区别于前两组双精度记录。
+Jaber A5 行转录论文参考数据；C组使用最新626524两模式完整重跑结果。论文参数来自 [Table 2 及第 5.2 节](<../../../../../research/papers/GPU-native%20adaptive%20mesh%20refinement%20with%20application%20to%20lattice%20Boltzmann%20simulation/full.md#52-lid-driven-cavity>)，性能来自同文 Table 3；GPU 为 A100。本表各项目运行均采用BGK、单精度和NVIDIA A100；分项及总耗时单位为秒，MLUPS取末窗口。
 
 ### 参数表
 
 | 来源 / Label           | 模式                    | Re   | 步数范围         | 模拟物理时间范围（L=1） | 网格块大小   | 基础网格 | 维数 | 最高 level | 精度（bytes） | Q  |
 | ---------------------- | ----------------------- | ---- | ---------------- | ----------------------- | ------------ | -------- | ---- | ---------- | ------------- | -- |
 | Jaber A5               | 论文原生 AMR / 原位迁移 | 1000 | 1--64000（推算） | 0--1000                 | 4（每轴）    | 64³     | 3    | 3          | 4             | 27 |
-| 624717/C               | OSI（C 阈值）           | 1000 | 1--128000        | 0--1000                 | 16 to 512    | 128³    | 3    | 2          | 4             | 27 |
-| 625774+625855/C        | A-B（C 阈值、一次重启） | 1000 | 1--128000        | 0--1000                 | 16 to 512    | 128³    | 3    | 2          | 4             | 27 |
+| 626524/C-OSI           | OSI（C 阈值）           | 1000 | 1--128000        | 0--1000                 | 16 to 512    | 128³    | 3    | 2          | 4             | 27 |
+| 626524/C-AB            | A-B（C 阈值、三次重启） | 1000 | 1--128000        | 0--1000                 | 16 to 512    | 128³    | 3    | 2          | 4             | 27 |
 | 623012                 | OSI                     | 1000 | 1--512000        | 0--1000                 | 512（单Fab） | 512³    | 3    | 0          | 4             | 27 |
 | 626026+626033/C-Q19    | OSI（C 阈值、Q19）      | 1000 | 1--128000        | 0--1000                 | 16 to 512    | 128³    | 3    | 2          | 4             | 19 |
 | 626026+626033/均匀-Q19 | OSI（均匀网格、Q19）    | 1000 | 1--512000        | 0--1000                 | 512（单Fab） | 512³    | 3    | 0          | 4             | 19 |
 
-`622137/B` 为当前正式优化程序的完整重跑，替换本表原 `621436/B` 数据；旧运行目录保留用于追溯。运行参数与原B完全一致，采用 B 组阈值 `lbm.err=0.125 0.25 0.5 1`，不是 A-B 推进模式。网格块各方向 `blocking_factor=16`，逐层 `max_grid_size=128/256/512`，`grid_eff=0.7`，每 32 个粗层步重网格；精度由冻结运行的 `FLOAT` 配置确认，为 4 bytes。配置来源：[输入快照](../runs/a5_B_optimized_128000/job622137/inputs)、[命令行覆盖](../runs/a5_B_optimized_128000/job622137/B/overrides.txt)和[运行清单](../runs/a5_B_optimized_128000/job622137/B/manifest.txt)。
-
-`624717/C` 使用 C 组阈值 `lbm.err=0.25 0.5 1 2`，为 OSI（`stream_mode=1`），从静止计算至 step128000、t=1000；不是从 B 检查点出发的 128 步 C 短测。其 `blocking_factor=16`、逐层 `max_grid_size=128/256/512`、`grid_eff=0.7`、每32粗步重构与B相同，FLOAT为4 bytes、D3Q27。每3200步保存速度和Q/涡量场，各40份；每32000步保留检查点。来源：[冻结输入](../runs/a5_C_t1000_gif/job624717/inputs)、[实际覆盖参数](../runs/a5_C_t1000_gif/job624717/C/overrides.txt)、[运行清单](../runs/a5_C_t1000_gif/job624717/C/manifest.txt)。
+`626524/C-OSI`和`626524/C-AB`采用同一最新冻结程序，C阈值`lbm.err=0.25 0.5 1 2`，分别为`stream_mode=1/0`；从静止到step128000/t1000，FLOAT/D3Q27/BGK/Re1000。网格为128³基础、最高level2，`blocking_factor=16`、逐层`max_grid_size=128/256/512`、`grid_eff=0.7`，每32粗步重网格。两模式均分4个32000步区段，3次计划恢复；每3200步保存速度及Q/涡量各40帧，每32000步保留checkpoint各4份。来源：[冻结输入](../runs/C_optimized_t1000_20261105/job626524/inputs)、[程序指纹](../runs/C_optimized_t1000_20261105/job626524/fingerprints.json)、[区段与回传状态](../runs/C_optimized_t1000_20261105/job626524/progress.json)。
 
 ### 性能表
 
 | 日志                   | 插值    | 平均    | 碰撞     | 迁移    | 通信           | 边界处理 | 总耗时_solv | `MLUPS_solv` | 重构耗时 | 总耗时_total | `MLUPS_total` | 网格压缩率 | 主 Arena 已使用内存高水位 |
 | ---------------------- | ------- | ------- | -------- | ------- | -------------- | -------- | ----------- | -------------- | -------- | ------------ | --------------- | --- | --- |
 | Jaber A5               | 929.11  | 1102.98 | 1059.91  | 1929.37 | 并入插值、平均 | 未单列   | 5021.37     | 1089           | —       | ----         | ----            | — | — |
-| 624717/C               | 3 17.81 | 140.41  | 2345.67  | 8.25    | 105.40         | 416.65   | 3333.35     | 2001.30        | 149.68   | 3483.09      | 1908.63         | 87.10% | 5049 MiB |
-| 625774+625855/C        | 305.40  | 136.88  | 1536.66  | 1585.83 | 94.94          | 397.88   | 4060.04     | 1632.40        | 274.09   | 4334.22      | 1520.08         | 87.28% | 8635 MiB |
+| 626524/C-OSI | 326.63 | 144.83 | 1659.16 | 8.25 | 102.11 | 421.12 | 2661.20 | 2495.61 | 92.55 | 2753.80 | 2398.33 | 87.10% | 5033 MiB |
+| 626524/C-AB | 308.57 | 138.19 | 1296.76 | 1593.03 | 95.54 | 401.50 | 3835.94 | 1727.08 | 118.55 | 3954.55 | 1667.13 | 87.10% | 8619 MiB |
 | 623012                 | —      | —      | 15213.27 | —      | —             | —       | 17173.24    | 4002.69        | —       | 17173.36     | 4002.67         | 0% | — |
 | 626026+626033/C-Q19    | 498.00  | 111.46  | 1440.56  | 11.06   | 109.21         | 495.07   | 2664.89     | 3695.45        | 197.42   | 2862.43      | 3343.06         | 87.18% | — |
 | 626026+626033/均匀-Q19 | —      | —      | 10138.35 | —      | —             | —       | 11519.47    | 5956.86        | —       | 11519.57     | 5956.81         | 0% | — |
 
-网格压缩率取 t=1000 各层分配的 valid 单元总数，相对 512³ 均匀网格计算：`1 − Σ(valid cells)/512³`；包含被细层覆盖的粗层单元，不含 ghost，不是显存节省率。均匀网格以自身为基准记 0%；论文数据未按此口径核实。C OSI 624717 终态为 17,313,792，A-B 终态为 17,072,128；Q19 AMR 为 17,211,392。主 Arena 已使用内存高水位来自 AMReX 日志，记录为 MiB，不等于 GPU 进程显存或内存池预留容量。OSI 624717 全程为 5049 MiB；A-B 分两段，625774 为 8624 MiB、625855 为 8635 MiB，表中取两段最大值。OSI 相对 A-B 约降低 41.5%；两者网格演化及重启次数不同，不能将差异全部归因于单双数组。来源：[OSI 日志](../runs/a5_C_t1000_gif/job624717/C/run.log)、[A-B 前段日志](../runs/temporary/C_AB_local_output_validation/job625774/local_original/C_mode0/run.log)、[A-B 后段日志](../runs/C_AB_t1000_local_continuation/job625855/local_original/C_mode0/run.log)。其他行暂未汇总对应运行各段的主 Arena 高水位，记为 —。
+网格压缩率取t=1000各层分配的valid单元总数，相对512³均匀网格计算：`1 − Σ(valid cells)/512³`；包含被细层覆盖的粗层单元，不含ghost，不是显存节省率。626524两模式终态均为17,313,792个valid单元，压缩率87.10%；Q19 AMR为17,211,392。均匀网格以自身为基准记0%，论文未按此口径核实。
 
-`625774+625855/C` 为双数组 A-B（`stream_mode=0`），采用与624717相同的冻结程序和C阈值 `lbm.err=0.25 0.5 1 2`。job625774从静止到32000步/t=250，job625855从其共享盘校验后的checkpoint续跑到128000步/t=1000。每3200步保留速度和Q/涡量场，共各40份；每32000步保留checkpoint，共4份。节点本地盘输出后分块回传，大小/SHA256回读校验通过；后段485文件、17021651575 bytes已复核。来源：[前段日志](../runs/temporary/C_AB_local_output_validation/job625774/local_original/C_mode0/run.log)、[后段日志](../runs/C_AB_t1000_local_continuation/job625855/local_original/C_mode0/run.log)、[40窗口汇总](../runs/C_AB_t1000_local_continuation/performance_table_summary.json)。
+主Arena已使用内存高水位来自日志，不等于GPU进程显存或内存池预留容量。626524 OSI四段分别为5026/5033/4901/4502 MiB，A-B为8608/8619/8389/8375 MiB；表中分别取全程最大5033/8619 MiB。该口径下OSI比A-B低41.61%，不能据此称为全设备显存下降。其他行未汇总主Arena高水位，记为—。来源：[OSI完整日志](../runs/C_optimized_t1000_20261105/job626524/production/C_mode1/run.log)、[A-B完整日志](../runs/C_optimized_t1000_20261105/job626524/production/C_mode0/run.log)。
 
-本行耗时累加40个3200步窗口，MLUPS取最后窗口（step124801--128000，t=975--1000）。迁移列在此行填写独立 `stream=1585.83 s`，另有 `swap=3.17 s`，均已计入solv；OSI行没有独立stream核，不能直接对比该列单项。`total=4334.22 s`为推进计时，排除初始化、恢复、输出及共享盘回传。带I/O系统调用跟踪和一次重启，不能当作与OSI严格同条件的纯性能比较。
-
-两段100ms采样的进程显存峰值均为 **30672 MiB**，设备峰值均为 **30687 MiB**，含CUDA上下文及分配器预留，不等于有效场数组占用；短暂峰值可能漏采。后段主Arena使用高水位8635 MiB、池容量高水位30254 MiB，非全程合并Arena峰值。来源：[前段显存汇总](../runs/temporary/C_AB_local_output_validation/job625774/local_original/C_mode0/gpu-memory-summary.json)、[后段显存汇总](../runs/C_AB_t1000_local_continuation/job625855/local_original/C_mode0/gpu-memory-summary.json)。终态正式相对L2为 **0.002065462992**、阈值约1e-4、`converged=0`；重启会重置收敛快照与连续次数。624717本身无全程设备采样；同配置补测626181的进程峰值为30672 MiB、设备峰值为30687 MiB，与A-B采样峰值相同，采样口径下下降0%。
+626524两行分项和solv/total累加全部40个3200步窗口，MLUPS取最后窗口（step124801--128000，t=975--1000）。迁移列为`perf(s).stream`阶段计时：A-B另有swap=3.14s计入solv，OSI没有独立DDF迁移核，不能把该列视作相同核函数的直接比较。total含重网格，排除初始化、恢复、输出和共享盘回传。本次同节点单A100、OSI→A-B各一次，不带I/O系统调用跟踪；两组末态均converged=0、正式相对L2=0.001036221976。重启重置收敛监测，不将完成目标时间当作正式收敛。逐段文件大小/SHA回读及完整输出检查通过。来源：[40窗口汇总](../runs/C_optimized_t1000_20261105/job626524/summary.json)、[报告](../runs/C_optimized_t1000_20261105/job626524/report.md)。
 
 重构耗时为日志 `regrid_time` 的 40 个窗口累计值，计入每步重构检查及触发时的重网格相关工作，并非单纯的网格划分时间；它与 `total - solv` 不完全相等。论文表 3 未单列重构时间，均匀网格 `623012` 未启用重构，均以 `—` 表示。
 
-`622137/B` 的分项耗时和两种总耗时均累加全程 40 个完整的 `perf(s)` 窗口（每窗 3200 步，共 128000 步）。`总耗时_solv` 累加 `solv`，`总耗时_total` 累加 `total`，后者包含重网格；两者均不采用含初始化、场文件和检查点输出的程序 `Total Time=5648.00 s`。MLUPS 取最后一个 3200 步窗口（step 124801--128000，物理时间 975--1000），不取全程平均。来源：[完整日志](../runs/a5_B_optimized_128000/job622137/B/run.log)。
-
-本轮使用 `strace` 记录失败系统调用，整次成功退出，128000步/t=1000的最终场和检查点已生成；跟踪存在运行开销，不能作为无诊断的纯优化基线。全程累计更新量/累计 `total` 得到约2097.13 MLUPS，与表中最后窗口2042.89 MLUPS口径不同。Arena整次使用高水位9579 MB、保留30254 MB，二者不等于全设备显存峰值。旧621436/B原始证据仍见[历史日志](../runs/a5_threshold_128000/job621436/B/run.log)。
-
-`624717/C` 分项和 `solv/total` 同样累加全部40个完整3200步窗口，MLUPS取最后窗口（step124801--128000，t=975--1000）。程序 `Total Time=3635.30 s`、guard整次 `3637.95 s` 另列，不替代表内推进累计时间。来源：[完整日志](../runs/a5_C_t1000_gif/job624717/C/run.log)、[窗口汇总](../runs/a5_C_t1000_gif/job624717/C_performance_table_summary.json)、[退出状态](../runs/a5_C_t1000_gif/job624717/C/exit_status.json)。终态checkpoint确认为step128000/t1000，正式相对L2为 `0.001036221976`、`converged=0`，不能把运行完成或中心线吻合当作正式收敛。
-
-C主Arena整次使用高水位 **5049 MiB**、池容量高水位 **30254 MiB**，Pinned Arena使用高水位 **864 MiB**；日志虽标MB，这些数值按MiB计。本作业没有全程GPU/进程显存采样；表中主 Arena 高水位来自本作业日志。C关闭OSI细分计时、开启重构有限值检查，采用此前冻结程序（SHA256 `90ebe0140b8813bda64645988969987c9094cba408b1e77610403dcd190a29d4`）；表中B/622137为后续优化程序。两者程序版本及输出频率（C每3200步，B每12800步）不同，不能把行间时间比解释为仅由C阈值放宽带来的加速或显存收益。
-
-该运行启用了重网格 DDF 有限值检查，关闭细分 OSI 计时；论文与本项目的层级、加密判据和 MLUPS 采样口径不同，表中数值用于对照，不能直接归因为实现加速比。B 组在 128000 步时的正式收敛标志仍为 `converged=0`。
+各运行的程序版本、网格层级、加密判据、诊断、重启及输出流程不同；论文与本项目的MLUPS采样口径也不同，表中跨运行时间比不直接归因为某项优化的稳定收益。
 
 碰撞累计耗时不能单独反推冗余加密；项目 MLUPS 的加权 valid 更新量与碰撞 `launch_cells` 也不是同一计数。论文对照与显存高水位的边界见[性能与显存统计口径](osi_algorithm_and_architecture.md#性能与显存统计口径)。
 
 `623012` 替换原表中终点输出失败的 `622116`。该版本为512³均匀网格、单Fab、单GPU A100、FLOAT D3Q27、Re=1000、OSI，`amr.max_level=0`、`regrid_int=0`；采用128线程及均匀网格专用路径，`amrex.the_arena_init_size=0`、`the_arena_release_threshold=0`。从静止分40段推进，每段12800步（物理时间25），累计512000步至t=1000，段间从上一检查点重启，共39次重启。每段在节点本地盘写速度、Q/涡量与checkpoint，再经大小/SHA256回读校验发布到共享盘；速度、Q/涡量、checkpoint各40份均保留。已核对完成标记、40段退出0和各段Header/数据文件，终态速度文件另已逐项SHA256复核。来源：[冻结输入](../runs/uniform512_local_staging_t1000/job623012/inputs)、[终段实际命令](../runs/uniform512_local_staging_t1000/job623012/step00512000/command.json)、[40段状态](../runs/uniform512_local_staging_t1000/job623012/status.json)、[完成标记](../runs/uniform512_local_staging_t1000/job623012/completed.txt)。
 
-本行分项及 `solv/total` 累加40个完整12800步窗口；MLUPS取最后一段（step499201--512000，t=975--1000），与B/C末窗口覆盖相同物理时间。全程更新量/累计 `total` 为4001.52 MLUPS，不与表内末窗口4002.67 MLUPS混用。40段程序 `Total Time` 合计35799.68 s、guard合计35935.99 s，包括重复初始化/恢复和本地输出，不包括段间共享盘传输与SHA256校验，不能称作整个作业的端到端耗时，也不替代表内推进累计时间。来源：[逐窗口汇总](../runs/uniform512_local_staging_t1000/job623012/performance_table_summary.json)、[终段日志](../runs/uniform512_local_staging_t1000/job623012/step00512000/run.log)。
+本行分项及 `solv/total` 累加40个完整12800步窗口；MLUPS取最后一段（step499201--512000，t=975--1000），与C组末窗口覆盖相同物理时间。全程更新量/累计 `total` 为4001.52 MLUPS，不与表内末窗口4002.67 MLUPS混用。40段程序 `Total Time` 合计35799.68 s、guard合计35935.99 s，包括重复初始化/恢复和本地输出，不包括段间共享盘传输与SHA256校验，不能称作整个作业的端到端耗时，也不替代表内推进累计时间。来源：[逐窗口汇总](../runs/uniform512_local_staging_t1000/job623012/performance_table_summary.json)、[终段日志](../runs/uniform512_local_staging_t1000/job623012/step00512000/run.log)。
 
 均匀网格碰撞列为 `perf(s).collide` 阶段墙钟；`uniform_reduce_sync=1` 时边界墙钟未单独测量，插值/平均不适用、单Fab无同层交换、OSI无独立迁移核，仍以 `—` 表示，不解释为零成本。该运行带失败系统调用跟踪、每段输出/重启和收敛监测，不是无诊断连续运行；每次重启会重置收敛快照及连续次数，终段 `converged=0`。与AMR的程序版本、诊断及运行流程不同，耗时比不能直接视为严格等精度加速比。
 
